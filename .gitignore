@@ -26,3 +26,6 @@ dist-ssr
 # wrangler files
 .wrangler
 .dev.vars*
+
+# reference files
+reference
