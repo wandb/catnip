@@ -15,6 +15,25 @@ if [ -n "$CATNIP_USERNAME" ] && [ "$CATNIP_USERNAME" != "catnip" ]; then
     export USERNAME="$CATNIP_USERNAME"
 fi
 
+# Configure git for the user
+if [ -n "$CATNIP_USERNAME" ]; then
+    GIT_USERNAME="$CATNIP_USERNAME"
+    GIT_EMAIL="${CATNIP_USERNAME}@catnip.run"
+else
+    GIT_USERNAME="whiskers"
+    GIT_EMAIL="whiskers@catnip.run"
+fi
+
+# Override email if CATNIP_EMAIL is provided
+if [ -n "$CATNIP_EMAIL" ]; then
+    GIT_EMAIL="$CATNIP_EMAIL"
+fi
+
+# Set git config globally
+git config --global user.name "$GIT_USERNAME"
+git config --global user.email "$GIT_EMAIL"
+git config --global init.defaultBranch main
+
 # Install specific versions if requested via environment variables
 if [ -n "$CATNIP_NODE_VERSION" ]; then
     echo "Installing Node.js version: $CATNIP_NODE_VERSION"
