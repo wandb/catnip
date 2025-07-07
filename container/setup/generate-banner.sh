@@ -9,9 +9,9 @@ fi
 
 # Get the welcome message with username
 if [ -n "$CATNIP_USERNAME" ]; then
-    WELCOME_MSG="🐱 Welcome $CATNIP_USERNAME to your purrfect development environment! 🐱"
+    WELCOME_MSG="🐱 Welcome $CATNIP_USERNAME! 🐱"
 else
-    WELCOME_MSG="🐱 Welcome to your purrfect development environment! 🐱"
+    WELCOME_MSG="🐱 Welcome whiskers! 🐱"
 fi
 
 # Get actual versions (suppress errors for missing tools)

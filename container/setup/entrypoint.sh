@@ -69,10 +69,9 @@ mkdir -p "${WORKSPACE}/projects"
 # Initialize volume directory for persistent data
 if [ -d "/volume" ]; then
     echo "📁 Setting up persistent volume..."
-    mkdir -p /volume/.claude
-    # Set permissions so catnip user can write
-    chown -R 1000:1000 /volume/.claude 2>/dev/null || true
-    chmod -R 755 /volume/.claude 2>/dev/null || true
+    # Set permissions so catnip user can write to entire volume
+    chown -R 1000:1000 /volume 2>/dev/null || true
+    chmod -R 755 /volume 2>/dev/null || true
 fi
 
 # Change to catnip user if running as root

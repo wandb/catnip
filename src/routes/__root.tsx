@@ -2,11 +2,13 @@ import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { WebSocketProvider, useWebSocket } from "@/lib/websocket-context";
 import { useState, useEffect, useRef } from "react";
-import { Home, Terminal, Settings, RotateCcw } from "lucide-react";
+import { Home, Terminal, Settings, RotateCcw, Github } from "lucide-react";
+import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 
 function RootLayout() {
   const { isConnected } = useWebSocket();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleReset = () => {
@@ -14,6 +16,11 @@ function RootLayout() {
     if ((window as any).resetTerminal) {
       (window as any).resetTerminal();
     }
+    setDropdownOpen(false);
+  };
+
+  const handleGitHubLogin = () => {
+    setAuthModalOpen(true);
     setDropdownOpen(false);
   };
 
@@ -89,6 +96,14 @@ function RootLayout() {
               <div className="absolute left-16 bottom-0 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50">
                 <div className="py-1">
                   <button
+                    onClick={handleGitHubLogin}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+                  >
+                    <Github size={16} />
+                    GitHub Login
+                  </button>
+                  <div className="border-t border-gray-700 my-1" />
+                  <button
                     onClick={handleReset}
                     className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
                     disabled={!isConnected}
@@ -107,6 +122,10 @@ function RootLayout() {
           <Outlet />
         </main>
       </div>
+      
+      {/* GitHub Auth Modal */}
+      <GitHubAuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
+      
       <TanStackRouterDevtools position="bottom-right" />
     </>
   );

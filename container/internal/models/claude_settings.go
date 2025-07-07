@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ClaudeSettings manages persistence of Claude configuration files
+// ClaudeSettings manages persistence of Claude and GitHub configuration files
 type ClaudeSettings struct {
 	ticker       *time.Ticker
 	done         chan bool
@@ -70,6 +70,8 @@ func (cs *ClaudeSettings) restoreFromVolume() {
 	}{
 		{".credentials.json", filepath.Join(cs.homePath, ".claude", ".credentials.json")},
 		{"claude.json", filepath.Join(cs.homePath, ".claude.json")},
+		{"gh_config.yml", filepath.Join(cs.homePath, ".config", "gh", "config.yml")},
+		{"gh_hosts.yml", filepath.Join(cs.homePath, ".config", "gh", "hosts.yml")},
 	}
 	
 	for _, file := range files {
@@ -121,6 +123,8 @@ func (cs *ClaudeSettings) checkAndSyncFiles() {
 	}{
 		{filepath.Join(cs.homePath, ".claude", ".credentials.json"), ".credentials.json"},
 		{filepath.Join(cs.homePath, ".claude.json"), "claude.json"},
+		{filepath.Join(cs.homePath, ".config", "gh", "config.yml"), "gh_config.yml"},
+		{filepath.Join(cs.homePath, ".config", "gh", "hosts.yml"), "gh_hosts.yml"},
 	}
 	
 	volumeClaudeDir := filepath.Join(cs.volumePath, ".claude")

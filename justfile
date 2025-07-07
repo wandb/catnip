@@ -26,14 +26,17 @@ run:
 run-dev: build-dev
     @echo "🚀 Starting catnip full-stack development environment..."
     @echo "   📱 Frontend: http://localhost:5173"
-    @echo "   🔧 Backend:  http://localhost:8080" 
+    @echo "   🔧 Backend:  http://localhost:8080"
     @echo "   📚 API Docs: http://localhost:8080/swagger/"
     @echo "   Press Ctrl+C to stop both servers"
     docker run -it --rm \
         --name catnip-dev \
         -v catnip-state:/volume \
+        -v ~/.claude/ide:/volume/.claude/ide \
         -v $(pwd):/workspace/catnip \
         -v catnip-dev-node-modules:/workspace/catnip/node_modules \
+        -e CLAUDE_CODE_IDE_HOST_OVERRIDE=host.docker.internal \
+        -e CATNIP_USERNAME=$USER \
         -p 8080:8080 \
         -p 5173:5173 \
         catnip-dev:dev
