@@ -1,4 +1,4 @@
-import { createFileRoute, useSearch } from '@tanstack/react-router'
+import { createFileRoute, useSearch, useParams } from '@tanstack/react-router'
 import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -8,7 +8,8 @@ import { FileDropAddon } from '@/lib/file-drop-addon'
 import '@xterm/xterm/css/xterm.css'
 
 function TerminalPage() {
-  const search = useSearch({ from: '/terminal' })
+  const search = useSearch({ from: '/terminal/$sessionId' })
+  const params = useParams({ from: '/terminal/$sessionId' })
   const terminalRef = useRef<HTMLDivElement>(null)
   const terminal = useRef<Terminal | null>(null)
   const fitAddon = useRef<FitAddon | null>(null)
@@ -144,11 +145,19 @@ function TerminalPage() {
       }
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const params = new URLSearchParams()
-      if (search.agent) {
-        params.set('agent', search.agent)
+      const urlParams = new URLSearchParams()
+      
+      // Add session parameter if available
+      if (params.sessionId) {
+        urlParams.set('session', params.sessionId)
       }
-      const wsUrl = `${protocol}//${window.location.host}/v1/pty${params.toString() ? '?' + params.toString() : ''}`
+      
+      // Add agent parameter if available
+      if (search.agent) {
+        urlParams.set('agent', search.agent)
+      }
+      
+      const wsUrl = `${protocol}//${window.location.host}/v1/pty${urlParams.toString() ? '?' + urlParams.toString() : ''}`
       
       ws.current = new WebSocket(wsUrl)
       ws.current.binaryType = 'arraybuffer'
@@ -264,7 +273,7 @@ function TerminalPage() {
   )
 }
 
-export const Route = createFileRoute('/terminal')({
+export const Route = createFileRoute('/terminal/$sessionId')({
   component: TerminalPage,
   validateSearch: (search: Record<string, unknown>) => {
     return {

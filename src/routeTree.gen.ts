@@ -9,55 +9,68 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TerminalRouteImport } from './routes/terminal'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TerminalIndexRouteImport } from './routes/terminal.index'
+import { Route as TerminalSessionIdRouteImport } from './routes/terminal.$sessionId'
+import { Route as GhSplatRouteImport } from './routes/gh.$'
 
-const TerminalRoute = TerminalRouteImport.update({
-  id: '/terminal',
-  path: '/terminal',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TerminalIndexRoute = TerminalIndexRouteImport.update({
+  id: '/terminal/',
+  path: '/terminal/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TerminalSessionIdRoute = TerminalSessionIdRouteImport.update({
+  id: '/terminal/$sessionId',
+  path: '/terminal/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GhSplatRoute = GhSplatRouteImport.update({
+  id: '/gh/$',
+  path: '/gh/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/terminal': typeof TerminalRoute
+  '/gh/$': typeof GhSplatRoute
+  '/terminal/$sessionId': typeof TerminalSessionIdRoute
+  '/terminal': typeof TerminalIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/terminal': typeof TerminalRoute
+  '/gh/$': typeof GhSplatRoute
+  '/terminal/$sessionId': typeof TerminalSessionIdRoute
+  '/terminal': typeof TerminalIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/terminal': typeof TerminalRoute
+  '/gh/$': typeof GhSplatRoute
+  '/terminal/$sessionId': typeof TerminalSessionIdRoute
+  '/terminal/': typeof TerminalIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/terminal'
+  fullPaths: '/' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/terminal'
-  id: '__root__' | '/' | '/terminal'
+  to: '/' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
+  id: '__root__' | '/' | '/gh/$' | '/terminal/$sessionId' | '/terminal/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  TerminalRoute: typeof TerminalRoute
+  GhSplatRoute: typeof GhSplatRoute
+  TerminalSessionIdRoute: typeof TerminalSessionIdRoute
+  TerminalIndexRoute: typeof TerminalIndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/terminal': {
-      id: '/terminal'
-      path: '/terminal'
-      fullPath: '/terminal'
-      preLoaderRoute: typeof TerminalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/': {
       id: '/'
       path: '/'
@@ -65,12 +78,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/terminal/': {
+      id: '/terminal/'
+      path: '/terminal'
+      fullPath: '/terminal'
+      preLoaderRoute: typeof TerminalIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terminal/$sessionId': {
+      id: '/terminal/$sessionId'
+      path: '/terminal/$sessionId'
+      fullPath: '/terminal/$sessionId'
+      preLoaderRoute: typeof TerminalSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gh/$': {
+      id: '/gh/$'
+      path: '/gh/$'
+      fullPath: '/gh/$'
+      preLoaderRoute: typeof GhSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  TerminalRoute: TerminalRoute,
+  GhSplatRoute: GhSplatRoute,
+  TerminalSessionIdRoute: TerminalSessionIdRoute,
+  TerminalIndexRoute: TerminalIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
