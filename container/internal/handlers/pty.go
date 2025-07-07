@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -16,12 +17,14 @@ import (
 	"github.com/creack/pty"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
+	"github.com/vanpelt/catnip/internal/services"
 )
 
 // PTYHandler handles PTY WebSocket connections
 type PTYHandler struct {
 	sessions     map[string]*Session
 	sessionMutex sync.RWMutex
+	gitService   *services.GitService
 }
 
 // Session represents a PTY session
@@ -57,9 +60,10 @@ type ControlMsg struct {
 }
 
 // NewPTYHandler creates a new PTY handler
-func NewPTYHandler() *PTYHandler {
+func NewPTYHandler(gitService *services.GitService) *PTYHandler {
 	return &PTYHandler{
-		sessions: make(map[string]*Session),
+		sessions:   make(map[string]*Session),
+		gitService: gitService,
 	}
 }
 
@@ -238,6 +242,9 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 }
 
 func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
+	// Sanitize session ID to prevent path traversal
+	sessionID = h.sanitizeSessionID(sessionID)
+	
 	h.sessionMutex.RLock()
 	session, exists := h.sessions[sessionID]
 	h.sessionMutex.RUnlock()
@@ -264,19 +271,68 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		return session
 	}
 
-	// Set workspace directory (create only if it doesn't exist)
-	workDir := filepath.Join("/workspace", sessionID)
-	if _, err := os.Stat(workDir); os.IsNotExist(err) {
-		// Directory doesn't exist, try to create it
-		if err := os.MkdirAll(workDir, 0755); err != nil {
-			log.Printf("❌ Failed to create workspace directory: %v", err)
-			workDir = "/workspace"
-		} else {
-			log.Printf("📁 Created workspace directory: %s", workDir)
+	// Set workspace directory
+	var workDir string
+	
+	// Priority order for workspace directory:
+	// 1. Session ID in repo/branch format maps to Git worktree
+	// 2. Active Git worktree (if available and no specific session)
+	// 3. Mounted directory at /workspace/{sessionID} 
+	// 4. Default /workspace
+	
+	// Check if session ID is in repo/branch format (e.g., "myrepo/main")
+	if strings.Contains(sessionID, "/") && h.gitService != nil {
+		// This might be a Git worktree session
+		// The session format is "repo/branch" which maps to /workspace/repo/branch or /workspace/repo
+		parts := strings.SplitN(sessionID, "/", 2)
+		if len(parts) == 2 {
+			repo := parts[0]
+			branch := parts[1]
+			
+			// Check for worktree at /workspace/repo/branch (our standard pattern)
+			branchWorktreePath := filepath.Join("/workspace", repo, branch)
+			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
+				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
+					workDir = branchWorktreePath
+					log.Printf("📁 Using Git worktree for session %s: %s", sessionID, workDir)
+				}
+			}
 		}
-	} else {
-		// Directory already exists (likely mounted)
-		log.Printf("📁 Using existing workspace directory: %s", workDir)
+	}
+	
+	// If not a Git session, check if Git service has an active worktree
+	if workDir == "" && h.gitService != nil {
+		gitWorkDir := h.gitService.GetActiveWorktreePath()
+		if gitWorkDir != "/workspace" && gitWorkDir != "" {
+			workDir = gitWorkDir
+			log.Printf("📁 Using active Git worktree directory: %s", workDir)
+		}
+	}
+	
+	// If no Git worktree, check for session-based directory
+	if workDir == "" {
+		sessionWorkDir := filepath.Join("/workspace", sessionID)
+		if info, err := os.Stat(sessionWorkDir); err == nil {
+			// Directory exists - could be mounted or created
+			if info.IsDir() {
+				workDir = sessionWorkDir
+				log.Printf("📁 Using existing workspace directory: %s", workDir)
+			}
+		} else if os.IsNotExist(err) {
+			// Directory doesn't exist, try to create it
+			if err := os.MkdirAll(sessionWorkDir, 0755); err != nil {
+				log.Printf("⚠️  Failed to create workspace directory: %v", err)
+			} else {
+				workDir = sessionWorkDir
+				log.Printf("📁 Created workspace directory: %s", workDir)
+			}
+		}
+	}
+	
+	// Fallback to default workspace
+	if workDir == "" {
+		workDir = "/workspace"
+		log.Printf("📁 Using default workspace directory: %s", workDir)
 	}
 
 	// Create command based on agent parameter
@@ -445,4 +501,33 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	// Remove from sessions map
 	delete(h.sessions, session.ID)
+}
+
+// sanitizeSessionID cleans the session ID to prevent path traversal attacks
+// It allows slashes for repo/branch format but removes dangerous patterns
+func (h *PTYHandler) sanitizeSessionID(sessionID string) string {
+	// Remove any path traversal attempts
+	sessionID = strings.ReplaceAll(sessionID, "..", "")
+	sessionID = strings.ReplaceAll(sessionID, "~/", "")
+	sessionID = strings.ReplaceAll(sessionID, "~", "")
+	
+	// Remove any absolute path attempts
+	sessionID = strings.TrimPrefix(sessionID, "/")
+	
+	// Remove any null bytes or other dangerous characters
+	sessionID = strings.ReplaceAll(sessionID, "\x00", "")
+	sessionID = strings.ReplaceAll(sessionID, "\n", "")
+	sessionID = strings.ReplaceAll(sessionID, "\r", "")
+	
+	// Limit the session ID length to prevent DOS
+	if len(sessionID) > 100 {
+		sessionID = sessionID[:100]
+	}
+	
+	// Ensure it's not empty after sanitization
+	if sessionID == "" {
+		sessionID = "default"
+	}
+	
+	return sessionID
 }
