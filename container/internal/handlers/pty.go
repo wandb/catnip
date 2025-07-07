@@ -74,7 +74,11 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 	// Check if it's a WebSocket request
 	if websocket.IsWebSocketUpgrade(c) {
 		// Extract session ID and agent before WebSocket upgrade
-		sessionID := c.Query("session", "default")
+		defaultSession := os.Getenv("CATNIP_SESSION")
+		if defaultSession == "" {
+			defaultSession = "default"
+		}
+		sessionID := c.Query("session", defaultSession)
 		agent := c.Query("agent", "")
 		return websocket.New(func(conn *websocket.Conn) {
 			h.handlePTYConnection(conn, sessionID, agent)
@@ -260,11 +264,19 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		return session
 	}
 
-	// Create workspace directory
+	// Set workspace directory (create only if it doesn't exist)
 	workDir := filepath.Join("/workspace", sessionID)
-	if err := os.MkdirAll(workDir, 0755); err != nil {
-		log.Printf("❌ Failed to create workspace directory: %v", err)
-		workDir = "/workspace"
+	if _, err := os.Stat(workDir); os.IsNotExist(err) {
+		// Directory doesn't exist, try to create it
+		if err := os.MkdirAll(workDir, 0755); err != nil {
+			log.Printf("❌ Failed to create workspace directory: %v", err)
+			workDir = "/workspace"
+		} else {
+			log.Printf("📁 Created workspace directory: %s", workDir)
+		}
+	} else {
+		// Directory already exists (likely mounted)
+		log.Printf("📁 Using existing workspace directory: %s", workDir)
 	}
 
 	// Create command based on agent parameter

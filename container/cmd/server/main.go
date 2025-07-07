@@ -22,10 +22,10 @@ import (
 // @BasePath /v1
 // @schemes http ws
 func main() {
-	// Start Claude settings persistence manager
-	claudeSettings := models.NewClaudeSettings()
-	claudeSettings.Start()
-	defer claudeSettings.Stop()
+	// Start settings persistence manager
+	settings := models.NewSettings()
+	settings.Start()
+	defer settings.Stop()
 
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: false,

@@ -36,6 +36,7 @@ run-dev: build-dev
         -v $(pwd):/workspace/catnip \
         -v catnip-dev-node-modules:/workspace/catnip/node_modules \
         -e CLAUDE_CODE_IDE_HOST_OVERRIDE=host.docker.internal \
+        -e CATNIP_SESSION=catnip \
         -e CATNIP_USERNAME=$USER \
         -p 8080:8080 \
         -p 5173:5173 \

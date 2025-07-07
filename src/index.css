@@ -160,3 +160,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Override xterm.js font to use our Nerd Font */
+.xterm-screen {
+  font-family: "FiraCode Nerd Font Mono", "Fira Code", "JetBrains Mono", Monaco, Consolas, monospace !important;
+}
+
+.xterm-rows {
+  font-family: "FiraCode Nerd Font Mono", "Fira Code", "JetBrains Mono", Monaco, Consolas, monospace !important;
+}

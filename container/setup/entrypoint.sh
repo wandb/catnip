@@ -70,8 +70,8 @@ mkdir -p "${WORKSPACE}/projects"
 if [ -d "/volume" ]; then
     echo "📁 Setting up persistent volume..."
     # Set permissions so catnip user can write to entire volume
-    chown -R 1000:1000 /volume 2>/dev/null || true
-    chmod -R 755 /volume 2>/dev/null || true
+    sudo chown -R 1000:1000 /volume 2>/dev/null || true
+    sudo chmod -R 755 /volume 2>/dev/null || true
 fi
 
 # Change to catnip user if running as root
