@@ -8,14 +8,6 @@ WORKDIR /workspace
 # Install Air for Go hot reloading
 RUN bash -c 'source /etc/profile.d/catnip.sh && go install github.com/air-verse/air@latest'
 
-# Pre-warm Go module cache with our dependencies
-COPY --chown=catnip:catnip container/go.mod container/go.sum /tmp/go-deps/
-RUN bash -c 'source /etc/profile.d/catnip.sh && cd /tmp/go-deps && go mod download && rm -rf /tmp/go-deps'
-
-# Pre-warm pnpm cache with our dependencies
-COPY --chown=catnip:catnip package.json pnpm-lock.yaml /tmp/npm-deps/
-RUN bash -c 'source /etc/profile.d/catnip.sh && cd /tmp/npm-deps && pnpm fetch && rm -rf /tmp/npm-deps'
-
 # Pre-create project directory with correct ownership
 RUN mkdir -p /workspace/catnip/node_modules && chown -R catnip:catnip /workspace/catnip
 

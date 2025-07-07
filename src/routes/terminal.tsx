@@ -166,6 +166,11 @@ function TerminalPage() {
             const uint8Array = new Uint8Array(event.data)
             terminal.current.write(uint8Array)
           } else if (typeof event.data === 'string') {
+            // Check if this is the shell exit message
+            if (event.data.includes('[Shell exited, starting new session...]')) {
+              // Clear the terminal before writing the message
+              terminal.current.clear()
+            }
             terminal.current.write(event.data)
           }
         }

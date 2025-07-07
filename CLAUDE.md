@@ -29,7 +29,7 @@ The container is a sandboxed coding environment. It's meant to support the most 
 
 Many of these have yet to be implemented, but here's the big vision:
 
-1. PTY for full shell access via xterm
+1. ✅ PTY for full shell access via xterm
 2. Credential persistence for Claude Code and the GH cli
 3. Git checkout and git worktree use for editing multiple projects in parallel
 4. HTTP git server for fetching changes made to different branches
@@ -47,5 +47,5 @@ I've prototyped a number of these features in a folder named "reference". It cou
 ## Development Tips
 
 - Assume I'm running the dev server already which rebuilds go and the frontend
-- You can exec in the dev container "catnip-dev", be sure to `source /etc/profile.d/catnip.sh`
-- Air reloads our dev server, you don't need to rebuild golang in the container.
+- You can exec in the dev container "catnip-dev", be sure to add the `--login` flag to bash
+- Use shadcn theme variables as much as possible. You can add new ones in `index.css` if necessary.
