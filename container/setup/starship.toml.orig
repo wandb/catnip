@@ -1,0 +1,92 @@
+# Starship configuration for Catnip development environment
+
+format = """
+[](#9A348E)\
+$os\
+$username\
+[](bg:#DA627D fg:#9A348E)\
+$directory\
+[](fg:#DA627D bg:#FCA17D)\
+$git_branch\
+$git_status\
+[](fg:#FCA17D bg:#86BBD8)\
+$nodejs\
+$python\
+$rust\
+$golang\
+[](fg:#86BBD8 bg:#06969A)\
+$docker_context\
+[](fg:#06969A bg:#33658A)\
+$time\
+[](fg:#33658A)\
+$character\
+"""
+
+[os]
+disabled = true
+style = "bg:#9A348E"
+
+[os.symbols]
+Linux = "🐧"
+
+[username]
+show_always = true
+style_user = "bg:#9A348E"
+style_root = "bg:#9A348E"
+format = '[$user ]($style)'
+disabled = false
+
+[directory]
+style = "bg:#DA627D"
+format = "[ $path ]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[directory.substitutions]
+"/workspace" = "🐱"
+"/opt/catnip" = " ⚙️"
+
+[git_branch]
+symbol = ""
+style = "bg:#FCA17D"
+format = '[ $symbol $branch ]($style)'
+
+[git_status]
+style = "bg:#FCA17D"
+format = '[$all_status$ahead_behind ]($style)'
+
+[nodejs]
+symbol = ""
+style = "bg:#86BBD8"
+format = '[ $symbol ($version) ]($style)'
+
+[python]
+symbol = ""
+style = "bg:#86BBD8"
+format = '[ $symbol ($version) ]($style)'
+
+[rust]
+symbol = ""
+style = "bg:#86BBD8"
+format = '[ $symbol ($version) ]($style)'
+
+[golang]
+symbol = ""
+style = "bg:#86BBD8"
+format = '[ $symbol ($version) ]($style)'
+
+[docker_context]
+symbol = ""
+style = "bg:#06969A"
+format = '[ $symbol $context ]($style)'
+
+[time]
+disabled = false
+time_format = "%R"
+style = "bg:#33658A"
+format = '[ $time ]($style)'
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
+vimcmd_symbol = "[❮](bold green)"
