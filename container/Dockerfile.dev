@@ -25,4 +25,4 @@ ENV VITE_DEV_SERVER=http://localhost:5173
 EXPOSE 8080 5173
 
 # Use development entrypoint
-ENTRYPOINT ["./dev-entrypoint.sh"]
+ENTRYPOINT ["/entrypoint.sh", "./dev-entrypoint.sh"]

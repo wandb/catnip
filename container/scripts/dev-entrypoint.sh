@@ -3,8 +3,8 @@
 
 set -e
 
-# Source the catnip environment
-source /etc/profile.d/catnip.sh
+# Source the catnip environment (skipping as we now run the regular entrypoint as well)
+# source /etc/profile.d/catnip.sh
 
 echo "🚀 Starting Catnip development environment..."
 
@@ -45,14 +45,6 @@ go mod download
 echo "⚡ Starting Go server with hot reloading on port 8080..."
 air &
 GO_PID=$!
-
-# Initialize volume directory for persistent data
-if [ -d "/volume" ]; then
-    echo "📁 Setting up persistent volume..."
-    # Set permissions so catnip user can write to entire volume
-    sudo chown -R 1000:1000 /volume 2>/dev/null || true
-    sudo chmod -R 755 /volume 2>/dev/null || true
-fi
 
 echo "✅ Development environment ready!"
 echo "   📱 Frontend: http://localhost:5173 (with HMR hot reloading)"
