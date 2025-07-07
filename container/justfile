@@ -1,0 +1,61 @@
+# Catnip Go Server Development
+
+# Build the server binary
+build: swagger
+    go build -o bin/catnip cmd/server/main.go
+
+# Build the CLI binary
+build-cli:
+    go build -o bin/catnip-cli cmd/cli/main.go
+
+# Run the server
+run: build
+    ./bin/catnip
+
+# Development mode with hot reload (local)
+dev:
+    @command -v air >/dev/null 2>&1 || (echo "Installing Air..." && go install github.com/air-verse/air@latest)
+    air
+
+# Development mode without Air (simple)
+dev-simple:
+    go run cmd/server/main.go
+
+# Generate Swagger documentation
+swagger:
+    @command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
+    swag init -g cmd/server/main.go -o docs
+
+# Run tests
+test:
+    go test -v ./...
+
+# Clean build artifacts
+clean:
+    rm -rf bin/ docs/
+
+# Install dependencies
+deps:
+    go mod download
+    go mod tidy
+
+# Format code
+fmt:
+    go fmt ./...
+
+# Lint code
+lint:
+    @command -v golangci-lint >/dev/null 2>&1 || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
+    golangci-lint run
+
+# Docker build
+docker-build:
+    docker build -t catnip:latest .
+
+# All-in-one development setup
+setup: deps swagger build
+    @echo "✅ Catnip is ready for development!"
+
+# Show available commands
+default:
+    @just --list

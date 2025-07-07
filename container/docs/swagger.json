@@ -1,0 +1,43 @@
+{
+    "schemes": [
+        "http",
+        "ws"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "API for managing container PTY sessions and services",
+        "title": "Catnip Container API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/v1",
+    "paths": {
+        "/v1/pty": {
+            "get": {
+                "description": "Establishes a WebSocket connection for terminal access",
+                "tags": [
+                    "pty"
+                ],
+                "summary": "Create PTY WebSocket connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "session",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

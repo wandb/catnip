@@ -1,0 +1,29 @@
+basePath: /v1
+host: localhost:8080
+info:
+  contact: {}
+  description: API for managing container PTY sessions and services
+  title: Catnip Container API
+  version: "1.0"
+paths:
+  /v1/pty:
+    get:
+      description: Establishes a WebSocket connection for terminal access
+      parameters:
+      - description: Session ID
+        in: query
+        name: session
+        required: true
+        type: string
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+      summary: Create PTY WebSocket connection
+      tags:
+      - pty
+schemes:
+- http
+- ws
+swagger: "2.0"

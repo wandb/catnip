@@ -8,7 +8,7 @@ import reactDom from 'eslint-plugin-react-dom'
 import { globalIgnores } from 'eslint/config'
 
 export default tseslint.config([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'reference/**/*']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

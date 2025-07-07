@@ -43,3 +43,9 @@ Many of these have yet to be implemented, but here's the big vision:
 ## Reference
 
 I've prototyped a number of these features in a folder named "reference". It could be useful to look at examples in this folder when implementing functionality.
+
+## Development Tips
+
+- Assume I'm running the dev server already which rebuilds go and the frontend
+- You can exec in the dev container "catnip-dev", be sure to `source /etc/profile.d/catnip.sh`
+- Air reloads our dev server, you don't need to rebuild golang in the container.

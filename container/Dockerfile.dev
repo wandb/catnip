@@ -1,0 +1,34 @@
+# Development Dockerfile based on main catnip image
+FROM catnip-dev
+
+# Switch to catnip user for development
+USER catnip
+WORKDIR /workspace
+
+# Install Air for Go hot reloading
+RUN bash -c 'source /etc/profile.d/catnip.sh && go install github.com/air-verse/air@latest'
+
+# Pre-warm Go module cache with our dependencies
+COPY --chown=catnip:catnip container/go.mod container/go.sum /tmp/go-deps/
+RUN bash -c 'source /etc/profile.d/catnip.sh && cd /tmp/go-deps && go mod download && rm -rf /tmp/go-deps'
+
+# Pre-warm pnpm cache with our dependencies
+COPY --chown=catnip:catnip package.json pnpm-lock.yaml /tmp/npm-deps/
+RUN bash -c 'source /etc/profile.d/catnip.sh && cd /tmp/npm-deps && pnpm fetch && rm -rf /tmp/npm-deps'
+
+# Pre-create project directory with correct ownership
+RUN mkdir -p /workspace/catnip/node_modules && chown -R catnip:catnip /workspace/catnip
+
+# Copy development scripts
+COPY --chown=catnip:catnip container/scripts/dev-entrypoint.sh ./dev-entrypoint.sh
+RUN chmod +x ./dev-entrypoint.sh
+
+# Set development environment variables
+ENV CATNIP_DEV=true
+ENV VITE_DEV_SERVER=http://localhost:5173
+
+# Expose ports for Go server and Vite dev server
+EXPOSE 8080 5173
+
+# Use development entrypoint
+ENTRYPOINT ["./dev-entrypoint.sh"]

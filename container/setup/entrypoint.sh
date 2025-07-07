@@ -66,6 +66,15 @@ fi
 mkdir -p "${GOPATH}/bin" "${GOPATH}/src" "${GOPATH}/pkg"
 mkdir -p "${WORKSPACE}/projects"
 
+# Initialize volume directory for persistent data
+if [ -d "/volume" ]; then
+    echo "📁 Setting up persistent volume..."
+    mkdir -p /volume/.claude
+    # Set permissions so catnip user can write
+    chown -R 1000:1000 /volume/.claude 2>/dev/null || true
+    chmod -R 755 /volume/.claude 2>/dev/null || true
+fi
+
 # Change to catnip user if running as root
 if [ "$EUID" -eq 0 ]; then
     # Use gosu for clean user switching without job control issues

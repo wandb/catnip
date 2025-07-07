@@ -1,3 +1,19 @@
+# Stage 1: Build the Go binary
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /build
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go
+
+# Stage 2: Final image
 FROM ubuntu:24.04
 
 # Build arguments for language versions with stable defaults
@@ -36,6 +52,7 @@ RUN apt-get update && apt-get install -y \
     libreadline-dev \
     libncurses5-dev \
     libncursesw5-dev \
+    ncurses-term \
     xz-utils \
     tk-dev \
     libxml2-dev \
@@ -195,11 +212,18 @@ USER root
 
 # Copy and set up entrypoint script
 COPY setup/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY setup/setup-truecolor.sh /usr/local/bin/setup-truecolor.sh
+RUN chmod +x /entrypoint.sh && \
+    chmod +x /usr/local/bin/setup-truecolor.sh && \
+    /usr/local/bin/setup-truecolor.sh
+
+# Copy the catnip binary from builder stage
+COPY --from=builder /build/catnip ${CATNIP_ROOT}/bin/catnip
+RUN chmod +x ${CATNIP_ROOT}/bin/catnip
 
 # Set working directory
 WORKDIR /workspace
 
 # Default command
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["/bin/bash"]
+CMD ["catnip"]
