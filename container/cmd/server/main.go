@@ -54,6 +54,7 @@ func main() {
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler()
 	authHandler := handlers.NewAuthHandler()
+	uploadHandler := handlers.NewUploadHandler()
 	
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
@@ -61,6 +62,9 @@ func main() {
 	// Auth routes
 	v1.Post("/auth/github/start", authHandler.StartGitHubAuth)
 	v1.Get("/auth/github/status", authHandler.GetAuthStatus)
+	
+	// Upload routes
+	v1.Post("/upload", uploadHandler.UploadFile)
 	
 	// Handle static files and SPA routing
 	if handlers.IsDevMode() {

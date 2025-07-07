@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useWebSocket } from '@/lib/websocket-context'
+import { FileDropAddon } from '@/lib/file-drop-addon'
 import '@xterm/xterm/css/xterm.css'
 
 function TerminalPage() {
@@ -55,14 +56,14 @@ function TerminalPage() {
     if (!terminal.current && terminalRef.current) {
       // Create terminal instance
       terminal.current = new Terminal({
-        cursorBlink: true,
+        cursorBlink: search.agent !== 'claude',
         fontSize: 14,
         fontFamily: '"FiraCode Nerd Font Mono", "Fira Code", "JetBrains Mono", Monaco, Consolas, monospace',
         theme: {
           background: '#0a0a0a',
           foreground: '#e2e8f0',
-          cursor: '#00ff95',
-          cursorAccent: '#00ff95',
+          cursor: search.agent === 'claude' ? '#0a0a0a' : '#00ff95',
+          cursorAccent: search.agent === 'claude' ? '#0a0a0a' : '#00ff95',
           selectionBackground: '#333333',
           black: '#0a0a0a',
           red: '#fc8181',
@@ -95,10 +96,19 @@ function TerminalPage() {
       // Create addons
       fitAddon.current = new FitAddon()
       const webLinksAddon = new WebLinksAddon()
+      
+      // Create file drop addon with WebSocket sender
+      const sendData = (data: string) => {
+        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+          ws.current.send(data)
+        }
+      }
+      const fileDropAddon = new FileDropAddon(sendData)
 
       // Load addons
       terminal.current.loadAddon(fitAddon.current)
       terminal.current.loadAddon(webLinksAddon)
+      terminal.current.loadAddon(fileDropAddon)
     }
 
     const terminalInstance = terminal.current
@@ -190,7 +200,7 @@ function TerminalPage() {
     }
 
     // Set up terminal input handler
-    if (terminalInstance && !terminalInstance._onDataHandlerSet) {
+    if (terminalInstance && !(terminalInstance as any)._onDataHandlerSet) {
       const onDataHandler = (data: string) => {
         if (ws.current && ws.current.readyState === WebSocket.OPEN) {
           ws.current.send(data)
@@ -198,7 +208,7 @@ function TerminalPage() {
       }
       
       terminalInstance.onData(onDataHandler)
-      terminalInstance._onDataHandlerSet = true
+      ;(terminalInstance as any)._onDataHandlerSet = true
     }
 
     // Handle window resize
