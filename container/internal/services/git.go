@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -441,6 +442,158 @@ func (s *GitService) TriggerManualSync() error {
 	return nil // No-op
 }
 
+// ListGitHubRepositories returns a list of GitHub repositories accessible to the user
+func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) {
+	cmd := exec.Command("gh", "repo", "list", "--limit", "100", "--json", "name,url,isPrivate,description,owner")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list GitHub repositories: %w", err)
+	}
+	
+	var repos []map[string]interface{}
+	if err := json.Unmarshal(output, &repos); err != nil {
+		return nil, fmt.Errorf("failed to parse repository list: %w", err)
+	}
+	
+	// Transform the data to match frontend expectations
+	for _, repo := range repos {
+		// Add full name for display
+		if owner, ok := repo["owner"].(map[string]interface{}); ok {
+			if login, ok := owner["login"].(string); ok {
+				if name, ok := repo["name"].(string); ok {
+					repo["fullName"] = fmt.Sprintf("%s/%s", login, name)
+				}
+			}
+		}
+		// Rename isPrivate to private
+		if isPrivate, ok := repo["isPrivate"]; ok {
+			repo["private"] = isPrivate
+			delete(repo, "isPrivate")
+		}
+	}
+	
+	return repos, nil
+}
+
+// GetRepositoryBranches returns the remote branches for a repository
+func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	repo, exists := s.repositories[repoID]
+	if !exists {
+		return nil, fmt.Errorf("repository %s not found", repoID)
+	}
+	
+	// Start with the default branch
+	branches := []string{repo.DefaultBranch}
+	branchSet := map[string]bool{repo.DefaultBranch: true}
+	
+	cmd := exec.Command("git", "-C", repo.Path, "branch", "-r")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return branches, nil // Return at least the default branch
+	}
+	
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.Contains(line, "HEAD ->") {
+			// Remove "origin/" prefix
+			branch := line
+			if strings.HasPrefix(line, "origin/") {
+				branch = strings.TrimPrefix(line, "origin/")
+			}
+			
+			// Add to list if not already present
+			if !branchSet[branch] {
+				branches = append(branches, branch)
+				branchSet[branch] = true
+			}
+		}
+	}
+	
+	return branches, nil
+}
+
+// DeleteWorktree removes a worktree
+func (s *GitService) DeleteWorktree(worktreeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	worktree, exists := s.worktrees[worktreeID]
+	if !exists {
+		return fmt.Errorf("worktree %s not found", worktreeID)
+	}
+	
+	// Don't allow deleting the active worktree
+	if s.activeWorktree == worktreeID {
+		return fmt.Errorf("cannot delete active worktree")
+	}
+	
+	// Get repository for worktree deletion
+	repo, exists := s.repositories[worktree.RepoID]
+	if !exists {
+		return fmt.Errorf("repository %s not found", worktree.RepoID)
+	}
+	
+	// Remove the worktree
+	cmd := exec.Command("git", "-C", repo.Path, "worktree", "remove", "--force", worktree.Path)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to remove worktree: %w", err)
+	}
+	
+	// Remove from memory
+	delete(s.worktrees, worktreeID)
+	
+	// Save state
+	s.saveState()
+	
+	return nil
+}
+
+// UpdateWorktreeStatus updates commit count and dirty status for a worktree
+func (s *GitService) UpdateWorktreeStatus(worktreeID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	worktree, exists := s.worktrees[worktreeID]
+	if !exists {
+		return fmt.Errorf("worktree %s not found", worktreeID)
+	}
+	
+	// Update dirty status
+	worktree.IsDirty = s.checkIfDirty(worktree.Path)
+	
+	// Update commit count
+	if worktree.SourceBranch != "" && worktree.SourceBranch != worktree.Branch {
+		cmd := exec.Command("git", "-C", worktree.Path, "rev-list", "--count", fmt.Sprintf("%s..HEAD", worktree.SourceBranch))
+		countOutput, err := cmd.Output()
+		if err == nil {
+			if count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOutput))); parseErr == nil {
+				worktree.CommitCount = count
+			}
+		}
+	}
+	
+	return nil
+}
+
 // Stop stops the Git service
 func (s *GitService) Stop() {
 	// No background services to stop
@@ -587,13 +740,43 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		return nil, fmt.Errorf("failed to get commit hash: %v", err)
 	}
 	
+	// Determine source branch (resolve if it's a commit or branch)
+	sourceBranch := source
+	if len(source) == 40 { // Looks like a commit hash
+		// Try to find which branch contains this commit
+		cmd = exec.Command("git", "-C", repo.Path, "branch", "--contains", source)
+		branchOutput, err := cmd.Output()
+		if err == nil {
+			branches := strings.Split(strings.TrimSpace(string(branchOutput)), "\n")
+			if len(branches) > 0 {
+				// Use the first branch found, clean it up
+				sourceBranch = strings.TrimSpace(strings.TrimPrefix(branches[0], "*"))
+				sourceBranch = strings.TrimPrefix(sourceBranch, "origin/")
+			}
+		}
+	}
+	
+	// Calculate commit count ahead of source
+	commitCount := 0
+	if sourceBranch != name { // Only count if different from current branch
+		cmd = exec.Command("git", "-C", worktreePath, "rev-list", "--count", fmt.Sprintf("%s..HEAD", sourceBranch))
+		countOutput, err := cmd.Output()
+		if err == nil {
+			if count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOutput))); parseErr == nil {
+				commitCount = count
+			}
+		}
+	}
+
 	worktree := &models.Worktree{
 		ID:           id,
 		RepoID:       repo.ID,
 		Name:         name,
 		Path:         worktreePath,
 		Branch:       name,
+		SourceBranch: sourceBranch,
 		CommitHash:   strings.TrimSpace(string(commitOutput)),
+		CommitCount:  commitCount,
 		IsActive:     isInitial,
 		IsDirty:      false,
 		CreatedAt:    time.Now(),

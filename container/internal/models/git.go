@@ -16,15 +16,17 @@ type Repository struct {
 
 // Worktree represents a Git worktree
 type Worktree struct {
-	ID          string    `json:"id"`           // UUID
-	RepoID      string    `json:"repo_id"`      // Reference to Repository.ID
-	Name        string    `json:"name"`         // User-friendly name
-	Path        string    `json:"path"`         // Absolute path to worktree
-	Branch      string    `json:"branch"`       // Git branch name
-	CommitHash  string    `json:"commit_hash"`  // Current commit
-	IsActive    bool      `json:"is_active"`    // Currently active worktree
-	IsDirty     bool      `json:"is_dirty"`     // Has uncommitted changes
-	CreatedAt   time.Time `json:"created_at"`
+	ID           string    `json:"id"`            // UUID
+	RepoID       string    `json:"repo_id"`       // Reference to Repository.ID
+	Name         string    `json:"name"`          // User-friendly name
+	Path         string    `json:"path"`          // Absolute path to worktree
+	Branch       string    `json:"branch"`        // Git branch name
+	SourceBranch string    `json:"source_branch"` // Branch this worktree was created from
+	CommitHash   string    `json:"commit_hash"`   // Current commit
+	CommitCount  int       `json:"commit_count"`  // Commits made since creation
+	IsActive     bool      `json:"is_active"`     // Currently active worktree
+	IsDirty      bool      `json:"is_dirty"`      // Has uncommitted changes
+	CreatedAt    time.Time `json:"created_at"`
 	LastAccessed time.Time `json:"last_accessed"`
 }
 

@@ -9,11 +9,17 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as GitRouteImport } from './routes/git'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TerminalIndexRouteImport } from './routes/terminal.index'
 import { Route as TerminalSessionIdRouteImport } from './routes/terminal.$sessionId'
 import { Route as GhSplatRouteImport } from './routes/gh.$'
 
+const GitRoute = GitRouteImport.update({
+  id: '/git',
+  path: '/git',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -37,12 +43,14 @@ const GhSplatRoute = GhSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/git': typeof GitRoute
   '/gh/$': typeof GhSplatRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
   '/terminal': typeof TerminalIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/git': typeof GitRoute
   '/gh/$': typeof GhSplatRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
   '/terminal': typeof TerminalIndexRoute
@@ -50,20 +58,28 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/git': typeof GitRoute
   '/gh/$': typeof GhSplatRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
   '/terminal/': typeof TerminalIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
+  fullPaths: '/' | '/git' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
-  id: '__root__' | '/' | '/gh/$' | '/terminal/$sessionId' | '/terminal/'
+  to: '/' | '/git' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
+  id:
+    | '__root__'
+    | '/'
+    | '/git'
+    | '/gh/$'
+    | '/terminal/$sessionId'
+    | '/terminal/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  GitRoute: typeof GitRoute
   GhSplatRoute: typeof GhSplatRoute
   TerminalSessionIdRoute: typeof TerminalSessionIdRoute
   TerminalIndexRoute: typeof TerminalIndexRoute
@@ -71,6 +87,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/git': {
+      id: '/git'
+      path: '/git'
+      fullPath: '/git'
+      preLoaderRoute: typeof GitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -104,6 +127,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  GitRoute: GitRoute,
   GhSplatRoute: GhSplatRoute,
   TerminalSessionIdRoute: TerminalSessionIdRoute,
   TerminalIndexRoute: TerminalIndexRoute,

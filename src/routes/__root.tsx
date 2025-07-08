@@ -2,7 +2,7 @@ import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { WebSocketProvider, useWebSocket } from "@/lib/websocket-context";
 import { useState, useEffect, useRef } from "react";
-import { Home, Terminal, Settings, RotateCcw, Github } from "lucide-react";
+import { Home, Terminal, Settings, RotateCcw, Github, GitBranch } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 
 function RootLayout() {
@@ -78,6 +78,13 @@ function RootLayout() {
                 title="Terminal"
               >
                 <Terminal size={20} />
+              </Link>
+              <Link
+                to="/git"
+                className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
+                title="Git"
+              >
+                <GitBranch size={20} />
               </Link>
             </div>
           </div>

@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"fmt"
 	"log"
+	"net/url"
 	
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/models"
@@ -142,48 +142,72 @@ func (h *GitHandler) ActivateWorktree(c *fiber.Ctx) error {
 	})
 }
 
-// TriggerSync manually triggers commit synchronization
-// @Summary Trigger commit sync
-// @Description Manually triggers synchronization of commits from worktrees to bare repository
+// ListGitHubRepositories returns user's GitHub repositories
+// @Summary List GitHub repositories
+// @Description Returns a list of GitHub repositories accessible to the authenticated user
 // @Tags git
 // @Produce json
-// @Success 200 {object} map[string]string
-// @Router /v1/git/sync [post]
-func (h *GitHandler) TriggerSync(c *fiber.Ctx) error {
-	// Trigger manual sync via the git service
-	err := h.gitService.TriggerManualSync()
+// @Success 200 {array} map[string]interface{}
+// @Router /v1/git/github/repos [get]
+func (h *GitHandler) ListGitHubRepositories(c *fiber.Ctx) error {
+	repos, err := h.gitService.ListGitHubRepositories()
 	if err != nil {
-		return c.JSON(fiber.Map{
-			"message": fmt.Sprintf("Sync failed: %v", err),
-			"status":  "error",
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
 		})
 	}
 	
-	return c.JSON(fiber.Map{
-		"message": "Manual sync triggered successfully",
-		"status":  "running",
-	})
+	return c.JSON(repos)
 }
 
-// GetCloneURL returns the Git clone URL for the current repository
-// @Summary Get Git clone URL
-// @Description Returns the HTTP clone URL for the current repository
+// GetRepositoryBranches returns remote branches for a repository
+// @Summary Get repository branches
+// @Description Returns a list of remote branches for a specific repository
 // @Tags git
 // @Produce json
-// @Success 200 {object} map[string]string
-// @Router /v1/git/clone-url [get]
-func (h *GitHandler) GetCloneURL(c *fiber.Ctx) error {
-	baseURL := fmt.Sprintf("%s://%s", c.Protocol(), c.Get("Host"))
-	cloneURLs := h.gitHTTPService.GetAllRepositoryCloneURLs(baseURL)
+// @Param repo_id path string true "Repository ID"
+// @Success 200 {array} string
+// @Router /v1/git/branches/{repo_id} [get]
+func (h *GitHandler) GetRepositoryBranches(c *fiber.Ctx) error {
+	repoID := c.Params("repo_id")
 	
-	if len(cloneURLs) == 0 {
+	// URL decode the repo ID to handle slashes
+	decodedRepoID, err := url.QueryUnescape(repoID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid repository ID",
+		})
+	}
+	
+	branches, err := h.gitService.GetRepositoryBranches(decodedRepoID)
+	if err != nil {
 		return c.Status(404).JSON(fiber.Map{
-			"error": "No repositories currently loaded",
+			"error": err.Error(),
+		})
+	}
+	
+	return c.JSON(branches)
+}
+
+// DeleteWorktree removes a worktree
+// @Summary Delete worktree
+// @Description Removes a worktree from the repository
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} map[string]string
+// @Router /v1/git/worktrees/{id} [delete]
+func (h *GitHandler) DeleteWorktree(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	
+	if err := h.gitService.DeleteWorktree(worktreeID); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
 		})
 	}
 	
 	return c.JSON(fiber.Map{
-		"clone_urls": cloneURLs,
-		"message":    "Use these URLs to clone repositories locally",
+		"message": "Worktree deleted successfully",
+		"id":      worktreeID,
 	})
 }

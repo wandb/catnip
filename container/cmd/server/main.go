@@ -85,11 +85,15 @@ func main() {
 	// API v1 routes
 	v1 := app.Group("/v1")
 	
+	// Initialize services
+	claudeService := services.NewClaudeService()
+	
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService)
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService)
+	claudeHandler := handlers.NewClaudeHandler(claudeService)
 	
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
@@ -107,8 +111,13 @@ func main() {
 	v1.Post("/git/worktrees", gitHandler.CreateWorktree)
 	v1.Get("/git/worktrees", gitHandler.ListWorktrees)
 	v1.Post("/git/worktrees/:id/activate", gitHandler.ActivateWorktree)
-	v1.Post("/git/sync", gitHandler.TriggerSync)
-	v1.Get("/git/clone-url", gitHandler.GetCloneURL)
+	v1.Delete("/git/worktrees/:id", gitHandler.DeleteWorktree)
+	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
+	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
+	
+	// Claude routes
+	v1.Get("/claude/session", claudeHandler.GetWorktreeSessionSummary)
+	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
 	
 	// Handle static files and SPA routing
 	if handlers.IsDevMode() {
