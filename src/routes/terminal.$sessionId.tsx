@@ -1,8 +1,9 @@
 import { createFileRoute, useSearch, useParams } from '@tanstack/react-router'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { useWebSocket } from '@/lib/websocket-context'
 import { FileDropAddon } from '@/lib/file-drop-addon'
 import '@xterm/xterm/css/xterm.css'
@@ -15,6 +16,9 @@ function TerminalPage() {
   const fitAddon = useRef<FitAddon | null>(null)
   const ws = useRef<WebSocket | null>(null)
   const { setIsConnected } = useWebSocket()
+  const [fontLoaded, setFontLoaded] = useState(false)
+  const messageBuffer = useRef<(string | Uint8Array)[]>([])
+  const isTerminalReady = useRef(false)
 
   // Function to send reset command
   const resetTerminal = () => {
@@ -40,7 +44,73 @@ function TerminalPage() {
     console.log('Search params changed:', search)
   }, [searchKey])
 
+  // Font loading detection
   useEffect(() => {
+    const checkFont = async () => {
+      try {
+        if ('fonts' in document) {
+          await document.fonts.ready
+          
+          // Test if the font is actually working by measuring character width
+          const testElement = document.createElement('span')
+          testElement.style.fontFamily = '"FiraCode Nerd Font Mono", monospace'
+          testElement.style.fontSize = '14px'
+          testElement.style.visibility = 'hidden'
+          testElement.style.position = 'absolute'
+          testElement.textContent = '█' // Box character to test
+          document.body.appendChild(testElement)
+          
+          // Wait a bit for font to render
+          setTimeout(() => {
+            const rect = testElement.getBoundingClientRect()
+            const hasProperWidth = rect.width > 0
+            document.body.removeChild(testElement)
+            setFontLoaded(hasProperWidth)
+          }, 100)
+        } else {
+          // Fallback: assume font is loaded after a delay
+          setTimeout(() => setFontLoaded(true), 1000)
+        }
+      } catch (error) {
+        console.warn('Font loading detection failed:', error)
+        setFontLoaded(true)
+      }
+    }
+    
+    checkFont()
+  }, [])
+
+  // HMR detection and cleanup
+  useEffect(() => {
+    const handleHMR = () => {
+      console.log('HMR detected, reinitializing terminal...')
+      // Clear terminal and reset state
+      if (terminal.current) {
+        terminal.current.clear()
+        isTerminalReady.current = false
+        messageBuffer.current = []
+        // Force re-fit after HMR
+        setTimeout(() => {
+          if (fitAddon.current) {
+            fitAddon.current.fit()
+          }
+        }, 100)
+      }
+    }
+
+    // Listen for Vite HMR events
+    if (import.meta.hot) {
+      import.meta.hot.on('vite:beforeUpdate', handleHMR)
+      return () => {
+        import.meta.hot?.off('vite:beforeUpdate', handleHMR)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    // Don't initialize terminal until font is loaded
+    if (!fontLoaded) return
+
     // Clear existing connection and terminal when search params change
     if (ws.current) {
       ws.current.close(1000, 'URL changed')
@@ -52,6 +122,10 @@ function TerminalPage() {
     if (terminal.current) {
       terminal.current.clear()
     }
+
+    // Reset state
+    isTerminalReady.current = false
+    messageBuffer.current = []
 
     // Initialize terminal if it doesn't exist
     if (!terminal.current && terminalRef.current) {
@@ -110,6 +184,15 @@ function TerminalPage() {
       terminal.current.loadAddon(fitAddon.current)
       terminal.current.loadAddon(webLinksAddon)
       terminal.current.loadAddon(fileDropAddon)
+      
+      // Try to load WebGL addon for better performance
+      try {
+        const webglAddon = new WebglAddon()
+        terminal.current.loadAddon(webglAddon)
+        console.log('WebGL addon loaded successfully')
+      } catch (error) {
+        console.warn('WebGL addon failed to load, falling back to canvas:', error)
+      }
     }
 
     const terminalInstance = terminal.current
@@ -118,9 +201,22 @@ function TerminalPage() {
     // Open terminal in DOM element if not already opened
     if (terminalRef.current && terminalInstance && !terminalInstance.element) {
       terminalInstance.open(terminalRef.current)
-      fitAddonInstance?.fit()
       
-      // Terminal input handler will be set up after WebSocket connection
+      // Wait a bit for terminal to be fully ready, then fit
+      setTimeout(() => {
+        fitAddonInstance?.fit()
+        isTerminalReady.current = true
+        
+        // Process any buffered messages
+        if (messageBuffer.current.length > 0) {
+          messageBuffer.current.forEach(data => {
+            if (terminalInstance) {
+              terminalInstance.write(data)
+            }
+          })
+          messageBuffer.current = []
+        }
+      }, 50)
     }
 
     // Set up WebSocket connection
@@ -180,17 +276,28 @@ function TerminalPage() {
 
       ws.current.onmessage = (event) => {
         if (terminal.current) {
+          let data: string | Uint8Array
+          
           // Handle both binary and text data
           if (event.data instanceof ArrayBuffer) {
-            const uint8Array = new Uint8Array(event.data)
-            terminal.current.write(uint8Array)
+            data = new Uint8Array(event.data)
           } else if (typeof event.data === 'string') {
             // Check if this is the shell exit message
             if (event.data.includes('[Shell exited, starting new session...]')) {
               // Clear the terminal before writing the message
               terminal.current.clear()
+              isTerminalReady.current = true // Reset ready state
             }
-            terminal.current.write(event.data)
+            data = event.data
+          } else {
+            return
+          }
+
+          // Buffer messages if terminal isn't ready yet
+          if (!isTerminalReady.current) {
+            messageBuffer.current.push(data)
+          } else {
+            terminal.current.write(data)
           }
         }
       }
@@ -255,17 +362,25 @@ function TerminalPage() {
         terminal.current = null
       }
     }
-  }, [searchKey]) // Reconnect when search params change
+  }, [searchKey, fontLoaded]) // Reconnect when search params change or font loads
 
   return (
     <div className="h-screen bg-[#0a0a0a]">
       <div className="h-full bg-[#0a0a0a] overflow-hidden p-4">
+        {!fontLoaded && (
+          <div className="h-full w-full flex items-center justify-center">
+            <div className="text-gray-400 text-sm">
+              Loading terminal font...
+            </div>
+          </div>
+        )}
         <div 
           className="h-full w-full" 
           ref={terminalRef}
           style={{
             minHeight: '400px',
             minWidth: '600px',
+            visibility: fontLoaded ? 'visible' : 'hidden',
           }}
         />
       </div>
