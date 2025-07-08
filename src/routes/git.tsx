@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -77,7 +77,6 @@ interface Repository {
 }
 
 function GitPage() {
-  const navigate = useNavigate();
   const [githubUrl, setGithubUrl] = useState('');
   const [gitStatus, setGitStatus] = useState<GitStatus>({});
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
@@ -492,14 +491,13 @@ function GitPage() {
                       )}
                     </div>
                     <div className="text-xs text-muted-foreground space-y-1">
-                      <p 
+                      <Link
+                        to="/terminal/$sessionId"
+                        params={{ sessionId: worktree.name }}
                         className="cursor-pointer hover:text-primary underline-offset-4 hover:underline"
-                        onClick={() => {
-                          navigate({ to: '/terminal/$sessionId', params: { sessionId: worktree.name } });
-                        }}
                       >
                         {worktree.path}
-                      </p>
+                      </Link>
                       {claudeSessions[worktree.path] ? (
                         <div className="space-y-1">
                           {claudeSessions[worktree.path].sessionStartTime && !claudeSessions[worktree.path].isActive ? (
@@ -529,19 +527,19 @@ function GitPage() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        navigate({ 
-                          to: '/terminal/$sessionId', 
-                          params: { sessionId: worktree.name },
-                          search: { agent: 'claude' }
-                        });
-                      }}
+                    <Link
+                      to="/terminal/$sessionId"
+                      params={{ sessionId: worktree.name }}
+                      search={{ agent: 'claude' }}
                     >
-                      Vibe
-                    </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        asChild
+                      >
+                        <span>Vibe</span>
+                      </Button>
+                    </Link>
                     <Button
                       variant="outline"
                       size="sm"

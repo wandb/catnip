@@ -45,6 +45,8 @@ type Session struct {
 	// Terminal dimensions
 	cols uint16
 	rows uint16
+	// WebSocket write protection
+	writeMutex sync.Mutex
 }
 
 // ResizeMsg represents terminal resize message
@@ -115,17 +117,27 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	session.bufferMutex.RLock()
 	if len(session.outputBuffer) > 0 {
 		log.Printf("📋 Replaying %d bytes of buffered output to new connection", len(session.outputBuffer))
-		if err := conn.WriteMessage(websocket.BinaryMessage, session.outputBuffer); err != nil {
+		bufferCopy := make([]byte, len(session.outputBuffer))
+		copy(bufferCopy, session.outputBuffer)
+		session.bufferMutex.RUnlock()
+		
+		if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferCopy); err != nil {
 			log.Printf("❌ Failed to replay buffer: %v", err)
 		}
+	} else {
+		session.bufferMutex.RUnlock()
 	}
-	session.bufferMutex.RUnlock()
 
 	// Channel to signal when connection should close
 	done := make(chan struct{})
 	
 	// Clean up connection on exit
 	defer func() {
+		// Recover from any panics in this connection handler
+		if r := recover(); r != nil {
+			log.Printf("❌ Recovered from panic in PTY connection handler: %v", r)
+		}
+		
 		close(done) // Signal goroutines to stop
 		session.connMutex.Lock()
 		delete(session.connections, conn)
@@ -133,11 +145,21 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		session.connMutex.Unlock()
 		
 		log.Printf("🔌 PTY connection closed for session %s (remaining: %d)", sessionID, connectionCount)
-		conn.Close()
+		
+		// Safe close with error handling
+		if err := conn.Close(); err != nil {
+			log.Printf("❌ Error closing websocket connection: %v", err)
+		}
 	}()
 
 	// Start goroutine to read from PTY and send to WebSocket
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("❌ Recovered from panic in PTY read goroutine: %v", r)
+			}
+		}()
+		
 		buf := make([]byte, 1024)
 		for {
 			select {
@@ -153,11 +175,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					log.Printf("🔄 PTY closed (shell exited: %v), creating new session...", err)
 					
 					// Notify all connections that shell has exited
-					session.connMutex.RLock()
-					for conn := range session.connections {
-						conn.WriteMessage(websocket.TextMessage, []byte("\r\n\x1b[33m[Shell exited, starting new session...]\x1b[0m\r\n"))
-					}
-					session.connMutex.RUnlock()
+					session.broadcastToConnections(websocket.TextMessage, []byte("\r\n\x1b[33m[Shell exited, starting new session...]\x1b[0m\r\n"))
 					
 					// Create new PTY
 					h.recreateSession(session)
@@ -187,14 +205,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			}
 			
 			// Send to all connections
-			session.connMutex.RLock()
-			for conn := range session.connections {
-				if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-					log.Printf("❌ WebSocket write error: %v", err)
-					// Don't return here - continue with other connections
-				}
-			}
-			session.connMutex.RUnlock()
+			session.broadcastToConnections(websocket.BinaryMessage, buf[:n])
 		}
 	}()
 
@@ -530,4 +541,57 @@ func (h *PTYHandler) sanitizeSessionID(sessionID string) string {
 	}
 	
 	return sessionID
+}
+
+// broadcastToConnections safely sends data to all websocket connections
+func (s *Session) broadcastToConnections(messageType int, data []byte) {
+	s.writeMutex.Lock()
+	defer s.writeMutex.Unlock()
+	
+	s.connMutex.RLock()
+	defer s.connMutex.RUnlock()
+	
+	var disconnectedConns []*websocket.Conn
+	
+	for conn := range s.connections {
+		if err := conn.WriteMessage(messageType, data); err != nil {
+			log.Printf("❌ WebSocket write error: %v", err)
+			// Mark connection for removal
+			disconnectedConns = append(disconnectedConns, conn)
+		}
+	}
+	
+	// Remove disconnected connections
+	if len(disconnectedConns) > 0 {
+		// Need to upgrade to write lock to modify connections map
+		s.connMutex.RUnlock()
+		s.connMutex.Lock()
+		for _, conn := range disconnectedConns {
+			delete(s.connections, conn)
+			conn.Close()
+		}
+		s.connMutex.Unlock()
+		s.connMutex.RLock()
+	}
+}
+
+// writeToConnection safely writes to a single websocket connection
+func (s *Session) writeToConnection(conn *websocket.Conn, messageType int, data []byte) error {
+	if conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+	
+	s.writeMutex.Lock()
+	defer s.writeMutex.Unlock()
+	
+	// Check if connection is still in our connections map
+	s.connMutex.RLock()
+	_, exists := s.connections[conn]
+	s.connMutex.RUnlock()
+	
+	if !exists {
+		return fmt.Errorf("connection no longer exists")
+	}
+	
+	return conn.WriteMessage(messageType, data)
 }

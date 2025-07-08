@@ -43,9 +43,9 @@ function RootLayout() {
 
   return (
     <>
-      <div className="min-h-screen bg-background flex">
-        {/* Vertical Sidebar */}
-        <nav className="w-16 bg-[#1a1a1a] flex flex-col">
+      <div className="min-h-screen bg-background">
+        {/* Vertical Sidebar - Fixed Position */}
+        <nav className="fixed top-0 left-0 w-16 h-full bg-[#1a1a1a] flex flex-col z-50">
           {/* Cat Logo with Connection Status */}
           <div className="flex items-center justify-center h-16 border-b border-gray-800 relative">
             <Link to="/" className="text-2xl">
@@ -124,8 +124,8 @@ function RootLayout() {
           </div>
         </nav>
 
-        {/* Main Content */}
-        <main className="flex-1">
+        {/* Main Content - With left margin for fixed sidebar */}
+        <main className="ml-16">
           <Outlet />
         </main>
       </div>
