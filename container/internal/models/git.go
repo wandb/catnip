@@ -24,7 +24,6 @@ type Worktree struct {
 	SourceBranch string    `json:"source_branch"` // Branch this worktree was created from
 	CommitHash   string    `json:"commit_hash"`   // Current commit
 	CommitCount  int       `json:"commit_count"`  // Commits made since creation
-	IsActive     bool      `json:"is_active"`     // Currently active worktree
 	IsDirty      bool      `json:"is_dirty"`      // Has uncommitted changes
 	CreatedAt    time.Time `json:"created_at"`
 	LastAccessed time.Time `json:"last_accessed"`

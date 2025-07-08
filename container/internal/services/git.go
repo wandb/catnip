@@ -37,10 +37,9 @@ func generateSessionName() string {
 
 // GitService manages multiple Git repositories and their worktrees
 type GitService struct {
-	repositories   map[string]*models.Repository // key: repoID (e.g., "owner/repo")
-	worktrees      map[string]*models.Worktree   // key: worktree ID
-	activeWorktree string
-	mu             sync.RWMutex
+	repositories map[string]*models.Repository // key: repoID (e.g., "owner/repo")
+	worktrees    map[string]*models.Worktree   // key: worktree ID
+	mu           sync.RWMutex
 }
 
 // NewGitService creates a new Git service instance
@@ -214,31 +213,6 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 	return repository, worktree, nil
 }
 
-// CreateWorktree creates a new worktree from source (branch or commit) for the active repository
-func (s *GitService) CreateWorktree(source, name string) (*models.Worktree, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	
-	// Find the repository for the active worktree
-	var activeRepo *models.Repository
-	if s.activeWorktree != "" {
-		if activeWt, exists := s.worktrees[s.activeWorktree]; exists {
-			activeRepo = s.repositories[activeWt.RepoID]
-		}
-	}
-	
-	if activeRepo == nil {
-		return nil, fmt.Errorf("no active repository found")
-	}
-	
-	// Generate fun name if not provided
-	if name == "" {
-		name = generateSessionName()
-		// Generated worktree name
-	}
-	
-	return s.createWorktreeInternalForRepo(activeRepo, source, name, false)
-}
 
 
 // ListWorktrees returns all worktrees
@@ -256,53 +230,30 @@ func (s *GitService) ListWorktrees() []*models.Worktree {
 	return worktrees
 }
 
-// ActivateWorktree switches to a different worktree
-func (s *GitService) ActivateWorktree(worktreeID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	
-	worktree, exists := s.worktrees[worktreeID]
-	if !exists {
-		return fmt.Errorf("worktree not found: %s", worktreeID)
-	}
-	
-	// Update active status
-	for _, wt := range s.worktrees {
-		wt.IsActive = (wt.ID == worktreeID)
-	}
-	
-	s.activeWorktree = worktreeID
-	worktree.LastAccessed = time.Now()
-	
-	// Update current symlink
-	s.updateCurrentSymlink(worktree.Path)
-	
-	// Save state
-	s.saveState()
-	
-	log.Printf("✅ Activated worktree: %s (%s)", worktree.Name, worktree.Path)
-	return nil
-}
 
 // GetStatus returns the current Git status
 func (s *GitService) GetStatus() *models.GitStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	
-	var activeWorktree *models.Worktree
-	var activeRepo *models.Repository
+	// Find most recently accessed worktree for backward compatibility
+	var mostRecentWorktree *models.Worktree
+	var mostRecentRepo *models.Repository
 	
-	if s.activeWorktree != "" {
-		activeWorktree = s.worktrees[s.activeWorktree]
-		if activeWorktree != nil {
-			activeRepo = s.repositories[activeWorktree.RepoID]
+	for _, wt := range s.worktrees {
+		if mostRecentWorktree == nil || wt.LastAccessed.After(mostRecentWorktree.LastAccessed) {
+			mostRecentWorktree = wt
 		}
 	}
 	
+	if mostRecentWorktree != nil {
+		mostRecentRepo = s.repositories[mostRecentWorktree.RepoID]
+	}
+	
 	return &models.GitStatus{
-		Repository:     activeRepo,    // Repository of active worktree for backward compatibility
-		Repositories:   s.repositories, // All repositories
-		ActiveWorktree: activeWorktree,
+		Repository:     mostRecentRepo,    // Repository of most recent worktree for backward compatibility
+		Repositories:   s.repositories,   // All repositories
+		ActiveWorktree: mostRecentWorktree, // Most recent worktree for backward compatibility
 		WorktreeCount:  len(s.worktrees),
 	}
 }
@@ -332,9 +283,8 @@ func (s *GitService) updateCurrentSymlink(targetPath string) error {
 
 func (s *GitService) saveState() error {
 	state := map[string]interface{}{
-		"repositories":    s.repositories,
-		"worktrees":       s.worktrees,
-		"activeWorktree":  s.activeWorktree,
+		"repositories": s.repositories,
+		"worktrees":    s.worktrees,
 	}
 	
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -382,26 +332,26 @@ func (s *GitService) loadState() error {
 		}
 	}
 	
-	// Load active worktree
-	if activeData, exists := state["activeWorktree"]; exists {
-		var active string
-		if err := json.Unmarshal(activeData, &active); err == nil {
-			s.activeWorktree = active
-		}
-	}
+	// Note: No longer loading activeWorktree since we removed single active worktree concept
 	
 	return nil
 }
 
-// GetActiveWorktreePath returns the path to the active worktree
-func (s *GitService) GetActiveWorktreePath() string {
+// GetDefaultWorktreePath returns the path to the most recently accessed worktree
+func (s *GitService) GetDefaultWorktreePath() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	
-	if s.activeWorktree != "" {
-		if wt, exists := s.worktrees[s.activeWorktree]; exists {
-			return wt.Path
+	// Find most recently accessed worktree
+	var mostRecentWorktree *models.Worktree
+	for _, wt := range s.worktrees {
+		if mostRecentWorktree == nil || wt.LastAccessed.After(mostRecentWorktree.LastAccessed) {
+			mostRecentWorktree = wt
 		}
+	}
+	
+	if mostRecentWorktree != nil {
+		return mostRecentWorktree.Path
 	}
 	
 	return workspaceDir // fallback
@@ -536,10 +486,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 		return fmt.Errorf("worktree %s not found", worktreeID)
 	}
 	
-	// Don't allow deleting the active worktree
-	if s.activeWorktree == worktreeID {
-		return fmt.Errorf("cannot delete active worktree")
-	}
+	// Note: No longer checking for "active" worktree since we removed single active worktree concept
 	
 	// Get repository for worktree deletion
 	repo, exists := s.repositories[worktree.RepoID]
@@ -784,7 +731,6 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		SourceBranch: sourceBranch,
 		CommitHash:   strings.TrimSpace(string(commitOutput)),
 		CommitCount:  commitCount,
-		IsActive:     isInitial,
 		IsDirty:      false,
 		CreatedAt:    time.Now(),
 		LastAccessed: time.Now(),
@@ -793,7 +739,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	s.worktrees[id] = worktree
 	
 	if isInitial || len(s.worktrees) == 1 {
-		s.activeWorktree = id
+		// Update current symlink to point to the first/initial worktree
 		s.updateCurrentSymlink(worktreePath)
 	}
 	

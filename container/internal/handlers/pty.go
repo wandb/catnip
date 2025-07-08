@@ -314,12 +314,12 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		}
 	}
 	
-	// If not a Git session, check if Git service has an active worktree
+	// If not a Git session, check if Git service has a default worktree
 	if workDir == "" && h.gitService != nil {
-		gitWorkDir := h.gitService.GetActiveWorktreePath()
+		gitWorkDir := h.gitService.GetDefaultWorktreePath()
 		if gitWorkDir != "/workspace" && gitWorkDir != "" {
 			workDir = gitWorkDir
-			log.Printf("📁 Using active Git worktree directory: %s", workDir)
+			log.Printf("📁 Using default Git worktree directory: %s", workDir)
 		}
 	}
 	

@@ -70,7 +70,6 @@ interface GitStatus {
     path: string;
     branch: string;
     commit_hash: string;
-    is_active: boolean;
     is_dirty: boolean;
   };
   worktree_count?: number;
@@ -85,7 +84,6 @@ interface Worktree {
   path: string;
   commit_hash: string;
   commit_count: number;
-  is_active: boolean;
   is_dirty: boolean;
 }
 
