@@ -768,10 +768,17 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		}
 	}
 
+	// Extract repo name from repo ID (e.g., "owner/repo" -> "repo")
+	repoParts = strings.Split(repo.ID, "/")
+	repoName = repoParts[len(repoParts)-1]
+	
+	// Create display name with repo name prefix
+	displayName := fmt.Sprintf("%s/%s", repoName, name)
+
 	worktree := &models.Worktree{
 		ID:           id,
 		RepoID:       repo.ID,
-		Name:         name,
+		Name:         displayName,
 		Path:         worktreePath,
 		Branch:       name,
 		SourceBranch: sourceBranch,

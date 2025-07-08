@@ -22,9 +22,10 @@ import (
 
 // PTYHandler handles PTY WebSocket connections
 type PTYHandler struct {
-	sessions     map[string]*Session
-	sessionMutex sync.RWMutex
-	gitService   *services.GitService
+	sessions       map[string]*Session
+	sessionMutex   sync.RWMutex
+	gitService     *services.GitService
+	sessionService *services.SessionService
 }
 
 // Session represents a PTY session
@@ -36,6 +37,7 @@ type Session struct {
 	LastAccess  time.Time
 	WorkDir     string
 	Agent       string
+	ClaudeSessionID string // Track Claude session UUID for resume functionality
 	connections map[*websocket.Conn]bool
 	connMutex   sync.RWMutex
 	// Buffer to store PTY output for replay
@@ -64,8 +66,9 @@ type ControlMsg struct {
 // NewPTYHandler creates a new PTY handler
 func NewPTYHandler(gitService *services.GitService) *PTYHandler {
 	return &PTYHandler{
-		sessions:   make(map[string]*Session),
-		gitService: gitService,
+		sessions:       make(map[string]*Session),
+		gitService:     gitService,
+		sessionService: services.NewSessionService(),
 	}
 }
 
@@ -346,8 +349,17 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		log.Printf("📁 Using default workspace directory: %s", workDir)
 	}
 
+	// Check for existing Claude session in this directory for auto-resume
+	var resumeSessionID string
+	if agent == "claude" {
+		if existingState, err := h.sessionService.FindSessionByDirectory(workDir); err == nil && existingState != nil {
+			resumeSessionID = existingState.ClaudeSessionID
+			log.Printf("🔄 Found existing Claude session in %s, will resume: %s", workDir, resumeSessionID)
+		}
+	}
+
 	// Create command based on agent parameter
-	cmd := h.createCommand(sessionID, agent, workDir)
+	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID)
 
 	// Start PTY
 	ptmx, err := pty.Start(cmd)
@@ -377,8 +389,18 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 	h.sessions[sessionID] = session
 	log.Printf("✅ Created new PTY session: %s in %s", sessionID, workDir)
 
+	// Save initial session state for persistence
+	if agent == "claude" {
+		go h.saveSessionState(session)
+	}
+
 	// Start session cleanup goroutine
 	go h.monitorSession(session)
+	
+	// Start Claude session ID monitoring for claude sessions
+	if agent == "claude" {
+		go h.monitorClaudeSession(session)
+	}
 
 	return session
 }
@@ -425,11 +447,19 @@ func (h *PTYHandler) monitorSession(session *Session) {
 	}
 }
 
-func (h *PTYHandler) createCommand(sessionID, agent, workDir string) *exec.Cmd {
+func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID string) *exec.Cmd {
 	var cmd *exec.Cmd
 	if agent == "claude" {
-		// Start Claude Code directly
-		cmd = exec.Command("claude", "--dangerously-skip-permissions")
+		// Build Claude command with optional resume flag
+		args := []string{"--dangerously-skip-permissions"}
+		if resumeSessionID != "" {
+			args = append(args, "--resume", resumeSessionID)
+			log.Printf("🔄 Starting Claude Code with resume for session: %s (resuming: %s)", sessionID, resumeSessionID)
+		} else {
+			log.Printf("🤖 Starting new Claude Code session: %s", sessionID)
+		}
+		
+		cmd = exec.Command("claude", args...)
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
 			"HOME=/home/catnip",
@@ -437,7 +467,6 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir string) *exec.Cmd {
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
-		log.Printf("🤖 Starting Claude Code for session: %s", sessionID)
 	} else {
 		// Default bash shell
 		cmd = exec.Command("bash", "--login")
@@ -468,8 +497,16 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		session.Cmd.Wait()
 	}
 
+	// Check for existing Claude session to resume (for recreated sessions)
+	var resumeSessionID string
+	if session.Agent == "claude" {
+		if existingState, err := h.sessionService.FindSessionByDirectory(session.WorkDir); err == nil && existingState != nil {
+			resumeSessionID = existingState.ClaudeSessionID
+		}
+	}
+
 	// Create new command using the same agent
-	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir)
+	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID)
 
 	// Start new PTY
 	ptmx, err := pty.Start(cmd)
@@ -594,4 +631,100 @@ func (s *Session) writeToConnection(conn *websocket.Conn, messageType int, data 
 	}
 	
 	return conn.WriteMessage(messageType, data)
+}
+
+// saveSessionState persists session state to disk
+func (h *PTYHandler) saveSessionState(session *Session) {
+	state := &services.SessionState{
+		ID:               session.ID,
+		WorkingDirectory: session.WorkDir,
+		Agent:            session.Agent,
+		ClaudeSessionID:  session.ClaudeSessionID,
+		CreatedAt:        session.CreatedAt,
+		LastAccess:       session.LastAccess,
+		Environment:      make(map[string]string),
+	}
+	
+	if err := h.sessionService.SaveSessionState(state); err != nil {
+		log.Printf("⚠️  Failed to save session state for %s: %v", session.ID, err)
+	} else {
+		log.Printf("💾 Saved session state for %s", session.ID)
+	}
+}
+
+// monitorClaudeSession monitors .claude/projects directory for new session files
+func (h *PTYHandler) monitorClaudeSession(session *Session) {
+	log.Printf("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
+	
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	
+	startTime := time.Now()
+	timeout := 30 * time.Second // Give Claude 30 seconds to create session file
+	
+	claudeProjectsDir := filepath.Join(session.WorkDir, ".claude", "projects")
+	
+	for range ticker.C {
+		if time.Since(startTime) > timeout {
+			log.Printf("⏰ Claude session monitoring timeout for %s", session.ID)
+			return
+		}
+		
+		// Find newest JSONL file in .claude/projects
+		sessionID := h.findNewestClaudeSession(claudeProjectsDir)
+		if sessionID != "" && sessionID != session.ClaudeSessionID {
+			log.Printf("🎯 Detected Claude session ID: %s for PTY session: %s", sessionID, session.ID)
+			session.ClaudeSessionID = sessionID
+			
+			// Update persisted state
+			go h.saveSessionState(session)
+			return
+		}
+	}
+}
+
+// findNewestClaudeSession finds the newest JSONL file in .claude/projects directory
+func (h *PTYHandler) findNewestClaudeSession(claudeProjectsDir string) string {
+	// Check if .claude/projects directory exists
+	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
+		return ""
+	}
+	
+	files, err := os.ReadDir(claudeProjectsDir)
+	if err != nil {
+		log.Printf("⚠️  Failed to read .claude/projects directory: %v", err)
+		return ""
+	}
+	
+	var newestFile string
+	var newestTime time.Time
+	
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
+			continue
+		}
+		
+		// Extract session ID from filename (remove .jsonl extension)
+		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
+		
+		// Validate that it looks like a UUID
+		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+			continue
+		}
+		
+		// Get file modification time
+		filePath := filepath.Join(claudeProjectsDir, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+		
+		// Track the newest file
+		if fileInfo.ModTime().After(newestTime) {
+			newestTime = fileInfo.ModTime()
+			newestFile = sessionID
+		}
+	}
+	
+	return newestFile
 }
