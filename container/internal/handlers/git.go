@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log"
 	
 	"github.com/gofiber/fiber/v2"
@@ -10,13 +11,15 @@ import (
 
 // GitHandler handles Git-related API endpoints
 type GitHandler struct {
-	gitService *services.GitService
+	gitService     *services.GitService
+	gitHTTPService *services.GitHTTPService
 }
 
 // NewGitHandler creates a new Git handler
-func NewGitHandler(gitService *services.GitService) *GitHandler {
+func NewGitHandler(gitService *services.GitService, gitHTTPService *services.GitHTTPService) *GitHandler {
 	return &GitHandler{
-		gitService: gitService,
+		gitService:     gitService,
+		gitHTTPService: gitHTTPService,
 	}
 }
 
@@ -136,5 +139,51 @@ func (h *GitHandler) ActivateWorktree(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Worktree activated successfully",
 		"id":      worktreeID,
+	})
+}
+
+// TriggerSync manually triggers commit synchronization
+// @Summary Trigger commit sync
+// @Description Manually triggers synchronization of commits from worktrees to bare repository
+// @Tags git
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /v1/git/sync [post]
+func (h *GitHandler) TriggerSync(c *fiber.Ctx) error {
+	// Trigger manual sync via the git service
+	err := h.gitService.TriggerManualSync()
+	if err != nil {
+		return c.JSON(fiber.Map{
+			"message": fmt.Sprintf("Sync failed: %v", err),
+			"status":  "error",
+		})
+	}
+	
+	return c.JSON(fiber.Map{
+		"message": "Manual sync triggered successfully",
+		"status":  "running",
+	})
+}
+
+// GetCloneURL returns the Git clone URL for the current repository
+// @Summary Get Git clone URL
+// @Description Returns the HTTP clone URL for the current repository
+// @Tags git
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /v1/git/clone-url [get]
+func (h *GitHandler) GetCloneURL(c *fiber.Ctx) error {
+	baseURL := fmt.Sprintf("%s://%s", c.Protocol(), c.Get("Host"))
+	cloneURLs := h.gitHTTPService.GetAllRepositoryCloneURLs(baseURL)
+	
+	if len(cloneURLs) == 0 {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "No repositories currently loaded",
+		})
+	}
+	
+	return c.JSON(fiber.Map{
+		"clone_urls": cloneURLs,
+		"message":    "Use these URLs to clone repositories locally",
 	})
 }

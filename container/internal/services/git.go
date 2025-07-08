@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,10 +21,23 @@ const (
 	gitStateDir  = "/workspace/.git-state"
 )
 
-// GitService manages Git repositories and worktrees
+// Fun session name generation (matches frontend and worker)
+var verbs = []string{"warp", "pixelate", "compile", "encrypt", "vectorize", "hydrate", "fork",
+	"spawn", "dockerize", "cache", "teleport", "refactor", "quantize", "stream", "debug"}
+
+var nouns = []string{"otter", "kraken", "wombat", "quokka", "nebula", "photon", "quasar",
+	"badger", "pangolin", "goblin", "cyborg", "ninja", "gizmo", "raptor", "penguin"}
+
+func generateSessionName() string {
+	verb := verbs[rand.Intn(len(verbs))]
+	noun := nouns[rand.Intn(len(nouns))]
+	return fmt.Sprintf("%s-%s", verb, noun)
+}
+
+// GitService manages multiple Git repositories and their worktrees
 type GitService struct {
-	currentRepo    *models.Repository
-	worktrees      map[string]*models.Worktree
+	repositories   map[string]*models.Repository // key: repoID (e.g., "owner/repo")
+	worktrees      map[string]*models.Worktree   // key: worktree ID
 	activeWorktree string
 	mu             sync.RWMutex
 }
@@ -31,7 +45,8 @@ type GitService struct {
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
 	s := &GitService{
-		worktrees: make(map[string]*models.Worktree),
+		repositories: make(map[string]*models.Repository),
+		worktrees:    make(map[string]*models.Worktree),
 	}
 	
 	// Ensure workspace directory exists
@@ -43,6 +58,8 @@ func NewGitService() *GitService {
 	
 	// Load existing state if available
 	s.loadState()
+	
+	// Commit sync service removed - git worktrees handle synchronization automatically
 	
 	return s
 }
@@ -67,8 +84,78 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 		}
 	}
 	
-	log.Printf("🔄 Checking out repository: %s", repoID)
+	// Check if repository already exists in our map
+	if existingRepo, exists := s.repositories[repoID]; exists {
+		log.Printf("🔄 Repository already loaded, creating new worktree: %s", repoID)
+		return s.createWorktreeForExistingRepo(existingRepo, branch)
+	}
 	
+	// Check if bare repository already exists on disk
+	if _, err := os.Stat(barePath); err == nil {
+		log.Printf("🔄 Found existing bare repository, loading and creating new worktree: %s", repoID)
+		return s.handleExistingRepository(repoID, repoURL, barePath, branch)
+	}
+	
+	log.Printf("🔄 Cloning new repository: %s", repoID)
+	
+	return s.cloneNewRepository(repoID, repoURL, barePath, branch)
+}
+
+// handleExistingRepository handles checkout when bare repo already exists
+func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch string) (*models.Repository, *models.Worktree, error) {
+	// Load existing repository if we have state
+	var repo *models.Repository
+	if existingRepo, exists := s.repositories[repoID]; exists {
+		log.Printf("📦 Repository already loaded: %s", repoID)
+		repo = existingRepo
+	} else {
+		// Create repository object for existing bare repo
+		defaultBranch, err := s.getRepositoryDefaultBranch(barePath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get default branch: %v", err)
+		}
+		
+		repo = &models.Repository{
+			ID:            repoID,
+			URL:           repoURL,
+			Path:          barePath,
+			DefaultBranch: defaultBranch,
+			CreatedAt:     time.Now(), // We don't know the real creation time
+			LastAccessed:  time.Now(),
+		}
+		s.repositories[repoID] = repo
+	}
+	
+	// If no branch specified, use default
+	if branch == "" {
+		branch = repo.DefaultBranch
+	}
+	
+	// Check if the requested branch exists in the bare repo
+	if !s.branchExistsInBareRepo(barePath, branch) {
+		log.Printf("🔄 Branch %s not found, fetching from remote", branch)
+		if err := s.fetchBranchIntoBareRepo(barePath, branch); err != nil {
+			return nil, nil, fmt.Errorf("failed to fetch branch %s: %v", branch, err)
+		}
+	}
+	
+	// Create new worktree with fun name
+	funName := generateSessionName()
+	// Creating worktree
+	worktree, err := s.createWorktreeInternalForRepo(repo, branch, funName, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create worktree: %v", err)
+	}
+	
+	// Save state
+	s.saveState()
+	
+	log.Printf("✅ Worktree created from existing repository: %s", repoID)
+	return repo, worktree, nil
+}
+
+// cloneNewRepository clones a new bare repository
+func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string) (*models.Repository, *models.Worktree, error) {
 	// Clone as bare repository with shallow depth
 	cloneCmd := exec.Command("git", "clone", "--bare", "--depth", "1", "--single-branch")
 	if branch != "" {
@@ -89,36 +176,9 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 	
 	// Get default branch if not specified
 	if branch == "" {
-		// First try to get the symbolic ref
-		cmd := exec.Command("git", "-C", barePath, "symbolic-ref", "refs/remotes/origin/HEAD")
-		cmd.Env = cloneCmd.Env
-		output, err := cmd.Output()
-		if err == nil {
-			branch = strings.TrimSpace(strings.TrimPrefix(string(output), "refs/remotes/origin/"))
-		} else {
-			// If symbolic ref doesn't work, try to find the default branch from remote refs
-			cmd = exec.Command("git", "-C", barePath, "branch", "-r")
-			cmd.Env = cloneCmd.Env
-			output, err = cmd.Output()
-			if err == nil {
-				lines := strings.Split(string(output), "\n")
-				for _, line := range lines {
-					line = strings.TrimSpace(line)
-					if strings.Contains(line, "origin/main") {
-						branch = "main"
-						break
-					} else if strings.Contains(line, "origin/master") {
-						branch = "master"
-						break
-					}
-				}
-			}
-			
-			// Final fallback
-			if branch == "" {
-				branch = "main"
-				log.Printf("⚠️ Could not detect default branch, using fallback: %s", branch)
-			}
+		branch, err = s.getRepositoryDefaultBranch(barePath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get default branch: %v", err)
 		}
 	}
 	
@@ -132,10 +192,16 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 		LastAccessed:  time.Now(),
 	}
 	
-	s.currentRepo = repository
+	// Add to repositories map
+	s.repositories[repoID] = repository
 	
-	// Create initial worktree
-	worktree, err := s.createWorktreeInternal(branch, branch, true)
+	// Start background unshallow process for the requested branch
+	go s.unshallowRepository(barePath, branch)
+	
+	// Create initial worktree with fun name to avoid conflicts with local branches
+	funName := generateSessionName()
+	// Creating initial worktree
+	worktree, err := s.createWorktreeInternalForRepo(repository, branch, funName, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create initial worktree: %v", err)
 	}
@@ -143,70 +209,36 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 	// Save state
 	s.saveState()
 	
-	log.Printf("✅ Repository checked out successfully: %s", repoID)
+	log.Printf("✅ Repository cloned successfully: %s", repository.ID)
 	return repository, worktree, nil
 }
 
-// CreateWorktree creates a new worktree from source (branch or commit)
+// CreateWorktree creates a new worktree from source (branch or commit) for the active repository
 func (s *GitService) CreateWorktree(source, name string) (*models.Worktree, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
-	if s.currentRepo == nil {
-		return nil, fmt.Errorf("no repository checked out")
+	// Find the repository for the active worktree
+	var activeRepo *models.Repository
+	if s.activeWorktree != "" {
+		if activeWt, exists := s.worktrees[s.activeWorktree]; exists {
+			activeRepo = s.repositories[activeWt.RepoID]
+		}
 	}
 	
-	return s.createWorktreeInternal(source, name, false)
+	if activeRepo == nil {
+		return nil, fmt.Errorf("no active repository found")
+	}
+	
+	// Generate fun name if not provided
+	if name == "" {
+		name = generateSessionName()
+		// Generated worktree name
+	}
+	
+	return s.createWorktreeInternalForRepo(activeRepo, source, name, false)
 }
 
-// createWorktreeInternal creates a worktree (internal helper)
-func (s *GitService) createWorktreeInternal(source, name string, isInitial bool) (*models.Worktree, error) {
-	id := uuid.New().String()
-	
-	// Extract repo name from repo ID (e.g., "owner/repo" -> "repo")
-	repoParts := strings.Split(s.currentRepo.ID, "/")
-	repoName := repoParts[len(repoParts)-1]
-	
-	// All worktrees use repo/branch pattern for consistency
-	// This makes it easier to manage multiple branches and matches our session ID format
-	worktreePath := filepath.Join(workspaceDir, repoName, name)
-	
-	// Create worktree using git
-	cmd := exec.Command("git", "-C", s.currentRepo.Path, "worktree", "add", worktreePath, source)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
-	}
-	
-	// Get current commit hash
-	cmd = exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
-	commitOutput, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get commit hash: %v", err)
-	}
-	
-	worktree := &models.Worktree{
-		ID:           id,
-		RepoID:       s.currentRepo.ID,
-		Name:         name,
-		Path:         worktreePath,
-		Branch:       source,
-		CommitHash:   strings.TrimSpace(string(commitOutput)),
-		IsActive:     isInitial,
-		IsDirty:      false,
-		CreatedAt:    time.Now(),
-		LastAccessed: time.Now(),
-	}
-	
-	s.worktrees[id] = worktree
-	
-	if isInitial || len(s.worktrees) == 1 {
-		s.activeWorktree = id
-		s.updateCurrentSymlink(worktreePath)
-	}
-	
-	return worktree, nil
-}
 
 // ListWorktrees returns all worktrees
 func (s *GitService) ListWorktrees() []*models.Worktree {
@@ -257,12 +289,18 @@ func (s *GitService) GetStatus() *models.GitStatus {
 	defer s.mu.RUnlock()
 	
 	var activeWorktree *models.Worktree
+	var activeRepo *models.Repository
+	
 	if s.activeWorktree != "" {
 		activeWorktree = s.worktrees[s.activeWorktree]
+		if activeWorktree != nil {
+			activeRepo = s.repositories[activeWorktree.RepoID]
+		}
 	}
 	
 	return &models.GitStatus{
-		Repository:     s.currentRepo,
+		Repository:     activeRepo,    // Repository of active worktree for backward compatibility
+		Repositories:   s.repositories, // All repositories
 		ActiveWorktree: activeWorktree,
 		WorktreeCount:  len(s.worktrees),
 	}
@@ -293,7 +331,7 @@ func (s *GitService) updateCurrentSymlink(targetPath string) error {
 
 func (s *GitService) saveState() error {
 	state := map[string]interface{}{
-		"repository":      s.currentRepo,
+		"repositories":    s.repositories,
 		"worktrees":       s.worktrees,
 		"activeWorktree":  s.activeWorktree,
 	}
@@ -320,11 +358,18 @@ func (s *GitService) loadState() error {
 		return err
 	}
 	
-	// Load repository
-	if repoData, exists := state["repository"]; exists {
+	// Load repositories - support both old single repo format and new multi-repo format
+	if reposData, exists := state["repositories"]; exists {
+		// New multi-repo format
+		var repos map[string]*models.Repository
+		if err := json.Unmarshal(reposData, &repos); err == nil {
+			s.repositories = repos
+		}
+	} else if repoData, exists := state["repository"]; exists {
+		// Old single repo format - migrate to new format
 		var repo models.Repository
 		if err := json.Unmarshal(repoData, &repo); err == nil {
-			s.currentRepo = &repo
+			s.repositories[repo.ID] = &repo
 		}
 	}
 	
@@ -389,4 +434,219 @@ func (s *GitService) configureGitCredentials() {
 	} else {
 		log.Printf("✅ Git credential helper configured successfully")
 	}
+}
+
+// TriggerManualSync is no longer needed - git worktrees sync automatically
+func (s *GitService) TriggerManualSync() error {
+	return nil // No-op
+}
+
+// Stop stops the Git service
+func (s *GitService) Stop() {
+	// No background services to stop
+}
+
+// getRepositoryDefaultBranch gets the default branch from a bare repository
+func (s *GitService) getRepositoryDefaultBranch(barePath string) (string, error) {
+	// First try to get the symbolic ref
+	cmd := exec.Command("git", "-C", barePath, "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(strings.TrimPrefix(string(output), "refs/remotes/origin/")), nil
+	}
+	
+	// If symbolic ref doesn't work, try to find the default branch from remote refs
+	cmd = exec.Command("git", "-C", barePath, "branch", "-r")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err = cmd.Output()
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, "origin/main") {
+				return "main", nil
+			} else if strings.Contains(line, "origin/master") {
+				return "master", nil
+			}
+		}
+	}
+	
+	// Final fallback
+	log.Printf("⚠️ Could not detect default branch, using fallback: main")
+	return "main", nil
+}
+
+// branchExistsInBareRepo checks if a branch exists in the bare repository
+func (s *GitService) branchExistsInBareRepo(barePath, branch string) bool {
+	// Check for local branch first
+	cmd := exec.Command("git", "-C", barePath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	if cmd.Run() == nil {
+		return true
+	}
+	
+	// Check for remote branch
+	cmd = exec.Command("git", "-C", barePath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/remotes/origin/%s", branch))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	return cmd.Run() == nil
+}
+
+// fetchBranchIntoBareRepo fetches a specific branch into the bare repository
+func (s *GitService) fetchBranchIntoBareRepo(barePath, branch string) error {
+	// First, try to fetch just the remote ref without updating local branch
+	// This avoids the "refusing to fetch into branch checked out" error
+	cmd := exec.Command("git", "-C", barePath, "fetch", "origin", fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch), "--depth", "1")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to fetch branch: %v\n%s", err, output)
+	}
+	
+	// Now create/update the local branch ref from the remote ref
+	// Only do this if the branch isn't currently checked out in a worktree
+	updateCmd := exec.Command("git", "-C", barePath, "update-ref", fmt.Sprintf("refs/heads/%s", branch), fmt.Sprintf("refs/remotes/origin/%s", branch))
+	updateCmd.Env = cmd.Env
+	updateOutput, err := updateCmd.CombinedOutput()
+	if err != nil {
+		// If update-ref fails because branch is checked out, that's okay
+		// The remote ref is still updated and worktrees can use it
+		log.Printf("⚠️ Could not update local branch ref (branch may be checked out): %s", string(updateOutput))
+	}
+	
+	return nil
+}
+
+// createWorktreeForExistingRepo creates a worktree for an already loaded repository
+func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, branch string) (*models.Repository, *models.Worktree, error) {
+	// If no branch specified, use default
+	if branch == "" {
+		branch = repo.DefaultBranch
+	}
+	
+	// Check if the requested branch exists in the bare repo
+	if !s.branchExistsInBareRepo(repo.Path, branch) {
+		log.Printf("🔄 Branch %s not found, fetching from remote", branch)
+		if err := s.fetchBranchIntoBareRepo(repo.Path, branch); err != nil {
+			return nil, nil, fmt.Errorf("failed to fetch branch %s: %v", branch, err)
+		}
+	}
+	
+	// Create new worktree with fun name
+	funName := generateSessionName()
+	// Creating worktree
+	worktree, err := s.createWorktreeInternalForRepo(repo, branch, funName, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create worktree: %v", err)
+	}
+	
+	// Save state
+	s.saveState()
+	
+	log.Printf("✅ Worktree created for existing repository: %s", repo.ID)
+	return repo, worktree, nil
+}
+
+// createWorktreeInternalForRepo creates a worktree for a specific repository
+func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, source, name string, isInitial bool) (*models.Worktree, error) {
+	id := uuid.New().String()
+	
+	// Extract repo name from repo ID (e.g., "owner/repo" -> "repo")
+	repoParts := strings.Split(repo.ID, "/")
+	repoName := repoParts[len(repoParts)-1]
+	
+	// All worktrees use repo/branch pattern for consistency
+	worktreePath := filepath.Join(workspaceDir, repoName, name)
+	
+	// Create worktree with new branch using the fun name
+	cmd := exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", name, worktreePath, source)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
+	}
+	
+	// Get current commit hash
+	cmd = exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
+	commitOutput, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit hash: %v", err)
+	}
+	
+	worktree := &models.Worktree{
+		ID:           id,
+		RepoID:       repo.ID,
+		Name:         name,
+		Path:         worktreePath,
+		Branch:       name,
+		CommitHash:   strings.TrimSpace(string(commitOutput)),
+		IsActive:     isInitial,
+		IsDirty:      false,
+		CreatedAt:    time.Now(),
+		LastAccessed: time.Now(),
+	}
+	
+	s.worktrees[id] = worktree
+	
+	if isInitial || len(s.worktrees) == 1 {
+		s.activeWorktree = id
+		s.updateCurrentSymlink(worktreePath)
+	}
+	
+	// Git worktrees automatically sync to bare repository
+	
+	return worktree, nil
+}
+
+// unshallowRepository unshallows a specific branch in the background
+func (s *GitService) unshallowRepository(barePath, branch string) {
+	// Wait a bit before starting to avoid interfering with initial setup
+	time.Sleep(5 * time.Second)
+	
+	// Only fetch the specific branch to be more efficient
+	cmd := exec.Command("git", "-C", barePath, "fetch", "origin", "--unshallow", branch)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Silent failure - unshallow is optional optimization
+		_ = output // Avoid unused variable
+		_ = err
+	}
+}
+
+// GetRepositoryByID returns a repository by its ID
+func (s *GitService) GetRepositoryByID(repoID string) *models.Repository {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	return s.repositories[repoID]
+}
+
+// ListRepositories returns all loaded repositories
+func (s *GitService) ListRepositories() []*models.Repository {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	repos := make([]*models.Repository, 0, len(s.repositories))
+	for _, repo := range s.repositories {
+		repos = append(repos, repo)
+	}
+	return repos
 }

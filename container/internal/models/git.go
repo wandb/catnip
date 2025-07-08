@@ -43,7 +43,8 @@ type CheckoutRequest struct {
 
 // GitStatus represents the current Git status
 type GitStatus struct {
-	Repository      *Repository `json:"repository"`
-	ActiveWorktree  *Worktree   `json:"active_worktree"`
-	WorktreeCount   int         `json:"worktree_count"`
+	Repository      *Repository            `json:"repository"`       // Repository of active worktree (for backward compatibility)
+	Repositories    map[string]*Repository `json:"repositories"`     // All loaded repositories
+	ActiveWorktree  *Worktree              `json:"active_worktree"`
+	WorktreeCount   int                    `json:"worktree_count"`
 }

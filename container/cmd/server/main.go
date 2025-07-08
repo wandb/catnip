@@ -30,6 +30,10 @@ func main() {
 
 	// Initialize Git service
 	gitService := services.NewGitService()
+	defer gitService.Stop()
+	
+	// Initialize Git HTTP service
+	gitHTTPService := services.NewGitHTTPService(gitService)
 	
 	// Check CATNIP_REPO environment variable
 	if catnipRepo := os.Getenv("CATNIP_REPO"); catnipRepo != "" {
@@ -75,6 +79,9 @@ func main() {
 	// Swagger documentation
 	app.Get("/swagger/*", swagger.HandlerDefault)
 
+	// Register Git HTTP routes (must be before other routes to catch .git URLs)
+	gitHTTPService.RegisterRoutes(app)
+
 	// API v1 routes
 	v1 := app.Group("/v1")
 	
@@ -82,7 +89,7 @@ func main() {
 	ptyHandler := handlers.NewPTYHandler(gitService)
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
-	gitHandler := handlers.NewGitHandler(gitService)
+	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService)
 	
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
@@ -100,6 +107,8 @@ func main() {
 	v1.Post("/git/worktrees", gitHandler.CreateWorktree)
 	v1.Get("/git/worktrees", gitHandler.ListWorktrees)
 	v1.Post("/git/worktrees/:id/activate", gitHandler.ActivateWorktree)
+	v1.Post("/git/sync", gitHandler.TriggerSync)
+	v1.Get("/git/clone-url", gitHandler.GetCloneURL)
 	
 	// Handle static files and SPA routing
 	if handlers.IsDevMode() {

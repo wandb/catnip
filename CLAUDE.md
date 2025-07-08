@@ -53,3 +53,7 @@ I've prototyped a number of these features in a folder named "reference". It cou
 ## Operation Guidelines
 
 - Don't restart the container unless explicitly asked to.
+
+## Troubleshooting
+
+- If you start getting no such file or directory, run `pwd` and get yourself into the root catnip directory
