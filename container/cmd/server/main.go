@@ -94,6 +94,7 @@ func main() {
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService)
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
+	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService())
 	
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
@@ -108,9 +109,7 @@ func main() {
 	// Git routes
 	v1.Post("/git/checkout/:org/:repo", gitHandler.CheckoutRepository)
 	v1.Get("/git/status", gitHandler.GetStatus)
-	v1.Post("/git/worktrees", gitHandler.CreateWorktree)
 	v1.Get("/git/worktrees", gitHandler.ListWorktrees)
-	v1.Post("/git/worktrees/:id/activate", gitHandler.ActivateWorktree)
 	v1.Delete("/git/worktrees/:id", gitHandler.DeleteWorktree)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
@@ -118,6 +117,12 @@ func main() {
 	// Claude routes
 	v1.Get("/claude/session", claudeHandler.GetWorktreeSessionSummary)
 	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
+	
+	// Session management routes
+	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)
+	v1.Get("/sessions", sessionHandler.GetAllSessions)
+	v1.Get("/sessions/workspace/:workspace", sessionHandler.GetSessionByWorkspace)
+	v1.Delete("/sessions/workspace/:workspace", sessionHandler.DeleteSession)
 	
 	// Handle static files and SPA routing
 	if handlers.IsDevMode() {

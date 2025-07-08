@@ -68,44 +68,6 @@ func (h *GitHandler) GetStatus(c *fiber.Ctx) error {
 	return c.JSON(status)
 }
 
-// CreateWorktree creates a new worktree
-// @Summary Create a new worktree
-// @Description Creates a new worktree from a branch or commit
-// @Tags git
-// @Accept json
-// @Produce json
-// @Param request body models.WorktreeCreateRequest true "Worktree creation request"
-// @Success 200 {object} models.Worktree
-// @Router /v1/git/worktrees [post]
-func (h *GitHandler) CreateWorktree(c *fiber.Ctx) error {
-	var req models.WorktreeCreateRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Invalid request body",
-		})
-	}
-	
-	if req.Source == "" {
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Source branch or commit is required",
-		})
-	}
-	
-	if req.Name == "" {
-		req.Name = req.Source // Use source as name if not provided
-	}
-	
-	worktree, err := h.gitService.CreateWorktree(req.Source, req.Name)
-	if err != nil {
-		log.Printf("❌ Failed to create worktree: %v", err)
-		return c.Status(500).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	
-	log.Printf("✅ Created worktree: %s", worktree.Name)
-	return c.JSON(worktree)
-}
 
 // ListWorktrees returns all worktrees
 // @Summary List all worktrees
@@ -119,28 +81,6 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 	return c.JSON(worktrees)
 }
 
-// ActivateWorktree switches to a different worktree
-// @Summary Activate a worktree
-// @Description Switches the active worktree
-// @Tags git
-// @Produce json
-// @Param id path string true "Worktree ID"
-// @Success 200 {object} map[string]string
-// @Router /v1/git/worktrees/{id}/activate [post]
-func (h *GitHandler) ActivateWorktree(c *fiber.Ctx) error {
-	worktreeID := c.Params("id")
-	
-	if err := h.gitService.ActivateWorktree(worktreeID); err != nil {
-		return c.Status(404).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	}
-	
-	return c.JSON(fiber.Map{
-		"message": "Worktree activated successfully",
-		"id":      worktreeID,
-	})
-}
 
 // ListGitHubRepositories returns user's GitHub repositories
 // @Summary List GitHub repositories

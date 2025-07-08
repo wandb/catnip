@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,9 +22,19 @@ type SessionState struct {
 	Environment      map[string]string `json:"environment,omitempty"`
 }
 
-// SessionService manages session state persistence
+// SessionService manages session state persistence and active sessions tracking
 type SessionService struct {
-	stateDir string
+	stateDir       string
+	activeSessions map[string]*ActiveSessionInfo // key: workspace directory path
+	mu             sync.RWMutex
+}
+
+// ActiveSessionInfo represents information about an active session in a workspace
+type ActiveSessionInfo struct {
+	ClaudeSessionUUID string     `json:"claude_session_uuid"`
+	StartedAt         time.Time  `json:"started_at"`
+	ResumedAt         *time.Time `json:"resumed_at,omitempty"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
 }
 
 // NewSessionService creates a new session service
@@ -34,9 +46,15 @@ func NewSessionService() *SessionService {
 		fmt.Printf("Warning: Failed to create session state directory: %v\n", err)
 	}
 	
-	return &SessionService{
-		stateDir: stateDir,
+	service := &SessionService{
+		stateDir:       stateDir,
+		activeSessions: make(map[string]*ActiveSessionInfo),
 	}
+	
+	// Load existing active sessions state
+	service.loadActiveSessionsState()
+	
+	return service
 }
 
 // SaveSessionState persists session state to disk
@@ -216,4 +234,224 @@ func (s *SessionService) ListActiveSessions() (map[string]*SessionState, error) 
 	}
 	
 	return sessions, nil
+}
+
+// Active Sessions Methods
+
+// StartActiveSession records a new active session for a workspace directory
+func (s *SessionService) StartActiveSession(workspaceDir, claudeSessionUUID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	s.activeSessions[workspaceDir] = &ActiveSessionInfo{
+		ClaudeSessionUUID: claudeSessionUUID,
+		StartedAt:         time.Now(),
+	}
+	
+	return s.saveActiveSessionsState()
+}
+
+// ResumeActiveSession marks an existing session as resumed
+func (s *SessionService) ResumeActiveSession(workspaceDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if session, exists := s.activeSessions[workspaceDir]; exists {
+		now := time.Now()
+		session.ResumedAt = &now
+		// Clear ended timestamp if it was set
+		session.EndedAt = nil
+		return s.saveActiveSessionsState()
+	}
+	
+	return fmt.Errorf("no active session found for workspace: %s", workspaceDir)
+}
+
+// EndActiveSession marks a session as ended
+func (s *SessionService) EndActiveSession(workspaceDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	if session, exists := s.activeSessions[workspaceDir]; exists {
+		now := time.Now()
+		session.EndedAt = &now
+		return s.saveActiveSessionsState()
+	}
+	
+	return fmt.Errorf("no active session found for workspace: %s", workspaceDir)
+}
+
+// GetActiveSession returns the active session info for a workspace directory
+func (s *SessionService) GetActiveSession(workspaceDir string) (*ActiveSessionInfo, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	session, exists := s.activeSessions[workspaceDir]
+	if !exists {
+		return nil, false
+	}
+	
+	// Return a copy to prevent external modification
+	sessionCopy := *session
+	return &sessionCopy, true
+}
+
+// GetAllActiveSessions returns all active sessions (not ended)
+func (s *SessionService) GetAllActiveSessions() map[string]*ActiveSessionInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	activeSessions := make(map[string]*ActiveSessionInfo)
+	for workspaceDir, session := range s.activeSessions {
+		if session.EndedAt == nil {
+			// Return a copy to prevent external modification
+			sessionCopy := *session
+			activeSessions[workspaceDir] = &sessionCopy
+		}
+	}
+	
+	return activeSessions
+}
+
+// GetAllActiveSessionsIncludingEnded returns all sessions (including ended ones)
+func (s *SessionService) GetAllActiveSessionsIncludingEnded() map[string]*ActiveSessionInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	allSessions := make(map[string]*ActiveSessionInfo)
+	for workspaceDir, session := range s.activeSessions {
+		// Return a copy to prevent external modification
+		sessionCopy := *session
+		allSessions[workspaceDir] = &sessionCopy
+	}
+	
+	return allSessions
+}
+
+// IsActiveSessionActive checks if a session is currently active (not ended)
+func (s *SessionService) IsActiveSessionActive(workspaceDir string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	session, exists := s.activeSessions[workspaceDir]
+	return exists && session.EndedAt == nil
+}
+
+// RemoveActiveSession completely removes a session from the mapping
+func (s *SessionService) RemoveActiveSession(workspaceDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	delete(s.activeSessions, workspaceDir)
+	return s.saveActiveSessionsState()
+}
+
+// saveActiveSessionsState persists the active sessions mapping to disk
+func (s *SessionService) saveActiveSessionsState() error {
+	data, err := json.MarshalIndent(s.activeSessions, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal active sessions: %v", err)
+	}
+	
+	filePath := filepath.Join(s.stateDir, "active_sessions.json")
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write active sessions file: %v", err)
+	}
+	
+	return nil
+}
+
+// loadActiveSessionsState loads the active sessions mapping from disk
+func (s *SessionService) loadActiveSessionsState() error {
+	filePath := filepath.Join(s.stateDir, "active_sessions.json")
+	
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// No existing state file, start with empty mapping
+		return nil
+	}
+	
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to read active sessions file: %v", err)
+	}
+	
+	if err := json.Unmarshal(data, &s.activeSessions); err != nil {
+		return fmt.Errorf("failed to unmarshal active sessions: %v", err)
+	}
+	
+	return nil
+}
+
+// CleanupEndedActiveSessions removes sessions that have been ended for more than the specified duration
+func (s *SessionService) CleanupEndedActiveSessions(maxAge time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	now := time.Now()
+	for workspaceDir, session := range s.activeSessions {
+		if session.EndedAt != nil && now.Sub(*session.EndedAt) > maxAge {
+			delete(s.activeSessions, workspaceDir)
+		}
+	}
+	
+	return s.saveActiveSessionsState()
+}
+
+// DetectEndedSessions automatically detects and marks sessions as ended if no PTY is running in their workspace
+func (s *SessionService) DetectEndedSessions() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	var changed bool
+	
+	for workspaceDir, session := range s.activeSessions {
+		// Skip sessions that are already ended
+		if session.EndedAt != nil {
+			continue
+		}
+		
+		// Check if there's a running PTY process in this workspace
+		if !s.hasRunningPTY(workspaceDir, session.ClaudeSessionUUID) {
+			// Mark session as ended
+			now := time.Now()
+			session.EndedAt = &now
+			changed = true
+			fmt.Printf("🔚 Detected ended session in workspace: %s\n", workspaceDir)
+		}
+	}
+	
+	if changed {
+		return s.saveActiveSessionsState()
+	}
+	return nil
+}
+
+// hasRunningPTY checks if there's a running PTY process in the workspace
+func (s *SessionService) hasRunningPTY(workspaceDir, claudeSessionUUID string) bool {
+	// Check for any bash or claude processes running in this workspace directory
+	// This is a simplified check - in a real implementation you might want to 
+	// track PIDs or use a more sophisticated method
+	
+	// Method 1: Check for processes with the workspace directory in their command line
+	cmd := exec.Command("pgrep", "-f", workspaceDir)
+	output, err := cmd.Output()
+	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
+		return true
+	}
+	
+	// Method 2: Check for active claude sessions by looking for recent activity
+	// in the .claude/projects directory
+	if claudeSessionUUID != "" {
+		claudeProjectsDir := filepath.Join(workspaceDir, ".claude", "projects")
+		sessionFile := filepath.Join(claudeProjectsDir, claudeSessionUUID+".jsonl")
+		
+		if info, err := os.Stat(sessionFile); err == nil {
+			// If the file was modified recently (within last 5 minutes), consider it active
+			if time.Since(info.ModTime()) < 5*time.Minute {
+				return true
+			}
+		}
+	}
+	
+	return false
 }

@@ -389,6 +389,14 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 	h.sessions[sessionID] = session
 	log.Printf("✅ Created new PTY session: %s in %s", sessionID, workDir)
 
+	// Track active session for this workspace
+	if agent == "claude" {
+		// Start session tracking - we'll update with actual Claude session UUID later
+		if err := h.sessionService.StartActiveSession(workDir, ""); err != nil {
+			log.Printf("⚠️  Failed to start session tracking for %s: %v", workDir, err)
+		}
+	}
+
 	// Save initial session state for persistence
 	if agent == "claude" {
 		go h.saveSessionState(session)
@@ -536,6 +544,13 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	log.Printf("🧹 Cleaning up idle session: %s", session.ID)
 
+	// End session tracking if it's a claude session
+	if session.Agent == "claude" {
+		if err := h.sessionService.EndActiveSession(session.WorkDir); err != nil {
+			log.Printf("⚠️  Failed to end session tracking for %s: %v", session.WorkDir, err)
+		}
+	}
+
 	// Close PTY
 	if session.PTY != nil {
 		session.PTY.Close()
@@ -676,6 +691,11 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 			log.Printf("🎯 Detected Claude session ID: %s for PTY session: %s", sessionID, session.ID)
 			session.ClaudeSessionID = sessionID
 			
+			// Update active sessions service with real Claude session UUID
+			if err := h.sessionService.StartActiveSession(session.WorkDir, sessionID); err != nil {
+				log.Printf("⚠️  Failed to update active session with Claude UUID: %v", err)
+			}
+			
 			// Update persisted state
 			go h.saveSessionState(session)
 			return
@@ -727,4 +747,9 @@ func (h *PTYHandler) findNewestClaudeSession(claudeProjectsDir string) string {
 	}
 	
 	return newestFile
+}
+
+// GetSessionService returns the session service for external access
+func (h *PTYHandler) GetSessionService() *services.SessionService {
+	return h.sessionService
 }
