@@ -5,7 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { GitBranch, Github, ExternalLink, Copy, RefreshCw, Trash2 } from 'lucide-react';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { GitBranch, Github, ExternalLink, Copy, RefreshCw, Trash2, Check, ChevronsUpDown } from 'lucide-react';
 
 // Utility function for relative time display
 const getRelativeTime = (date: string | Date) => {
@@ -85,6 +87,7 @@ function GitPage() {
   const [claudeSessions, setClaudeSessions] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [reposLoading, setReposLoading] = useState(false);
+  const [comboboxOpen, setComboboxOpen] = useState(false);
 
   const fetchGitStatus = async () => {
     try {
@@ -249,197 +252,6 @@ function GitPage() {
         <h1 className="text-3xl font-bold">Git Repository Management</h1>
       </div>
 
-      {/* Current Status */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Current Repository Status</CardTitle>
-              <CardDescription>
-                Active repository and worktree information
-              </CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                fetchGitStatus();
-                fetchWorktrees();
-                fetchClaudeSessions();
-              }}
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {gitStatus.repositories && Object.keys(gitStatus.repositories).length > 0 ? (
-            <div className="space-y-4">
-              {Object.values(gitStatus.repositories).map((repo: any) => (
-                <div key={repo.id} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-base">{repo.id}</h3>
-                    {repoBranches[repo.id] && repoBranches[repo.id].length > 0 && (
-                      <>
-                        {repoBranches[repo.id].map((branch) => (
-                          <Badge 
-                            key={branch} 
-                            variant="secondary" 
-                            className="text-xs cursor-pointer hover:bg-secondary/80"
-                            onClick={() => window.open(`${repo.url}/tree/${branch}`, '_blank')}
-                          >
-                            {branch}
-                          </Badge>
-                        ))}
-                      </>
-                    )}
-                  </div>
-                  <div className="mt-2">
-                    <div className="inline-flex items-center gap-2 p-2 bg-muted rounded text-sm font-mono">
-                      <code className="text-muted-foreground">
-                        git remote add catnip {window.location.origin}/{repo.id.split('/')[1]}.git
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          const command = `git remote add catnip ${window.location.origin}/${repo.id.split('/')[1]}.git`;
-                          navigator.clipboard.writeText(command);
-                        }}
-                        className="h-6 w-6 p-0"
-                      >
-                        <Copy size={12} />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              <div className="border-t pt-2">
-                <p className="text-xs text-muted-foreground">
-                  Total repositories: {Object.keys(gitStatus.repositories).length} | 
-                  Total worktrees: {gitStatus.worktree_count || 0}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-muted-foreground">No repositories checked out</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* GitHub URL Input */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Checkout Repository</CardTitle>
-          <CardDescription>
-            Enter a GitHub repository URL to check out
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="github-url">GitHub Repository URL</Label>
-              <Input
-                id="github-url"
-                placeholder="https://github.com/owner/repo"
-                value={githubUrl}
-                onChange={(e) => setGithubUrl(e.target.value)}
-              />
-            </div>
-            <Button
-              onClick={() => handleCheckout(githubUrl)}
-              disabled={!githubUrl || loading}
-              className="mt-6"
-            >
-              {loading ? <RefreshCw className="animate-spin" size={16} /> : 'Checkout'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Available Repositories */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Github size={20} />
-              Your GitHub Repositories
-            </CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchRepositories}
-              disabled={reposLoading}
-            >
-              <RefreshCw className={`h-4 w-4 ${reposLoading ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
-          <CardDescription>
-            Repositories you have access to via GitHub CLI
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {reposLoading ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <RefreshCw className="animate-spin" size={16} />
-                Loading repositories...
-              </div>
-            ) : repositories.length > 0 ? (
-              repositories.map((repo) => (
-                <div
-                  key={repo.name}
-                  className="flex items-center justify-between p-3 border rounded-lg"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{repo.fullName || repo.name}</span>
-                      {repo.private && (
-                        <Badge variant="secondary" className="text-xs">
-                          Private
-                        </Badge>
-                      )}
-                    </div>
-                    {repo.description && (
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {repo.description}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyRemoteCommand(repo.url)}
-                    >
-                      <Copy size={16} />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => window.open(repo.url, '_blank')}
-                    >
-                      <ExternalLink size={16} />
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleCheckout(repo.url)}
-                      disabled={loading}
-                    >
-                      Checkout
-                    </Button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-muted-foreground">
-                No repositories found. Make sure you're authenticated with GitHub CLI.
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Worktrees Table */}
       <Card>
         <CardHeader>
@@ -562,6 +374,223 @@ function GitPage() {
             </div>
           ) : (
             <p className="text-muted-foreground">No worktrees found</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* GitHub URL Input */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Checkout Repository</CardTitle>
+              <CardDescription>
+                Select from your repositories or enter a GitHub URL
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchRepositories}
+              disabled={reposLoading}
+              title="Refresh GitHub repositories"
+            >
+              <RefreshCw className={`h-4 w-4 ${reposLoading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="github-url">GitHub Repository URL</Label>
+              <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={comboboxOpen}
+                    className="w-full justify-between"
+                  >
+                    {githubUrl || "Select repository or enter URL..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[600px] p-0" align="start">
+                  <Command>
+                    <CommandInput 
+                      placeholder="Search repositories or type URL..." 
+                      value={githubUrl}
+                      onValueChange={setGithubUrl}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && githubUrl) {
+                          setComboboxOpen(false);
+                        }
+                      }}
+                    />
+                    <CommandList>
+                      <CommandEmpty>
+                        {githubUrl.startsWith('https://github.com/') ? 
+                          "Press Enter to use this URL" : 
+                          "Type a GitHub repository URL"
+                        }
+                      </CommandEmpty>
+                      {gitStatus.repositories && Object.keys(gitStatus.repositories).length > 0 && (
+                        <CommandGroup heading="Current Repositories">
+                          {Object.values(gitStatus.repositories).map((repo: any) => (
+                            <CommandItem
+                              key={repo.id}
+                              value={repo.url}
+                              onSelect={(value) => {
+                                setGithubUrl(value);
+                                setComboboxOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${
+                                  githubUrl === repo.url ? "opacity-100" : "opacity-0"
+                                }`}
+                              />
+                              <div className="flex-1">
+                                <div className="font-medium">{repo.id}</div>
+                                <div className="text-sm text-muted-foreground">{repo.url}</div>
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                      {repositories.length > 0 && (
+                        <CommandGroup heading="Your GitHub Repositories">
+                          {repositories.map((repo) => (
+                            <CommandItem
+                              key={repo.name}
+                              value={repo.url}
+                              onSelect={(value) => {
+                                setGithubUrl(value);
+                                setComboboxOpen(false);
+                              }}
+                            >
+                              <Check
+                                className={`mr-2 h-4 w-4 ${
+                                  githubUrl === repo.url ? "opacity-100" : "opacity-0"
+                                }`}
+                              />
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{repo.fullName || repo.name}</span>
+                                  {repo.private && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      Private
+                                    </Badge>
+                                  )}
+                                </div>
+                                {repo.description ? (
+                                  <div className="text-sm text-muted-foreground">{repo.description}</div>
+                                ) : (
+                                  <div className="text-sm text-muted-foreground">{repo.url}</div>
+                                )}
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      )}
+                      {reposLoading && (
+                        <CommandGroup heading="Loading...">
+                          <div className="flex items-center gap-2 text-muted-foreground p-2">
+                            <RefreshCw className="animate-spin h-4 w-4" />
+                            Loading GitHub repositories...
+                          </div>
+                        </CommandGroup>
+                      )}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <Button
+              onClick={() => handleCheckout(githubUrl)}
+              disabled={!githubUrl || loading}
+              className="mt-6"
+            >
+              {loading ? <RefreshCw className="animate-spin" size={16} /> : 'Checkout'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Current Status */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Current Repository Status</CardTitle>
+              <CardDescription>
+                Active repository and worktree information
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                fetchGitStatus();
+                fetchWorktrees();
+                fetchClaudeSessions();
+              }}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {gitStatus.repositories && Object.keys(gitStatus.repositories).length > 0 ? (
+            <div className="space-y-4">
+              {Object.values(gitStatus.repositories).map((repo: any) => (
+                <div key={repo.id} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-base">{repo.id}</h3>
+                    {repoBranches[repo.id] && repoBranches[repo.id].length > 0 && (
+                      <>
+                        {repoBranches[repo.id].map((branch) => (
+                          <Badge 
+                            key={branch} 
+                            variant="secondary" 
+                            className="text-xs cursor-pointer hover:bg-secondary/80"
+                            onClick={() => window.open(`${repo.url}/tree/${branch}`, '_blank')}
+                          >
+                            {branch}
+                          </Badge>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                  <div className="mt-2">
+                    <div className="inline-flex items-center gap-2 p-2 bg-muted rounded text-sm font-mono">
+                      <code className="text-muted-foreground">
+                        git remote add catnip {window.location.origin}/{repo.id.split('/')[1]}.git
+                      </code>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          const command = `git remote add catnip ${window.location.origin}/${repo.id.split('/')[1]}.git`;
+                          navigator.clipboard.writeText(command);
+                        }}
+                        className="h-6 w-6 p-0"
+                      >
+                        <Copy size={12} />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div className="border-t pt-2">
+                <p className="text-xs text-muted-foreground">
+                  Total repositories: {Object.keys(gitStatus.repositories).length} | 
+                  Total worktrees: {gitStatus.worktree_count || 0}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-muted-foreground">No repositories checked out</p>
           )}
         </CardContent>
       </Card>
