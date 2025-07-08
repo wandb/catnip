@@ -70,9 +70,17 @@ func (s *Settings) restoreFromVolume() {
 		}
 	}
 	
-	// Files to restore with new structure
-	// Note: .credentials.json is still in the nested .claude/.claude/ from old structure for now
+	// Create nested directory for credentials
 	volumeClaudeNestedDir := filepath.Join(volumeClaudeDir, ".claude")
+	if err := os.MkdirAll(volumeClaudeNestedDir, 0755); err != nil {
+		log.Printf("❌ Failed to create nested volume directory %s: %v", volumeClaudeNestedDir, err)
+	} else {
+		if err := os.Chown(volumeClaudeNestedDir, 1000, 1000); err != nil {
+			log.Printf("⚠️  Failed to chown nested volume directory %s: %v", volumeClaudeNestedDir, err)
+		}
+	}
+	
+	// Files to restore - only restore if home file doesn't exist
 	files := []struct {
 		volumePath string
 		filename   string
@@ -89,6 +97,12 @@ func (s *Settings) restoreFromVolume() {
 		
 		// Check if file exists in volume
 		if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+			continue
+		}
+		
+		// Check if destination file already exists - if so, don't overwrite
+		if _, err := os.Stat(file.destPath); err == nil {
+			log.Printf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
 			continue
 		}
 		
@@ -278,7 +292,7 @@ func (s *Settings) checkAndSyncFiles() {
 		volumeDir  string
 		destName   string
 	}{
-		{filepath.Join(s.homePath, ".claude", ".credentials.json"), filepath.Join(s.volumePath, ".claude"), ".credentials.json"},
+		{filepath.Join(s.homePath, ".claude", ".credentials.json"), filepath.Join(s.volumePath, ".claude", ".claude"), ".credentials.json"},
 		{filepath.Join(s.homePath, ".claude.json"), filepath.Join(s.volumePath, ".claude"), "claude.json"},
 		{filepath.Join(s.homePath, ".config", "gh", "config.yml"), filepath.Join(s.volumePath, ".github"), "config.yml"},
 		{filepath.Join(s.homePath, ".config", "gh", "hosts.yml"), filepath.Join(s.volumePath, ".github"), "hosts.yml"},
