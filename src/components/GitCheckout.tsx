@@ -30,23 +30,37 @@ export function GitCheckout() {
     }
 
     // Parse path to extract org/repo and optional branch
-    const pathParts = path.split('/');
+    // Support both /gh/org/repo@branch and /gh/org/repo?branch=branch formats
+    let pathWithoutBranch = path;
+    let branchFromPath = '';
+    
+    // Check for @branch syntax
+    if (path.includes('@')) {
+      const atIndex = path.lastIndexOf('@');
+      pathWithoutBranch = path.substring(0, atIndex);
+      branchFromPath = path.substring(atIndex + 1);
+    }
+    
+    const pathParts = pathWithoutBranch.split('/');
     if (pathParts.length < 2) {
-      setError('Invalid repository format. Expected: owner/repo');
+      setError('Invalid repository format. Expected: owner/repo or owner/repo@branch');
       setStatus('error');
       return;
     }
 
     const org = pathParts[0];
     const repo = pathParts.slice(1).join('/');
-    const branch = new URLSearchParams(window.location.search).get('branch') || '';
+    
+    // Branch from @syntax takes precedence over query param
+    const branch = branchFromPath || new URLSearchParams(window.location.search).get('branch') || '';
 
     performCheckout(org, repo, branch);
   }, [path]);
 
   const performCheckout = async (org: string, repo: string, branch: string) => {
     try {
-      setProgress(`Checking out ${org}/${repo}...`);
+      const repoDisplay = branch ? `${org}/${repo}@${branch}` : `${org}/${repo}`;
+      setProgress(`Checking out ${repoDisplay}...`);
       
       const url = branch 
         ? `/v1/git/checkout/${org}/${repo}?branch=${branch}`
