@@ -3,9 +3,8 @@ package handlers
 import (
 	"log"
 	"net/url"
-	
+
 	"github.com/gofiber/fiber/v2"
-	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
 

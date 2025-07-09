@@ -47,6 +47,9 @@ type Session struct {
 	// Terminal dimensions
 	cols uint16
 	rows uint16
+	// Buffered dimensions - the size when buffer was captured
+	bufferedCols uint16
+	bufferedRows uint16
 	// WebSocket write protection
 	writeMutex sync.Mutex
 }
@@ -116,20 +119,8 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	session.connections[conn] = true
 	session.connMutex.Unlock()
 
-	// Replay buffered output to new connection
-	session.bufferMutex.RLock()
-	if len(session.outputBuffer) > 0 {
-		log.Printf("📋 Replaying %d bytes of buffered output to new connection", len(session.outputBuffer))
-		bufferCopy := make([]byte, len(session.outputBuffer))
-		copy(bufferCopy, session.outputBuffer)
-		session.bufferMutex.RUnlock()
-		
-		if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferCopy); err != nil {
-			log.Printf("❌ Failed to replay buffer: %v", err)
-		}
-	} else {
-		session.bufferMutex.RUnlock()
-	}
+	// Don't replay buffer immediately - wait for client ready signal
+	// This prevents race conditions with PTY state
 
 	// Channel to signal when connection should close
 	done := make(chan struct{})
@@ -177,10 +168,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
 					log.Printf("🔄 PTY closed (shell exited: %v), creating new session...", err)
 					
-					// Notify all connections that shell has exited
-					session.broadcastToConnections(websocket.TextMessage, []byte("\r\n\x1b[33m[Shell exited, starting new session...]\x1b[0m\r\n"))
-					
-					// Create new PTY
+					// Create new PTY (this will clear the buffer)
 					h.recreateSession(session)
 					
 					// Continue reading from new PTY
@@ -190,14 +178,12 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				return
 			}
 			
-			// Add to buffer (with size limit)
+			// Add to buffer (unlimited growth for TUI compatibility)
 			session.bufferMutex.Lock()
 			session.outputBuffer = append(session.outputBuffer, buf[:n]...)
-			if len(session.outputBuffer) > session.maxBufferSize {
-				// Keep only the last maxBufferSize bytes
-				excess := len(session.outputBuffer) - session.maxBufferSize
-				session.outputBuffer = session.outputBuffer[excess:]
-			}
+			// Update buffered dimensions to current terminal size
+			session.bufferedCols = session.cols
+			session.bufferedRows = session.rows
 			session.bufferMutex.Unlock()
 			
 			// Check if connection is still valid before writing
@@ -229,6 +215,60 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				case "reset":
 					log.Printf("🔄 Reset command received for session: %s", sessionID)
 					h.recreateSession(session)
+					continue
+				case "ready":
+					log.Printf("🎯 Client ready signal received")
+					
+					// Get buffer info
+					session.bufferMutex.RLock()
+					hasBuffer := len(session.outputBuffer) > 0
+					bufferCols := session.bufferedCols
+					bufferRows := session.bufferedRows
+					session.bufferMutex.RUnlock()
+					
+					if hasBuffer && bufferCols > 0 && bufferRows > 0 {
+						// First, resize PTY to match buffered dimensions
+						log.Printf("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
+						h.resizePTY(session.PTY, bufferCols, bufferRows)
+						
+						// Tell client what size to use for replay
+						sizeMsg := struct {
+							Type string `json:"type"`
+							Cols uint16 `json:"cols"`
+							Rows uint16 `json:"rows"`
+						}{
+							Type: "buffer-size",
+							Cols: bufferCols,
+							Rows: bufferRows,
+						}
+						
+						if data, err := json.Marshal(sizeMsg); err == nil {
+							session.writeToConnection(conn, websocket.TextMessage, data)
+						}
+						
+						// Then replay the buffer
+						session.bufferMutex.RLock()
+						log.Printf("📋 Replaying %d bytes of buffered output at %dx%d", len(session.outputBuffer), bufferCols, bufferRows)
+						bufferCopy := make([]byte, len(session.outputBuffer))
+						copy(bufferCopy, session.outputBuffer)
+						session.bufferMutex.RUnlock()
+						
+						if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferCopy); err != nil {
+							log.Printf("❌ Failed to replay buffer: %v", err)
+						}
+					} else {
+						log.Printf("📋 No buffer to replay or dimensions not captured")
+					}
+					// Always send buffer complete signal
+					completeMsg := struct {
+						Type string `json:"type"`
+					}{
+						Type: "buffer-complete",
+					}
+					
+					if data, err := json.Marshal(completeMsg); err == nil {
+						session.writeToConnection(conn, websocket.TextMessage, data)
+					}
 					continue
 				}
 			}
@@ -381,9 +421,11 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		Agent:         agent,
 		connections:   make(map[*websocket.Conn]bool),
 		outputBuffer:  make([]byte, 0),
-		maxBufferSize: 32 * 1024, // 32KB buffer
+		maxBufferSize: 5 * 1024 * 1024, // 5MB buffer
 		cols:          80,
 		rows:          24,
+		bufferedCols:  80,
+		bufferedRows:  24,
 	}
 
 	h.sessions[sessionID] = session
@@ -527,7 +569,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	session.PTY = ptmx
 	session.Cmd = cmd
 
-	// Clear the output buffer for fresh start
+	// Clear the output buffer on shell restart - no history between restarts
 	session.bufferMutex.Lock()
 	session.outputBuffer = make([]byte, 0)
 	session.bufferMutex.Unlock()

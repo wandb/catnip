@@ -41,7 +41,7 @@ export class FileDropAddon implements IDisposable {
   }
 
   private _setupEventHandlers(): void {
-    if (!this._terminal || !this._terminal.element) {
+    if (!this._terminal?.element) {
       return
     }
 

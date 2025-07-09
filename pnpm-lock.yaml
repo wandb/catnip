@@ -62,6 +62,9 @@ importers:
       react-dom:
         specifier: ^19.1.0
         version: 19.1.0(react@19.1.0)
+      react-xtermjs:
+        specifier: ^1.0.10
+        version: 1.0.10(@xterm/xterm@5.5.0)
       tailwind-merge:
         specifier: ^3.3.1
         version: 3.3.1
@@ -2351,6 +2354,11 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  react-xtermjs@1.0.10:
+    resolution: {integrity: sha512-+xpKEKbmsypWzRKE0FR1LNIGcI8gx+R6VMHe8IQW7iTbgeqp3Qg7SbiVNOzR+Ovb1QK4DPA3KqsIQV+XP0iRUA==}
+    peerDependencies:
+      '@xterm/xterm': ^5.5.0
 
   react@19.1.0:
     resolution: {integrity: sha512-FS+XFBNvn3GTAWq26joslQgWNoFu08F4kl0J4CgdNKADkdSGXQyTCnKteIAJy96Br6YbpEU1LSzV5dYtjMkMDg==}
@@ -4773,6 +4781,10 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@types/react': 19.1.8
+
+  react-xtermjs@1.0.10(@xterm/xterm@5.5.0):
+    dependencies:
+      '@xterm/xterm': 5.5.0
 
   react@19.1.0: {}
 

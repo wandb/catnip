@@ -16,7 +16,7 @@ interface CheckoutResponse {
 }
 
 export function GitCheckout() {
-  const { '*': path } = useParams({ from: '/gh/$' });
+  const { _splat: path } = useParams({ from: '/gh/$' });
   const navigate = useNavigate({ from: '/gh/$' });
   const [status, setStatus] = useState<'loading' | 'error' | 'success'>('loading');
   const [error, setError] = useState<string>('');

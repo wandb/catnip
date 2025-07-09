@@ -2,13 +2,14 @@ import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { WebSocketProvider, useWebSocket } from "@/lib/websocket-context";
 import { useState, useEffect, useRef } from "react";
-import { Home, Terminal, Settings, RotateCcw, Github, GitBranch } from "lucide-react";
+import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 
 function RootLayout() {
   const { isConnected } = useWebSocket();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleReset = () => {
@@ -44,8 +45,89 @@ function RootLayout() {
   return (
     <>
       <div className="min-h-screen bg-background">
-        {/* Vertical Sidebar - Fixed Position */}
-        <nav className="fixed top-0 left-0 w-16 h-full bg-[#1a1a1a] flex flex-col z-50">
+        {/* Mobile Header - Only visible on small screens */}
+        <header className="md:hidden fixed top-0 left-0 right-0 h-14 bg-[#1a1a1a] flex items-center justify-between px-4 border-b border-gray-800 z-50">
+          {/* Logo with Connection Status */}
+          <div className="flex items-center gap-3">
+            <Link to="/" className="flex items-center relative">
+              <img src="/logo@2x.png" alt="Catnip Logo" className="w-8 h-8" />
+              {/* Connection Status */}
+              <div
+                className={`absolute -top-1 -right-1 h-2 w-2 rounded-full ${
+                  isConnected
+                    ? "bg-green-500 shadow-green-500/50 animate-pulse"
+                    : "bg-red-500"
+                }`}
+                title={isConnected ? "Connected" : "Disconnected"}
+              />
+            </Link>
+            <span className="text-sm font-medium text-gray-200">Catnip</span>
+          </div>
+          
+          {/* Mobile menu button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 text-muted-foreground hover:text-primary-foreground transition-colors"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </header>
+
+        {/* Mobile Menu Overlay */}
+        {mobileMenuOpen && (
+          <div className="md:hidden fixed inset-0 z-40 bg-black/50" onClick={() => setMobileMenuOpen(false)}>
+            <div className="fixed top-14 right-0 w-64 h-full bg-[#1a1a1a] border-l border-gray-800">
+              <div className="flex flex-col p-4 space-y-2">
+                <Link
+                  to="/"
+                  className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <Home size={20} />
+                  <span>Home</span>
+                </Link>
+                <Link
+                  to="/terminal"
+                  className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <Terminal size={20} />
+                  <span>Terminal</span>
+                </Link>
+                <Link
+                  to="/git"
+                  className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <GitBranch size={20} />
+                  <span>Git</span>
+                </Link>
+                
+                <div className="border-t border-gray-700 my-2" />
+                
+                <button
+                  onClick={() => { handleGitHubLogin(); setMobileMenuOpen(false); }}
+                  className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded text-left w-full"
+                >
+                  <Github size={20} />
+                  <span>GitHub Login</span>
+                </button>
+                
+                <button
+                  onClick={() => { handleReset(); setMobileMenuOpen(false); }}
+                  className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded text-left w-full"
+                  disabled={!isConnected}
+                >
+                  <RotateCcw size={20} />
+                  <span>Reset Terminal</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Desktop Vertical Sidebar - Hidden on mobile */}
+        <nav className="hidden md:flex fixed top-0 left-0 w-16 h-full bg-[#1a1a1a] flex-col z-50">
           {/* Cat Logo with Connection Status */}
           <div className="flex items-center justify-center h-16 border-b border-gray-800 relative">
             <Link to="/" className="text-2xl">
@@ -124,9 +206,11 @@ function RootLayout() {
           </div>
         </nav>
 
-        {/* Main Content - With left margin for fixed sidebar */}
-        <main className="ml-16">
-          <Outlet />
+        {/* Main Content - Responsive margins and height */}
+        <main className="h-screen pt-14 md:pt-0 md:ml-16">
+          <div className="h-full">
+            <Outlet />
+          </div>
         </main>
       </div>
       

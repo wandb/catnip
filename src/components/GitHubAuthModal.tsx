@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, Copy, ExternalLink, CheckCircle2, XCircle, Github } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Loader2, Copy, CheckCircle2, XCircle, Github } from 'lucide-react'
 
 interface GitHubAuthModalProps {
   open: boolean

@@ -1,398 +1,340 @@
-import { createFileRoute, useSearch, useParams } from '@tanstack/react-router'
-import { useEffect, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
-import { WebglAddon } from '@xterm/addon-webgl'
-import { useWebSocket } from '@/lib/websocket-context'
-import { FileDropAddon } from '@/lib/file-drop-addon'
-import '@xterm/xterm/css/xterm.css'
+import { createFileRoute, useSearch, useParams } from "@tanstack/react-router";
+import { useEffect, useRef, useCallback, useState } from "react";
+import { useXTerm } from "react-xtermjs";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { useWebSocket as useWebSocketContext } from "@/lib/websocket-context";
+import { FileDropAddon } from "@/lib/file-drop-addon";
 
+// TODO: What a cluster fuck.  It's working reasonable well now.  Please clean this awful shit up.
 function TerminalPage() {
-  const search = useSearch({ from: '/terminal/$sessionId' })
-  const params = useParams({ from: '/terminal/$sessionId' })
-  const terminalRef = useRef<HTMLDivElement>(null)
-  const terminal = useRef<Terminal | null>(null)
-  const fitAddon = useRef<FitAddon | null>(null)
-  const ws = useRef<WebSocket | null>(null)
-  const { setIsConnected } = useWebSocket()
-  const [fontLoaded, setFontLoaded] = useState(false)
-  const messageBuffer = useRef<(string | Uint8Array)[]>([])
-  const isTerminalReady = useRef(false)
+  const search = useSearch({
+    from: "/terminal/$sessionId",
+  }) as any;
+  const params = useParams({ from: "/terminal/$sessionId" });
+  const { instance, ref } = useXTerm();
+  const { setIsConnected } = useWebSocketContext();
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsReady = useRef(false);
+  const terminalReady = useRef(false);
+  const bufferingRef = useRef(false);
+  const isSetup = useRef(false);
+  const fitAddon = useRef<FitAddon | null>(null);
+  const webLinksAddon = useRef<WebLinksAddon | null>(null);
+  const renderAddon = useRef<WebglAddon | null>(null);
+  const resizeTimeout = useRef<number | null>(null);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
 
-  // Function to send reset command
-  const resetTerminal = () => {
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      const resetMsg = { type: 'reset' }
-      ws.current.send(JSON.stringify(resetMsg))
+  // Send ready signal when both WebSocket and terminal are ready
+  const sendReadySignal = useCallback(() => {
+    if (!wsReady.current || !wsRef.current || !fitAddon.current) {
+      console.log("🔍 Not sending ready signal");
+      return;
     }
-  }
+    console.log("🎯 Sending ready signal");
+    wsRef.current.send(JSON.stringify({ type: "ready" }));
+  }, []);
 
-  // Expose reset function globally for navbar access
+  const fontSize = useCallback((element: Element) => {
+    if (element.clientWidth < 400) {
+      return 6;
+    } else if (element.clientWidth < 600 || element.clientHeight < 400) {
+      return 10;
+    } else {
+      return 14;
+    }
+  }, []);
+
+  // Reset state when sessionId changes
   useEffect(() => {
-    ;(window as any).resetTerminal = resetTerminal
-    return () => {
-      delete (window as any).resetTerminal
-    }
-  }, [])
+    isSetup.current = false;
+    wsReady.current = false;
+    terminalReady.current = false;
+    bufferingRef.current = false;
 
-  // Track search params for reconnection when they change
-  const searchKey = JSON.stringify(search)
-  
-  // Log when search params change for debugging
-  useEffect(() => {
-    console.log('Search params changed:', search)
-  }, [searchKey])
-
-  // Font loading detection
-  useEffect(() => {
-    const checkFont = async () => {
-      try {
-        if ('fonts' in document) {
-          await document.fonts.ready
-          
-          // Test if the font is actually working by measuring character width
-          const testElement = document.createElement('span')
-          testElement.style.fontFamily = '"FiraCode Nerd Font Mono", monospace'
-          testElement.style.fontSize = '14px'
-          testElement.style.visibility = 'hidden'
-          testElement.style.position = 'absolute'
-          testElement.textContent = '█' // Box character to test
-          document.body.appendChild(testElement)
-          
-          // Wait a bit for font to render
-          setTimeout(() => {
-            const rect = testElement.getBoundingClientRect()
-            const hasProperWidth = rect.width > 0
-            document.body.removeChild(testElement)
-            setFontLoaded(hasProperWidth)
-          }, 100)
-        } else {
-          // Fallback: assume font is loaded after a delay
-          setTimeout(() => setFontLoaded(true), 1000)
-        }
-      } catch (error) {
-        console.warn('Font loading detection failed:', error)
-        setFontLoaded(true)
-      }
+    // Close existing WebSocket if any
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
-    
-    checkFont()
-  }, [])
-
-  // HMR detection and cleanup
-  useEffect(() => {
-    const handleHMR = () => {
-      console.log('HMR detected, reinitializing terminal...')
-      // Clear terminal and reset state
-      if (terminal.current) {
-        terminal.current.clear()
-        isTerminalReady.current = false
-        messageBuffer.current = []
-        // Force re-fit after HMR
-        setTimeout(() => {
-          if (fitAddon.current) {
-            fitAddon.current.fit()
-          }
-        }, 100)
-      }
-    }
-
-    // Listen for Vite HMR events
-    if (import.meta.hot) {
-      import.meta.hot.on('vite:beforeUpdate', handleHMR)
-      return () => {
-        import.meta.hot?.off('vite:beforeUpdate', handleHMR)
-      }
-    }
-  }, [])
+  }, [params.sessionId]);
 
   useEffect(() => {
-    // Don't initialize terminal until font is loaded
-    if (!fontLoaded) return
-
-    // Clear existing connection and terminal when search params change
-    if (ws.current) {
-      ws.current.close(1000, 'URL changed')
-      ws.current = null
-      setIsConnected(false)
+    if (wsReady.current && dims) {
+      console.log("🔍 Sending resize to WebSocket", dims);
+      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
     }
-    
-    // Clear terminal content if it exists
-    if (terminal.current) {
-      terminal.current.clear()
+  }, [dims, wsReady.current]);
+
+  // Set up terminal when instance and ref become available
+  useEffect(() => {
+    if (!instance || !ref.current) {
+      return;
     }
 
-    // Reset state
-    isTerminalReady.current = false
-    messageBuffer.current = []
-
-    // Initialize terminal if it doesn't exist
-    if (!terminal.current && terminalRef.current) {
-      // Create terminal instance
-      terminal.current = new Terminal({
-        cursorBlink: search.agent !== 'claude',
-        fontSize: 14,
-        fontFamily: '"FiraCode Nerd Font Mono", "Fira Code", "JetBrains Mono", Monaco, Consolas, monospace',
-        theme: {
-          background: '#0a0a0a',
-          foreground: '#e2e8f0',
-          cursor: search.agent === 'claude' ? '#0a0a0a' : '#00ff95',
-          cursorAccent: search.agent === 'claude' ? '#0a0a0a' : '#00ff95',
-          selectionBackground: '#333333',
-          black: '#0a0a0a',
-          red: '#fc8181',
-          green: '#68d391',
-          yellow: '#f6e05e',
-          blue: '#63b3ed',
-          magenta: '#d6bcfa',
-          cyan: '#4fd1c7',
-          white: '#e2e8f0',
-          brightBlack: '#4a5568',
-          brightRed: '#fc8181',
-          brightGreen: '#68d391',
-          brightYellow: '#f6e05e',
-          brightBlue: '#63b3ed',
-          brightMagenta: '#d6bcfa',
-          brightCyan: '#4fd1c7',
-          brightWhite: '#f7fafc',
-        },
-        allowProposedApi: true,
-        scrollback: 10000,
-        altClickMovesCursor: false,
-        scrollSensitivity: 1,
-        fastScrollSensitivity: 10,
-        scrollOnUserInput: false,
-        smoothScrollDuration: 0,
-        rightClickSelectsWord: false,
-        disableStdin: false,
-      })
-
-      // Create addons
-      fitAddon.current = new FitAddon()
-      const webLinksAddon = new WebLinksAddon()
-      
-      // Create file drop addon with WebSocket sender
-      const sendData = (data: string) => {
-        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-          ws.current.send(data)
-        }
-      }
-      const fileDropAddon = new FileDropAddon(sendData)
-
-      // Load addons
-      terminal.current.loadAddon(fitAddon.current)
-      terminal.current.loadAddon(webLinksAddon)
-      terminal.current.loadAddon(fileDropAddon)
-      
-      // Try to load WebGL addon for better performance
-      try {
-        const webglAddon = new WebglAddon()
-        terminal.current.loadAddon(webglAddon)
-        console.log('WebGL addon loaded successfully')
-      } catch (error) {
-        console.warn('WebGL addon failed to load, falling back to canvas:', error)
-      }
+    // Only set up once per session
+    if (isSetup.current) {
+      console.log("🔍 Terminal already setup, skipping");
+      return;
     }
 
-    const terminalInstance = terminal.current
-    const fitAddonInstance = fitAddon.current
-
-    // Open terminal in DOM element if not already opened
-    if (terminalRef.current && terminalInstance && !terminalInstance.element) {
-      terminalInstance.open(terminalRef.current)
-      
-      // Wait a bit for terminal to be fully ready, then fit
-      setTimeout(() => {
-        fitAddonInstance?.fit()
-        isTerminalReady.current = true
-        
-        // Process any buffered messages
-        if (messageBuffer.current.length > 0) {
-          messageBuffer.current.forEach(data => {
-            if (terminalInstance) {
-              terminalInstance.write(data)
-            }
-          })
-          messageBuffer.current = []
-        }
-      }, 50)
-    }
+    isSetup.current = true;
+    instance.clear();
 
     // Set up WebSocket connection
-    let reconnectTimeout: number | null = null
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const urlParams = new URLSearchParams();
+    if (params.sessionId) {
+      urlParams.set("session", params.sessionId);
+    }
+    if (search.agent) {
+      urlParams.set("agent", String(search.agent));
+    }
+    const socketUrl = `${protocol}//${
+      window.location.host
+    }/v1/pty?${urlParams.toString()}`;
 
-    const connectWebSocket = () => {
-      // Clean up any existing connection
-      if (ws.current) {
-        ws.current.close(1000, 'Reconnecting')
-        ws.current = null
-      }
+    console.log("🔗 Connecting to WebSocket:", socketUrl);
+    const ws = new WebSocket(socketUrl);
+    wsRef.current = ws;
+    const buffer: Uint8Array[] = [];
 
-      // Clear terminal on reconnection
-      if (terminal.current) {
-        terminal.current.clear()
-      }
+    ws.onopen = () => {
+      console.log("✅ WebSocket connected");
+      setIsConnected(true);
+      wsReady.current = true;
+      sendReadySignal();
+    };
 
-      // Clear any pending reconnection
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout)
-        reconnectTimeout = null
-      }
+    ws.onclose = () => {
+      console.log("🔌 WebSocket disconnected");
+      setIsConnected(false);
+    };
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const urlParams = new URLSearchParams()
-      
-      // Add session parameter if available
-      if (params.sessionId) {
-        urlParams.set('session', params.sessionId)
-      }
-      
-      // Add agent parameter if available
-      if (search.agent) {
-        urlParams.set('agent', search.agent)
-      }
-      
-      const wsUrl = `${protocol}//${window.location.host}/v1/pty${urlParams.toString() ? '?' + urlParams.toString() : ''}`
-      
-      ws.current = new WebSocket(wsUrl)
-      ws.current.binaryType = 'arraybuffer'
+    ws.onerror = (error) => {
+      console.error("❌ WebSocket error:", error);
+      setIsConnected(false);
+    };
 
-      ws.current.onopen = () => {
-        setIsConnected(true)
-        
-        // Send terminal size after connection
-        if (terminal.current) {
-          const resizeMsg = {
-            cols: terminal.current.cols,
-            rows: terminal.current.rows
-          }
-          ws.current?.send(JSON.stringify(resizeMsg))
-          
-          // Focus the terminal for input
-          terminal.current.focus()
+    ws.onmessage = async (event) => {
+      let data: string | Uint8Array | undefined;
+      let rePaint = () => {
+        fitAddon.current?.fit();
+        console.log("✅ Buffer replay complete, fitting terminal");
+        fitAddon.current?.fit();
+      };
+      // Handle both binary and text data
+      if (event.data instanceof ArrayBuffer) {
+        if (bufferingRef.current) {
+          console.log("🔍 Buffering ArrayBuffer", event.data.byteLength);
+          buffer.push(new Uint8Array(event.data));
+          return;
+        } else {
+          data = new Uint8Array(event.data);
         }
-      }
-
-      ws.current.onmessage = (event) => {
-        if (terminal.current) {
-          let data: string | Uint8Array
-          
-          // Handle both binary and text data
-          if (event.data instanceof ArrayBuffer) {
-            data = new Uint8Array(event.data)
-          } else if (typeof event.data === 'string') {
-            // Check if this is the shell exit message
-            if (event.data.includes('[Shell exited, starting new session...]')) {
-              // Clear the terminal before writing the message
-              terminal.current.clear()
-              isTerminalReady.current = true // Reset ready state
+      } else if (typeof event.data === "string") {
+        // Try to parse as JSON for control messages
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "buffer-size") {
+            console.log(
+              `📐 Server wants terminal at ${msg.cols}x${msg.rows} for buffer replay`
+            );
+            // Resize terminal to match buffer dimensions
+            if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
+              instance.resize(msg.cols, msg.rows);
             }
-            data = event.data
-          } else {
-            return
+            //instance.refresh(0, msg.rows - 1);
+            bufferingRef.current = true;
+            return;
+          } else if (msg.type === "buffer-complete") {
+            // Now fit to actual window size and send resize
+            console.log("🔍 Terminal ready");
+            terminalReady.current = true;
+            return;
           }
+        } catch (e) {
+          // Not JSON, treat as regular text
+        }
+        // Check if this is the shell exit message
+        if (event.data.includes("[Shell exited, starting new session...]")) {
+          // Clear the terminal before writing the message
+          instance.clear();
+        }
+        data = event.data;
+      } else if (event.data instanceof Blob) {
+        const arrayBuffer = await event.data.arrayBuffer();
+        if (bufferingRef.current) {
+          console.log(
+            "🔍 Buffering blob, claude?",
+            search.agent,
+            arrayBuffer.byteLength
+          );
+          buffer.push(new Uint8Array(arrayBuffer));
+          // TODO: this assumes there's one buffer message :(
+          bufferingRef.current = false;
+        } else {
+          data = new Uint8Array(arrayBuffer);
+        }
+      } else {
+        return;
+      }
 
-          // Buffer messages if terminal isn't ready yet
-          if (!isTerminalReady.current) {
-            messageBuffer.current.push(data)
-          } else {
-            terminal.current.write(data)
+      if (!bufferingRef.current && buffer.length > 0) {
+        console.log(
+          "🔍 Writing buffer and calling repaint",
+          instance.cols,
+          instance.rows
+        );
+        rePaint();
+        for (const chunk of buffer) {
+          instance.write(chunk);
+        }
+        buffer.length = 0;
+      }
+      if (data) {
+        console.log(
+          "🔍 Writing data",
+          data.length,
+          instance.cols,
+          instance.rows
+        );
+        instance.write(data);
+      }
+    };
+
+    // Configure terminal options
+    if (instance.options) {
+      instance.options.fontFamily =
+        '"FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", "monospace"';
+      instance.options.fontSize = fontSize(ref.current);
+      instance.options.theme = {
+        background: "#0a0a0a",
+        foreground: "#e2e8f0",
+        cursor: search.agent === "claude" ? "#0a0a0a" : "#00ff95",
+        cursorAccent: search.agent === "claude" ? "#0a0a0a" : "#00ff95",
+        selectionBackground: "#333333",
+        black: "#0a0a0a",
+        red: "#fc8181",
+        green: "#68d391",
+        yellow: "#f6e05e",
+        blue: "#63b3ed",
+        magenta: "#d6bcfa",
+        cyan: "#4fd1c7",
+        white: "#e2e8f0",
+        brightBlack: "#4a5568",
+        brightRed: "#fc8181",
+        brightGreen: "#68d391",
+        brightYellow: "#f6e05e",
+        brightBlue: "#63b3ed",
+        brightMagenta: "#d6bcfa",
+        brightCyan: "#4fd1c7",
+        brightWhite: "#f7fafc",
+      };
+      instance.options.cursorBlink = search.agent !== "claude";
+      instance.options.scrollback = 10000;
+      instance.options.allowProposedApi = true;
+      instance.options.drawBoldTextInBrightColors = false;
+      instance.options.fontWeight = "normal";
+      instance.options.fontWeightBold = "bold";
+      instance.options.letterSpacing = 0;
+      instance.options.lineHeight = 1.0;
+    }
+
+    // Create addons
+    fitAddon.current = new FitAddon();
+    webLinksAddon.current = new WebLinksAddon();
+
+    // Load addons
+    instance.loadAddon(fitAddon.current);
+    instance.loadAddon(webLinksAddon.current);
+
+    try {
+      renderAddon.current = new WebglAddon();
+      instance.loadAddon(renderAddon.current);
+    } catch (error) {
+      console.warn("Render addon failed to load:", error);
+    }
+
+    // Set up FileDropAddon
+    const sendData = (data: string) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    };
+    const fileDropAddon = new FileDropAddon(sendData);
+    instance.loadAddon(fileDropAddon);
+
+    instance.onResize((event) => {
+      setDims({ cols: event.cols, rows: event.rows });
+    });
+
+    // Open terminal in DOM element
+    instance.open(ref.current);
+
+    // Set up resize observer before sending ready signal
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (resizeTimeout.current) {
+        clearTimeout(resizeTimeout.current);
+      }
+
+      resizeTimeout.current = window.setTimeout(() => {
+        if (fitAddon.current && instance) {
+          // Update font size based on screen width
+          const newFontSize = fontSize(entries[0].target);
+          if (instance.options.fontSize !== newFontSize) {
+            instance.options.fontSize = newFontSize;
+          }
+          console.log("🔍 Resizing terminal?:", terminalReady.current);
+          // Send resize to WebSocket
+          if (terminalReady.current) {
+            fitAddon.current?.fit();
           }
         }
+      }, 250);
+    });
+
+    const disposer = instance?.onData((data: string) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
       }
+    });
 
-      ws.current.onclose = (event) => {
-        setIsConnected(false)
-        // Only reconnect if we haven't been cleaned up and it wasn't a normal close
-        if (ws.current !== null && event.code !== 1000) {
-          reconnectTimeout = window.setTimeout(connectWebSocket, 3000)
-        }
-      }
+    // Mark terminal as ready and try to send ready signal
+    sendReadySignal();
 
-      ws.current.onerror = () => {
-        setIsConnected(false)
-      }
-    }
+    resizeObserver.observe(ref.current);
+    observerRef.current = resizeObserver;
 
-    // Set up terminal input handler
-    if (terminalInstance && !(terminalInstance as any)._onDataHandlerSet) {
-      const onDataHandler = (data: string) => {
-        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-          ws.current.send(data)
-        }
-      }
-      
-      terminalInstance.onData(onDataHandler)
-      ;(terminalInstance as any)._onDataHandlerSet = true
-    }
-
-    // Handle window resize
-    const handleResize = () => {
-      if (fitAddon.current) {
-        fitAddon.current.fit()
-      }
-    }
-
-    window.addEventListener('resize', handleResize)
-    
-    // Connect WebSocket if terminal is ready
-    if (terminalInstance && terminalInstance.element) {
-      connectWebSocket()
-    }
-
-    // Cleanup function
+    // Cleanup function - dispose of addons when component unmounts
     return () => {
-      window.removeEventListener('resize', handleResize)
-      
-      // Clear reconnection timeout
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout)
+      disposer?.dispose();
+      fitAddon.current = null;
+      webLinksAddon.current = null;
+      renderAddon.current = null;
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
       }
-      
-      // Close WebSocket
-      if (ws.current) {
-        ws.current.close(1000, 'Component unmounting')
-        ws.current = null
+      if (resizeTimeout.current) {
+        clearTimeout(resizeTimeout.current);
+        resizeTimeout.current = null;
       }
-      
-      // Dispose terminal
-      if (terminal.current) {
-        terminal.current.dispose()
-        terminal.current = null
-      }
-    }
-  }, [searchKey, fontLoaded]) // Reconnect when search params change or font loads
+    };
+  }, [instance, params.sessionId, search.agent, setDims]);
 
   return (
-    <div className="h-screen bg-[#0a0a0a]">
-      <div className="h-full bg-[#0a0a0a] overflow-hidden p-4">
-        {!fontLoaded && (
-          <div className="h-full w-full flex items-center justify-center">
-            <div className="text-gray-400 text-sm">
-              Loading terminal font...
-            </div>
-          </div>
-        )}
-        <div 
-          className="h-full w-full" 
-          ref={terminalRef}
-          style={{
-            minHeight: '400px',
-            minWidth: '600px',
-            visibility: fontLoaded ? 'visible' : 'hidden',
-          }}
-        />
+    <div className="h-full bg-black p-4">
+      {/* Terminal */}
+      <div className="h-full terminal-container">
+        <div ref={ref} className="h-full w-full" />
       </div>
     </div>
-  )
+  );
 }
 
-export const Route = createFileRoute('/terminal/$sessionId')({
+export const Route = createFileRoute("/terminal/$sessionId")({
   component: TerminalPage,
-  validateSearch: (search: Record<string, unknown>) => {
-    return {
-      agent: (search.agent as string) || undefined,
-    }
-  },
-})
+});
