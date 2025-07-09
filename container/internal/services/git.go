@@ -20,7 +20,7 @@ import (
 const (
 	workspaceDir = "/workspace"
 	gitStateDir  = "/workspace/.git-state"
-	devRepoPath  = "/workspace/catnip"
+	devRepoPath  = "/live/catnip"
 )
 
 // Fun session name generation (matches frontend and worker)

@@ -33,8 +33,8 @@ run-dev: build-dev
         --name catnip-dev \
         -v catnip-state:/volume \
         -v ~/.claude/ide:/volume/.claude/ide \
-        -v $(pwd):/workspace/catnip \
-        -v catnip-dev-node-modules:/workspace/catnip/node_modules \
+        -v $(pwd):/live/catnip \
+        -v catnip-dev-node-modules:/live/catnip/node_modules \
         -e CLAUDE_CODE_IDE_HOST_OVERRIDE=host.docker.internal \
         -e CATNIP_SESSION=catnip \
         -e CATNIP_USERNAME=$USER \
@@ -46,8 +46,8 @@ run-dev: build-dev
 test-dev: build-dev
     @echo "🧪 Testing catnip development environment..."
     docker run --rm \
-        -v $(pwd):/workspace/catnip \
-        -v catnip-dev-node-modules:/workspace/catnip/node_modules \
+        -v $(pwd):/live/catnip \
+        -v catnip-dev-node-modules:/live/catnip/node_modules \
         -p 8080:8080 \
         -p 5173:5173 \
         catnip-dev:dev &

@@ -1,6 +1,10 @@
 # Development Dockerfile based on main catnip image
 FROM catnip-dev
 
+# Pre-create live directory and project directory with correct ownership
+RUN mkdir -p /live && chown -R catnip:catnip /live
+RUN mkdir -p /live/catnip/node_modules && chown -R catnip:catnip /live/catnip
+
 # Switch to catnip user for development
 USER catnip
 WORKDIR /workspace
@@ -9,9 +13,6 @@ WORKDIR /workspace
 RUN --mount=type=cache,target=/home/catnip/.cache/go-build,uid=1000,gid=1000 \
     --mount=type=cache,target=/home/catnip/go/pkg/mod,uid=1000,gid=1000 \
     bash -c 'source /etc/profile.d/catnip.sh && go install github.com/air-verse/air@latest'
-
-# Pre-create project directory with correct ownership
-RUN mkdir -p /workspace/catnip/node_modules && chown -R catnip:catnip /workspace/catnip
 
 # Copy development scripts
 COPY --chown=catnip:catnip container/scripts/dev-entrypoint.sh ./dev-entrypoint.sh

@@ -20,7 +20,7 @@ cleanup() {
 trap cleanup SIGTERM SIGINT
 
 # Change to the mounted project directory
-cd /workspace/catnip
+cd /live/catnip
 
 # Install frontend dependencies (will be fast due to pre-warmed cache)
 echo "📦 Installing frontend dependencies..."
@@ -35,7 +35,7 @@ VITE_PID=$!
 sleep 3
 
 # Change to container directory for Go server
-cd /workspace/catnip/container
+cd /live/catnip/container
 
 # Download Go dependencies (will be fast due to pre-warmed cache)
 echo "📦 Installing Go dependencies..."

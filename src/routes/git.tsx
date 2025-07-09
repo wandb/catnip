@@ -204,8 +204,8 @@ function GitPage() {
   const handleCheckout = async (url: string) => {
     setLoading(true);
     try {
-      // Handle dev repo specially
-      if (url === "catnip-dev/dev") {
+      // Handle dev repo specially (both formats)
+      if (url === "catnip-dev/dev" || url.startsWith("file://")) {
         const response = await fetch(`/v1/git/checkout/catnip-dev/dev`, {
           method: "POST",
         });
@@ -216,8 +216,9 @@ function GitPage() {
         } else {
           const errorData = await response.json();
           console.error("Failed to checkout dev repository:", errorData);
+          alert(`Failed to checkout dev repository: ${errorData.error || 'Unknown error'}`);
         }
-      } else {
+      } else if (url.startsWith("https://github.com/")) {
         // Handle regular GitHub repos
         const urlParts = url.replace("https://github.com/", "").split("/");
         if (urlParts.length >= 2) {
@@ -234,11 +235,16 @@ function GitPage() {
           } else {
             const errorData = await response.json();
             console.error("Failed to checkout repository:", errorData);
+            alert(`Failed to checkout repository: ${errorData.error || 'Unknown error'}`);
           }
         }
+      } else {
+        console.error("Unknown URL format:", url);
+        alert(`Unknown repository URL format: ${url}`);
       }
     } catch (error) {
       console.error("Failed to checkout repository:", error);
+      alert(`Failed to checkout repository: ${error}`);
     } finally {
       setLoading(false);
     }
@@ -534,12 +540,14 @@ function GitPage() {
                               key={branch}
                               variant="secondary"
                               className="text-xs cursor-pointer hover:bg-secondary/80"
-                              onClick={() =>
-                                window.open(
-                                  `${repo.url}/tree/${branch}`,
-                                  "_blank"
-                                )
-                              }
+                              onClick={() => {
+                                if (repo.id !== "catnip-dev") {
+                                  window.open(
+                                    `${repo.url}/tree/${branch}`,
+                                    "_blank"
+                                  )
+                                }
+                              }}
                             >
                               {branch}
                             </Badge>
@@ -547,27 +555,29 @@ function GitPage() {
                         </>
                       )}
                   </div>
-                  <div className="mt-2">
-                    <div className="inline-flex items-center gap-2 p-2 bg-muted rounded text-sm font-mono">
-                      <code className="text-muted-foreground">
-                        git remote add catnip {window.location.origin}/
-                        {repo.id.split("/")[1]}.git
-                      </code>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          const url = `${window.location.origin}/${
-                            repo.id.split("/")[1]
-                          }.git`;
-                          copyRemoteCommand(url);
-                        }}
-                        className="h-6 w-6 p-0"
-                      >
-                        <Copy size={12} />
-                      </Button>
+                  {repo.id !== "catnip-dev" && (
+                    <div className="mt-2">
+                      <div className="inline-flex items-center gap-2 p-2 bg-muted rounded text-sm font-mono">
+                        <code className="text-muted-foreground">
+                          git remote add catnip {window.location.origin}/
+                          {repo.id.split("/")[1]}.git
+                        </code>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const url = `${window.location.origin}/${
+                              repo.id.split("/")[1]
+                            }.git`;
+                            copyRemoteCommand(url);
+                          }}
+                          className="h-6 w-6 p-0"
+                        >
+                          <Copy size={12} />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               ))}
               <div className="border-t pt-2">
