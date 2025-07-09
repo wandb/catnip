@@ -150,3 +150,4 @@ func (h *GitHandler) DeleteWorktree(c *fiber.Ctx) error {
 		"id":      worktreeID,
 	})
 }
+

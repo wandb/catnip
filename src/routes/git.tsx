@@ -204,16 +204,37 @@ function GitPage() {
   const handleCheckout = async (url: string) => {
     setLoading(true);
     try {
-      const urlParts = url.replace("https://github.com/", "").split("/");
-      if (urlParts.length >= 2) {
-        const [org, repo] = urlParts;
-        const response = await fetch(`/v1/git/checkout/${org}/${repo}`, {
+      // Handle dev repo specially
+      if (url === "catnip-dev/dev") {
+        const response = await fetch(`/v1/git/checkout/catnip-dev/dev`, {
           method: "POST",
         });
         if (response.ok) {
           fetchGitStatus();
           fetchWorktrees();
           fetchActiveSessions();
+        } else {
+          const errorData = await response.json();
+          console.error("Failed to checkout dev repository:", errorData);
+        }
+      } else {
+        // Handle regular GitHub repos
+        const urlParts = url.replace("https://github.com/", "").split("/");
+        if (urlParts.length >= 2) {
+          const [org, repoWithGit] = urlParts;
+          // Remove .git extension if present
+          const repo = repoWithGit.replace(/\.git$/, "");
+          const response = await fetch(`/v1/git/checkout/${org}/${repo}`, {
+            method: "POST",
+          });
+          if (response.ok) {
+            fetchGitStatus();
+            fetchWorktrees();
+            fetchActiveSessions();
+          } else {
+            const errorData = await response.json();
+            console.error("Failed to checkout repository:", errorData);
+          }
         }
       }
     } catch (error) {

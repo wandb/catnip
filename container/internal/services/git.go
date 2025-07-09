@@ -20,6 +20,7 @@ import (
 const (
 	workspaceDir = "/workspace"
 	gitStateDir  = "/workspace/.git-state"
+	devRepoPath  = "/workspace/catnip"
 )
 
 // Fun session name generation (matches frontend and worker)
@@ -59,6 +60,9 @@ func NewGitService() *GitService {
 	// Load existing state if available
 	s.loadState()
 	
+	// Detect and load the dev repo if it exists
+	s.detectDevRepo()
+	
 	// Commit sync service removed - git worktrees handle synchronization automatically
 	
 	return s
@@ -70,6 +74,12 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 	defer s.mu.Unlock()
 	
 	repoID := fmt.Sprintf("%s/%s", org, repo)
+	
+	// Handle dev repo specially
+	if repoID == "catnip-dev/dev" {
+		return s.handleDevRepoWorktree(branch)
+	}
+	
 	repoURL := fmt.Sprintf("https://github.com/%s/%s.git", org, repo)
 	repoName := strings.ReplaceAll(repo, "/", "-")
 	barePath := filepath.Join(workspaceDir, fmt.Sprintf("%s.git", repoName))
@@ -394,6 +404,22 @@ func (s *GitService) TriggerManualSync() error {
 
 // ListGitHubRepositories returns a list of GitHub repositories accessible to the user
 func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) {
+	var repos []map[string]interface{}
+	
+	// Add dev repository if it exists
+	s.mu.RLock()
+	if _, exists := s.repositories["catnip-dev"]; exists {
+		repos = append(repos, map[string]interface{}{
+			"name":        "catnip-dev",
+			"url":         "catnip-dev/dev", // Special format for dev repo
+			"private":     false,
+			"description": "Development repository (mounted)",
+			"fullName":    "catnip-dev",
+		})
+	}
+	s.mu.RUnlock()
+	
+	// Get GitHub repositories
 	cmd := exec.Command("gh", "repo", "list", "--limit", "100", "--json", "name,url,isPrivate,description,owner")
 	cmd.Env = append(os.Environ(),
 		"HOME=/home/catnip",
@@ -402,16 +428,24 @@ func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) 
 	
 	output, err := cmd.Output()
 	if err != nil {
+		// If GitHub CLI fails, still return dev repo if it exists
+		if len(repos) > 0 {
+			return repos, nil
+		}
 		return nil, fmt.Errorf("failed to list GitHub repositories: %w", err)
 	}
 	
-	var repos []map[string]interface{}
-	if err := json.Unmarshal(output, &repos); err != nil {
+	var githubRepos []map[string]interface{}
+	if err := json.Unmarshal(output, &githubRepos); err != nil {
+		// If parsing fails, still return dev repo if it exists
+		if len(repos) > 0 {
+			return repos, nil
+		}
 		return nil, fmt.Errorf("failed to parse repository list: %w", err)
 	}
 	
-	// Transform the data to match frontend expectations
-	for _, repo := range repos {
+	// Transform the GitHub data to match frontend expectations
+	for _, repo := range githubRepos {
 		// Add full name for display
 		if owner, ok := repo["owner"].(map[string]interface{}); ok {
 			if login, ok := owner["login"].(string); ok {
@@ -427,7 +461,182 @@ func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) 
 		}
 	}
 	
+	// Add GitHub repos to the list
+	repos = append(repos, githubRepos...)
+	
 	return repos, nil
+}
+
+// detectDevRepo checks if the dev repo exists and loads it into the service
+func (s *GitService) detectDevRepo() {
+	// Check if dev repo exists and is a git repository
+	if _, err := os.Stat(devRepoPath); os.IsNotExist(err) {
+		return
+	}
+	
+	if _, err := os.Stat(filepath.Join(devRepoPath, ".git")); os.IsNotExist(err) {
+		return
+	}
+	
+	log.Printf("🔍 Detected dev repository at %s", devRepoPath)
+	
+	// Create repository object for the dev repo
+	repo := &models.Repository{
+		ID:            "catnip-dev",
+		URL:           "file://" + devRepoPath, // Local file URL
+		Path:          devRepoPath,
+		DefaultBranch: s.getDevRepoDefaultBranch(),
+		CreatedAt:     time.Now(),
+		LastAccessed:  time.Now(),
+	}
+	
+	// Add to repositories map
+	s.repositories[repo.ID] = repo
+	
+	log.Printf("✅ Dev repository loaded: %s", repo.ID)
+}
+
+// getDevRepoDefaultBranch gets the current branch of the dev repo
+func (s *GitService) getDevRepoDefaultBranch() string {
+	cmd := exec.Command("git", "-C", devRepoPath, "branch", "--show-current")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("⚠️ Could not get current branch for dev repo, using fallback: main")
+		return "main"
+	}
+	
+	branch := strings.TrimSpace(string(output))
+	if branch == "" {
+		return "main"
+	}
+	
+	return branch
+}
+
+// handleDevRepoWorktree creates a worktree for the dev repo
+func (s *GitService) handleDevRepoWorktree(branch string) (*models.Repository, *models.Worktree, error) {
+	// Get the dev repo from repositories map
+	devRepo, exists := s.repositories["catnip-dev"]
+	if !exists {
+		return nil, nil, fmt.Errorf("dev repository not found - it may not be mounted")
+	}
+	
+	// If no branch specified, use current branch
+	if branch == "" {
+		branch = devRepo.DefaultBranch
+	}
+	
+	// Check if branch exists in the dev repo
+	if !s.devRepoBranchExists(branch) {
+		return nil, nil, fmt.Errorf("branch %s does not exist in dev repository", branch)
+	}
+	
+	// Create new worktree with fun name
+	funName := generateSessionName()
+	
+	// Create worktree for dev repo
+	worktree, err := s.createDevRepoWorktree(devRepo, branch, funName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create worktree for dev repo: %v", err)
+	}
+	
+	// Save state
+	s.saveState()
+	
+	log.Printf("✅ Dev repo worktree created: %s", worktree.Name)
+	return devRepo, worktree, nil
+}
+
+// devRepoBranchExists checks if a branch exists in the dev repo
+func (s *GitService) devRepoBranchExists(branch string) bool {
+	cmd := exec.Command("git", "-C", devRepoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	return cmd.Run() == nil
+}
+
+// createDevRepoWorktree creates a worktree for the dev repo
+func (s *GitService) createDevRepoWorktree(repo *models.Repository, branch, name string) (*models.Worktree, error) {
+	id := uuid.New().String()
+	
+	// Create worktree path with catnip prefix
+	worktreePath := filepath.Join(workspaceDir, "catnip", name)
+	
+	// Create worktree directory first
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create worktree directory: %v", err)
+	}
+	
+	// Create worktree with new branch using the fun name
+	cmd := exec.Command("git", "-C", devRepoPath, "worktree", "add", "-b", name, worktreePath, branch)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
+	}
+	
+	// Get current commit hash
+	cmd = exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	commitOutput, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get commit hash: %v", err)
+	}
+	
+	// Calculate commit count ahead of source
+	commitCount := 0
+	if branch != name { // Only count if different from current branch
+		cmd = exec.Command("git", "-C", worktreePath, "rev-list", "--count", fmt.Sprintf("%s..HEAD", branch))
+		cmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		countOutput, err := cmd.Output()
+		if err == nil {
+			if count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOutput))); parseErr == nil {
+				commitCount = count
+			}
+		}
+	}
+	
+	// Create display name with catnip prefix
+	displayName := fmt.Sprintf("catnip/%s", name)
+	
+	worktree := &models.Worktree{
+		ID:           id,
+		RepoID:       repo.ID,
+		Name:         displayName,
+		Path:         worktreePath,
+		Branch:       name,
+		SourceBranch: branch,
+		CommitHash:   strings.TrimSpace(string(commitOutput)),
+		CommitCount:  commitCount,
+		IsDirty:      false,
+		CreatedAt:    time.Now(),
+		LastAccessed: time.Now(),
+	}
+	
+	s.worktrees[id] = worktree
+	
+	// Update current symlink to point to this worktree if it's the first one
+	if len(s.worktrees) == 1 {
+		s.updateCurrentSymlink(worktreePath)
+	}
+	
+	return worktree, nil
 }
 
 // GetRepositoryBranches returns the remote branches for a repository
@@ -438,6 +647,11 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	repo, exists := s.repositories[repoID]
 	if !exists {
 		return nil, fmt.Errorf("repository %s not found", repoID)
+	}
+	
+	// Handle dev repo specially
+	if repoID == "catnip-dev" {
+		return s.getDevRepoBranches()
 	}
 	
 	// Start with the default branch
@@ -470,6 +684,33 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 				branches = append(branches, branch)
 				branchSet[branch] = true
 			}
+		}
+	}
+	
+	return branches, nil
+}
+
+// getDevRepoBranches returns the local branches for the dev repo
+func (s *GitService) getDevRepoBranches() ([]string, error) {
+	cmd := exec.Command("git", "-C", devRepoPath, "branch")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get dev repo branches: %v", err)
+	}
+	
+	var branches []string
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			// Remove the * prefix for current branch
+			branch := strings.TrimPrefix(line, "* ")
+			branches = append(branches, branch)
 		}
 	}
 	
@@ -637,6 +878,11 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 	// If no branch specified, use default
 	if branch == "" {
 		branch = repo.DefaultBranch
+	}
+	
+	// Handle dev repo specially (it doesn't have a bare repo)
+	if repo.ID == "catnip-dev" {
+		return s.handleDevRepoWorktree(branch)
 	}
 	
 	// Check if the requested branch exists in the bare repo
