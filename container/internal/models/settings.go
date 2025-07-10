@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +18,8 @@ type Settings struct {
 	volumePath   string
 	homePath     string
 	lastModTimes map[string]time.Time
+	debounceMap  map[string]*time.Timer // For debouncing file changes
+	syncMutex    sync.Mutex              // Protects lastModTimes and debounceMap
 }
 
 // NewSettings creates a new settings manager
@@ -25,6 +28,7 @@ func NewSettings() *Settings {
 		volumePath:   "/volume",
 		homePath:     "/home/catnip",
 		lastModTimes: make(map[string]time.Time),
+		debounceMap:  make(map[string]*time.Timer),
 		done:         make(chan bool),
 	}
 }
@@ -33,8 +37,9 @@ func NewSettings() *Settings {
 func (s *Settings) Start() {
 	log.Println("🔧 Starting settings persistence manager")
 	
-	// First, restore settings from volume if they exist
-	s.restoreFromVolume()
+	// ONLY restore settings from volume on boot - never during runtime
+	log.Println("📥 Boot-time restore: copying settings from volume to home directory")
+	s.restoreFromVolumeOnBoot()
 	
 	// Restore IDE directory if it exists
 	s.restoreIDEDirectory()
@@ -49,11 +54,20 @@ func (s *Settings) Stop() {
 	if s.ticker != nil {
 		s.ticker.Stop()
 	}
+	
+	// Cancel all pending debounce timers
+	s.syncMutex.Lock()
+	for _, timer := range s.debounceMap {
+		timer.Stop()
+	}
+	s.debounceMap = make(map[string]*time.Timer)
+	s.syncMutex.Unlock()
+	
 	s.done <- true
 }
 
-// restoreFromVolume copies settings from volume to home directory on startup
-func (s *Settings) restoreFromVolume() {
+// restoreFromVolumeOnBoot copies settings from volume to home directory ONLY on startup
+func (s *Settings) restoreFromVolumeOnBoot() {
 	// Create volume directories if they don't exist
 	volumeClaudeDir := filepath.Join(s.volumePath, ".claude")
 	volumeGitHubDir := filepath.Join(s.volumePath, ".github")
@@ -100,38 +114,10 @@ func (s *Settings) restoreFromVolume() {
 			continue
 		}
 		
-		// Check if destination file already exists
-		destInfo, err := os.Stat(file.destPath)
-		if err == nil {
-			// File exists in home - check modification times
-			sourceInfo, err := os.Stat(sourcePath)
-			if err == nil {
-				if destInfo.ModTime().After(sourceInfo.ModTime()) {
-					// Home file is newer - sync it to volume instead
-					log.Printf("⚠️  Home %s is newer than volume version - syncing to volume", file.filename)
-					log.Printf("    Home: %v, Volume: %v", destInfo.ModTime(), sourceInfo.ModTime())
-					if err := s.copyFile(file.destPath, sourcePath); err != nil {
-						log.Printf("❌ Failed to sync newer %s to volume: %v", file.filename, err)
-					} else {
-						log.Printf("📋 Synced newer %s to volume", file.filename)
-						// Try to fix ownership
-						os.Chown(sourcePath, 1000, 1000)
-					}
-					continue
-				} else if sourceInfo.ModTime().After(destInfo.ModTime()) {
-					// Volume file is newer - restore it to home
-					log.Printf("🔄 Volume %s is newer - restoring to home directory", file.filename)
-					log.Printf("    Home: %v, Volume: %v", destInfo.ModTime(), sourceInfo.ModTime())
-					// Fall through to copy logic below
-				} else {
-					// Files have same modification time
-					log.Printf("⚪ Skipping restore of %s - same modification time", file.filename)
-					continue
-				}
-			} else {
-				log.Printf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
-				continue
-			}
+		// Check if destination file already exists - if so, skip (boot-time only restore)
+		if _, err := os.Stat(file.destPath); err == nil {
+			log.Printf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
+			continue
 		}
 		
 		// Create destination directory if needed
@@ -313,18 +299,22 @@ func (s *Settings) watchForChanges() {
 	}
 }
 
-// checkAndSyncFiles checks if files have changed and syncs them to volume
+// checkAndSyncFiles checks if files have changed and schedules debounced syncing to volume
 func (s *Settings) checkAndSyncFiles() {
 	files := []struct {
 		sourcePath string
 		volumeDir  string
 		destName   string
+		sensitive  bool // True for files that need extra care (like ~/.claude.json)
 	}{
-		{filepath.Join(s.homePath, ".claude", ".credentials.json"), filepath.Join(s.volumePath, ".claude", ".claude"), ".credentials.json"},
-		{filepath.Join(s.homePath, ".claude.json"), filepath.Join(s.volumePath, ".claude"), "claude.json"},
-		{filepath.Join(s.homePath, ".config", "gh", "config.yml"), filepath.Join(s.volumePath, ".github"), "config.yml"},
-		{filepath.Join(s.homePath, ".config", "gh", "hosts.yml"), filepath.Join(s.volumePath, ".github"), "hosts.yml"},
+		{filepath.Join(s.homePath, ".claude", ".credentials.json"), filepath.Join(s.volumePath, ".claude", ".claude"), ".credentials.json", true},
+		{filepath.Join(s.homePath, ".claude.json"), filepath.Join(s.volumePath, ".claude"), "claude.json", true},
+		{filepath.Join(s.homePath, ".config", "gh", "config.yml"), filepath.Join(s.volumePath, ".github"), "config.yml", false},
+		{filepath.Join(s.homePath, ".config", "gh", "hosts.yml"), filepath.Join(s.volumePath, ".github"), "hosts.yml", false},
 	}
+	
+	s.syncMutex.Lock()
+	defer s.syncMutex.Unlock()
 	
 	for _, file := range files {
 		// Check if source file exists
@@ -343,26 +333,135 @@ func (s *Settings) checkAndSyncFiles() {
 			continue
 		}
 		
-		// File has changed, copy to volume
-		destPath := filepath.Join(file.volumeDir, file.destName)
-		
-		// Ensure volume directory exists
-		if err := os.MkdirAll(file.volumeDir, 0755); err != nil {
-			log.Printf("❌ Failed to create volume directory: %v", err)
-			continue
-		}
-		
-		if err := s.copyFile(file.sourcePath, destPath); err != nil {
-			log.Printf("❌ Failed to sync %s to volume: %v", file.sourcePath, err)
-			continue
-		}
-		
-		// Try to fix ownership (might fail if not root)
-		os.Chown(destPath, 1000, 1000)
-		
-		s.lastModTimes[file.sourcePath] = info.ModTime()
-		log.Printf("📋 Synced %s to volume", file.destName)
+		// File has changed - schedule debounced sync
+		s.scheduleDebounceSync(file.sourcePath, file.volumeDir, file.destName, file.sensitive, info.ModTime())
 	}
+}
+
+// scheduleDebounceSync schedules a debounced sync operation for a file
+func (s *Settings) scheduleDebounceSync(sourcePath, volumeDir, destName string, sensitive bool, modTime time.Time) {
+	// Cancel existing timer if it exists
+	if timer, exists := s.debounceMap[sourcePath]; exists {
+		timer.Stop()
+	}
+	
+	// Create new debounced timer
+	debounceDelay := 2 * time.Second
+	if sensitive {
+		debounceDelay = 5 * time.Second // Extra delay for sensitive files
+	}
+	
+	s.debounceMap[sourcePath] = time.AfterFunc(debounceDelay, func() {
+		s.performSafeSync(sourcePath, volumeDir, destName, sensitive, modTime)
+	})
+}
+
+// performSafeSync performs the actual file sync with proper locking and validation
+func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensitive bool, expectedModTime time.Time) {
+	s.syncMutex.Lock()
+	defer s.syncMutex.Unlock()
+	
+	// Double-check the file still exists and hasn't changed again
+	info, err := os.Stat(sourcePath)
+	if os.IsNotExist(err) {
+		log.Printf("⚠️  File %s no longer exists, skipping sync", sourcePath)
+		return
+	}
+	if err != nil {
+		log.Printf("❌ Error re-checking file %s: %v", sourcePath, err)
+		return
+	}
+	
+	// If file has been modified again since we scheduled this sync, skip it
+	if !info.ModTime().Equal(expectedModTime) {
+		log.Printf("⚠️  File %s was modified again, skipping this sync", sourcePath)
+		return
+	}
+	
+	// For sensitive files, check for potential lock files or concurrent access
+	if sensitive {
+		if s.isFileBeingAccessed(sourcePath) {
+			log.Printf("⚠️  File %s appears to be in use, deferring sync", sourcePath)
+			// Reschedule for later
+			time.AfterFunc(10*time.Second, func() {
+				s.performSafeSync(sourcePath, volumeDir, destName, sensitive, expectedModTime)
+			})
+			return
+		}
+	}
+	
+	destPath := filepath.Join(volumeDir, destName)
+	
+	// Ensure volume directory exists
+	if err := os.MkdirAll(volumeDir, 0755); err != nil {
+		log.Printf("❌ Failed to create volume directory: %v", err)
+		return
+	}
+	
+	// Perform the sync with atomic write for sensitive files
+	if sensitive {
+		err = s.copyFileAtomic(sourcePath, destPath)
+	} else {
+		err = s.copyFile(sourcePath, destPath)
+	}
+	
+	if err != nil {
+		log.Printf("❌ Failed to sync %s to volume: %v", sourcePath, err)
+		return
+	}
+	
+	// Try to fix ownership (might fail if not root)
+	os.Chown(destPath, 1000, 1000)
+	
+	s.lastModTimes[sourcePath] = info.ModTime()
+	log.Printf("📋 Synced %s to volume", destName)
+}
+
+// isFileBeingAccessed checks if a file might be currently being written to
+func (s *Settings) isFileBeingAccessed(filePath string) bool {
+	// Check for common lock file patterns that Claude might use
+	lockPatterns := []string{
+		filePath + ".lock",
+		filePath + ".tmp",
+		filepath.Dir(filePath) + "/.lock",
+		filepath.Dir(filePath) + "/lock",
+	}
+	
+	for _, lockPath := range lockPatterns {
+		if _, err := os.Stat(lockPath); err == nil {
+			log.Printf("🔒 Lock file detected: %s", lockPath)
+			return true
+		}
+	}
+	
+	// Try to open the file exclusively to see if it's in use
+	file, err := os.OpenFile(filePath, os.O_RDONLY, 0)
+	if err != nil {
+		// If we can't open it, assume it's in use
+		return true
+	}
+	file.Close()
+	
+	return false
+}
+
+// copyFileAtomic copies a file atomically by writing to a temp file first
+func (s *Settings) copyFileAtomic(src, dst string) error {
+	// Create temp file in same directory as destination
+	tempFile := dst + ".tmp." + filepath.Base(src)
+	
+	// Copy to temp file first
+	if err := s.copyFile(src, tempFile); err != nil {
+		return err
+	}
+	
+	// Atomically rename temp file to final destination
+	if err := os.Rename(tempFile, dst); err != nil {
+		os.Remove(tempFile) // Clean up temp file on error
+		return err
+	}
+	
+	return nil
 }
 
 // copyFile copies a file from source to destination
