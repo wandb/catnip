@@ -332,3 +332,24 @@ func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
 	})
 }
 
+// GetWorktreeDiff returns the diff for a worktree against its source branch
+// @Summary Get worktree diff
+// @Description Returns the diff for a worktree against its source branch, including all staged/unstaged changes
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/git/worktrees/{id}/diff [get]
+func (h *GitHandler) GetWorktreeDiff(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	
+	diff, err := h.gitService.GetWorktreeDiff(worktreeID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	
+	return c.JSON(diff)
+}
+

@@ -116,6 +116,7 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --font-family-mono: "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", "monospace";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -160,11 +161,9 @@
 
 /* Override xterm.js font to use our Nerd Font */
 .xterm-screen {
-  font-family: "FiraCode Nerd Font Mono", "Fira Code", "JetBrains Mono", Monaco,
-    Consolas, monospace !important;
+  font-family: "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", monospace !important;
 }
 
 .xterm-rows {
-  font-family: "FiraCode Nerd Font Mono", "Fira Code", "JetBrains Mono", Monaco,
-    Consolas, monospace !important;
+  font-family: "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", monospace !important;
 }

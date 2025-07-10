@@ -1848,3 +1848,268 @@ func (s *GitService) ListRepositories() []*models.Repository {
 	}
 	return repos
 }
+
+// FileDiff represents a single file's diff
+type FileDiff struct {
+	FilePath   string `json:"file_path"`
+	ChangeType string `json:"change_type"` // "added", "deleted", "modified"
+	OldContent string `json:"old_content,omitempty"`
+	NewContent string `json:"new_content,omitempty"`
+	DiffText   string `json:"diff_text,omitempty"`
+	IsExpanded bool   `json:"is_expanded"` // Default expansion state
+}
+
+// WorktreeDiffResponse represents the diff response
+type WorktreeDiffResponse struct {
+	WorktreeID   string     `json:"worktree_id"`
+	WorktreeName string     `json:"worktree_name"`
+	SourceBranch string     `json:"source_branch"`
+	ForkCommit   string     `json:"fork_commit"`   // The commit where this worktree was forked from
+	FileDiffs    []FileDiff `json:"file_diffs"`
+	TotalFiles   int        `json:"total_files"`
+	Summary      string     `json:"summary"`
+}
+
+// GetWorktreeDiff returns the diff for a worktree against its source branch
+func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	worktree, exists := s.worktrees[worktreeID]
+	if !exists {
+		return nil, fmt.Errorf("worktree not found: %s", worktreeID)
+	}
+	
+	// Find the merge base (fork point) between this worktree and its source branch
+	mergeBaseCmd := exec.Command("git", "-C", worktree.Path, "merge-base", "HEAD", worktree.SourceBranch)
+	mergeBaseCmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	mergeBaseOutput, err := mergeBaseCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to find merge base: %v", err)
+	}
+	
+	forkCommit := strings.TrimSpace(string(mergeBaseOutput))
+	
+	// Get the list of changed files from the fork point
+	cmd := exec.Command("git", "-C", worktree.Path, "diff", "--name-status", fmt.Sprintf("%s..HEAD", forkCommit))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get diff list: %v", err)
+	}
+	
+	var fileDiffs []FileDiff
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	
+	// Process committed changes
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		
+		parts := strings.Split(line, "\t")
+		if len(parts) < 2 {
+			continue
+		}
+		
+		changeType := parts[0]
+		filePath := parts[1]
+		
+		fileDiff := FileDiff{
+			FilePath:   filePath,
+			IsExpanded: false, // Default to collapsed for added/deleted files
+		}
+		
+		switch changeType {
+		case "A":
+			fileDiff.ChangeType = "added"
+			fileDiff.IsExpanded = false // Collapse by default
+		case "D":
+			fileDiff.ChangeType = "deleted"
+			fileDiff.IsExpanded = false // Collapse by default
+		case "M":
+			fileDiff.ChangeType = "modified"
+			fileDiff.IsExpanded = true // Expand by default for modifications
+		default:
+			fileDiff.ChangeType = "modified"
+			fileDiff.IsExpanded = true
+		}
+		
+		// Get the old content (from fork commit)
+		oldContentCmd := exec.Command("git", "-C", worktree.Path, "show", fmt.Sprintf("%s:%s", forkCommit, filePath))
+		oldContentCmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		
+		if oldOutput, err := oldContentCmd.Output(); err == nil {
+			fileDiff.OldContent = string(oldOutput)
+		}
+		
+		// Get the new content (current HEAD)
+		newContentCmd := exec.Command("git", "-C", worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath))
+		newContentCmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		
+		if newOutput, err := newContentCmd.Output(); err == nil {
+			fileDiff.NewContent = string(newOutput)
+		}
+		
+		// Also keep the unified diff for fallback
+		diffCmd := exec.Command("git", "-C", worktree.Path, "diff", fmt.Sprintf("%s..HEAD", forkCommit), "--", filePath)
+		diffCmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		
+		if diffOutput, err := diffCmd.Output(); err == nil {
+			fileDiff.DiffText = string(diffOutput)
+		}
+		
+		fileDiffs = append(fileDiffs, fileDiff)
+	}
+	
+	// Also check for unstaged changes
+	unstagedCmd := exec.Command("git", "-C", worktree.Path, "diff", "--name-status")
+	unstagedCmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	if unstagedOutput, err := unstagedCmd.Output(); err == nil {
+		unstagedLines := strings.Split(strings.TrimSpace(string(unstagedOutput)), "\n")
+		for _, line := range unstagedLines {
+			if line == "" {
+				continue
+			}
+			
+			parts := strings.Split(line, "\t")
+			if len(parts) < 2 {
+				continue
+			}
+			
+			changeType := parts[0]
+			filePath := parts[1]
+			
+			// Check if this file already exists in our diff list
+			found := false
+			for i := range fileDiffs {
+				if fileDiffs[i].FilePath == filePath {
+					// Mark as having unstaged changes
+					if fileDiffs[i].ChangeType == "modified" {
+						fileDiffs[i].ChangeType = "modified (unstaged)"
+					}
+					found = true
+					break
+				}
+			}
+			
+			if !found {
+				fileDiff := FileDiff{
+					FilePath:   filePath,
+					IsExpanded: true, // Unstaged changes should be visible
+				}
+				
+				switch changeType {
+				case "A":
+					fileDiff.ChangeType = "added (unstaged)"
+				case "D":
+					fileDiff.ChangeType = "deleted (unstaged)"
+				case "M":
+					fileDiff.ChangeType = "modified (unstaged)"
+				default:
+					fileDiff.ChangeType = "modified (unstaged)"
+				}
+				
+				// Get old content (HEAD version)
+				oldContentCmd := exec.Command("git", "-C", worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath))
+				oldContentCmd.Env = append(os.Environ(),
+					"HOME=/home/catnip",
+					"USER=catnip",
+				)
+				
+				if oldOutput, err := oldContentCmd.Output(); err == nil {
+					fileDiff.OldContent = string(oldOutput)
+				}
+				
+				// Get new content (working directory)
+				if newContent, err := os.ReadFile(filepath.Join(worktree.Path, filePath)); err == nil {
+					fileDiff.NewContent = string(newContent)
+				}
+				
+				// Get unstaged diff content as fallback
+				diffCmd := exec.Command("git", "-C", worktree.Path, "diff", "--", filePath)
+				diffCmd.Env = append(os.Environ(),
+					"HOME=/home/catnip",
+					"USER=catnip",
+				)
+				
+				if diffOutput, err := diffCmd.Output(); err == nil {
+					fileDiff.DiffText = string(diffOutput)
+				}
+				
+				fileDiffs = append(fileDiffs, fileDiff)
+			}
+		}
+	}
+	
+	// Check for untracked files
+	untrackedCmd := exec.Command("git", "-C", worktree.Path, "ls-files", "--others", "--exclude-standard")
+	untrackedCmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	
+	if untrackedOutput, err := untrackedCmd.Output(); err == nil {
+		untrackedFiles := strings.Split(strings.TrimSpace(string(untrackedOutput)), "\n")
+		for _, filePath := range untrackedFiles {
+			if filePath == "" {
+				continue
+			}
+			
+			fileDiff := FileDiff{
+				FilePath:   filePath,
+				ChangeType: "added (untracked)",
+				IsExpanded: false, // Collapse by default
+			}
+			
+			// Read file content for untracked files
+			if content, err := os.ReadFile(filepath.Join(worktree.Path, filePath)); err == nil {
+				fileDiff.NewContent = string(content)
+			}
+			
+			fileDiffs = append(fileDiffs, fileDiff)
+		}
+	}
+	
+	// Generate summary
+	var summary string
+	totalFiles := len(fileDiffs)
+	if totalFiles == 0 {
+		summary = "No changes"
+	} else if totalFiles == 1 {
+		summary = "1 file changed"
+	} else {
+		summary = fmt.Sprintf("%d files changed", totalFiles)
+	}
+	
+	return &WorktreeDiffResponse{
+		WorktreeID:   worktreeID,
+		WorktreeName: worktree.Name,
+		SourceBranch: worktree.SourceBranch,
+		ForkCommit:   forkCommit,
+		FileDiffs:    fileDiffs,
+		TotalFiles:   totalFiles,
+		Summary:      summary,
+	}, nil
+}

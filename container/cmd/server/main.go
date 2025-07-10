@@ -115,6 +115,7 @@ func main() {
 	v1.Get("/git/worktrees/:id/sync/check", gitHandler.CheckSyncConflicts)
 	v1.Post("/git/worktrees/:id/merge", gitHandler.MergeWorktreeToMain)
 	v1.Get("/git/worktrees/:id/merge/check", gitHandler.CheckMergeConflicts)
+	v1.Get("/git/worktrees/:id/diff", gitHandler.GetWorktreeDiff)
 	v1.Post("/git/worktrees/:id/preview", gitHandler.CreateWorktreePreview)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RepoSelector } from "@/components/RepoSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DiffViewer } from "@/components/DiffViewer";
 import {
   GitBranch,
   Copy,
@@ -20,6 +21,7 @@ import {
   GitMerge,
   Eye,
   AlertTriangle,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -112,6 +114,7 @@ function GitPage() {
   const [mergeConflicts, setMergeConflicts] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [reposLoading, setReposLoading] = useState(false);
+  const [openDiffWorktreeId, setOpenDiffWorktreeId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;
@@ -458,6 +461,10 @@ function GitPage() {
     }
   };
 
+  const toggleDiff = (worktreeId: string) => {
+    setOpenDiffWorktreeId(prev => prev === worktreeId ? null : worktreeId);
+  };
+
   useEffect(() => {
     fetchGitStatus();
     fetchWorktrees();
@@ -492,10 +499,8 @@ function GitPage() {
           {worktrees.length > 0 ? (
             <div className="space-y-2">
               {worktrees.map((worktree) => (
-                <div
-                  key={worktree.id}
-                  className="flex items-center justify-between p-3 border rounded-lg"
-                >
+                <div key={worktree.id} className="space-y-0">
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium">{worktree.name}</span>
@@ -614,6 +619,19 @@ function GitPage() {
                         <span>Vibe</span>
                       </Button>
                     </Link>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => toggleDiff(worktree.id)}
+                      title="View diff against source branch"
+                      className={
+                        openDiffWorktreeId === worktree.id
+                          ? "text-blue-600 border-blue-200 bg-blue-50"
+                          : "text-gray-600 border-gray-200 hover:bg-gray-50"
+                      }
+                    >
+                      <FileText size={16} />
+                    </Button>
                     {worktree.commits_behind > 0 && (
                       <Button
                         variant="outline"
@@ -706,6 +724,12 @@ function GitPage() {
                       <Trash2 size={16} />
                     </Button>
                   </div>
+                  </div>
+                  <DiffViewer
+                    worktreeId={worktree.id}
+                    isOpen={openDiffWorktreeId === worktree.id}
+                    onClose={() => setOpenDiffWorktreeId(null)}
+                  />
                 </div>
               ))}
             </div>
