@@ -81,6 +81,7 @@ interface Worktree {
   path: string;
   commit_hash: string;
   commit_count: number;
+  commits_behind: number;
   is_dirty: boolean;
 }
 
@@ -204,8 +205,26 @@ function GitPage() {
   const handleCheckout = async (url: string) => {
     setLoading(true);
     try {
-      // Handle dev repo specially (both formats)
-      if (url === "catnip-dev/dev" || url.startsWith("file://")) {
+      // Handle local repositories (format: local/dirname)
+      if (url.startsWith("local/")) {
+        const parts = url.split("/");
+        if (parts.length >= 2) {
+          // Format: local/dirname -> send as org=local, repo=dirname
+          const response = await fetch(`/v1/git/checkout/${parts[0]}/${parts[1]}`, {
+            method: "POST",
+          });
+          if (response.ok) {
+            fetchGitStatus();
+            fetchWorktrees();
+            fetchActiveSessions();
+          } else {
+            const errorData = await response.json();
+            console.error("Failed to checkout local repository:", errorData);
+            alert(`Failed to checkout local repository: ${errorData.error || 'Unknown error'}`);
+          }
+        }
+      } else if (url === "catnip-dev/dev" || url.startsWith("file://")) {
+        // Legacy dev repo handling
         const response = await fetch(`/v1/git/checkout/catnip-dev/dev`, {
           method: "POST",
         });
@@ -269,6 +288,29 @@ function GitPage() {
     navigator.clipboard.writeText(command);
   };
 
+  const syncWorktree = async (id: string) => {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${id}/sync`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ strategy: "rebase" }),
+      });
+      if (response.ok) {
+        fetchWorktrees();
+        // Show success feedback
+        alert(`Successfully synced worktree`);
+      } else {
+        const errorData = await response.json();
+        alert(`Failed to sync worktree: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error("Failed to sync worktree:", error);
+      alert(`Failed to sync worktree: ${error}`);
+    }
+  };
+
   useEffect(() => {
     fetchGitStatus();
     fetchWorktrees();
@@ -325,6 +367,11 @@ function GitPage() {
                       {worktree.commit_count > 0 && (
                         <Badge variant="secondary">
                           +{worktree.commit_count} commits
+                        </Badge>
+                      )}
+                      {worktree.commits_behind > 0 && (
+                        <Badge variant="outline" className="border-orange-200 text-orange-800 bg-orange-50">
+                          {worktree.commits_behind} behind
                         </Badge>
                       )}
                       {claudeSessions[worktree.path] && (
@@ -407,6 +454,17 @@ function GitPage() {
                         <span>Vibe</span>
                       </Button>
                     </Link>
+                    {worktree.commits_behind > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => syncWorktree(worktree.id)}
+                        title={`Sync ${worktree.commits_behind} commits from ${worktree.source_branch}`}
+                        className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                      >
+                        <RefreshCw size={16} />
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -535,27 +593,40 @@ function GitPage() {
                     {repoBranches[repo.id] &&
                       repoBranches[repo.id].length > 0 && (
                         <>
-                          {repoBranches[repo.id].map((branch) => (
-                            <Badge
-                              key={branch}
-                              variant="secondary"
-                              className="text-xs cursor-pointer hover:bg-secondary/80"
-                              onClick={() => {
-                                if (repo.id !== "catnip-dev") {
-                                  window.open(
-                                    `${repo.url}/tree/${branch}`,
-                                    "_blank"
-                                  )
-                                }
-                              }}
-                            >
-                              {branch}
-                            </Badge>
-                          ))}
+                          {(() => {
+                            // For local repos, only show branches that have worktrees
+                            let branchesToShow = repoBranches[repo.id];
+                            if (repo.id.startsWith("local/")) {
+                              const worktreeBranches = worktrees
+                                .filter(wt => wt.repo_id === repo.id)
+                                .map(wt => wt.source_branch);
+                              branchesToShow = repoBranches[repo.id].filter(branch => 
+                                worktreeBranches.includes(branch)
+                              );
+                            }
+                            
+                            return branchesToShow.map((branch) => (
+                              <Badge
+                                key={branch}
+                                variant="secondary"
+                                className="text-xs cursor-pointer hover:bg-secondary/80"
+                                onClick={() => {
+                                  if (!repo.id.startsWith("local/")) {
+                                    window.open(
+                                      `${repo.url}/tree/${branch}`,
+                                      "_blank"
+                                    )
+                                  }
+                                }}
+                              >
+                                {branch}
+                              </Badge>
+                            ));
+                          })()}
                         </>
                       )}
                   </div>
-                  {repo.id !== "catnip-dev" && (
+                  {!repo.id.startsWith("local/") && (
                     <div className="mt-2">
                       <div className="inline-flex items-center gap-2 p-2 bg-muted rounded text-sm font-mono">
                         <code className="text-muted-foreground">

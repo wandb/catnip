@@ -111,6 +111,7 @@ func main() {
 	v1.Get("/git/status", gitHandler.GetStatus)
 	v1.Get("/git/worktrees", gitHandler.ListWorktrees)
 	v1.Delete("/git/worktrees/:id", gitHandler.DeleteWorktree)
+	v1.Post("/git/worktrees/:id/sync", gitHandler.SyncWorktree)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
 	

@@ -151,3 +151,44 @@ func (h *GitHandler) DeleteWorktree(c *fiber.Ctx) error {
 	})
 }
 
+// SyncWorktree syncs a worktree with its source branch
+// @Summary Sync worktree with source branch
+// @Description Syncs a worktree with its source branch using merge or rebase strategy
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param body body map[string]string true "Sync options"
+// @Success 200 {object} map[string]string
+// @Router /v1/git/worktrees/{id}/sync [post]
+func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	
+	var syncRequest struct {
+		Strategy string `json:"strategy"`
+	}
+	
+	if err := c.BodyParser(&syncRequest); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+	
+	// Default to rebase strategy if not specified
+	if syncRequest.Strategy == "" {
+		syncRequest.Strategy = "rebase"
+	}
+	
+	if err := h.gitService.SyncWorktree(worktreeID, syncRequest.Strategy); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	
+	return c.JSON(fiber.Map{
+		"message": "Worktree synced successfully",
+		"id":      worktreeID,
+		"strategy": syncRequest.Strategy,
+	})
+}
+

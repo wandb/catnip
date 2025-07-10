@@ -22,9 +22,10 @@ type Worktree struct {
 	Path         string    `json:"path"`          // Absolute path to worktree
 	Branch       string    `json:"branch"`        // Git branch name
 	SourceBranch string    `json:"source_branch"` // Branch this worktree was created from
-	CommitHash   string    `json:"commit_hash"`   // Current commit
-	CommitCount  int       `json:"commit_count"`  // Commits made since creation
-	IsDirty      bool      `json:"is_dirty"`      // Has uncommitted changes
+	CommitHash    string    `json:"commit_hash"`     // Current commit
+	CommitCount   int       `json:"commit_count"`   // Commits made since creation
+	CommitsBehind int       `json:"commits_behind"` // Commits behind source branch
+	IsDirty       bool      `json:"is_dirty"`       // Has uncommitted changes
 	CreatedAt    time.Time `json:"created_at"`
 	LastAccessed time.Time `json:"last_accessed"`
 }
