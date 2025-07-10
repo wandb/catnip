@@ -4,6 +4,7 @@ import { WebSocketProvider, useWebSocket } from "@/lib/websocket-context";
 import { useState, useEffect, useRef } from "react";
 import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
+import { Toaster } from "@/components/ui/sonner";
 
 function RootLayout() {
   const { isConnected } = useWebSocket();
@@ -216,6 +217,9 @@ function RootLayout() {
       
       {/* GitHub Auth Modal */}
       <GitHubAuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
+      
+      {/* Toast notifications */}
+      <Toaster />
       
       <TanStackRouterDevtools position="bottom-right" />
     </>

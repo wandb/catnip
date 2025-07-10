@@ -11,12 +11,14 @@ import {
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RepoSelector } from "@/components/RepoSelector";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   GitBranch,
   Copy,
   RefreshCw,
   Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 
 // Utility function for relative time display
 const getRelativeTime = (date: string | Date) => {
@@ -105,6 +107,18 @@ function GitPage() {
   const [activeSessions, setActiveSessions] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [reposLoading, setReposLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+    onConfirm: () => void;
+    variant?: "default" | "destructive";
+  }>({
+    open: false,
+    title: "",
+    description: "",
+    onConfirm: () => {},
+  });
 
   const fetchGitStatus = async () => {
     try {
@@ -217,10 +231,11 @@ function GitPage() {
             fetchGitStatus();
             fetchWorktrees();
             fetchActiveSessions();
+            toast.success("Local repository checked out successfully");
           } else {
             const errorData = await response.json();
             console.error("Failed to checkout local repository:", errorData);
-            alert(`Failed to checkout local repository: ${errorData.error || 'Unknown error'}`);
+            toast.error(`Failed to checkout local repository: ${errorData.error || 'Unknown error'}`);
           }
         }
       } else if (url === "catnip-dev/dev" || url.startsWith("file://")) {
@@ -232,10 +247,11 @@ function GitPage() {
           fetchGitStatus();
           fetchWorktrees();
           fetchActiveSessions();
+          toast.success("Development repository checked out successfully");
         } else {
           const errorData = await response.json();
           console.error("Failed to checkout dev repository:", errorData);
-          alert(`Failed to checkout dev repository: ${errorData.error || 'Unknown error'}`);
+          toast.error(`Failed to checkout dev repository: ${errorData.error || 'Unknown error'}`);
         }
       } else if (url.startsWith("https://github.com/")) {
         // Handle regular GitHub repos
@@ -251,19 +267,20 @@ function GitPage() {
             fetchGitStatus();
             fetchWorktrees();
             fetchActiveSessions();
+            toast.success("Repository checked out successfully");
           } else {
             const errorData = await response.json();
             console.error("Failed to checkout repository:", errorData);
-            alert(`Failed to checkout repository: ${errorData.error || 'Unknown error'}`);
+            toast.error(`Failed to checkout repository: ${errorData.error || 'Unknown error'}`);
           }
         }
       } else {
         console.error("Unknown URL format:", url);
-        alert(`Unknown repository URL format: ${url}`);
+        toast.error(`Unknown repository URL format: ${url}`);
       }
     } catch (error) {
       console.error("Failed to checkout repository:", error);
-      alert(`Failed to checkout repository: ${error}`);
+      toast.error(`Failed to checkout repository: ${error}`);
     } finally {
       setLoading(false);
     }
@@ -286,6 +303,7 @@ function GitPage() {
   const copyRemoteCommand = (url: string) => {
     const command = `git remote add catnip ${url} && git fetch catnip`;
     navigator.clipboard.writeText(command);
+    toast.success("Command copied to clipboard");
   };
 
   const syncWorktree = async (id: string) => {
@@ -300,14 +318,14 @@ function GitPage() {
       if (response.ok) {
         fetchWorktrees();
         // Show success feedback
-        alert(`Successfully synced worktree`);
+        toast.success(`Successfully synced worktree`);
       } else {
         const errorData = await response.json();
-        alert(`Failed to sync worktree: ${errorData.error}`);
+        toast.error(`Failed to sync worktree: ${errorData.error}`);
       }
     } catch (error) {
       console.error("Failed to sync worktree:", error);
-      alert(`Failed to sync worktree: ${error}`);
+      toast.error(`Failed to sync worktree: ${error}`);
     }
   };
 
@@ -470,25 +488,17 @@ function GitPage() {
                       size="sm"
                       onClick={() => {
                         if (worktree.is_dirty || worktree.commit_count > 0) {
-                          if (
-                            confirm(
-                              `Delete worktree "${
-                                worktree.name
-                              }"? This worktree has ${
-                                worktree.is_dirty ? "uncommitted changes" : ""
-                              } ${
-                                worktree.is_dirty && worktree.commit_count > 0
-                                  ? "and "
-                                  : ""
-                              } ${
-                                worktree.commit_count > 0
-                                  ? worktree.commit_count + " commits"
-                                  : ""
-                              }. This action cannot be undone.`
-                            )
-                          ) {
-                            deleteWorktree(worktree.id);
-                          }
+                          const changesList = [];
+                          if (worktree.is_dirty) changesList.push("uncommitted changes");
+                          if (worktree.commit_count > 0) changesList.push(`${worktree.commit_count} commits`);
+                          
+                          setConfirmDialog({
+                            open: true,
+                            title: "Delete Worktree",
+                            description: `Delete worktree "${worktree.name}"? This worktree has ${changesList.join(" and ")}. This action cannot be undone.`,
+                            onConfirm: () => deleteWorktree(worktree.id),
+                            variant: "destructive",
+                          });
                         } else {
                           deleteWorktree(worktree.id);
                         }
@@ -664,6 +674,17 @@ function GitPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        onConfirm={confirmDialog.onConfirm}
+        variant={confirmDialog.variant}
+        confirmText={confirmDialog.variant === "destructive" ? "Delete" : "Continue"}
+      />
     </div>
   );
 }
