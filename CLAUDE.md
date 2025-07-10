@@ -40,6 +40,35 @@ Many of these have yet to be implemented, but here's the big vision:
 9. CLI for launching and syncing state with a server
 10. Custom startup scripts for modifying the environment
 
+## Directory Structure
+
+```
+catnip/
+├── src/                     # Frontend React/Vite application
+│   ├── components/         # React components including ShadCN UI
+│   ├── routes/            # TanStack Router pages
+│   └── lib/               # Utilities and shared code
+├── container/             # Go application running in Docker
+│   ├── cmd/               # CLI and server entry points
+│   ├── internal/          # Internal Go packages
+│   │   ├── handlers/      # HTTP/WebSocket handlers
+│   │   ├── models/        # Data models
+│   │   └── services/      # Business logic services
+│   ├── docs/              # OpenAPI documentation
+│   └── setup/             # Container setup scripts
+├── worker/                # Cloudflare Worker (Hono-based)
+├── docs/                  # Project documentation
+└── public/                # Static assets
+```
+
+## Documentation
+
+The `docs/` directory contains detailed documentation:
+- **GIT.md**: Git operations and worktree management
+- **LOCAL_REPOSITORIES.md**: Local repository handling
+- **SETTINGS_SYNC.md**: Settings synchronization
+- **TODOS.md**: Feature roadmap and implementation notes
+
 ## Reference
 
 I've prototyped a number of these features in a folder named "reference". It could be useful to look at examples in this folder when implementing functionality.
