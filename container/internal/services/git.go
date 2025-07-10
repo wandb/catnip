@@ -1022,6 +1022,113 @@ func (s *GitService) syncRegularWorktree(worktree *models.Worktree, strategy str
 	return nil
 }
 
+// MergeWorktreeToMain merges a local repo worktree's changes back to the main repository
+func (s *GitService) MergeWorktreeToMain(worktreeID string) error {
+	s.mu.RLock()
+	worktree, exists := s.worktrees[worktreeID]
+	s.mu.RUnlock()
+	
+	if !exists {
+		return fmt.Errorf("worktree %s not found", worktreeID)
+	}
+	
+	// Only works for local repos
+	if !strings.HasPrefix(worktree.RepoID, "local/") {
+		return fmt.Errorf("merge to main only supported for local repositories")
+	}
+	
+	// Get the local repo
+	repo, exists := s.repositories[worktree.RepoID]
+	if !exists {
+		return fmt.Errorf("local repository %s not found", worktree.RepoID)
+	}
+	
+	log.Printf("🔄 Merging worktree %s back to main repository", worktree.Name)
+	
+	// First, push the worktree branch to the main repo
+	cmd := exec.Command("git", "-C", worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, worktree.Branch))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to push worktree branch to main repo: %v\n%s", err, output)
+	}
+	
+	// Switch to the source branch in main repo and merge
+	cmd = exec.Command("git", "-C", repo.Path, "checkout", worktree.SourceBranch)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to checkout source branch in main repo: %v\n%s", err, output)
+	}
+	
+	// Merge the worktree branch
+	cmd = exec.Command("git", "-C", repo.Path, "merge", worktree.Branch, "--no-ff", "-m", fmt.Sprintf("Merge branch '%s' from worktree", worktree.Branch))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to merge worktree branch: %v\n%s", err, output)
+	}
+	
+	// Delete the feature branch from main repo (cleanup)
+	cmd = exec.Command("git", "-C", repo.Path, "branch", "-d", worktree.Branch)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	cmd.Run() // Ignore errors - branch might be in use
+	
+	log.Printf("✅ Merged worktree %s to main repository", worktree.Name)
+	return nil
+}
+
+// CreateWorktreePreview creates a preview branch in the main repo for viewing changes outside container
+func (s *GitService) CreateWorktreePreview(worktreeID string) error {
+	s.mu.RLock()
+	worktree, exists := s.worktrees[worktreeID]
+	s.mu.RUnlock()
+	
+	if !exists {
+		return fmt.Errorf("worktree %s not found", worktreeID)
+	}
+	
+	// Only works for local repos
+	if !strings.HasPrefix(worktree.RepoID, "local/") {
+		return fmt.Errorf("preview only supported for local repositories")
+	}
+	
+	// Get the local repo
+	repo, exists := s.repositories[worktree.RepoID]
+	if !exists {
+		return fmt.Errorf("local repository %s not found", worktree.RepoID)
+	}
+	
+	previewBranchName := fmt.Sprintf("preview/%s", worktree.Branch)
+	log.Printf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
+	
+	// Push the worktree branch to a preview branch in main repo
+	cmd := exec.Command("git", "-C", worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, previewBranchName))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to create preview branch: %v\n%s", err, output)
+	}
+	
+	log.Printf("✅ Preview branch %s created - you can now checkout this branch outside the container", previewBranchName)
+	return nil
+}
+
 // Stop stops the Git service
 func (s *GitService) Stop() {
 	// No background services to stop

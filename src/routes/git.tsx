@@ -17,6 +17,8 @@ import {
   Copy,
   RefreshCw,
   Trash2,
+  GitMerge,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -329,6 +331,45 @@ function GitPage() {
     }
   };
 
+  const mergeWorktreeToMain = async (id: string, worktreeName: string) => {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${id}/merge`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        fetchWorktrees();
+        fetchGitStatus();
+        toast.success(`Successfully merged ${worktreeName} to main branch`);
+      } else {
+        const errorData = await response.json();
+        toast.error(`Failed to merge worktree: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error("Failed to merge worktree:", error);
+      toast.error(`Failed to merge worktree: ${error}`);
+    }
+  };
+
+  const createWorktreePreview = async (id: string, branchName: string) => {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${id}/preview`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        const previewBranch = `preview/${branchName}`;
+        toast.success(`Preview branch created! Run: git checkout ${previewBranch}`, {
+          duration: 8000,
+        });
+      } else {
+        const errorData = await response.json();
+        toast.error(`Failed to create preview: ${errorData.error}`);
+      }
+    } catch (error) {
+      console.error("Failed to create preview:", error);
+      toast.error(`Failed to create preview: ${error}`);
+    }
+  };
+
   useEffect(() => {
     fetchGitStatus();
     fetchWorktrees();
@@ -481,6 +522,36 @@ function GitPage() {
                         className="text-orange-600 border-orange-200 hover:bg-orange-50"
                       >
                         <RefreshCw size={16} />
+                      </Button>
+                    )}
+                    {worktree.repo_id.startsWith("local/") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => createWorktreePreview(worktree.id, worktree.branch)}
+                        title={`Create preview branch to view changes outside container`}
+                        className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                      >
+                        <Eye size={16} />
+                      </Button>
+                    )}
+                    {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setConfirmDialog({
+                            open: true,
+                            title: "Merge to Main",
+                            description: `Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
+                            onConfirm: () => mergeWorktreeToMain(worktree.id, worktree.name),
+                            variant: "default",
+                          });
+                        }}
+                        title={`Merge ${worktree.commit_count} commits to ${worktree.source_branch}`}
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                      >
+                        <GitMerge size={16} />
                       </Button>
                     )}
                     <Button

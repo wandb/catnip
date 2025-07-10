@@ -42,5 +42,6 @@ dist/
 build/
 
 # Temporary files
+tmp/
 *.tmp
 *.temp

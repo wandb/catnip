@@ -3,8 +3,8 @@
 # Build the catnip container for the current platform
 build-container:
     @echo "🏗️  Building catnip container for current platform..."
-    docker build -t catnip-dev container/
-    @echo "✅ Build complete! Run with: docker run -it catnip-dev"
+    docker build -t catnip:latest container/
+    @echo "✅ Build complete! Run with: docker run -it catnip:latest"
 
 # Update language versions to latest stable and rebuild
 update-versions:

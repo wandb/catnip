@@ -192,3 +192,49 @@ func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
 	})
 }
 
+// MergeWorktreeToMain merges a worktree's changes back to the main repository
+// @Summary Merge worktree to main
+// @Description Merges a local repo worktree's changes back to the main repository
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} map[string]string
+// @Router /v1/git/worktrees/{id}/merge [post]
+func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	
+	if err := h.gitService.MergeWorktreeToMain(worktreeID); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	
+	return c.JSON(fiber.Map{
+		"message": "Worktree merged to main successfully",
+		"id":      worktreeID,
+	})
+}
+
+// CreateWorktreePreview creates a preview branch for viewing changes outside container
+// @Summary Create worktree preview
+// @Description Creates a preview branch in the main repo for viewing changes outside container
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} map[string]string
+// @Router /v1/git/worktrees/{id}/preview [post]
+func (h *GitHandler) CreateWorktreePreview(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	
+	if err := h.gitService.CreateWorktreePreview(worktreeID); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	
+	return c.JSON(fiber.Map{
+		"message": "Preview branch created successfully",
+		"id":      worktreeID,
+	})
+}
+
