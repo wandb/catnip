@@ -973,6 +973,10 @@ func (s *GitService) syncLocalWorktree(worktree *models.Worktree, strategy strin
 	)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
+		// Check if this is a merge conflict
+		if s.isMergeConflict(worktree.Path, string(output)) {
+			return s.createMergeConflictError("sync", worktree, string(output))
+		}
 		return fmt.Errorf("failed to %s: %v\n%s", strategy, err, output)
 	}
 	
@@ -1075,6 +1079,10 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string) error {
 	)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
+		// Check if this is a merge conflict
+		if s.isMergeConflict(repo.Path, string(output)) {
+			return s.createMergeConflictError("merge", worktree, string(output))
+		}
 		return fmt.Errorf("failed to merge worktree branch: %v\n%s", err, output)
 	}
 	
@@ -1210,6 +1218,290 @@ func (s *GitService) createTemporaryCommit(worktreePath string) (string, error) 
 	commitHash := strings.TrimSpace(string(output))
 	log.Printf("📝 Created temporary commit %s with uncommitted changes", commitHash[:8])
 	return commitHash, nil
+}
+
+// isMergeConflict checks if the git command output indicates a merge conflict
+func (s *GitService) isMergeConflict(repoPath, output string) bool {
+	// Check for common merge conflict indicators in git output
+	conflictIndicators := []string{
+		"CONFLICT",
+		"Automatic merge failed",
+		"fix conflicts and then commit",
+		"Merge conflict",
+	}
+	
+	for _, indicator := range conflictIndicators {
+		if strings.Contains(output, indicator) {
+			return true
+		}
+	}
+	
+	// Also check git status for unmerged paths
+	cmd := exec.Command("git", "-C", repoPath, "status", "--porcelain")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	statusOutput, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	
+	// Look for unmerged files (status codes AA, AU, DD, DU, UA, UD, UU)
+	lines := strings.Split(string(statusOutput), "\n")
+	for _, line := range lines {
+		if len(line) >= 2 {
+			status := line[:2]
+			if strings.Contains("AA AU DD DU UA UD UU", status) {
+				return true
+			}
+		}
+	}
+	
+	return false
+}
+
+// createMergeConflictError creates a detailed merge conflict error
+func (s *GitService) createMergeConflictError(operation string, worktree *models.Worktree, output string) *models.MergeConflictError {
+	// Get list of conflicted files
+	conflictFiles := s.getConflictedFiles(worktree.Path)
+	
+	message := fmt.Sprintf("Merge conflict occurred during %s operation in worktree '%s'. Please resolve conflicts in the terminal.", operation, worktree.Name)
+	
+	return &models.MergeConflictError{
+		Operation:     operation,
+		WorktreeName:  worktree.Name,
+		WorktreePath:  worktree.Path,
+		ConflictFiles: conflictFiles,
+		Message:       message,
+	}
+}
+
+// getConflictedFiles returns a list of files with merge conflicts
+func (s *GitService) getConflictedFiles(repoPath string) []string {
+	cmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", "--diff-filter=U")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	output, err := cmd.Output()
+	if err != nil {
+		return []string{}
+	}
+	
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var conflictFiles []string
+	for _, file := range files {
+		if file != "" {
+			conflictFiles = append(conflictFiles, file)
+		}
+	}
+	
+	return conflictFiles
+}
+
+// CheckSyncConflicts checks if syncing a worktree would cause merge conflicts
+func (s *GitService) CheckSyncConflicts(worktreeID string) (*models.MergeConflictError, error) {
+	s.mu.RLock()
+	worktree, exists := s.worktrees[worktreeID]
+	s.mu.RUnlock()
+	
+	if !exists {
+		return nil, fmt.Errorf("worktree %s not found", worktreeID)
+	}
+	
+	// For local repo worktrees, check conflicts with local main repo
+	if strings.HasPrefix(worktree.RepoID, "local/") {
+		return s.checkLocalSyncConflicts(worktree)
+	}
+	
+	// For regular repos, check conflicts with origin
+	return s.checkRegularSyncConflicts(worktree)
+}
+
+// checkLocalSyncConflicts checks for potential conflicts when syncing a local worktree
+func (s *GitService) checkLocalSyncConflicts(worktree *models.Worktree) (*models.MergeConflictError, error) {
+	// Get the local repo path
+	repo, exists := s.repositories[worktree.RepoID]
+	if !exists {
+		return nil, fmt.Errorf("local repository %s not found", worktree.RepoID)
+	}
+	
+	// Fetch from the local main repo to ensure we have latest changes
+	cmd := exec.Command("git", "-C", worktree.Path, "fetch", repo.Path, fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
+	}
+	
+	// Try a dry-run merge to detect conflicts
+	cmd = exec.Command("git", "-C", worktree.Path, "merge-tree", 
+		"HEAD", 
+		fmt.Sprintf("live/%s", worktree.SourceBranch))
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for conflicts: %v", err)
+	}
+	
+	// Check if merge-tree output indicates conflicts
+	outputStr := string(output)
+	if strings.Contains(outputStr, "<<<<<<< ") || strings.Contains(outputStr, "======= ") || strings.Contains(outputStr, ">>>>>>> ") {
+		// Parse conflicted files from merge-tree output
+		conflictFiles := s.parseConflictFiles(outputStr)
+		
+		return &models.MergeConflictError{
+			Operation:     "sync",
+			WorktreeName:  worktree.Name,
+			WorktreePath:  worktree.Path,
+			ConflictFiles: conflictFiles,
+			Message:       fmt.Sprintf("Sync would cause conflicts in worktree '%s'", worktree.Name),
+		}, nil
+	}
+	
+	return nil, nil
+}
+
+// checkRegularSyncConflicts checks for potential conflicts when syncing a regular worktree
+func (s *GitService) checkRegularSyncConflicts(worktree *models.Worktree) (*models.MergeConflictError, error) {
+	// Fetch from origin to ensure we have latest changes
+	cmd := exec.Command("git", "-C", worktree.Path, "fetch", "origin", worktree.SourceBranch)
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
+	}
+	
+	// Try a dry-run merge to detect conflicts
+	cmd = exec.Command("git", "-C", worktree.Path, "merge-tree", 
+		"HEAD", 
+		fmt.Sprintf("origin/%s", worktree.SourceBranch))
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to check for conflicts: %v", err)
+	}
+	
+	// Check if merge-tree output indicates conflicts
+	outputStr := string(output)
+	if strings.Contains(outputStr, "<<<<<<< ") || strings.Contains(outputStr, "======= ") || strings.Contains(outputStr, ">>>>>>> ") {
+		// Parse conflicted files from merge-tree output
+		conflictFiles := s.parseConflictFiles(outputStr)
+		
+		return &models.MergeConflictError{
+			Operation:     "sync",
+			WorktreeName:  worktree.Name,
+			WorktreePath:  worktree.Path,
+			ConflictFiles: conflictFiles,
+			Message:       fmt.Sprintf("Sync would cause conflicts in worktree '%s'", worktree.Name),
+		}, nil
+	}
+	
+	return nil, nil
+}
+
+// CheckMergeConflicts checks if merging a worktree to main would cause conflicts
+func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConflictError, error) {
+	s.mu.RLock()
+	worktree, exists := s.worktrees[worktreeID]
+	s.mu.RUnlock()
+	
+	if !exists {
+		return nil, fmt.Errorf("worktree %s not found", worktreeID)
+	}
+	
+	// Only works for local repos
+	if !strings.HasPrefix(worktree.RepoID, "local/") {
+		return nil, fmt.Errorf("merge conflict check only supported for local repositories")
+	}
+	
+	// Get the local repo
+	repo, exists := s.repositories[worktree.RepoID]
+	if !exists {
+		return nil, fmt.Errorf("local repository %s not found", worktree.RepoID)
+	}
+	
+	// Create a temporary branch in the main repo to test the merge
+	tempBranch := fmt.Sprintf("temp-merge-check-%d", time.Now().Unix())
+	
+	// Push the worktree branch to temp branch in main repo
+	cmd := exec.Command("git", "-C", worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, tempBranch))
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to push temp branch for conflict check: %v", err)
+	}
+	
+	// Clean up temp branch when done
+	defer func() {
+		cmd := exec.Command("git", "-C", repo.Path, "branch", "-D", tempBranch)
+		cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+		cmd.Run() // Ignore errors
+	}()
+	
+	// Try a dry-run merge to detect conflicts
+	cmd = exec.Command("git", "-C", repo.Path, "merge-tree", 
+		worktree.SourceBranch, 
+		tempBranch)
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to check merge conflicts: %v", err)
+	}
+	
+	// Check if merge-tree output indicates conflicts
+	outputStr := string(output)
+	if strings.Contains(outputStr, "<<<<<<< ") || strings.Contains(outputStr, "======= ") || strings.Contains(outputStr, ">>>>>>> ") {
+		// Parse conflicted files from merge-tree output
+		conflictFiles := s.parseConflictFiles(outputStr)
+		
+		return &models.MergeConflictError{
+			Operation:     "merge",
+			WorktreeName:  worktree.Name,
+			WorktreePath:  worktree.Path,
+			ConflictFiles: conflictFiles,
+			Message:       fmt.Sprintf("Merge would cause conflicts in worktree '%s'", worktree.Name),
+		}, nil
+	}
+	
+	return nil, nil
+}
+
+// parseConflictFiles extracts file names from merge-tree conflict output
+func (s *GitService) parseConflictFiles(output string) []string {
+	var conflictFiles []string
+	lines := strings.Split(output, "\n")
+	
+	for _, line := range lines {
+		// Look for conflict markers that indicate file paths
+		if strings.HasPrefix(line, "<<<<<<< ") {
+			// Extract file path from conflict marker context
+			// This is a simplified approach - merge-tree output format can vary
+			continue
+		}
+		// Look for "CONFLICT" lines that often contain file paths
+		if strings.Contains(line, "CONFLICT") && strings.Contains(line, "in ") {
+			parts := strings.Split(line, " in ")
+			if len(parts) > 1 {
+				file := strings.TrimSpace(parts[len(parts)-1])
+				if file != "" && !contains(conflictFiles, file) {
+					conflictFiles = append(conflictFiles, file)
+				}
+			}
+		}
+	}
+	
+	// Fallback: if we couldn't parse files, indicate conflicts exist
+	if len(conflictFiles) == 0 && (strings.Contains(output, "<<<<<<< ") || strings.Contains(output, "CONFLICT")) {
+		conflictFiles = []string{"(multiple files)"}
+	}
+	
+	return conflictFiles
+}
+
+// contains checks if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
 
 // Stop stops the Git service

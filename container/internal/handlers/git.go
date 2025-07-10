@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/url"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
 
@@ -180,6 +182,18 @@ func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
 	}
 	
 	if err := h.gitService.SyncWorktree(worktreeID, syncRequest.Strategy); err != nil {
+		// Check if this is a merge conflict error
+		var mergeConflictErr *models.MergeConflictError
+		if errors.As(err, &mergeConflictErr) {
+			return c.Status(409).JSON(fiber.Map{
+				"error":          "merge_conflict",
+				"message":        mergeConflictErr.Message,
+				"operation":      mergeConflictErr.Operation,
+				"worktree_name":  mergeConflictErr.WorktreeName,
+				"worktree_path":  mergeConflictErr.WorktreePath,
+				"conflict_files": mergeConflictErr.ConflictFiles,
+			})
+		}
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -204,6 +218,18 @@ func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
 	
 	if err := h.gitService.MergeWorktreeToMain(worktreeID); err != nil {
+		// Check if this is a merge conflict error
+		var mergeConflictErr *models.MergeConflictError
+		if errors.As(err, &mergeConflictErr) {
+			return c.Status(409).JSON(fiber.Map{
+				"error":          "merge_conflict",
+				"message":        mergeConflictErr.Message,
+				"operation":      mergeConflictErr.Operation,
+				"worktree_name":  mergeConflictErr.WorktreeName,
+				"worktree_path":  mergeConflictErr.WorktreePath,
+				"conflict_files": mergeConflictErr.ConflictFiles,
+			})
+		}
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -235,6 +261,74 @@ func (h *GitHandler) CreateWorktreePreview(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Preview branch created successfully",
 		"id":      worktreeID,
+	})
+}
+
+// CheckSyncConflicts checks if syncing a worktree would cause conflicts
+// @Summary Check sync conflicts
+// @Description Checks if syncing a worktree would cause merge conflicts
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/git/worktrees/{id}/sync/check [get]
+func (h *GitHandler) CheckSyncConflicts(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	
+	conflictErr, err := h.gitService.CheckSyncConflicts(worktreeID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	
+	if conflictErr != nil {
+		return c.JSON(fiber.Map{
+			"has_conflicts":  true,
+			"operation":      conflictErr.Operation,
+			"worktree_name":  conflictErr.WorktreeName,
+			"conflict_files": conflictErr.ConflictFiles,
+			"message":        conflictErr.Message,
+		})
+	}
+	
+	return c.JSON(fiber.Map{
+		"has_conflicts": false,
+		"message":       "No conflicts detected for sync operation",
+	})
+}
+
+// CheckMergeConflicts checks if merging a worktree would cause conflicts
+// @Summary Check merge conflicts
+// @Description Checks if merging a worktree to main would cause conflicts
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/git/worktrees/{id}/merge/check [get]
+func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	
+	conflictErr, err := h.gitService.CheckMergeConflicts(worktreeID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+	
+	if conflictErr != nil {
+		return c.JSON(fiber.Map{
+			"has_conflicts":  true,
+			"operation":      conflictErr.Operation,
+			"worktree_name":  conflictErr.WorktreeName,
+			"conflict_files": conflictErr.ConflictFiles,
+			"message":        conflictErr.Message,
+		})
+	}
+	
+	return c.JSON(fiber.Map{
+		"has_conflicts": false,
+		"message":       "No conflicts detected for merge operation",
 	})
 }
 

@@ -19,6 +19,7 @@ import {
   Trash2,
   GitMerge,
   Eye,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -107,6 +108,8 @@ function GitPage() {
   );
   const [claudeSessions, setClaudeSessions] = useState<Record<string, any>>({});
   const [activeSessions, setActiveSessions] = useState<Record<string, any>>({});
+  const [syncConflicts, setSyncConflicts] = useState<Record<string, any>>({});
+  const [mergeConflicts, setMergeConflicts] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(false);
   const [reposLoading, setReposLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -218,6 +221,64 @@ function GitPage() {
     }
   };
 
+  const checkConflicts = async () => {
+    if (worktrees.length === 0) return;
+    
+    const syncConflictPromises = worktrees.map(async (worktree) => {
+      try {
+        const response = await fetch(`/v1/git/worktrees/${worktree.id}/sync/check`);
+        if (response.ok) {
+          const data = await response.json();
+          return { worktreeId: worktree.id, data };
+        }
+      } catch (error) {
+        console.error(`Failed to check sync conflicts for ${worktree.id}:`, error);
+      }
+      return { worktreeId: worktree.id, data: null };
+    });
+
+    const mergeConflictPromises = worktrees.map(async (worktree) => {
+      // Only check merge conflicts for local repos
+      if (!worktree.repo_id.startsWith("local/")) {
+        return { worktreeId: worktree.id, data: null };
+      }
+      
+      try {
+        const response = await fetch(`/v1/git/worktrees/${worktree.id}/merge/check`);
+        if (response.ok) {
+          const data = await response.json();
+          return { worktreeId: worktree.id, data };
+        }
+      } catch (error) {
+        console.error(`Failed to check merge conflicts for ${worktree.id}:`, error);
+      }
+      return { worktreeId: worktree.id, data: null };
+    });
+
+    const [syncResults, mergeResults] = await Promise.all([
+      Promise.all(syncConflictPromises),
+      Promise.all(mergeConflictPromises)
+    ]);
+
+    // Update sync conflicts state
+    const newSyncConflicts: Record<string, any> = {};
+    syncResults.forEach(({ worktreeId, data }) => {
+      if (data) {
+        newSyncConflicts[worktreeId] = data;
+      }
+    });
+    setSyncConflicts(newSyncConflicts);
+
+    // Update merge conflicts state
+    const newMergeConflicts: Record<string, any> = {};
+    mergeResults.forEach(({ worktreeId, data }) => {
+      if (data) {
+        newMergeConflicts[worktreeId] = data;
+      }
+    });
+    setMergeConflicts(newMergeConflicts);
+  };
+
   const handleCheckout = async (url: string) => {
     setLoading(true);
     try {
@@ -293,6 +354,44 @@ function GitPage() {
     toast.success("Command copied to clipboard");
   };
 
+  const handleMergeConflict = (errorData: any, operation: string) => {
+    if (errorData.error === "merge_conflict") {
+      const worktreeName = errorData.worktree_name;
+      const conflictFiles = errorData.conflict_files || [];
+      const sessionId = encodeURIComponent(worktreeName);
+      const terminalUrl = `/terminal/${sessionId}`;
+      
+      const conflictText = conflictFiles.length > 0 
+        ? `Conflicts in: ${conflictFiles.join(", ")}`
+        : "Multiple files have conflicts";
+
+      const claudePrompt = `I have a merge conflict during a ${operation} operation. ${conflictText}. Please help me resolve these conflicts by examining the files, understanding the conflicting changes, and providing a resolution strategy.`;
+
+      toast.error(
+        <div className="space-y-2">
+          <div className="font-semibold">Merge Conflict in {worktreeName}</div>
+          <div className="text-sm">{conflictText}</div>
+          <div className="space-y-1">
+            <a 
+              href={terminalUrl} 
+              className="inline-block text-blue-600 hover:text-blue-800 underline text-sm"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Terminal to Resolve →
+            </a>
+            <div className="text-xs text-gray-600">
+              Suggested Claude prompt: "{claudePrompt}"
+            </div>
+          </div>
+        </div>,
+        { duration: 15000 }
+      );
+      return true;
+    }
+    return false;
+  };
+
   const syncWorktree = async (id: string) => {
     try {
       const response = await fetch(`/v1/git/worktrees/${id}/sync`, {
@@ -308,7 +407,9 @@ function GitPage() {
         toast.success(`Successfully synced worktree`);
       } else {
         const errorData = await response.json();
-        toast.error(`Failed to sync worktree: ${errorData.error}`);
+        if (!handleMergeConflict(errorData, "sync")) {
+          toast.error(`Failed to sync worktree: ${errorData.error}`);
+        }
       }
     } catch (error) {
       console.error("Failed to sync worktree:", error);
@@ -327,7 +428,9 @@ function GitPage() {
         toast.success(`Successfully merged ${worktreeName} to main branch`);
       } else {
         const errorData = await response.json();
-        toast.error(`Failed to merge worktree: ${errorData.error}`);
+        if (!handleMergeConflict(errorData, "merge")) {
+          toast.error(`Failed to merge worktree: ${errorData.error}`);
+        }
       }
     } catch (error) {
       console.error("Failed to merge worktree:", error);
@@ -362,6 +465,13 @@ function GitPage() {
     fetchClaudeSessions();
     fetchActiveSessions();
   }, []);
+
+  useEffect(() => {
+    // Check for conflicts when worktrees change
+    if (worktrees.length > 0) {
+      checkConflicts();
+    }
+  }, [worktrees]);
 
   return (
     <div className="container mx-auto px-4 py-6 space-y-6">
@@ -416,6 +526,12 @@ function GitPage() {
                       {worktree.commits_behind > 0 && (
                         <Badge variant="outline" className="border-orange-200 text-orange-800 bg-orange-50">
                           {worktree.commits_behind} behind
+                          {syncConflicts[worktree.id]?.has_conflicts && " ⚠️"}
+                        </Badge>
+                      )}
+                      {(syncConflicts[worktree.id]?.has_conflicts || mergeConflicts[worktree.id]?.has_conflicts) && (
+                        <Badge variant="outline" className="border-red-200 text-red-800 bg-red-50">
+                          Conflicts detected
                         </Badge>
                       )}
                       {claudeSessions[worktree.path] && (
@@ -503,10 +619,22 @@ function GitPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => syncWorktree(worktree.id)}
-                        title={`Sync ${worktree.commits_behind} commits from ${worktree.source_branch}`}
-                        className="text-orange-600 border-orange-200 hover:bg-orange-50"
+                        title={
+                          syncConflicts[worktree.id]?.has_conflicts
+                            ? `⚠️ Sync will cause conflicts: ${syncConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}`
+                            : `Sync ${worktree.commits_behind} commits from ${worktree.source_branch}`
+                        }
+                        className={
+                          syncConflicts[worktree.id]?.has_conflicts
+                            ? "text-red-600 border-red-200 hover:bg-red-50"
+                            : "text-orange-600 border-orange-200 hover:bg-orange-50"
+                        }
                       >
-                        <RefreshCw size={16} />
+                        {syncConflicts[worktree.id]?.has_conflicts ? (
+                          <AlertTriangle size={16} />
+                        ) : (
+                          <RefreshCw size={16} />
+                        )}
                       </Button>
                     )}
                     {worktree.repo_id.startsWith("local/") && (
@@ -528,15 +656,29 @@ function GitPage() {
                           setConfirmDialog({
                             open: true,
                             title: "Merge to Main",
-                            description: `Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
+                            description: mergeConflicts[worktree.id]?.has_conflicts
+                              ? `⚠️ Warning: This merge will cause conflicts in ${mergeConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}. Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch anyway?`
+                              : `Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
                             onConfirm: () => mergeWorktreeToMain(worktree.id, worktree.name),
-                            variant: "default",
+                            variant: mergeConflicts[worktree.id]?.has_conflicts ? "destructive" : "default",
                           });
                         }}
-                        title={`Merge ${worktree.commit_count} commits to ${worktree.source_branch}`}
-                        className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                        title={
+                          mergeConflicts[worktree.id]?.has_conflicts
+                            ? `⚠️ Merge will cause conflicts: ${mergeConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}`
+                            : `Merge ${worktree.commit_count} commits to ${worktree.source_branch}`
+                        }
+                        className={
+                          mergeConflicts[worktree.id]?.has_conflicts
+                            ? "text-red-600 border-red-200 hover:bg-red-50"
+                            : "text-blue-600 border-blue-200 hover:bg-blue-50"
+                        }
                       >
-                        <GitMerge size={16} />
+                        {mergeConflicts[worktree.id]?.has_conflicts ? (
+                          <AlertTriangle size={16} />
+                        ) : (
+                          <GitMerge size={16} />
+                        )}
                       </Button>
                     )}
                     <Button

@@ -47,7 +47,8 @@ I've prototyped a number of these features in a folder named "reference". It cou
 ## Development Tips
 
 - Assume I'm running the dev server already which rebuilds go and the frontend
-- You can exec in the dev container "catnip-dev", be sure to add the `--login` flag to bash
+- You can exec in the dev container "catnip-dev", use `bash --login -c '...'` run commands.
+- You can check logs with something like: `sleep 5 && docker logs --tail 200 catnip-dev 2>&1 | grep "Some message" | head -10`
 - Use shadcn theme variables as much as possible. You can add new ones in `index.css` if necessary.
 - When making changes to Golang, our dev server needs to recompile before we hit http://localhost:8080, sleep 5 seconds when you're changing go and debugging with curl
 
