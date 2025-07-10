@@ -107,7 +107,7 @@ export function RepoSelector({
                       <div className="flex-1">
                         <div className="font-medium">{repo.id}</div>
                         <div className="text-sm text-muted-foreground">
-                          {repo.id === "catnip-dev" ? "Development repository (mounted)" : repo.url}
+                          {repo.id.startsWith("local/") ? "Local repository (mounted)" : repo.url}
                         </div>
                       </div>
                     </CommandItem>

@@ -1114,6 +1114,29 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 	previewBranchName := fmt.Sprintf("preview/%s", worktree.Branch)
 	log.Printf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
 	
+	// Check if there are uncommitted changes (staged, unstaged, or untracked)
+	hasUncommittedChanges, err := s.hasUncommittedChanges(worktree.Path)
+	if err != nil {
+		return fmt.Errorf("failed to check for uncommitted changes: %v", err)
+	}
+	
+	var tempCommitHash string
+	if hasUncommittedChanges {
+		// Create a temporary commit with all uncommitted changes
+		tempCommitHash, err = s.createTemporaryCommit(worktree.Path)
+		if err != nil {
+			return fmt.Errorf("failed to create temporary commit: %v", err)
+		}
+		defer func() {
+			// Reset to remove the temporary commit after pushing
+			if tempCommitHash != "" {
+				resetCmd := exec.Command("git", "-C", worktree.Path, "reset", "--mixed", "HEAD~1")
+				resetCmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+				resetCmd.Run()
+			}
+		}()
+	}
+	
 	// Push the worktree branch to a preview branch in main repo
 	cmd := exec.Command("git", "-C", worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, previewBranchName))
 	cmd.Env = append(os.Environ(),
@@ -1125,8 +1148,68 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 		return fmt.Errorf("failed to create preview branch: %v\n%s", err, output)
 	}
 	
-	log.Printf("✅ Preview branch %s created - you can now checkout this branch outside the container", previewBranchName)
+	if hasUncommittedChanges {
+		log.Printf("✅ Preview branch %s created with uncommitted changes - you can now checkout this branch outside the container", previewBranchName)
+	} else {
+		log.Printf("✅ Preview branch %s created - you can now checkout this branch outside the container", previewBranchName)
+	}
 	return nil
+}
+
+// hasUncommittedChanges checks if the worktree has any uncommitted changes
+func (s *GitService) hasUncommittedChanges(worktreePath string) (bool, error) {
+	// Check for staged changes
+	cmd := exec.Command("git", "-C", worktreePath, "diff", "--cached", "--quiet")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if cmd.Run() != nil {
+		return true, nil // Has staged changes
+	}
+	
+	// Check for unstaged changes
+	cmd = exec.Command("git", "-C", worktreePath, "diff", "--quiet")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if cmd.Run() != nil {
+		return true, nil // Has unstaged changes
+	}
+	
+	// Check for untracked files
+	cmd = exec.Command("git", "-C", worktreePath, "ls-files", "--others", "--exclude-standard")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to check for untracked files: %v", err)
+	}
+	
+	return len(strings.TrimSpace(string(output))) > 0, nil
+}
+
+// createTemporaryCommit creates a temporary commit with all uncommitted changes
+func (s *GitService) createTemporaryCommit(worktreePath string) (string, error) {
+	// Add all changes (staged, unstaged, and untracked)
+	cmd := exec.Command("git", "-C", worktreePath, "add", ".")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to stage changes: %v\n%s", err, output)
+	}
+	
+	// Create the commit
+	cmd = exec.Command("git", "-C", worktreePath, "commit", "-m", "Preview: Include all uncommitted changes")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to create temporary commit: %v\n%s", err, output)
+	}
+	
+	// Get the commit hash
+	cmd = exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit hash: %v", err)
+	}
+	
+	commitHash := strings.TrimSpace(string(output))
+	log.Printf("📝 Created temporary commit %s with uncommitted changes", commitHash[:8])
+	return commitHash, nil
 }
 
 // Stop stops the Git service

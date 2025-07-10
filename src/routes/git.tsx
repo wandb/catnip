@@ -240,21 +240,6 @@ function GitPage() {
             toast.error(`Failed to checkout local repository: ${errorData.error || 'Unknown error'}`);
           }
         }
-      } else if (url === "catnip-dev/dev" || url.startsWith("file://")) {
-        // Legacy dev repo handling
-        const response = await fetch(`/v1/git/checkout/catnip-dev/dev`, {
-          method: "POST",
-        });
-        if (response.ok) {
-          fetchGitStatus();
-          fetchWorktrees();
-          fetchActiveSessions();
-          toast.success("Development repository checked out successfully");
-        } else {
-          const errorData = await response.json();
-          console.error("Failed to checkout dev repository:", errorData);
-          toast.error(`Failed to checkout dev repository: ${errorData.error || 'Unknown error'}`);
-        }
       } else if (url.startsWith("https://github.com/")) {
         // Handle regular GitHub repos
         const urlParts = url.replace("https://github.com/", "").split("/");

@@ -100,10 +100,38 @@ func (s *Settings) restoreFromVolume() {
 			continue
 		}
 		
-		// Check if destination file already exists - if so, don't overwrite
-		if _, err := os.Stat(file.destPath); err == nil {
-			log.Printf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
-			continue
+		// Check if destination file already exists
+		destInfo, err := os.Stat(file.destPath)
+		if err == nil {
+			// File exists in home - check modification times
+			sourceInfo, err := os.Stat(sourcePath)
+			if err == nil {
+				if destInfo.ModTime().After(sourceInfo.ModTime()) {
+					// Home file is newer - sync it to volume instead
+					log.Printf("⚠️  Home %s is newer than volume version - syncing to volume", file.filename)
+					log.Printf("    Home: %v, Volume: %v", destInfo.ModTime(), sourceInfo.ModTime())
+					if err := s.copyFile(file.destPath, sourcePath); err != nil {
+						log.Printf("❌ Failed to sync newer %s to volume: %v", file.filename, err)
+					} else {
+						log.Printf("📋 Synced newer %s to volume", file.filename)
+						// Try to fix ownership
+						os.Chown(sourcePath, 1000, 1000)
+					}
+					continue
+				} else if sourceInfo.ModTime().After(destInfo.ModTime()) {
+					// Volume file is newer - restore it to home
+					log.Printf("🔄 Volume %s is newer - restoring to home directory", file.filename)
+					log.Printf("    Home: %v, Volume: %v", destInfo.ModTime(), sourceInfo.ModTime())
+					// Fall through to copy logic below
+				} else {
+					// Files have same modification time
+					log.Printf("⚪ Skipping restore of %s - same modification time", file.filename)
+					continue
+				}
+			} else {
+				log.Printf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
+				continue
+			}
 		}
 		
 		// Create destination directory if needed
