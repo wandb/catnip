@@ -25,12 +25,11 @@ function Index() {
         
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="relative">
-            <Input
-              type="text"
+            <textarea
               placeholder="Describe a task"
               value={taskDescription}
               onChange={(e) => setTaskDescription(e.target.value)}
-              className="w-full h-16 text-lg px-6 pr-16 rounded-2xl border-2 focus:ring-2 focus:ring-primary"
+              className="w-full h-32 text-lg px-6 py-4 pr-16 rounded-3xl border-0 bg-muted/50 resize-none focus:outline-none focus:ring-0 focus:border-0"
             />
             <Button
               type="button"
@@ -46,7 +45,7 @@ function Index() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">📁</span>
               <Select value={selectedRepo} onValueChange={setSelectedRepo}>
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-40 h-8 border-0 bg-muted/50 focus:ring-0 focus:outline-none">
                   <SelectValue placeholder="vanpelt/grabbit" />
                 </SelectTrigger>
                 <SelectContent>
@@ -60,7 +59,7 @@ function Index() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">🌿</span>
               <Select value={selectedBranch} onValueChange={setSelectedBranch}>
-                <SelectTrigger className="w-32">
+                <SelectTrigger className="w-24 h-8 border-0 bg-muted/50 focus:ring-0 focus:outline-none">
                   <SelectValue placeholder="main" />
                 </SelectTrigger>
                 <SelectContent>
@@ -74,7 +73,7 @@ function Index() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">⚡</span>
               <Select defaultValue="2x">
-                <SelectTrigger className="w-20">
+                <SelectTrigger className="w-16 h-8 border-0 bg-muted/50 focus:ring-0 focus:outline-none">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -86,13 +85,15 @@ function Index() {
             </div>
           </div>
           
-          <Button
-            type="submit"
-            className="w-full h-12 text-lg rounded-xl"
-            disabled={!taskDescription.trim()}
-          >
-            Start Coding
-          </Button>
+          <div className="flex justify-center">
+            <Button
+              type="submit"
+              className="h-12 px-8 text-lg rounded-xl"
+              disabled={!taskDescription.trim()}
+            >
+              Start Coding
+            </Button>
+          </div>
         </form>
       </div>
     </div>
