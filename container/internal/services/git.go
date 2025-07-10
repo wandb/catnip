@@ -642,10 +642,18 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 		return nil, fmt.Errorf("failed to get commit hash: %v", err)
 	}
 	
+	// Clean up branch name to ensure it's a proper source branch
+	// Remove any git prefixes that might have been passed in
+	sourceBranch := strings.TrimSpace(branch)
+	sourceBranch = strings.TrimPrefix(sourceBranch, "*")
+	sourceBranch = strings.TrimPrefix(sourceBranch, "+")
+	sourceBranch = strings.TrimSpace(sourceBranch)
+	sourceBranch = strings.TrimPrefix(sourceBranch, "origin/")
+	
 	// Calculate commit count ahead of source
 	commitCount := 0
-	if branch != name { // Only count if different from current branch
-		cmd = exec.Command("git", "-C", worktreePath, "rev-list", "--count", fmt.Sprintf("%s..HEAD", branch))
+	if sourceBranch != name { // Only count if different from current branch
+		cmd = exec.Command("git", "-C", worktreePath, "rev-list", "--count", fmt.Sprintf("%s..HEAD", sourceBranch))
 		cmd.Env = append(os.Environ(),
 			"HOME=/home/catnip",
 			"USER=catnip",
@@ -667,7 +675,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 		Name:         displayName,
 		Path:         worktreePath,
 		Branch:       name,
-		SourceBranch: branch,
+		SourceBranch: sourceBranch,
 		CommitHash:   strings.TrimSpace(string(commitOutput)),
 		CommitCount:  commitCount,
 		CommitsBehind: 0, // Will be calculated later
@@ -787,8 +795,15 @@ func (s *GitService) getLocalRepoBranches(repoPath string) ([]string, error) {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" {
-			// Remove the * prefix for current branch
+			// Remove the * prefix for current branch and + prefix for worktree tracking branches
 			branch := strings.TrimPrefix(line, "* ")
+			branch = strings.TrimPrefix(branch, "+ ")
+			
+			// Skip preview branches - they're not real source branches users should see
+			if strings.HasPrefix(branch, "preview/") {
+				continue
+			}
+			
 			branches = append(branches, branch)
 		}
 	}
@@ -1145,8 +1160,21 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 		}()
 	}
 	
+	// Check if preview branch already exists and handle accordingly
+	shouldForceUpdate, err := s.shouldForceUpdatePreviewBranch(repo.Path, previewBranchName)
+	if err != nil {
+		return fmt.Errorf("failed to check preview branch status: %v", err)
+	}
+	
 	// Push the worktree branch to a preview branch in main repo
-	cmd := exec.Command("git", "-C", worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, previewBranchName))
+	pushArgs := []string{"-C", worktree.Path, "push"}
+	if shouldForceUpdate {
+		pushArgs = append(pushArgs, "--force")
+		log.Printf("🔄 Updating existing preview branch %s", previewBranchName)
+	}
+	pushArgs = append(pushArgs, repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, previewBranchName))
+	
+	cmd := exec.Command("git", pushArgs...)
 	cmd.Env = append(os.Environ(),
 		"HOME=/home/catnip",
 		"USER=catnip",
@@ -1156,12 +1184,53 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 		return fmt.Errorf("failed to create preview branch: %v\n%s", err, output)
 	}
 	
+	action := "created"
+	if shouldForceUpdate {
+		action = "updated"
+	}
+	
 	if hasUncommittedChanges {
-		log.Printf("✅ Preview branch %s created with uncommitted changes - you can now checkout this branch outside the container", previewBranchName)
+		log.Printf("✅ Preview branch %s %s with uncommitted changes - you can now checkout this branch outside the container", previewBranchName, action)
 	} else {
-		log.Printf("✅ Preview branch %s created - you can now checkout this branch outside the container", previewBranchName)
+		log.Printf("✅ Preview branch %s %s - you can now checkout this branch outside the container", previewBranchName, action)
 	}
 	return nil
+}
+
+// shouldForceUpdatePreviewBranch determines if we should force-update an existing preview branch
+func (s *GitService) shouldForceUpdatePreviewBranch(repoPath, previewBranchName string) (bool, error) {
+	// Check if the preview branch exists
+	cmd := exec.Command("git", "-C", repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", previewBranchName))
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	if err := cmd.Run(); err != nil {
+		// Branch doesn't exist, safe to create
+		return false, nil
+	}
+	
+	// Branch exists, check if the last commit was made by us (preview commit)
+	cmd = exec.Command("git", "-C", repoPath, "log", "-1", "--pretty=format:%s", previewBranchName)
+	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to get last commit message: %v", err)
+	}
+	
+	lastCommitMessage := strings.TrimSpace(string(output))
+	
+	// Check if this looks like our preview commit
+	isOurPreviewCommit := strings.Contains(lastCommitMessage, "Preview:") || 
+						  strings.Contains(lastCommitMessage, "Include all uncommitted changes") ||
+						  strings.Contains(lastCommitMessage, "preview") // Case insensitive fallback
+	
+	if isOurPreviewCommit {
+		log.Printf("🔍 Found existing preview branch %s with our commit: '%s'", previewBranchName, lastCommitMessage)
+		return true, nil
+	}
+	
+	// The preview branch exists but doesn't appear to be our commit
+	// Let's still allow force update but warn about it
+	log.Printf("⚠️  Preview branch %s exists with non-preview commit: '%s' - will force update anyway", previewBranchName, lastCommitMessage)
+	return true, nil
 }
 
 // hasUncommittedChanges checks if the worktree has any uncommitted changes
@@ -1658,15 +1727,40 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	// Determine source branch (resolve if it's a commit or branch)
 	sourceBranch := source
 	if len(source) == 40 { // Looks like a commit hash
-		// Try to find which branch contains this commit
+		// Try to find which branch contains this commit, excluding preview branches
 		cmd = exec.Command("git", "-C", repo.Path, "branch", "--contains", source)
 		branchOutput, err := cmd.Output()
 		if err == nil {
 			branches := strings.Split(strings.TrimSpace(string(branchOutput)), "\n")
-			if len(branches) > 0 {
-				// Use the first branch found, clean it up
-				sourceBranch = strings.TrimSpace(strings.TrimPrefix(branches[0], "*"))
-				sourceBranch = strings.TrimPrefix(sourceBranch, "origin/")
+			// Filter out preview branches and find the best source branch
+			for _, branch := range branches {
+				// Clean up branch name - remove *, +, and leading/trailing spaces
+				cleanBranch := strings.TrimSpace(branch)
+				cleanBranch = strings.TrimPrefix(cleanBranch, "*")
+				cleanBranch = strings.TrimPrefix(cleanBranch, "+")
+				cleanBranch = strings.TrimSpace(cleanBranch)
+				cleanBranch = strings.TrimPrefix(cleanBranch, "origin/")
+				
+				// Skip preview branches - they're not real source branches
+				if strings.HasPrefix(cleanBranch, "preview/") {
+					continue
+				}
+				
+				// Skip the current branch itself (it can't be its own source)
+				if cleanBranch == name {
+					continue
+				}
+				
+				// Prefer main/master branches over others
+				if cleanBranch == "main" || cleanBranch == "master" {
+					sourceBranch = cleanBranch
+					break
+				}
+				
+				// Use the first non-preview branch as fallback
+				if sourceBranch == source { // Still the original source (commit hash)
+					sourceBranch = cleanBranch
+				}
 			}
 		}
 	}

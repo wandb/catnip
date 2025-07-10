@@ -34,7 +34,7 @@ type Worktree struct {
 	Name         string    `json:"name"`          // User-friendly name
 	Path         string    `json:"path"`          // Absolute path to worktree
 	Branch       string    `json:"branch"`        // Git branch name
-	SourceBranch string    `json:"source_branch"` // Branch this worktree was created from
+	SourceBranch string    `json:"source_branch"` // Branch this worktree was created from (immutable after creation)
 	CommitHash    string    `json:"commit_hash"`     // Current commit
 	CommitCount   int       `json:"commit_count"`   // Commits made since creation
 	CommitsBehind int       `json:"commits_behind"` // Commits behind source branch
