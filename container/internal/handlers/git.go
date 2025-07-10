@@ -210,14 +210,23 @@ func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
 // @Summary Merge worktree to main
 // @Description Merges a local repo worktree's changes back to the main repository
 // @Tags git
+// @Accept json
 // @Produce json
 // @Param id path string true "Worktree ID"
+// @Param body body map[string]string false "Merge options"
 // @Success 200 {object} map[string]string
 // @Router /v1/git/worktrees/{id}/merge [post]
 func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
 	
-	if err := h.gitService.MergeWorktreeToMain(worktreeID); err != nil {
+	var mergeRequest struct {
+		Squash bool `json:"squash"`
+	}
+	
+	// Parse body if present, but don't require it for backwards compatibility
+	c.BodyParser(&mergeRequest)
+	
+	if err := h.gitService.MergeWorktreeToMain(worktreeID, mergeRequest.Squash); err != nil {
 		// Check if this is a merge conflict error
 		var mergeConflictErr *models.MergeConflictError
 		if errors.As(err, &mergeConflictErr) {

@@ -821,15 +821,15 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 		return fmt.Errorf("worktree %s not found", worktreeID)
 	}
 	
-	// Note: No longer checking for "active" worktree since we removed single active worktree concept
-	
 	// Get repository for worktree deletion
 	repo, exists := s.repositories[worktree.RepoID]
 	if !exists {
 		return fmt.Errorf("repository %s not found", worktree.RepoID)
 	}
 	
-	// Remove the worktree
+	log.Printf("🗑️ Starting comprehensive cleanup for worktree %s", worktree.Name)
+	
+	// Step 1: Remove the worktree directory first (this also removes git worktree registration)
 	cmd := exec.Command("git", "-C", repo.Path, "worktree", "remove", "--force", worktree.Path)
 	cmd.Env = append(os.Environ(),
 		"HOME=/home/catnip",
@@ -837,16 +837,92 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	)
 	
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to remove worktree: %w", err)
+		log.Printf("⚠️ Failed to remove worktree directory (continuing with cleanup): %v", err)
+		// Continue with cleanup even if worktree removal fails
+	} else {
+		log.Printf("✅ Removed worktree directory: %s", worktree.Path)
 	}
 	
-	// Remove from memory
+	// Step 2: Remove the worktree branch from the repository
+	if worktree.Branch != "" && worktree.Branch != worktree.SourceBranch {
+		cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", worktree.Branch)
+		cmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		if err := cmd.Run(); err != nil {
+			log.Printf("⚠️ Failed to remove branch %s (may not exist or be in use): %v", worktree.Branch, err)
+		} else {
+			log.Printf("✅ Removed branch: %s", worktree.Branch)
+		}
+	}
+	
+	// Step 3: Remove preview branch if it exists
+	previewBranchName := fmt.Sprintf("preview/%s", worktree.Branch)
+	cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", previewBranchName)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	if err := cmd.Run(); err != nil {
+		// Preview branch might not exist, don't log as warning
+		log.Printf("ℹ️ No preview branch to remove: %s", previewBranchName)
+	} else {
+		log.Printf("✅ Removed preview branch: %s", previewBranchName)
+	}
+	
+	// Step 4: Clean up any active PTY sessions for this worktree
+	s.cleanupActiveSessions(worktree.Path)
+	
+	// Step 5: Force remove any remaining files in the worktree directory
+	if _, err := os.Stat(worktree.Path); err == nil {
+		if removeErr := os.RemoveAll(worktree.Path); removeErr != nil {
+			log.Printf("⚠️ Failed to force remove worktree directory %s: %v", worktree.Path, removeErr)
+		} else {
+			log.Printf("✅ Force removed remaining worktree directory: %s", worktree.Path)
+		}
+	}
+	
+	// Step 6: Remove from memory
 	delete(s.worktrees, worktreeID)
 	
-	// Save state
+	// Step 7: Save state
 	s.saveState()
 	
+	log.Printf("✅ Completed comprehensive cleanup for worktree %s", worktree.Name)
 	return nil
+}
+
+// cleanupActiveSessions attempts to cleanup any active terminal sessions for this worktree
+func (s *GitService) cleanupActiveSessions(worktreePath string) {
+	// Kill any processes that might be running in the worktree directory
+	// This is a best-effort cleanup
+	cmd := exec.Command("pkill", "-f", worktreePath)
+	if err := cmd.Run(); err != nil {
+		// Don't log this as an error since it's common for no processes to be found
+		log.Printf("ℹ️ No active processes found for worktree path: %s", worktreePath)
+	} else {
+		log.Printf("✅ Terminated processes for worktree: %s", worktreePath)
+	}
+	
+	// Also try to cleanup any session directories that might exist
+	// Session IDs are typically derived from worktree names
+	parts := strings.Split(strings.TrimPrefix(worktreePath, "/workspace/"), "/")
+	if len(parts) >= 2 {
+		sessionID := fmt.Sprintf("%s/%s", parts[0], parts[1])
+		sessionWorkDir := filepath.Join("/workspace", sessionID)
+		
+		// If there's a session directory different from the worktree, clean it up too
+		if sessionWorkDir != worktreePath {
+			if _, err := os.Stat(sessionWorkDir); err == nil {
+				if removeErr := os.RemoveAll(sessionWorkDir); removeErr != nil {
+					log.Printf("⚠️ Failed to remove session directory %s: %v", sessionWorkDir, removeErr)
+				} else {
+					log.Printf("✅ Removed session directory: %s", sessionWorkDir)
+				}
+			}
+		}
+	}
 }
 
 // updateWorktreeStatusInternal updates commit count and commits behind for a worktree (internal, no mutex)
@@ -1042,7 +1118,7 @@ func (s *GitService) syncRegularWorktree(worktree *models.Worktree, strategy str
 }
 
 // MergeWorktreeToMain merges a local repo worktree's changes back to the main repository
-func (s *GitService) MergeWorktreeToMain(worktreeID string) error {
+func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 	s.mu.RLock()
 	worktree, exists := s.worktrees[worktreeID]
 	s.mu.RUnlock()
@@ -1087,7 +1163,13 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string) error {
 	}
 	
 	// Merge the worktree branch
-	cmd = exec.Command("git", "-C", repo.Path, "merge", worktree.Branch, "--no-ff", "-m", fmt.Sprintf("Merge branch '%s' from worktree", worktree.Branch))
+	var mergeArgs []string
+	if squash {
+		mergeArgs = []string{"-C", repo.Path, "merge", worktree.Branch, "--squash"}
+	} else {
+		mergeArgs = []string{"-C", repo.Path, "merge", worktree.Branch, "--no-ff", "-m", fmt.Sprintf("Merge branch '%s' from worktree", worktree.Branch)}
+	}
+	cmd = exec.Command("git", mergeArgs...)
 	cmd.Env = append(os.Environ(),
 		"HOME=/home/catnip",
 		"USER=catnip",
@@ -1099,6 +1181,19 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string) error {
 			return s.createMergeConflictError("merge", worktree, string(output))
 		}
 		return fmt.Errorf("failed to merge worktree branch: %v\n%s", err, output)
+	}
+	
+	// For squash merges, we need to commit the staged changes
+	if squash {
+		cmd = exec.Command("git", "-C", repo.Path, "commit", "-m", fmt.Sprintf("Squash merge branch '%s' from worktree", worktree.Branch))
+		cmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to commit squash merge: %v\n%s", err, output)
+		}
 	}
 	
 	// Delete the feature branch from main repo (cleanup)

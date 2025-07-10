@@ -420,15 +420,20 @@ function GitPage() {
     }
   };
 
-  const mergeWorktreeToMain = async (id: string, worktreeName: string) => {
+  const mergeWorktreeToMain = async (id: string, worktreeName: string, squash: boolean = true) => {
     try {
       const response = await fetch(`/v1/git/worktrees/${id}/merge`, {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ squash }),
       });
       if (response.ok) {
         fetchWorktrees();
         fetchGitStatus();
-        toast.success(`Successfully merged ${worktreeName} to main branch`);
+        const mergeType = squash ? "squash merged" : "merged";
+        toast.success(`Successfully ${mergeType} ${worktreeName} to main branch`);
       } else {
         const errorData = await response.json();
         if (!handleMergeConflict(errorData, "merge")) {
