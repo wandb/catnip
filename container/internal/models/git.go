@@ -59,10 +59,8 @@ type CheckoutRequest struct {
 }
 
 // GitStatus represents the current Git status
-// @Description Current git status including active worktree and repository information
+// @Description Current git status including repository information
 type GitStatus struct {
-	Repository      *Repository            `json:"repository" description:"Repository of active worktree (for backward compatibility)"`
 	Repositories    map[string]*Repository `json:"repositories" description:"All loaded repositories mapped by repository ID"`
-	ActiveWorktree  *Worktree              `json:"active_worktree" description:"Currently active worktree, if any"`
 	WorktreeCount   int                    `json:"worktree_count" example:"3" description:"Total number of worktrees across all repositories"`
 }

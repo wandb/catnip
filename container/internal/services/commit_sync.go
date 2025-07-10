@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/vanpelt/catnip/internal/models"
 )
 
 // CommitSyncService monitors worktrees for commits and syncs them to the bare repository
@@ -40,6 +41,23 @@ func NewCommitSyncService(gitService *GitService) *CommitSyncService {
 		syncInterval: 5 * time.Second,
 		stopChan:     make(chan struct{}),
 	}
+}
+
+// findRepositoryForWorktree finds the repository associated with a worktree path
+func (css *CommitSyncService) findRepositoryForWorktree(worktreePath string) (*models.Repository, error) {
+	// Get all worktrees and find the one matching this path
+	worktrees := css.gitService.ListWorktrees()
+	for _, worktree := range worktrees {
+		if worktree.Path == worktreePath {
+			// Get the repository for this worktree
+			status := css.gitService.GetStatus()
+			if repo, exists := status.Repositories[worktree.RepoID]; exists {
+				return repo, nil
+			}
+			return nil, fmt.Errorf("repository %s not found for worktree %s", worktree.RepoID, worktreePath)
+		}
+	}
+	return nil, fmt.Errorf("worktree not found for path: %s", worktreePath)
 }
 
 // Start begins monitoring worktrees for commits
@@ -262,13 +280,13 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	css.mu.Lock()
 	defer css.mu.Unlock()
 
-	// Get the bare repository path
-	status := css.gitService.GetStatus()
-	if status.Repository == nil {
-		return fmt.Errorf("no active repository")
+	// Find the repository for this worktree
+	repo, err := css.findRepositoryForWorktree(commitInfo.WorktreePath)
+	if err != nil {
+		return fmt.Errorf("failed to find repository for worktree: %v", err)
 	}
 
-	bareRepoPath := status.Repository.Path
+	bareRepoPath := repo.Path
 
 	// Verify the commit exists in the worktree before trying to sync
 	verifyCmd := exec.Command("git", "-C", commitInfo.WorktreePath, "cat-file", "-e", commitInfo.CommitHash)
@@ -293,7 +311,7 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 
 	// Fetch the commit from the worktree to the bare repository
 	// Create unique remote name using repo ID to avoid conflicts between repositories
-	repoID := strings.ReplaceAll(status.Repository.ID, "/", "-")
+	repoID := strings.ReplaceAll(repo.ID, "/", "-")
 	remoteName := fmt.Sprintf("sync-%s-%s", repoID, strings.ReplaceAll(commitInfo.Branch, "/", "-"))
 	
 	// Remove existing remote first to avoid conflicts
@@ -397,11 +415,18 @@ func (css *CommitSyncService) performPeriodicSync() {
 // cleanupOrphanedRemotes removes any leftover sync remotes from previous runs
 func (css *CommitSyncService) cleanupOrphanedRemotes() {
 	status := css.gitService.GetStatus()
-	if status.Repository == nil {
+	if len(status.Repositories) == 0 {
 		return
 	}
 
-	bareRepoPath := status.Repository.Path
+	// Clean up remotes for all repositories
+	for _, repo := range status.Repositories {
+		css.cleanupOrphanedRemotesForRepo(repo.Path)
+	}
+}
+
+// cleanupOrphanedRemotesForRepo removes orphaned remotes for a specific repository
+func (css *CommitSyncService) cleanupOrphanedRemotesForRepo(bareRepoPath string) {
 	
 	// List all remotes
 	cmd := exec.Command("git", "-C", bareRepoPath, "remote")
@@ -425,8 +450,9 @@ func (css *CommitSyncService) cleanupOrphanedRemotes() {
 
 // hasUnsyncedCommits checks if a worktree has commits not in the bare repository
 func (css *CommitSyncService) hasUnsyncedCommits(worktreePath string) bool {
-	status := css.gitService.GetStatus()
-	if status.Repository == nil {
+	// Find the repository for this worktree
+	repo, err := css.findRepositoryForWorktree(worktreePath)
+	if err != nil {
 		return false
 	}
 
@@ -446,7 +472,7 @@ func (css *CommitSyncService) hasUnsyncedCommits(worktreePath string) bool {
 	branch := strings.TrimSpace(string(branchOutput))
 
 	// Get bare repo HEAD for this branch
-	cmd = exec.Command("git", "-C", status.Repository.Path, "rev-parse", fmt.Sprintf("refs/heads/%s", branch))
+	cmd = exec.Command("git", "-C", repo.Path, "rev-parse", fmt.Sprintf("refs/heads/%s", branch))
 	bareHead, err := cmd.Output()
 	if err != nil {
 		// Branch doesn't exist in bare repo, so it's definitely unsynced

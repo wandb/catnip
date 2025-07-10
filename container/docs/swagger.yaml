@@ -1,4 +1,3 @@
-basePath: /v1
 definitions:
   github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary:
     description: Claude Code session summary with metrics and timing information
@@ -39,16 +38,12 @@ definitions:
         type: string
     type: object
   github_com_vanpelt_catnip_internal_models.GitStatus:
-    description: Current git status including active worktree and repository information
+    description: Current git status including repository information
     properties:
-      active_worktree:
-        $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
       repositories:
         additionalProperties:
           $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Repository'
         type: object
-      repository:
-        $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Repository'
       worktree_count:
         example: 3
         type: integer

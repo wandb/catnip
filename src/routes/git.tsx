@@ -60,22 +60,7 @@ const getDuration = (startDate: string | Date, endDate: string | Date) => {
 };
 
 interface GitStatus {
-  repository?: {
-    id: string;
-    url: string;
-    path: string;
-    default_branch: string;
-  };
   repositories?: Record<string, any>;
-  active_worktree?: {
-    id: string;
-    repo_id: string;
-    name: string;
-    path: string;
-    branch: string;
-    commit_hash: string;
-    is_dirty: boolean;
-  };
   worktree_count?: number;
 }
 

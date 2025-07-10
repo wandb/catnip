@@ -696,20 +696,14 @@ const docTemplate = `{
             }
         },
         "github_com_vanpelt_catnip_internal_models.GitStatus": {
-            "description": "Current git status including active worktree and repository information",
+            "description": "Current git status including repository information",
             "type": "object",
             "properties": {
-                "active_worktree": {
-                    "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
-                },
                 "repositories": {
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
                     }
-                },
-                "repository": {
-                    "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
                 },
                 "worktree_count": {
                     "type": "integer",
@@ -1033,7 +1027,7 @@ const docTemplate = `{
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
 	Host:             "localhost:8080",
-	BasePath:         "/v1",
+	BasePath:         "",
 	Schemes:          []string{"http", "ws"},
 	Title:            "Catnip Container API",
 	Description:      "API for managing container PTY sessions and services",

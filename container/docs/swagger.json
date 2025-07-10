@@ -11,7 +11,6 @@
         "version": "1.0"
     },
     "host": "localhost:8080",
-    "basePath": "/v1",
     "paths": {
         "/v1/auth/github/start": {
             "post": {
@@ -694,20 +693,14 @@
             }
         },
         "github_com_vanpelt_catnip_internal_models.GitStatus": {
-            "description": "Current git status including active worktree and repository information",
+            "description": "Current git status including repository information",
             "type": "object",
             "properties": {
-                "active_worktree": {
-                    "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
-                },
                 "repositories": {
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
                     }
-                },
-                "repository": {
-                    "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
                 },
                 "worktree_count": {
                     "type": "integer",

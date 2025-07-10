@@ -251,24 +251,8 @@ func (s *GitService) GetStatus() *models.GitStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	
-	// Find most recently accessed worktree for backward compatibility
-	var mostRecentWorktree *models.Worktree
-	var mostRecentRepo *models.Repository
-	
-	for _, wt := range s.worktrees {
-		if mostRecentWorktree == nil || wt.LastAccessed.After(mostRecentWorktree.LastAccessed) {
-			mostRecentWorktree = wt
-		}
-	}
-	
-	if mostRecentWorktree != nil {
-		mostRecentRepo = s.repositories[mostRecentWorktree.RepoID]
-	}
-	
 	return &models.GitStatus{
-		Repository:     mostRecentRepo,    // Repository of most recent worktree for backward compatibility
 		Repositories:   s.repositories,   // All repositories
-		ActiveWorktree: mostRecentWorktree, // Most recent worktree for backward compatibility
 		WorktreeCount:  len(s.worktrees),
 	}
 }
