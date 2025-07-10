@@ -3,6 +3,9 @@ package handlers
 import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/services"
+	
+	// Import models for swagger documentation
+	_ "github.com/vanpelt/catnip/internal/models"
 )
 
 // ClaudeHandler handles Claude Code session-related API endpoints

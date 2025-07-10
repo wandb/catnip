@@ -60,18 +60,19 @@ type ClaudeSessionMessage struct {
 }
 
 // ClaudeSessionSummary represents aggregated session information
+// @Description Claude Code session summary with metrics and timing information
 type ClaudeSessionSummary struct {
-	WorktreePath     string     `json:"worktreePath"`
-	SessionStartTime *time.Time `json:"sessionStartTime"`
-	SessionEndTime   *time.Time `json:"sessionEndTime"`
-	TurnCount        int        `json:"turnCount"`
-	IsActive         bool       `json:"isActive"`
-	LastSessionId    *string    `json:"lastSessionId"`
-	CurrentSessionId *string    `json:"currentSessionId,omitempty"` // ID of session we're reading timing from
+	WorktreePath     string     `json:"worktreePath" example:"/workspace/my-project" description:"Path to the worktree directory"`
+	SessionStartTime *time.Time `json:"sessionStartTime" example:"2024-01-15T14:30:00Z" description:"When the current session started"`
+	SessionEndTime   *time.Time `json:"sessionEndTime" example:"2024-01-15T16:45:30Z" description:"When the last session ended (if not active)"`
+	TurnCount        int        `json:"turnCount" example:"15" description:"Number of conversation turns in the session"`
+	IsActive         bool       `json:"isActive" example:"true" description:"Whether this session is currently active"`
+	LastSessionId    *string    `json:"lastSessionId" example:"abc123-def456" description:"ID of the most recent completed session"`
+	CurrentSessionId *string    `json:"currentSessionId,omitempty" example:"xyz789-ghi012" description:"ID of the currently active session"`
 	
 	// Metrics (from completed sessions)
-	LastCost              *float64 `json:"lastCost,omitempty"`
-	LastDuration          *int     `json:"lastDuration,omitempty"`
-	LastTotalInputTokens  *int     `json:"lastTotalInputTokens,omitempty"`
-	LastTotalOutputTokens *int     `json:"lastTotalOutputTokens,omitempty"`
+	LastCost              *float64 `json:"lastCost,omitempty" example:"0.25" description:"Cost in USD of the last completed session"`
+	LastDuration          *int     `json:"lastDuration,omitempty" example:"3600" description:"Duration in seconds of the last session"`
+	LastTotalInputTokens  *int     `json:"lastTotalInputTokens,omitempty" example:"15000" description:"Total input tokens used in the last session"`
+	LastTotalOutputTokens *int     `json:"lastTotalOutputTokens,omitempty" example:"8500" description:"Total output tokens generated in the last session"`
 }

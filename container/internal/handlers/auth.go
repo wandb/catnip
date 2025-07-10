@@ -32,16 +32,18 @@ type AuthProcess struct {
 }
 
 // AuthStartResponse represents the auth start response
+// @Description Response when starting GitHub device flow authentication
 type AuthStartResponse struct {
-	Code   string `json:"code"`
-	URL    string `json:"url"`
-	Status string `json:"status"`
+	Code   string `json:"code" example:"1234-5678" description:"Device verification code to enter on GitHub"`
+	URL    string `json:"url" example:"https://github.com/login/device" description:"GitHub device activation URL"`
+	Status string `json:"status" example:"waiting" description:"Current authentication status"`
 }
 
-// AuthStatusResponse represents the auth status response
+// AuthStatusResponse represents the auth status response  
+// @Description Response containing the current authentication status
 type AuthStatusResponse struct {
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Status string `json:"status" example:"success" description:"Authentication status: pending, waiting, success, or error"`
+	Error  string `json:"error,omitempty" example:"authentication timeout" description:"Error message if authentication failed"`
 }
 
 // NewAuthHandler creates a new auth handler

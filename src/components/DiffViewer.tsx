@@ -342,7 +342,6 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
                                   highlightGutterBackground: '#fff5b4',
                                   // Try to control line number size specifically
                                   gutterColor: '#6b7280',
-                                  lineNumberColor: '#6b7280',
                                 },
                                 dark: {
                                   codeFoldGutterBackground: '#21262d',
@@ -361,7 +360,6 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
                                   highlightGutterBackground: '#373e47',
                                   // Try to control line number size specifically
                                   gutterColor: '#9ca3af',
-                                  lineNumberColor: '#9ca3af',
                                 },
                               },
                               // Target line numbers more specifically

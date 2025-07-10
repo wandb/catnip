@@ -5,7 +5,7 @@ tmp_dir = "tmp"
 [build]
   args_bin = []
   bin = "./tmp/catnip"
-  cmd = "go build -o ./tmp/catnip ./cmd/server"
+  cmd = "just swagger && go build -o ./tmp/catnip ./cmd/server"
   delay = 1000
   exclude_dir = ["assets", "tmp", "vendor", "testdata", "docs", "bin", "dist"]
   exclude_file = []

@@ -24,7 +24,7 @@ dev-simple:
 # Generate Swagger documentation
 swagger:
     @command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
-    swag init -g cmd/server/main.go -o docs
+    swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
 
 # Run tests
 test:
