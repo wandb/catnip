@@ -3,18 +3,16 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  StyledDropdown,
+  StyledDropdownItem,
+} from "@/components/ui/styled-dropdown";
 import { Mic, GitBranch, Folder } from "lucide-react";
 
 function Index() {
   const [taskDescription, setTaskDescription] = useState("");
   const [selectedRepo, setSelectedRepo] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
+  const [selectedSpeed, setSelectedSpeed] = useState("2x");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +23,9 @@ function Index() {
       "Repo:",
       selectedRepo,
       "Branch:",
-      selectedBranch
+      selectedBranch,
+      "Speed:",
+      selectedSpeed
     );
   };
 
@@ -56,51 +56,44 @@ function Index() {
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">📁</span>
-              <Select value={selectedRepo} onValueChange={setSelectedRepo}>
-                <SelectTrigger className="w-40 h-8 border-0 bg-muted/50 focus:ring-0 focus:outline-none">
-                  <SelectValue placeholder="vanpelt/grabbit" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="vanpelt/grabbit">
-                    vanpelt/grabbit
-                  </SelectItem>
-                  <SelectItem value="vanpelt/catnip">vanpelt/catnip</SelectItem>
-                  <SelectItem value="vanpelt/claude-mcp">
-                    vanpelt/claude-mcp
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <StyledDropdown
+              value={selectedRepo}
+              onValueChange={setSelectedRepo}
+              placeholder="vanpelt/grabbit"
+              icon={<Folder className="w-4 h-4" />}
+            >
+              <StyledDropdownItem value="vanpelt/grabbit">
+                vanpelt/grabbit
+              </StyledDropdownItem>
+              <StyledDropdownItem value="vanpelt/catnip">
+                vanpelt/catnip
+              </StyledDropdownItem>
+              <StyledDropdownItem value="vanpelt/claude-mcp">
+                vanpelt/claude-mcp
+              </StyledDropdownItem>
+            </StyledDropdown>
 
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">🌿</span>
-              <Select value={selectedBranch} onValueChange={setSelectedBranch}>
-                <SelectTrigger className="w-24 h-8 border-0 bg-muted/50 focus:ring-0 focus:outline-none">
-                  <SelectValue placeholder="main" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="main">main</SelectItem>
-                  <SelectItem value="develop">develop</SelectItem>
-                  <SelectItem value="feature/new">feature/new</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <StyledDropdown
+              value={selectedBranch}
+              onValueChange={setSelectedBranch}
+              placeholder="main"
+              icon={<GitBranch className="w-4 h-4" />}
+            >
+              <StyledDropdownItem value="main">main</StyledDropdownItem>
+              <StyledDropdownItem value="develop">develop</StyledDropdownItem>
+              <StyledDropdownItem value="feature/new">feature/new</StyledDropdownItem>
+            </StyledDropdown>
 
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">⚡</span>
-              <Select defaultValue="2x">
-                <SelectTrigger className="w-16 h-8 border-0 bg-muted/50 focus:ring-0 focus:outline-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1x">1x</SelectItem>
-                  <SelectItem value="2x">2x</SelectItem>
-                  <SelectItem value="4x">4x</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <StyledDropdown
+              value={selectedSpeed}
+              onValueChange={setSelectedSpeed}
+              placeholder="2x"
+              icon={<span>⚡</span>}
+            >
+              <StyledDropdownItem value="1x">1x</StyledDropdownItem>
+              <StyledDropdownItem value="2x">2x</StyledDropdownItem>
+              <StyledDropdownItem value="4x">4x</StyledDropdownItem>
+            </StyledDropdown>
           </div>
 
           <div className="flex justify-center">

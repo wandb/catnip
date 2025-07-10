@@ -159,6 +159,12 @@
   }
 }
 
+@layer components {
+  .icon-sm {
+    @apply w-4 h-4 shrink-0;
+  }
+}
+
 /* Override xterm.js font to use our Nerd Font */
 .xterm-screen {
   font-family: "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", monospace !important;
