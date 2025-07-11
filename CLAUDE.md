@@ -64,6 +64,7 @@ catnip/
 ## Documentation
 
 The `docs/` directory contains detailed documentation:
+
 - **GIT.md**: Git operations and worktree management
 - **LOCAL_REPOSITORIES.md**: Local repository handling
 - **SETTINGS_SYNC.md**: Settings synchronization
@@ -77,9 +78,9 @@ I've prototyped a number of these features in a folder named "reference". It cou
 
 - Assume I'm running the dev server already which rebuilds go and the frontend
 - You can exec in the dev container "catnip-dev", use `bash --login -c '...'` run commands.
-- You can check logs with something like: `sleep 5 && docker logs --tail 200 catnip-dev 2>&1 | grep "Some message" | head -10`
+- You can check logs with something like: `docker logs --tail 50 catnip-dev`
 - Use shadcn theme variables as much as possible. You can add new ones in `index.css` if necessary.
-- When making changes to Golang, our dev server needs to recompile before we hit http://localhost:8080, sleep 5 seconds when you're changing go and debugging with curl
+- When making changes to Golang, our dev server needs to recompile before we hit http://localhost:8080. You should run `just build` in the container directory to ensure we've waited long enough and don't have any build errors.
 
 ## Operation Guidelines
 
@@ -98,20 +99,23 @@ I've prototyped a number of these features in a folder named "reference". It cou
 The application includes an automatic port detection system with iframe preview capabilities:
 
 ### Features
+
 - **Real-time port monitoring**: Detects services automatically when they start
-- **Health checking**: Validates HTTP and TCP services 
+- **Health checking**: Validates HTTP and TCP services
 - **Reverse proxy**: Routes `/$PORT/*` to `localhost:$PORT` services
 - **SPA support**: Automatic base path injection for client-side routing
 - **Iframe preview**: Full-screen preview at `/preview/$PORT` with automatic height adjustment
 - **Custom iframe resizer**: Uses postMessage communication to eliminate scrollbars
 
 ### Usage
+
 1. Start a service: `npm run dev` (port 3000)
 2. Service appears in dashboard with "Preview" and "Open" buttons
 3. Preview: `/preview/3000` - Full-screen iframe with auto-sizing
 4. Direct access: `/3000/` - Direct proxy access with SPA routing
 
 ### Technical Details
+
 - Port monitoring via `/proc/net/tcp` every 500ms
 - HTML injection with iframe resizer script for seamless embedding
 - PostMessage communication for height updates and security
