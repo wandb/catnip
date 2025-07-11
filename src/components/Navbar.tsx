@@ -1,6 +1,6 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github, FileText, ExternalLink, Globe } from "lucide-react";
+import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github, FileText, ExternalLink, Globe, MessageSquare } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import { Button } from "@/components/ui/button";
 import {
@@ -111,6 +111,14 @@ export function Navbar() {
                 <FileText size={20} />
                 <span>Docs</span>
               </Link>
+              <Link
+                to="/transcript"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <MessageSquare size={20} />
+                <span>Transcripts</span>
+              </Link>
               
               {/* Ports Section in Mobile Menu */}
               {Object.keys(ports).length > 0 && (
@@ -208,6 +216,13 @@ export function Navbar() {
               >
                 <GitBranch size={20} />
               </Link>
+              <Link
+                to="/transcript"
+                className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
+                title="Transcripts"
+              >
+                <MessageSquare size={20} />
+              </Link>
               
               {/* Ports Dropdown */}
               {Object.keys(ports).length > 0 && (
@@ -277,6 +292,12 @@ export function Navbar() {
                   <Link to="/docs">
                     <FileText className="mr-2 h-4 w-4" />
                     <span>Documentation</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/transcript">
+                    <MessageSquare className="mr-2 h-4 w-4" />
+                    <span>Transcripts</span>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleGitHubLogin}>

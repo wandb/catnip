@@ -12,7 +12,10 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as GitRouteImport } from './routes/git'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TranscriptIndexRouteImport } from './routes/transcript.index'
 import { Route as TerminalIndexRouteImport } from './routes/terminal.index'
+import { Route as TranscriptDemoRouteImport } from './routes/transcript.demo'
+import { Route as TranscriptSessionIdRouteImport } from './routes/transcript.$sessionId'
 import { Route as TerminalSessionIdRouteImport } from './routes/terminal.$sessionId'
 import { Route as PreviewPortRouteImport } from './routes/preview.$port'
 import { Route as GhSplatRouteImport } from './routes/gh.$'
@@ -32,9 +35,24 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TranscriptIndexRoute = TranscriptIndexRouteImport.update({
+  id: '/transcript/',
+  path: '/transcript/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TerminalIndexRoute = TerminalIndexRouteImport.update({
   id: '/terminal/',
   path: '/terminal/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TranscriptDemoRoute = TranscriptDemoRouteImport.update({
+  id: '/transcript/demo',
+  path: '/transcript/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TranscriptSessionIdRoute = TranscriptSessionIdRouteImport.update({
+  id: '/transcript/$sessionId',
+  path: '/transcript/$sessionId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TerminalSessionIdRoute = TerminalSessionIdRouteImport.update({
@@ -60,7 +78,10 @@ export interface FileRoutesByFullPath {
   '/gh/$': typeof GhSplatRoute
   '/preview/$port': typeof PreviewPortRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
+  '/transcript/$sessionId': typeof TranscriptSessionIdRoute
+  '/transcript/demo': typeof TranscriptDemoRoute
   '/terminal': typeof TerminalIndexRoute
+  '/transcript': typeof TranscriptIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -69,7 +90,10 @@ export interface FileRoutesByTo {
   '/gh/$': typeof GhSplatRoute
   '/preview/$port': typeof PreviewPortRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
+  '/transcript/$sessionId': typeof TranscriptSessionIdRoute
+  '/transcript/demo': typeof TranscriptDemoRoute
   '/terminal': typeof TerminalIndexRoute
+  '/transcript': typeof TranscriptIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -79,7 +103,10 @@ export interface FileRoutesById {
   '/gh/$': typeof GhSplatRoute
   '/preview/$port': typeof PreviewPortRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
+  '/transcript/$sessionId': typeof TranscriptSessionIdRoute
+  '/transcript/demo': typeof TranscriptDemoRoute
   '/terminal/': typeof TerminalIndexRoute
+  '/transcript/': typeof TranscriptIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -90,7 +117,10 @@ export interface FileRouteTypes {
     | '/gh/$'
     | '/preview/$port'
     | '/terminal/$sessionId'
+    | '/transcript/$sessionId'
+    | '/transcript/demo'
     | '/terminal'
+    | '/transcript'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -99,7 +129,10 @@ export interface FileRouteTypes {
     | '/gh/$'
     | '/preview/$port'
     | '/terminal/$sessionId'
+    | '/transcript/$sessionId'
+    | '/transcript/demo'
     | '/terminal'
+    | '/transcript'
   id:
     | '__root__'
     | '/'
@@ -108,7 +141,10 @@ export interface FileRouteTypes {
     | '/gh/$'
     | '/preview/$port'
     | '/terminal/$sessionId'
+    | '/transcript/$sessionId'
+    | '/transcript/demo'
     | '/terminal/'
+    | '/transcript/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -118,7 +154,10 @@ export interface RootRouteChildren {
   GhSplatRoute: typeof GhSplatRoute
   PreviewPortRoute: typeof PreviewPortRoute
   TerminalSessionIdRoute: typeof TerminalSessionIdRoute
+  TranscriptSessionIdRoute: typeof TranscriptSessionIdRoute
+  TranscriptDemoRoute: typeof TranscriptDemoRoute
   TerminalIndexRoute: typeof TerminalIndexRoute
+  TranscriptIndexRoute: typeof TranscriptIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -144,11 +183,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/transcript/': {
+      id: '/transcript/'
+      path: '/transcript'
+      fullPath: '/transcript'
+      preLoaderRoute: typeof TranscriptIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/terminal/': {
       id: '/terminal/'
       path: '/terminal'
       fullPath: '/terminal'
       preLoaderRoute: typeof TerminalIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/transcript/demo': {
+      id: '/transcript/demo'
+      path: '/transcript/demo'
+      fullPath: '/transcript/demo'
+      preLoaderRoute: typeof TranscriptDemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/transcript/$sessionId': {
+      id: '/transcript/$sessionId'
+      path: '/transcript/$sessionId'
+      fullPath: '/transcript/$sessionId'
+      preLoaderRoute: typeof TranscriptSessionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terminal/$sessionId': {
@@ -182,7 +242,10 @@ const rootRouteChildren: RootRouteChildren = {
   GhSplatRoute: GhSplatRoute,
   PreviewPortRoute: PreviewPortRoute,
   TerminalSessionIdRoute: TerminalSessionIdRoute,
+  TranscriptSessionIdRoute: TranscriptSessionIdRoute,
+  TranscriptDemoRoute: TranscriptDemoRoute,
   TerminalIndexRoute: TerminalIndexRoute,
+  TranscriptIndexRoute: TranscriptIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
