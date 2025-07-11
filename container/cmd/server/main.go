@@ -34,6 +34,10 @@ func main() {
 	// Initialize Git HTTP service
 	gitHTTPService := services.NewGitHTTPService(gitService)
 	
+	// Initialize port monitoring service
+	portMonitor := services.NewPortMonitor()
+	defer portMonitor.Stop()
+	
 	// Check CATNIP_REPO environment variable
 	if catnipRepo := os.Getenv("CATNIP_REPO"); catnipRepo != "" {
 		log.Printf("🌟 CATNIP_REPO detected: %s", catnipRepo)
@@ -94,6 +98,8 @@ func main() {
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService)
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
 	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService())
+	portsHandler := handlers.NewPortsHandler(portMonitor)
+	proxyHandler := handlers.NewProxyHandler(portMonitor)
 	
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
@@ -129,6 +135,15 @@ func main() {
 	v1.Get("/sessions/workspace/:workspace", sessionHandler.GetSessionByWorkspace)
 	v1.Delete("/sessions/workspace/:workspace", sessionHandler.DeleteSession)
 	
+	// Port monitoring routes
+	v1.Get("/ports", portsHandler.GetPorts)
+	v1.Get("/ports/:port", portsHandler.GetPortInfo)
+	
+	// Proxy routes for detected services (must be before dev middleware)
+	// Will validate port numbers in handler and call Next() if invalid
+	app.Get("/:port", proxyHandler.ProxyToPort)
+	app.Get("/:port/*", proxyHandler.ProxyToPort)
+	
 	// Handle static files and SPA routing
 	if handlers.IsDevMode() {
 		// In development mode, proxy to Vite dev server
@@ -141,6 +156,7 @@ func main() {
 			   strings.HasPrefix(path, "/v1/") {
 				return c.Next()
 			}
+			// Port proxy routes are handled above with regex constraints
 			// Proxy everything else to Vite
 			return handlers.ProxyToVite(c)
 		})

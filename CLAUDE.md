@@ -88,3 +88,7 @@ I've prototyped a number of these features in a folder named "reference". It cou
 ## Troubleshooting
 
 - If you start getting no such file or directory, run `pwd` and get yourself into the root catnip directory
+
+## Documentation Management
+
+- We use swagger for docs. There's a justfile in the container directory, running just swagger regenerates docs. We do this automatically in dev and prod envs.

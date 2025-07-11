@@ -6,6 +6,7 @@ import {
   StyledDropdownItem,
 } from "@/components/ui/styled-dropdown";
 import { Mic, GitBranch, Folder } from "lucide-react";
+import { PortsDisplay } from "@/components/PortsDisplay";
 
 function Index() {
   const [taskDescription, setTaskDescription] = useState("");
@@ -105,6 +106,10 @@ function Index() {
             </Button>
           </div>
         </form>
+        
+        <div className="mt-12">
+          <PortsDisplay />
+        </div>
       </div>
     </div>
   );
