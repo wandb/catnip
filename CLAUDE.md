@@ -92,3 +92,27 @@ I've prototyped a number of these features in a folder named "reference". It cou
 ## Documentation Management
 
 - We use swagger for docs. There's a justfile in the container directory, running just swagger regenerates docs. We do this automatically in dev and prod envs.
+
+## Port Detection and Preview System
+
+The application includes an automatic port detection system with iframe preview capabilities:
+
+### Features
+- **Real-time port monitoring**: Detects services automatically when they start
+- **Health checking**: Validates HTTP and TCP services 
+- **Reverse proxy**: Routes `/$PORT/*` to `localhost:$PORT` services
+- **SPA support**: Automatic base path injection for client-side routing
+- **Iframe preview**: Full-screen preview at `/preview/$PORT` with automatic height adjustment
+- **Custom iframe resizer**: Uses postMessage communication to eliminate scrollbars
+
+### Usage
+1. Start a service: `npm run dev` (port 3000)
+2. Service appears in dashboard with "Preview" and "Open" buttons
+3. Preview: `/preview/3000` - Full-screen iframe with auto-sizing
+4. Direct access: `/3000/` - Direct proxy access with SPA routing
+
+### Technical Details
+- Port monitoring via `/proc/net/tcp` every 500ms
+- HTML injection with iframe resizer script for seamless embedding
+- PostMessage communication for height updates and security
+- ResizeObserver and MutationObserver for dynamic content changes

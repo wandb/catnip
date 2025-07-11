@@ -156,7 +156,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 		})
 	}
 	
-	// Inject JavaScript for SPA support
+	// Inject JavaScript for SPA support and iframe resizing
 	jsCode := fmt.Sprintf(`
 <script>
 (function() {
@@ -195,6 +195,97 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
             }
         });
     });
+
+    // Iframe resizer functionality
+    let isInIframe = false;
+    let parentOrigin = null;
+    let lastHeight = 0;
+    let resizeObserver = null;
+
+    // Check if we're in an iframe
+    try {
+        isInIframe = window.self !== window.top;
+    } catch (e) {
+        isInIframe = true;
+    }
+
+    if (isInIframe) {
+        // Listen for setup message from parent
+        window.addEventListener('message', function(event) {
+            if (event.data?.type === 'catnip-iframe-setup') {
+                parentOrigin = event.data.parentOrigin;
+                initializeIframeResizer();
+            }
+        });
+
+        function initializeIframeResizer() {
+            // Function to calculate and send height
+            function sendHeight() {
+                if (!parentOrigin) return;
+
+                const body = document.body;
+                const html = document.documentElement;
+                
+                // Get the maximum height of the document
+                const height = Math.max(
+                    body.scrollHeight,
+                    body.offsetHeight,
+                    html.clientHeight,
+                    html.scrollHeight,
+                    html.offsetHeight
+                );
+
+                // Only send if height has changed significantly (avoid spam)
+                if (Math.abs(height - lastHeight) > 10) {
+                    lastHeight = height;
+                    window.parent.postMessage({
+                        type: 'catnip-iframe-height',
+                        height: height
+                    }, parentOrigin);
+                }
+            }
+
+            // Send initial height
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(sendHeight, 100); // Small delay for layout
+            });
+
+            // Send height when page is fully loaded
+            window.addEventListener('load', function() {
+                setTimeout(sendHeight, 100);
+            });
+
+            // Use ResizeObserver if available
+            if (window.ResizeObserver) {
+                resizeObserver = new ResizeObserver(function() {
+                    sendHeight();
+                });
+                resizeObserver.observe(document.body);
+                resizeObserver.observe(document.documentElement);
+            } else {
+                // Fallback: poll for height changes
+                setInterval(sendHeight, 500);
+            }
+
+            // Listen for dynamic content changes
+            if (window.MutationObserver) {
+                const mutationObserver = new MutationObserver(function() {
+                    setTimeout(sendHeight, 50); // Small delay for layout
+                });
+                mutationObserver.observe(document.body, {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    attributeFilter: ['style', 'class']
+                });
+            }
+
+            // Send height immediately if already loaded
+            if (document.readyState === 'complete') {
+                setTimeout(sendHeight, 100);
+            }
+        }
+    }
 })();
 </script>`, basePath)
 	

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
-import { ExternalLink, Globe, Server, Loader2 } from 'lucide-react'
+import { ExternalLink, Globe, Server, Loader2, Eye } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
 
 interface ServiceInfo {
   port: number
@@ -146,15 +147,27 @@ export function PortsDisplay() {
                     {service.health}
                   </Badge>
                   {service.service_type === 'http' && service.health === 'healthy' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openService(service.port)}
-                      className="gap-1"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Open
-                    </Button>
+                    <div className="flex gap-1">
+                      <Link to="/preview/$port" params={{ port: service.port.toString() }}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                        >
+                          <Eye className="h-3 w-3" />
+                          Preview
+                        </Button>
+                      </Link>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openService(service.port)}
+                        className="gap-1"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Open
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
