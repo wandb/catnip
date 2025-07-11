@@ -181,20 +181,21 @@ export function Navbar() {
       )}
 
       {/* Desktop Sidebar Navigation */}
-      <nav className="hidden sm:block w-20 bg-[#1a1a1a] flex-shrink-0 border-r border-gray-800">
+      <nav className="hidden sm:block w-16 bg-[#1a1a1a] flex-shrink-0 border-r border-gray-800">
         <div className="flex flex-col h-full">
-          {/* Cat Icon */}
-          <div className="p-4 flex justify-center relative">
-            <div
-              className="text-4xl hover:scale-110 transition-transform cursor-pointer"
+          {/* Logo */}
+          <div className="p-3 flex justify-center relative">
+            <Link
+              to="/"
+              className="hover:scale-110 transition-transform"
               title="Catnip"
             >
-              🐱
-            </div>
+              <img src="/logo@2x.png" alt="Catnip Logo" className="w-10 h-10" />
+            </Link>
 
-            {/* Connection Status - positioned at cat's right ear */}
+            {/* Connection Status - positioned at logo's top right */}
             <div
-              className={`absolute top-2 right-2 h-2 w-2 rounded-full ${
+              className={`absolute top-1 right-1 h-2 w-2 rounded-full ${
                 isConnected
                   ? "bg-green-500 shadow-green-500/50 animate-pulse"
                   : "bg-red-500"
@@ -288,10 +289,10 @@ export function Navbar() {
           </div>
 
           {/* Settings Menu at Bottom */}
-          <div className="relative p-2" ref={dropdownRef}>
+          <div className="relative px-2 pb-2" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="w-full h-12 flex items-center justify-center text-muted-foreground hover:text-primary-foreground transition-colors rounded"
+              className="w-12 h-12 flex items-center justify-center text-muted-foreground hover:text-primary-foreground transition-colors rounded"
               title="Settings"
             >
               <Settings size={20} />
