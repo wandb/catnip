@@ -21,11 +21,9 @@ interface ServiceInfo {
 export function Navbar() {
   const { isConnected } = useWebSocket();
   const router = useRouter();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [ports, setPorts] = useState<Record<number, ServiceInfo>>({});
-  const dropdownRef = useRef<HTMLDivElement>(null);
   
   // Get current route params
   const currentPath = router.state.location.pathname;
@@ -37,12 +35,10 @@ export function Navbar() {
     if ((window as any).resetTerminal) {
       (window as any).resetTerminal();
     }
-    setDropdownOpen(false);
   };
 
   const handleGitHubLogin = () => {
     setAuthModalOpen(true);
-    setDropdownOpen(false);
   };
 
   // Fetch ports data
@@ -64,22 +60,6 @@ export function Navbar() {
     return () => clearInterval(interval);
   }, []);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
 
   return (
     <>
@@ -228,13 +208,6 @@ export function Navbar() {
               >
                 <GitBranch size={20} />
               </Link>
-              <Link
-                to="/docs"
-                className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
-                title="Documentation"
-              >
-                <FileText size={20} />
-              </Link>
               
               {/* Ports Dropdown */}
               {Object.keys(ports).length > 0 && (
@@ -289,34 +262,33 @@ export function Navbar() {
           </div>
 
           {/* Settings Menu at Bottom */}
-          <div className="relative px-2 pb-2" ref={dropdownRef}>
-            <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="w-12 h-12 flex items-center justify-center text-muted-foreground hover:text-primary-foreground transition-colors rounded"
-              title="Settings"
-            >
-              <Settings size={20} />
-            </button>
-
-            {/* Dropdown Menu */}
-            {dropdownOpen && (
-              <div className="absolute bottom-14 left-0 right-0 mx-2 bg-[#0a0a0a] border border-gray-800 rounded-lg shadow-lg overflow-hidden">
+          <div className="px-2 pb-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <button
-                  onClick={handleGitHubLogin}
-                  className="w-full px-4 py-2 text-left text-sm text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors flex items-center gap-2"
+                  className="w-12 h-12 flex items-center justify-center text-muted-foreground hover:text-primary-foreground transition-colors rounded"
+                  title="Settings"
                 >
-                  <Github size={16} />
-                  GitHub Login
+                  <Settings size={20} />
                 </button>
-                <button
-                  onClick={handleReset}
-                  className="w-full px-4 py-2 text-left text-sm text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors flex items-center gap-2"
-                >
-                  <RotateCcw size={16} />
-                  Reset Terminal
-                </button>
-              </div>
-            )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="right" className="w-56">
+                <DropdownMenuItem asChild>
+                  <Link to="/docs">
+                    <FileText className="mr-2 h-4 w-4" />
+                    <span>Documentation</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleGitHubLogin}>
+                  <Github className="mr-2 h-4 w-4" />
+                  <span>GitHub Login</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleReset}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  <span>Reset Terminal</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </nav>
