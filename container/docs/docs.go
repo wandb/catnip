@@ -649,47 +649,57 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "currentSessionId": {
+                    "description": "ID of the currently active session",
                     "type": "string",
                     "example": "xyz789-ghi012"
                 },
                 "isActive": {
+                    "description": "Whether this session is currently active",
                     "type": "boolean",
                     "example": true
                 },
                 "lastCost": {
-                    "description": "Metrics (from completed sessions)",
+                    "description": "Metrics (from completed sessions)\nCost in USD of the last completed session",
                     "type": "number",
                     "example": 0.25
                 },
                 "lastDuration": {
+                    "description": "Duration in seconds of the last session",
                     "type": "integer",
                     "example": 3600
                 },
                 "lastSessionId": {
+                    "description": "ID of the most recent completed session",
                     "type": "string",
                     "example": "abc123-def456"
                 },
                 "lastTotalInputTokens": {
+                    "description": "Total input tokens used in the last session",
                     "type": "integer",
                     "example": 15000
                 },
                 "lastTotalOutputTokens": {
+                    "description": "Total output tokens generated in the last session",
                     "type": "integer",
                     "example": 8500
                 },
                 "sessionEndTime": {
+                    "description": "When the last session ended (if not active)",
                     "type": "string",
                     "example": "2024-01-15T16:45:30Z"
                 },
                 "sessionStartTime": {
+                    "description": "When the current session started",
                     "type": "string",
                     "example": "2024-01-15T14:30:00Z"
                 },
                 "turnCount": {
+                    "description": "Number of conversation turns in the session",
                     "type": "integer",
                     "example": 15
                 },
                 "worktreePath": {
+                    "description": "Path to the worktree directory",
                     "type": "string",
                     "example": "/workspace/my-project"
                 }
@@ -700,12 +710,14 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "repositories": {
+                    "description": "All loaded repositories mapped by repository ID",
                     "type": "object",
                     "additionalProperties": {
                         "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
                     }
                 },
                 "worktree_count": {
+                    "description": "Total number of worktrees across all repositories",
                     "type": "integer",
                     "example": 3
                 }
@@ -716,26 +728,32 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "created_at": {
+                    "description": "When this repository was first cloned",
                     "type": "string",
                     "example": "2024-01-15T10:30:00Z"
                 },
                 "default_branch": {
+                    "description": "Default branch name for this repository",
                     "type": "string",
                     "example": "main"
                 },
                 "id": {
+                    "description": "Repository identifier in owner/repo format",
                     "type": "string",
                     "example": "anthropics/claude-code"
                 },
                 "last_accessed": {
+                    "description": "When this repository was last accessed",
                     "type": "string",
                     "example": "2024-01-15T16:45:30Z"
                 },
                 "path": {
+                    "description": "Local path to the bare repository",
                     "type": "string",
                     "example": "/workspace/repos/anthropics_claude-code.git"
                 },
                 "url": {
+                    "description": "Full GitHub repository URL",
                     "type": "string",
                     "example": "https://github.com/anthropics/claude-code"
                 }
@@ -746,50 +764,62 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "branch": {
+                    "description": "Current git branch name in this worktree",
                     "type": "string",
                     "example": "feature/api-docs"
                 },
                 "commit_count": {
+                    "description": "Number of commits ahead of the divergence point (CommitHash)",
                     "type": "integer",
                     "example": 3
                 },
                 "commit_hash": {
+                    "description": "Commit hash where this worktree diverged from source branch (updated after merges)",
                     "type": "string",
                     "example": "abc123def456"
                 },
                 "commits_behind": {
+                    "description": "Number of commits the source branch is ahead of our divergence point",
                     "type": "integer",
                     "example": 2
                 },
                 "created_at": {
+                    "description": "When this worktree was created",
                     "type": "string",
                     "example": "2024-01-15T14:00:00Z"
                 },
                 "id": {
+                    "description": "Unique identifier for this worktree",
                     "type": "string",
                     "example": "abc123-def456-ghi789"
                 },
                 "is_dirty": {
+                    "description": "Whether there are uncommitted changes in the worktree",
                     "type": "boolean",
                     "example": true
                 },
                 "last_accessed": {
+                    "description": "When this worktree was last accessed",
                     "type": "string",
                     "example": "2024-01-15T16:30:00Z"
                 },
                 "name": {
+                    "description": "User-friendly name for this worktree (e.g., 'vectorize-quasar')",
                     "type": "string",
                     "example": "feature-api-docs"
                 },
                 "path": {
+                    "description": "Absolute path to the worktree directory",
                     "type": "string",
                     "example": "/workspace/worktrees/feature-api-docs"
                 },
                 "repo_id": {
+                    "description": "Repository this worktree belongs to",
                     "type": "string",
                     "example": "anthropics/claude-code"
                 },
                 "source_branch": {
+                    "description": "Branch this worktree was originally created from",
                     "type": "string",
                     "example": "main"
                 }
@@ -800,18 +830,22 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "claude_session_uuid": {
+                    "description": "Unique identifier for the Claude session",
                     "type": "string",
                     "example": "abc123-def456-ghi789"
                 },
                 "ended_at": {
+                    "description": "When the session ended (if not active)",
                     "type": "string",
                     "example": "2024-01-15T18:30:00Z"
                 },
                 "resumed_at": {
+                    "description": "When the session was resumed (if applicable)",
                     "type": "string",
                     "example": "2024-01-15T16:00:00Z"
                 },
                 "started_at": {
+                    "description": "When the session was initially started",
                     "type": "string",
                     "example": "2024-01-15T14:30:00Z"
                 }
@@ -822,14 +856,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "code": {
+                    "description": "Device verification code to enter on GitHub",
                     "type": "string",
                     "example": "1234-5678"
                 },
                 "status": {
+                    "description": "Current authentication status",
                     "type": "string",
                     "example": "waiting"
                 },
                 "url": {
+                    "description": "GitHub device activation URL",
                     "type": "string",
                     "example": "https://github.com/login/device"
                 }
@@ -840,10 +877,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "error": {
+                    "description": "Error message if authentication failed",
                     "type": "string",
                     "example": "authentication timeout"
                 },
                 "status": {
+                    "description": "Authentication status: pending, waiting, success, or error",
                     "type": "string",
                     "example": "success"
                 }
@@ -854,14 +893,25 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "message": {
+                    "description": "Success message",
                     "type": "string",
                     "example": "Repository checked out successfully"
                 },
                 "repository": {
-                    "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
+                    "description": "Repository information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
+                        }
+                    ]
                 },
                 "worktree": {
-                    "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+                    "description": "Created worktree information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+                        }
+                    ]
                 }
             }
         },
@@ -870,6 +920,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "conflict_files": {
+                    "description": "List of files with conflicts",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -880,18 +931,22 @@ const docTemplate = `{
                     ]
                 },
                 "has_conflicts": {
+                    "description": "Whether conflicts were detected",
                     "type": "boolean",
                     "example": true
                 },
                 "message": {
+                    "description": "Status message",
                     "type": "string",
                     "example": "No conflicts detected"
                 },
                 "operation": {
+                    "description": "Operation type (sync/merge)",
                     "type": "string",
                     "example": "sync"
                 },
                 "worktree_name": {
+                    "description": "Name of the worktree",
                     "type": "string",
                     "example": "feature-branch"
                 }
@@ -902,10 +957,12 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "message": {
+                    "description": "Confirmation message",
                     "type": "string",
                     "example": "Session deleted successfully"
                 },
                 "workspace": {
+                    "description": "Workspace path that was deleted",
                     "type": "string",
                     "example": "/workspace/my-project"
                 }
@@ -916,30 +973,37 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "clone_url": {
+                    "description": "Git clone URL",
                     "type": "string",
                     "example": "https://github.com/anthropics/claude-code.git"
                 },
                 "description": {
+                    "description": "Repository description",
                     "type": "string",
                     "example": "AI coding assistant"
                 },
                 "full_name": {
+                    "description": "Full repository name (org/repo)",
                     "type": "string",
                     "example": "anthropics/claude-code"
                 },
                 "html_url": {
+                    "description": "Repository URL",
                     "type": "string",
                     "example": "https://github.com/anthropics/claude-code"
                 },
                 "id": {
+                    "description": "GitHub repository ID",
                     "type": "integer",
                     "example": 123456789
                 },
                 "name": {
+                    "description": "Repository name",
                     "type": "string",
                     "example": "claude-code"
                 },
                 "private": {
+                    "description": "Whether the repository is private",
                     "type": "boolean",
                     "example": false
                 }
@@ -957,14 +1021,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "filePath": {
+                    "description": "Path where the uploaded file was saved",
                     "type": "string",
                     "example": "/tmp/uploads/document.pdf"
                 },
                 "message": {
+                    "description": "Status message or error details",
                     "type": "string",
                     "example": "File uploaded successfully"
                 },
                 "success": {
+                    "description": "Whether the upload succeeded",
                     "type": "boolean",
                     "example": true
                 }
@@ -975,18 +1042,22 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "additions": {
+                    "description": "Number of lines added",
                     "type": "integer",
                     "example": 25
                 },
                 "deletions": {
+                    "description": "Number of lines deleted",
                     "type": "integer",
                     "example": 10
                 },
                 "diff": {
+                    "description": "Raw git diff output",
                     "type": "string",
                     "example": "diff --git a/main.go b/main.go..."
                 },
                 "files_changed": {
+                    "description": "List of changed files",
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -997,6 +1068,7 @@ const docTemplate = `{
                     ]
                 },
                 "summary": {
+                    "description": "Diff summary",
                     "type": "string",
                     "example": "2 files changed, 25 insertions(+), 10 deletions(-)"
                 }
@@ -1007,14 +1079,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "id": {
+                    "description": "Worktree ID",
                     "type": "string",
                     "example": "abc123-def456-ghi789"
                 },
                 "message": {
+                    "description": "Operation result message",
                     "type": "string",
                     "example": "Worktree deleted successfully"
                 },
                 "strategy": {
+                    "description": "Strategy used for sync operations",
                     "type": "string",
                     "example": "rebase"
                 }

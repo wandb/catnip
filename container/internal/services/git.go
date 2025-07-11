@@ -1188,6 +1188,24 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 	)
 	cmd.Run() // Ignore errors - branch might be in use
 	
+	// Get the new commit hash from the main branch after merge
+	cmd = exec.Command("git", "-C", repo.Path, "rev-parse", "HEAD")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("⚠️  Failed to get new commit hash after merge: %v", err)
+	} else {
+		newCommitHash := strings.TrimSpace(string(output))
+		// Update the worktree's commit hash to the new merge point
+		s.mu.Lock()
+		worktree.CommitHash = newCommitHash
+		s.mu.Unlock()
+		log.Printf("📝 Updated worktree %s CommitHash to %s", worktree.Name, newCommitHash)
+	}
+	
 	log.Printf("✅ Merged worktree %s to main repository", worktree.Name)
 	return nil
 }

@@ -19,49 +19,72 @@ type GitHandler struct {
 // CheckoutResponse represents the response when checking out a repository
 // @Description Response containing repository and worktree information after checkout
 type CheckoutResponse struct {
-	Repository models.Repository `json:"repository" description:"Repository information"`
-	Worktree   models.Worktree   `json:"worktree" description:"Created worktree information"`
-	Message    string            `json:"message" example:"Repository checked out successfully" description:"Success message"`
+	// Repository information
+	Repository models.Repository `json:"repository"`
+	// Created worktree information
+	Worktree   models.Worktree   `json:"worktree"`
+	// Success message
+	Message    string            `json:"message" example:"Repository checked out successfully"`
 }
 
 // GitHubRepository represents a GitHub repository from the API
 // @Description GitHub repository information from the GitHub API
 type GitHubRepository struct {
-	ID          int    `json:"id" example:"123456789" description:"GitHub repository ID"`
-	Name        string `json:"name" example:"claude-code" description:"Repository name"`
-	FullName    string `json:"full_name" example:"anthropics/claude-code" description:"Full repository name (org/repo)"`
-	Description string `json:"description" example:"AI coding assistant" description:"Repository description"`
-	Private     bool   `json:"private" example:"false" description:"Whether the repository is private"`
-	HTMLURL     string `json:"html_url" example:"https://github.com/anthropics/claude-code" description:"Repository URL"`
-	CloneURL    string `json:"clone_url" example:"https://github.com/anthropics/claude-code.git" description:"Git clone URL"`
+	// GitHub repository ID
+	ID          int    `json:"id" example:"123456789"`
+	// Repository name
+	Name        string `json:"name" example:"claude-code"`
+	// Full repository name (org/repo)
+	FullName    string `json:"full_name" example:"anthropics/claude-code"`
+	// Repository description
+	Description string `json:"description" example:"AI coding assistant"`
+	// Whether the repository is private
+	Private     bool   `json:"private" example:"false"`
+	// Repository URL
+	HTMLURL     string `json:"html_url" example:"https://github.com/anthropics/claude-code"`
+	// Git clone URL
+	CloneURL    string `json:"clone_url" example:"https://github.com/anthropics/claude-code.git"`
 }
 
 // ConflictCheckResponse represents the response when checking for conflicts
 // @Description Response containing conflict information for sync/merge operations
 type ConflictCheckResponse struct {
-	HasConflicts  bool     `json:"has_conflicts" example:"true" description:"Whether conflicts were detected"`
-	Operation     string   `json:"operation,omitempty" example:"sync" description:"Operation type (sync/merge)"`
-	WorktreeName  string   `json:"worktree_name,omitempty" example:"feature-branch" description:"Name of the worktree"`
-	ConflictFiles []string `json:"conflict_files,omitempty" example:"[\"src/main.go\", \"README.md\"]" description:"List of files with conflicts"`
-	Message       string   `json:"message" example:"No conflicts detected" description:"Status message"`
+	// Whether conflicts were detected
+	HasConflicts  bool     `json:"has_conflicts" example:"true"`
+	// Operation type (sync/merge)
+	Operation     string   `json:"operation,omitempty" example:"sync"`
+	// Name of the worktree
+	WorktreeName  string   `json:"worktree_name,omitempty" example:"feature-branch"`
+	// List of files with conflicts
+	ConflictFiles []string `json:"conflict_files,omitempty" example:"[\"src/main.go\", \"README.md\"]"`
+	// Status message
+	Message       string   `json:"message" example:"No conflicts detected"`
 }
 
 // WorktreeOperationResponse represents the response for worktree operations
 // @Description Response for worktree operations like delete, sync, merge, preview
 type WorktreeOperationResponse struct {
-	Message  string `json:"message" example:"Worktree deleted successfully" description:"Operation result message"`
-	ID       string `json:"id" example:"abc123-def456-ghi789" description:"Worktree ID"`
-	Strategy string `json:"strategy,omitempty" example:"rebase" description:"Strategy used for sync operations"`
+	// Operation result message
+	Message  string `json:"message" example:"Worktree deleted successfully"`
+	// Worktree ID
+	ID       string `json:"id" example:"abc123-def456-ghi789"`
+	// Strategy used for sync operations
+	Strategy string `json:"strategy,omitempty" example:"rebase"`
 }
 
 // WorktreeDiffResponse represents the response containing diff information
 // @Description Response containing git diff information for a worktree
 type WorktreeDiffResponse struct {
-	Diff         string   `json:"diff" example:"diff --git a/main.go b/main.go..." description:"Raw git diff output"`
-	FilesChanged []string `json:"files_changed" example:"[\"main.go\", \"README.md\"]" description:"List of changed files"`
-	Additions    int      `json:"additions" example:"25" description:"Number of lines added"`
-	Deletions    int      `json:"deletions" example:"10" description:"Number of lines deleted"`
-	Summary      string   `json:"summary" example:"2 files changed, 25 insertions(+), 10 deletions(-)" description:"Diff summary"`
+	// Raw git diff output
+	Diff         string   `json:"diff" example:"diff --git a/main.go b/main.go..."`
+	// List of changed files
+	FilesChanged []string `json:"files_changed" example:"[\"main.go\", \"README.md\"]"`
+	// Number of lines added
+	Additions    int      `json:"additions" example:"25"`
+	// Number of lines deleted
+	Deletions    int      `json:"deletions" example:"10"`
+	// Diff summary
+	Summary      string   `json:"summary" example:"2 files changed, 25 insertions(+), 10 deletions(-)"`
 }
 
 // NewGitHandler creates a new Git handler

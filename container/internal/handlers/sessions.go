@@ -18,17 +18,23 @@ type SessionsResponse map[string]ActiveSessionInfo
 // ActiveSessionInfo represents information about an active session in a workspace
 // @Description Active session information with timing and Claude session details
 type ActiveSessionInfo struct {
-	ClaudeSessionUUID string     `json:"claude_session_uuid" example:"abc123-def456-ghi789" description:"Unique identifier for the Claude session"`
-	StartedAt         time.Time  `json:"started_at" example:"2024-01-15T14:30:00Z" description:"When the session was initially started"`
-	ResumedAt         *time.Time `json:"resumed_at,omitempty" example:"2024-01-15T16:00:00Z" description:"When the session was resumed (if applicable)"`
-	EndedAt           *time.Time `json:"ended_at,omitempty" example:"2024-01-15T18:30:00Z" description:"When the session ended (if not active)"`
+	// Unique identifier for the Claude session
+	ClaudeSessionUUID string     `json:"claude_session_uuid" example:"abc123-def456-ghi789"`
+	// When the session was initially started
+	StartedAt         time.Time  `json:"started_at" example:"2024-01-15T14:30:00Z"`
+	// When the session was resumed (if applicable)
+	ResumedAt         *time.Time `json:"resumed_at,omitempty" example:"2024-01-15T16:00:00Z"`
+	// When the session ended (if not active)
+	EndedAt           *time.Time `json:"ended_at,omitempty" example:"2024-01-15T18:30:00Z"`
 }
 
 // DeleteSessionResponse represents the response when deleting a session
 // @Description Response confirming session deletion
 type DeleteSessionResponse struct {
-	Message   string `json:"message" example:"Session deleted successfully" description:"Confirmation message"`
-	Workspace string `json:"workspace" example:"/workspace/my-project" description:"Workspace path that was deleted"`
+	// Confirmation message
+	Message   string `json:"message" example:"Session deleted successfully"`
+	// Workspace path that was deleted
+	Workspace string `json:"workspace" example:"/workspace/my-project"`
 }
 
 // NewSessionsHandler creates a new sessions handler

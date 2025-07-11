@@ -22,9 +22,12 @@ func NewUploadHandler() *UploadHandler {
 // UploadResponse represents the response after file upload
 // @Description Response containing upload status and file location
 type UploadResponse struct {
-	Success  bool   `json:"success" example:"true" description:"Whether the upload succeeded"`
-	FilePath string `json:"filePath" example:"/tmp/uploads/document.pdf" description:"Path where the uploaded file was saved"`
-	Message  string `json:"message,omitempty" example:"File uploaded successfully" description:"Status message or error details"`
+	// Whether the upload succeeded
+	Success  bool   `json:"success" example:"true"`
+	// Path where the uploaded file was saved
+	FilePath string `json:"filePath" example:"/tmp/uploads/document.pdf"`
+	// Status message or error details
+	Message  string `json:"message,omitempty" example:"File uploaded successfully"`
 }
 
 // UploadFile handles file uploads to /tmp/uploads with conflict resolution

@@ -3,37 +3,49 @@ definitions:
     description: Claude Code session summary with metrics and timing information
     properties:
       currentSessionId:
+        description: ID of the currently active session
         example: xyz789-ghi012
         type: string
       isActive:
+        description: Whether this session is currently active
         example: true
         type: boolean
       lastCost:
-        description: Metrics (from completed sessions)
+        description: |-
+          Metrics (from completed sessions)
+          Cost in USD of the last completed session
         example: 0.25
         type: number
       lastDuration:
+        description: Duration in seconds of the last session
         example: 3600
         type: integer
       lastSessionId:
+        description: ID of the most recent completed session
         example: abc123-def456
         type: string
       lastTotalInputTokens:
+        description: Total input tokens used in the last session
         example: 15000
         type: integer
       lastTotalOutputTokens:
+        description: Total output tokens generated in the last session
         example: 8500
         type: integer
       sessionEndTime:
+        description: When the last session ended (if not active)
         example: "2024-01-15T16:45:30Z"
         type: string
       sessionStartTime:
+        description: When the current session started
         example: "2024-01-15T14:30:00Z"
         type: string
       turnCount:
+        description: Number of conversation turns in the session
         example: 15
         type: integer
       worktreePath:
+        description: Path to the worktree directory
         example: /workspace/my-project
         type: string
     type: object
@@ -43,8 +55,10 @@ definitions:
       repositories:
         additionalProperties:
           $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Repository'
+        description: All loaded repositories mapped by repository ID
         type: object
       worktree_count:
+        description: Total number of worktrees across all repositories
         example: 3
         type: integer
     type: object
@@ -52,21 +66,27 @@ definitions:
     description: Git repository information and metadata
     properties:
       created_at:
+        description: When this repository was first cloned
         example: "2024-01-15T10:30:00Z"
         type: string
       default_branch:
+        description: Default branch name for this repository
         example: main
         type: string
       id:
+        description: Repository identifier in owner/repo format
         example: anthropics/claude-code
         type: string
       last_accessed:
+        description: When this repository was last accessed
         example: "2024-01-15T16:45:30Z"
         type: string
       path:
+        description: Local path to the bare repository
         example: /workspace/repos/anthropics_claude-code.git
         type: string
       url:
+        description: Full GitHub repository URL
         example: https://github.com/anthropics/claude-code
         type: string
     type: object
@@ -74,39 +94,53 @@ definitions:
     description: Git worktree with branch and status information
     properties:
       branch:
+        description: Current git branch name in this worktree
         example: feature/api-docs
         type: string
       commit_count:
+        description: Number of commits ahead of the divergence point (CommitHash)
         example: 3
         type: integer
       commit_hash:
+        description: Commit hash where this worktree diverged from source branch (updated
+          after merges)
         example: abc123def456
         type: string
       commits_behind:
+        description: Number of commits the source branch is ahead of our divergence
+          point
         example: 2
         type: integer
       created_at:
+        description: When this worktree was created
         example: "2024-01-15T14:00:00Z"
         type: string
       id:
+        description: Unique identifier for this worktree
         example: abc123-def456-ghi789
         type: string
       is_dirty:
+        description: Whether there are uncommitted changes in the worktree
         example: true
         type: boolean
       last_accessed:
+        description: When this worktree was last accessed
         example: "2024-01-15T16:30:00Z"
         type: string
       name:
+        description: User-friendly name for this worktree (e.g., 'vectorize-quasar')
         example: feature-api-docs
         type: string
       path:
+        description: Absolute path to the worktree directory
         example: /workspace/worktrees/feature-api-docs
         type: string
       repo_id:
+        description: Repository this worktree belongs to
         example: anthropics/claude-code
         type: string
       source_branch:
+        description: Branch this worktree was originally created from
         example: main
         type: string
     type: object
@@ -114,15 +148,19 @@ definitions:
     description: Active session information with timing and Claude session details
     properties:
       claude_session_uuid:
+        description: Unique identifier for the Claude session
         example: abc123-def456-ghi789
         type: string
       ended_at:
+        description: When the session ended (if not active)
         example: "2024-01-15T18:30:00Z"
         type: string
       resumed_at:
+        description: When the session was resumed (if applicable)
         example: "2024-01-15T16:00:00Z"
         type: string
       started_at:
+        description: When the session was initially started
         example: "2024-01-15T14:30:00Z"
         type: string
     type: object
@@ -130,12 +168,15 @@ definitions:
     description: Response when starting GitHub device flow authentication
     properties:
       code:
+        description: Device verification code to enter on GitHub
         example: 1234-5678
         type: string
       status:
+        description: Current authentication status
         example: waiting
         type: string
       url:
+        description: GitHub device activation URL
         example: https://github.com/login/device
         type: string
     type: object
@@ -143,9 +184,11 @@ definitions:
     description: Response containing the current authentication status
     properties:
       error:
+        description: Error message if authentication failed
         example: authentication timeout
         type: string
       status:
+        description: 'Authentication status: pending, waiting, success, or error'
         example: success
         type: string
     type: object
@@ -153,17 +196,23 @@ definitions:
     description: Response containing repository and worktree information after checkout
     properties:
       message:
+        description: Success message
         example: Repository checked out successfully
         type: string
       repository:
-        $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Repository'
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Repository'
+        description: Repository information
       worktree:
-        $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+        description: Created worktree information
     type: object
   internal_handlers.ConflictCheckResponse:
     description: Response containing conflict information for sync/merge operations
     properties:
       conflict_files:
+        description: List of files with conflicts
         example:
         - '["src/main.go"'
         - ' "README.md"]'
@@ -171,15 +220,19 @@ definitions:
           type: string
         type: array
       has_conflicts:
+        description: Whether conflicts were detected
         example: true
         type: boolean
       message:
+        description: Status message
         example: No conflicts detected
         type: string
       operation:
+        description: Operation type (sync/merge)
         example: sync
         type: string
       worktree_name:
+        description: Name of the worktree
         example: feature-branch
         type: string
     type: object
@@ -187,9 +240,11 @@ definitions:
     description: Response confirming session deletion
     properties:
       message:
+        description: Confirmation message
         example: Session deleted successfully
         type: string
       workspace:
+        description: Workspace path that was deleted
         example: /workspace/my-project
         type: string
     type: object
@@ -197,24 +252,31 @@ definitions:
     description: GitHub repository information from the GitHub API
     properties:
       clone_url:
+        description: Git clone URL
         example: https://github.com/anthropics/claude-code.git
         type: string
       description:
+        description: Repository description
         example: AI coding assistant
         type: string
       full_name:
+        description: Full repository name (org/repo)
         example: anthropics/claude-code
         type: string
       html_url:
+        description: Repository URL
         example: https://github.com/anthropics/claude-code
         type: string
       id:
+        description: GitHub repository ID
         example: 123456789
         type: integer
       name:
+        description: Repository name
         example: claude-code
         type: string
       private:
+        description: Whether the repository is private
         example: false
         type: boolean
     type: object
@@ -227,12 +289,15 @@ definitions:
     description: Response containing upload status and file location
     properties:
       filePath:
+        description: Path where the uploaded file was saved
         example: /tmp/uploads/document.pdf
         type: string
       message:
+        description: Status message or error details
         example: File uploaded successfully
         type: string
       success:
+        description: Whether the upload succeeded
         example: true
         type: boolean
     type: object
@@ -240,15 +305,19 @@ definitions:
     description: Response containing git diff information for a worktree
     properties:
       additions:
+        description: Number of lines added
         example: 25
         type: integer
       deletions:
+        description: Number of lines deleted
         example: 10
         type: integer
       diff:
+        description: Raw git diff output
         example: diff --git a/main.go b/main.go...
         type: string
       files_changed:
+        description: List of changed files
         example:
         - '["main.go"'
         - ' "README.md"]'
@@ -256,6 +325,7 @@ definitions:
           type: string
         type: array
       summary:
+        description: Diff summary
         example: 2 files changed, 25 insertions(+), 10 deletions(-)
         type: string
     type: object
@@ -263,12 +333,15 @@ definitions:
     description: Response for worktree operations like delete, sync, merge, preview
     properties:
       id:
+        description: Worktree ID
         example: abc123-def456-ghi789
         type: string
       message:
+        description: Operation result message
         example: Worktree deleted successfully
         type: string
       strategy:
+        description: Strategy used for sync operations
         example: rebase
         type: string
     type: object
