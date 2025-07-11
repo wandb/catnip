@@ -78,6 +78,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/claude/session/{uuid}": {
+            "get": {
+                "description": "Returns complete session data including all messages for a specific session UUID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Get session by UUID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session UUID",
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/sessions": {
             "get": {
                 "description": "Returns Claude Code session metadata for all worktrees with Claude data",
@@ -609,7 +638,7 @@ const docTemplate = `{
         },
         "/v1/sessions/workspace/{workspace}": {
             "get": {
-                "description": "Returns session information for a specific workspace directory",
+                "description": "Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.",
                 "produces": [
                     "application/json"
                 ],
@@ -624,13 +653,19 @@ const docTemplate = `{
                         "name": "workspace",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Include full session data with messages and user prompts",
+                        "name": "full",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "Full session data when full=true",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
                         }
                     }
                 }
@@ -658,6 +693,42 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.DeleteSessionResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/sessions/workspace/{workspace}/session/{sessionId}": {
+            "get": {
+                "description": "Returns complete session data for a specific session ID within a workspace",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get session by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace directory path",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Session ID (UUID)",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
                         }
                     }
                 }
@@ -709,10 +780,68 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry": {
+            "type": "object",
+            "properties": {
+                "display": {
+                    "type": "string"
+                },
+                "pastedContents": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage": {
+            "type": "object",
+            "properties": {
+                "cwd": {
+                    "type": "string"
+                },
+                "isMeta": {
+                    "type": "boolean"
+                },
+                "isSidechain": {
+                    "type": "boolean"
+                },
+                "message": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "parentUuid": {
+                    "type": "string"
+                },
+                "sessionId": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "userType": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary": {
             "description": "Claude Code session summary with metrics and timing information",
             "type": "object",
             "properties": {
+                "allSessions": {
+                    "description": "List of all available sessions for this worktree",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
+                    }
+                },
                 "currentSessionId": {
                     "description": "ID of the currently active session",
                     "type": "string",
@@ -770,6 +899,45 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_vanpelt_catnip_internal_models.FullSessionData": {
+            "description": "Complete session data with all messages and metadata",
+            "type": "object",
+            "properties": {
+                "allSessions": {
+                    "description": "All sessions available for this workspace",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
+                    }
+                },
+                "messageCount": {
+                    "description": "Total message count in full data",
+                    "type": "integer"
+                },
+                "messages": {
+                    "description": "Full conversation history (only when full=true)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage"
+                    }
+                },
+                "sessionInfo": {
+                    "description": "Basic session information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
+                        }
+                    ]
+                },
+                "userPrompts": {
+                    "description": "User prompts from ~/.claude.json (only when full=true)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry"
+                    }
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_models.GitStatus": {
             "description": "Current git status including repository information",
             "type": "object",
@@ -821,6 +989,37 @@ const docTemplate = `{
                     "description": "Full GitHub repository URL",
                     "type": "string",
                     "example": "https://github.com/anthropics/claude-code"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.SessionListEntry": {
+            "description": "Session list entry with basic metadata",
+            "type": "object",
+            "properties": {
+                "endTime": {
+                    "description": "When the session ended (if available)",
+                    "type": "string",
+                    "example": "2024-01-15T16:45:30Z"
+                },
+                "isActive": {
+                    "description": "Whether this session is currently active",
+                    "type": "boolean",
+                    "example": false
+                },
+                "lastModified": {
+                    "description": "When the session was last modified",
+                    "type": "string",
+                    "example": "2024-01-15T16:45:30Z"
+                },
+                "sessionId": {
+                    "description": "Unique session identifier",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "startTime": {
+                    "description": "When the session started (if available)",
+                    "type": "string",
+                    "example": "2024-01-15T14:30:00Z"
                 }
             }
         },

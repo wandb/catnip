@@ -1,7 +1,46 @@
 definitions:
+  github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry:
+    properties:
+      display:
+        type: string
+      pastedContents:
+        additionalProperties: {}
+        type: object
+    type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage:
+    properties:
+      cwd:
+        type: string
+      isMeta:
+        type: boolean
+      isSidechain:
+        type: boolean
+      message:
+        additionalProperties: {}
+        type: object
+      parentUuid:
+        type: string
+      sessionId:
+        type: string
+      timestamp:
+        type: string
+      type:
+        type: string
+      userType:
+        type: string
+      uuid:
+        type: string
+      version:
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary:
     description: Claude Code session summary with metrics and timing information
     properties:
+      allSessions:
+        description: List of all available sessions for this worktree
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry'
+        type: array
       currentSessionId:
         description: ID of the currently active session
         example: xyz789-ghi012
@@ -49,6 +88,32 @@ definitions:
         example: /workspace/my-project
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_models.FullSessionData:
+    description: Complete session data with all messages and metadata
+    properties:
+      allSessions:
+        description: All sessions available for this workspace
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry'
+        type: array
+      messageCount:
+        description: Total message count in full data
+        type: integer
+      messages:
+        description: Full conversation history (only when full=true)
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage'
+        type: array
+      sessionInfo:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
+        description: Basic session information
+      userPrompts:
+        description: User prompts from ~/.claude.json (only when full=true)
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry'
+        type: array
+    type: object
   github_com_vanpelt_catnip_internal_models.GitStatus:
     description: Current git status including repository information
     properties:
@@ -88,6 +153,30 @@ definitions:
       url:
         description: Full GitHub repository URL
         example: https://github.com/anthropics/claude-code
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.SessionListEntry:
+    description: Session list entry with basic metadata
+    properties:
+      endTime:
+        description: When the session ended (if available)
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      isActive:
+        description: Whether this session is currently active
+        example: false
+        type: boolean
+      lastModified:
+        description: When the session was last modified
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      sessionId:
+        description: Unique session identifier
+        example: abc123-def456-ghi789
+        type: string
+      startTime:
+        description: When the session started (if available)
+        example: "2024-01-15T14:30:00Z"
         type: string
     type: object
   github_com_vanpelt_catnip_internal_models.Worktree:
@@ -406,6 +495,26 @@ paths:
           schema:
             $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
       summary: Get worktree session summary
+      tags:
+      - claude
+  /v1/claude/session/{uuid}:
+    get:
+      description: Returns complete session data including all messages for a specific
+        session UUID
+      parameters:
+      - description: Session UUID
+        in: path
+        name: uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData'
+      summary: Get session by UUID
       tags:
       - claude
   /v1/claude/sessions:
@@ -780,11 +889,41 @@ paths:
       tags:
       - sessions
     get:
-      description: Returns session information for a specific workspace directory
+      description: Returns session information for a specific workspace directory.
+        Use ?full=true for complete session data including messages.
       parameters:
       - description: Workspace directory path
         in: path
         name: workspace
+        required: true
+        type: string
+      - description: Include full session data with messages and user prompts
+        in: query
+        name: full
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Full session data when full=true
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData'
+      summary: Get session by workspace
+      tags:
+      - sessions
+  /v1/sessions/workspace/{workspace}/session/{sessionId}:
+    get:
+      description: Returns complete session data for a specific session ID within
+        a workspace
+      parameters:
+      - description: Workspace directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      - description: Session ID (UUID)
+        in: path
+        name: sessionId
         required: true
         type: string
       produces:
@@ -793,8 +932,8 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
-      summary: Get session by workspace
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData'
+      summary: Get session by ID
       tags:
       - sessions
   /v1/upload:
