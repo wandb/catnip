@@ -9,6 +9,7 @@ import (
 // SessionsHandler handles session management API endpoints
 type SessionsHandler struct {
 	sessionService *services.SessionService
+	claudeService  *services.ClaudeService
 }
 
 // SessionsResponse represents the response containing all sessions
@@ -38,9 +39,10 @@ type DeleteSessionResponse struct {
 }
 
 // NewSessionsHandler creates a new sessions handler
-func NewSessionsHandler(sessionService *services.SessionService) *SessionsHandler {
+func NewSessionsHandler(sessionService *services.SessionService, claudeService *services.ClaudeService) *SessionsHandler {
 	return &SessionsHandler{
 		sessionService: sessionService,
+		claudeService:  claudeService,
 	}
 }
 
@@ -70,23 +72,61 @@ func (h *SessionsHandler) GetAllSessions(c *fiber.Ctx) error {
 
 // GetSessionByWorkspace returns session for a specific workspace
 // @Summary Get session by workspace
-// @Description Returns session information for a specific workspace directory
+// @Description Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.
 // @Tags sessions
 // @Produce json
 // @Param workspace path string true "Workspace directory path"
-// @Success 200 {object} ActiveSessionInfo
+// @Param full query boolean false "Include full session data with messages and user prompts"
+// @Success 200 {object} ActiveSessionInfo "Basic session info when full=false"
+// @Success 200 {object} github_com_vanpelt_catnip_internal_models.FullSessionData "Full session data when full=true"
 // @Router /v1/sessions/workspace/{workspace} [get]
 func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 	workspace := c.Params("workspace")
+	fullParam := c.Query("full", "false")
+	includeFull := fullParam == "true"
 	
-	session, exists := h.sessionService.GetActiveSession(workspace)
-	if !exists {
-		return c.Status(404).JSON(fiber.Map{
-			"error": "Session not found for workspace",
-		})
+	if includeFull {
+		// Return full session data using Claude service
+		fullData, err := h.claudeService.GetFullSessionData(workspace, true)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "Failed to get full session data",
+				"details": err.Error(),
+			})
+		}
+		
+		if fullData == nil {
+			return c.Status(404).JSON(fiber.Map{
+				"error": "Session not found for workspace",
+			})
+		}
+		
+		return c.JSON(fullData)
+	} else {
+		// Try session service first (for active PTY sessions)
+		session, exists := h.sessionService.GetActiveSession(workspace)
+		if exists {
+			return c.JSON(session)
+		}
+		
+		// Fallback to Claude service for basic info (without full data)
+		fullData, err := h.claudeService.GetFullSessionData(workspace, false)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "Failed to get session data",
+				"details": err.Error(),
+			})
+		}
+		
+		if fullData == nil {
+			return c.Status(404).JSON(fiber.Map{
+				"error": "Session not found for workspace",
+			})
+		}
+		
+		// Return just the session info part for basic requests
+		return c.JSON(fullData.SessionInfo)
 	}
-	
-	return c.JSON(session)
 }
 
 // DeleteSession removes a session
@@ -110,4 +150,34 @@ func (h *SessionsHandler) DeleteSession(c *fiber.Ctx) error {
 		"message": "Session deleted successfully",
 		"workspace": workspace,
 	})
+}
+
+// GetSessionById returns full session data for a specific session ID
+// @Summary Get session by ID
+// @Description Returns complete session data for a specific session ID within a workspace
+// @Tags sessions
+// @Produce json
+// @Param workspace path string true "Workspace directory path"
+// @Param sessionId path string true "Session ID (UUID)"
+// @Success 200 {object} github_com_vanpelt_catnip_internal_models.FullSessionData
+// @Router /v1/sessions/workspace/{workspace}/session/{sessionId} [get]
+func (h *SessionsHandler) GetSessionById(c *fiber.Ctx) error {
+	workspace := c.Params("workspace")
+	sessionId := c.Params("sessionId")
+	
+	sessionData, err := h.claudeService.GetSessionByID(workspace, sessionId)
+	if err != nil {
+		if err.Error() == "session not found: "+sessionId {
+			return c.Status(404).JSON(fiber.Map{
+				"error": "Session not found",
+				"sessionId": sessionId,
+			})
+		}
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Failed to get session data",
+			"details": err.Error(),
+		})
+	}
+	
+	return c.JSON(sessionData)
 }

@@ -69,3 +69,36 @@ func (h *ClaudeHandler) GetAllWorktreeSessionSummaries(c *fiber.Ctx) error {
 	
 	return c.JSON(summaries)
 }
+
+// GetSessionByUUID returns complete session data for a specific session UUID
+// @Summary Get session by UUID
+// @Description Returns complete session data including all messages for a specific session UUID
+// @Tags claude
+// @Produce json
+// @Param uuid path string true "Session UUID"
+// @Success 200 {object} models.FullSessionData
+// @Router /v1/claude/session/{uuid} [get]
+func (h *ClaudeHandler) GetSessionByUUID(c *fiber.Ctx) error {
+	sessionUUID := c.Params("uuid")
+	if sessionUUID == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "session UUID is required",
+		})
+	}
+	
+	sessionData, err := h.claudeService.GetSessionByUUID(sessionUUID)
+	if err != nil {
+		if err.Error() == "session not found: "+sessionUUID {
+			return c.Status(404).JSON(fiber.Map{
+				"error": "Session not found",
+				"uuid": sessionUUID,
+			})
+		}
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Failed to get session data",
+			"details": err.Error(),
+		})
+	}
+	
+	return c.JSON(sessionData)
+}

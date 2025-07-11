@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,6 +19,50 @@ import (
 type ClaudeService struct {
 	claudeConfigPath  string
 	claudeProjectsDir string
+}
+
+// readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
+// This is used instead of bufio.Scanner to avoid "token too long" errors with large base64 images
+func readJSONLines(filePath string, handler func([]byte) error) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+	
+	reader := bufio.NewReader(file)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF && len(line) > 0 {
+				// Handle last line without newline
+			} else if err == io.EOF {
+				break // Normal end of file
+			} else {
+				return fmt.Errorf("error reading file: %w", err)
+			}
+		}
+		
+		// Trim newline character
+		line = strings.TrimSuffix(line, "\n")
+		line = strings.TrimSuffix(line, "\r") // Handle Windows line endings
+		
+		if len(line) == 0 {
+			continue // Skip empty lines
+		}
+		
+		if err := handler([]byte(line)); err != nil {
+			// Handler can return an error to stop processing
+			return err
+		}
+		
+		// If we hit EOF while processing the last line, break
+		if err == io.EOF {
+			break
+		}
+	}
+	
+	return nil
 }
 
 // NewClaudeService creates a new Claude service
@@ -81,6 +126,12 @@ func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.
 		}
 		
 		summary.CurrentSessionId = &sessionTiming.SessionID
+	}
+	
+	// Add list of all sessions for this worktree
+	allSessions, err := s.GetAllSessionsForWorkspace(worktreePath)
+	if err == nil {
+		summary.AllSessions = allSessions
 	}
 	
 	return summary, nil
@@ -193,71 +244,68 @@ func (s *ClaudeService) findLatestSessionFile(projectDir string) (string, error)
 
 // fileHasTimestamps checks if a session file contains at least one valid timestamp
 func (s *ClaudeService) fileHasTimestamps(filePath string) bool {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return false
-	}
-	defer file.Close()
+	hasTimestamp := false
 	
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
+	// Use a closure to capture the result and exit early
+	err := readJSONLines(filePath, func(line []byte) error {
 		var lineData map[string]interface{}
-		if err := json.Unmarshal(scanner.Bytes(), &lineData); err != nil {
-			continue
+		if err := json.Unmarshal(line, &lineData); err != nil {
+			return nil // Skip invalid JSON lines
 		}
 		
 		timestampValue, exists := lineData["timestamp"]
 		if !exists {
-			continue
+			return nil
 		}
 		
 		timestampStr, ok := timestampValue.(string)
 		if !ok || timestampStr == "" {
-			continue
+			return nil
 		}
 		
 		if _, err := time.Parse(time.RFC3339, timestampStr); err == nil {
-			return true // Found at least one valid timestamp
+			hasTimestamp = true
+			return fmt.Errorf("found timestamp") // Use error to exit early
 		}
+		
+		return nil
+	})
+	
+	// If we got an error because we found a timestamp, return true
+	if err != nil && err.Error() == "found timestamp" {
+		return true
 	}
 	
-	return false
+	return hasTimestamp
 }
 
 // readSessionTiming reads the first and last timestamps from a session file
 func (s *ClaudeService) readSessionTiming(sessionFilePath string) (*SessionTiming, error) {
-	file, err := os.Open(sessionFilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open session file: %w", err)
-	}
-	defer file.Close()
-	
 	var firstTimestamp, lastTimestamp *time.Time
 	
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
+	err := readJSONLines(sessionFilePath, func(line []byte) error {
 		// Parse each line as a map to get timestamp
 		var lineData map[string]interface{}
-		if err := json.Unmarshal(scanner.Bytes(), &lineData); err != nil {
-			continue // Skip invalid JSON lines
+		if err := json.Unmarshal(line, &lineData); err != nil {
+			return nil // Skip invalid JSON lines, don't stop processing
 		}
 		
 		// Get timestamp from the map
 		timestampValue, exists := lineData["timestamp"]
 		if !exists {
-			continue
+			return nil // Skip lines without timestamps
 		}
 		
 		// Convert to string and skip null/empty values
 		timestampStr, ok := timestampValue.(string)
 		if !ok || timestampStr == "" {
-			continue
+			return nil // Skip invalid timestamp values
 		}
 		
 		// Parse the timestamp
 		timestamp, err := time.Parse(time.RFC3339, timestampStr)
 		if err != nil {
-			continue // Skip invalid timestamps
+			return nil // Skip invalid timestamps
 		}
 		
 		// Set first timestamp if not set
@@ -266,10 +314,12 @@ func (s *ClaudeService) readSessionTiming(sessionFilePath string) (*SessionTimin
 		}
 		// Always update last timestamp
 		lastTimestamp = &timestamp
-	}
+		
+		return nil
+	})
 	
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading session file: %w", err)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session timing: %w", err)
 	}
 	
 	return &SessionTiming{
@@ -308,4 +358,243 @@ func (s *ClaudeService) readClaudeConfig() (map[string]*models.ClaudeProjectMeta
 	}
 	
 	return config.Projects, nil
+}
+
+// GetFullSessionData gets complete session data for a workspace including all messages
+func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData bool) (*models.FullSessionData, error) {
+	// Get basic session summary
+	sessionSummary, err := s.GetWorktreeSessionSummary(worktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session summary: %w", err)
+	}
+	
+	if sessionSummary == nil {
+		return nil, nil // No session data for this workspace
+	}
+	
+	fullData := &models.FullSessionData{
+		SessionInfo: sessionSummary,
+	}
+	
+	// Get all sessions for this workspace
+	allSessions, err := s.GetAllSessionsForWorkspace(worktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all sessions: %w", err)
+	}
+	fullData.AllSessions = allSessions
+	
+	// Only include full message data if requested
+	if includeFullData {
+		// Get messages from current/latest session
+		var sessionID string
+		if sessionSummary.CurrentSessionId != nil {
+			sessionID = *sessionSummary.CurrentSessionId
+		} else if sessionSummary.LastSessionId != nil {
+			sessionID = *sessionSummary.LastSessionId
+		}
+		
+		if sessionID != "" {
+			messages, err := s.GetSessionMessages(worktreePath, sessionID)
+			if err == nil {
+				fullData.Messages = messages
+				fullData.MessageCount = len(messages)
+			}
+		}
+		
+		// Get user prompts from claude.json
+		userPrompts, err := s.GetUserPrompts(worktreePath)
+		if err == nil {
+			fullData.UserPrompts = userPrompts
+		}
+	}
+	
+	return fullData, nil
+}
+
+// GetAllSessionsForWorkspace returns all session IDs for a workspace with metadata
+func (s *ClaudeService) GetAllSessionsForWorkspace(worktreePath string) ([]models.SessionListEntry, error) {
+	// Convert worktree path to project directory name
+	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDir := filepath.Join(s.claudeProjectsDir, projectDirName)
+	
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []models.SessionListEntry{}, nil
+		}
+		return nil, fmt.Errorf("failed to read project directory: %w", err)
+	}
+	
+	var sessions []models.SessionListEntry
+	
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
+			sessionID := strings.TrimSuffix(entry.Name(), ".jsonl")
+			
+			// Validate UUID format
+			if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+				continue
+			}
+			
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			
+			// Get session timing if available
+			sessionFile := filepath.Join(projectDir, entry.Name())
+			timing, err := s.readSessionTiming(sessionFile)
+			
+			sessionEntry := models.SessionListEntry{
+				SessionId:    sessionID,
+				LastModified: info.ModTime(),
+				IsActive:     false, // Will be updated below
+			}
+			
+			if err == nil {
+				sessionEntry.StartTime = timing.StartTime
+				sessionEntry.EndTime = timing.EndTime
+			}
+			
+			sessions = append(sessions, sessionEntry)
+		}
+	}
+	
+	// Sort by last modified (newest first)
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].LastModified.After(sessions[j].LastModified)
+	})
+	
+	// Mark the most recent session as active if it doesn't have an end time
+	if len(sessions) > 0 && sessions[0].EndTime == nil {
+		sessions[0].IsActive = true
+	}
+	
+	return sessions, nil
+}
+
+// GetSessionMessages reads all messages from a specific session file
+func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]models.ClaudeSessionMessage, error) {
+	// Convert worktree path to project directory name
+	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	sessionFile := filepath.Join(s.claudeProjectsDir, projectDirName, sessionID+".jsonl")
+	
+	var messages []models.ClaudeSessionMessage
+	
+	err := readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines, don't stop processing
+		}
+		messages = append(messages, message)
+		return nil
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session messages: %w", err)
+	}
+	
+	return messages, nil
+}
+
+// GetUserPrompts reads user prompts from claude.json for a specific workspace
+func (s *ClaudeService) GetUserPrompts(worktreePath string) ([]models.ClaudeHistoryEntry, error) {
+	claudeConfig, err := s.readClaudeConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read claude config: %w", err)
+	}
+	
+	projectMeta, exists := claudeConfig[worktreePath]
+	if !exists {
+		return []models.ClaudeHistoryEntry{}, nil
+	}
+	
+	return projectMeta.History, nil
+}
+
+// GetSessionByID gets complete session data for a specific session ID
+func (s *ClaudeService) GetSessionByID(worktreePath, sessionID string) (*models.FullSessionData, error) {
+	// Validate session exists
+	sessions, err := s.GetAllSessionsForWorkspace(worktreePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sessions: %w", err)
+	}
+	
+	var targetSession *models.SessionListEntry
+	for _, session := range sessions {
+		if session.SessionId == sessionID {
+			targetSession = &session
+			break
+		}
+	}
+	
+	if targetSession == nil {
+		return nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+	
+	// Create session summary for this specific session
+	sessionSummary := &models.ClaudeSessionSummary{
+		WorktreePath:     worktreePath,
+		SessionStartTime: targetSession.StartTime,
+		SessionEndTime:   targetSession.EndTime,
+		IsActive:         targetSession.IsActive,
+		CurrentSessionId: &sessionID,
+	}
+	
+	// Get messages for this session
+	messages, err := s.GetSessionMessages(worktreePath, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session messages: %w", err)
+	}
+	
+	// Get user prompts
+	userPrompts, err := s.GetUserPrompts(worktreePath)
+	if err != nil {
+		userPrompts = []models.ClaudeHistoryEntry{} // Don't fail if we can't get prompts
+	}
+	
+	return &models.FullSessionData{
+		SessionInfo:  sessionSummary,
+		AllSessions:  sessions,
+		Messages:     messages,
+		UserPrompts:  userPrompts,
+		MessageCount: len(messages),
+	}, nil
+}
+
+// GetSessionByUUID gets complete session data for a specific session UUID
+func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessionData, error) {
+	// First, find which worktree this session belongs to
+	allSummaries, err := s.GetAllWorktreeSessionSummaries()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all summaries: %w", err)
+	}
+	
+	var targetWorktree string
+	for worktreePath, summary := range allSummaries {
+		// Check if this session UUID is in the allSessions list
+		for _, session := range summary.AllSessions {
+			if session.SessionId == sessionUUID {
+				targetWorktree = worktreePath
+				break
+			}
+		}
+		if targetWorktree != "" {
+			break
+		}
+		
+		// Also check current and last session IDs
+		if (summary.CurrentSessionId != nil && *summary.CurrentSessionId == sessionUUID) ||
+		   (summary.LastSessionId != nil && *summary.LastSessionId == sessionUUID) {
+			targetWorktree = worktreePath
+			break
+		}
+	}
+	
+	if targetWorktree == "" {
+		return nil, fmt.Errorf("session not found: %s", sessionUUID)
+	}
+	
+	// Get the session data using the existing method
+	return s.GetSessionByID(targetWorktree, sessionUUID)
 }

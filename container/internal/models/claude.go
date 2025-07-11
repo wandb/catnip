@@ -56,7 +56,7 @@ type ClaudeSessionMessage struct {
 	Type         string                 `json:"type"`
 	UserType     string                 `json:"userType"`
 	Uuid         string                 `json:"uuid"`
-	Version      int                    `json:"version"`
+	Version      string                 `json:"version"`
 }
 
 // ClaudeSessionSummary represents aggregated session information
@@ -76,6 +76,8 @@ type ClaudeSessionSummary struct {
 	LastSessionId    *string    `json:"lastSessionId" example:"abc123-def456"`
 	// ID of the currently active session
 	CurrentSessionId *string    `json:"currentSessionId,omitempty" example:"xyz789-ghi012"`
+	// List of all available sessions for this worktree
+	AllSessions      []SessionListEntry `json:"allSessions,omitempty"`
 	
 	// Metrics (from completed sessions)
 	// Cost in USD of the last completed session
@@ -86,4 +88,34 @@ type ClaudeSessionSummary struct {
 	LastTotalInputTokens  *int     `json:"lastTotalInputTokens,omitempty" example:"15000"`
 	// Total output tokens generated in the last session
 	LastTotalOutputTokens *int     `json:"lastTotalOutputTokens,omitempty" example:"8500"`
+}
+
+// SessionListEntry represents a single session in a list with basic metadata
+// @Description Session list entry with basic metadata
+type SessionListEntry struct {
+	// Unique session identifier
+	SessionId string `json:"sessionId" example:"abc123-def456-ghi789"`
+	// When the session was last modified
+	LastModified time.Time `json:"lastModified" example:"2024-01-15T16:45:30Z"`
+	// When the session started (if available)
+	StartTime *time.Time `json:"startTime,omitempty" example:"2024-01-15T14:30:00Z"`
+	// When the session ended (if available)
+	EndTime *time.Time `json:"endTime,omitempty" example:"2024-01-15T16:45:30Z"`
+	// Whether this session is currently active
+	IsActive bool `json:"isActive" example:"false"`
+}
+
+// FullSessionData represents complete session data including all messages
+// @Description Complete session data with all messages and metadata
+type FullSessionData struct {
+	// Basic session information
+	SessionInfo    *ClaudeSessionSummary `json:"sessionInfo"`
+	// All sessions available for this workspace
+	AllSessions    []SessionListEntry    `json:"allSessions"`
+	// Full conversation history (only when full=true)
+	Messages       []ClaudeSessionMessage `json:"messages,omitempty"`
+	// User prompts from ~/.claude.json (only when full=true)
+	UserPrompts    []ClaudeHistoryEntry   `json:"userPrompts,omitempty"`
+	// Total message count in full data
+	MessageCount   int                    `json:"messageCount,omitempty"`
 }

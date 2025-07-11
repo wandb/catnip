@@ -97,7 +97,7 @@ func main() {
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService)
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
-	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService())
+	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService)
 	portsHandler := handlers.NewPortsHandler(portMonitor)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
 	
@@ -127,12 +127,14 @@ func main() {
 	
 	// Claude routes
 	v1.Get("/claude/session", claudeHandler.GetWorktreeSessionSummary)
+	v1.Get("/claude/session/:uuid", claudeHandler.GetSessionByUUID)
 	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
 	
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)
 	v1.Get("/sessions", sessionHandler.GetAllSessions)
 	v1.Get("/sessions/workspace/:workspace", sessionHandler.GetSessionByWorkspace)
+	v1.Get("/sessions/workspace/:workspace/session/:sessionId", sessionHandler.GetSessionById)
 	v1.Delete("/sessions/workspace/:workspace", sessionHandler.DeleteSession)
 	
 	// Port monitoring routes
