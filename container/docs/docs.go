@@ -476,6 +476,71 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/ports": {
+            "get": {
+                "description": "Returns a list of all currently detected ports with their service information",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ports"
+                ],
+                "summary": "Get detected ports",
+                "responses": {
+                    "200": {
+                        "description": "List of detected ports and services",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/ports/{port}": {
+            "get": {
+                "description": "Returns detailed information about a specific port if it exists",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ports"
+                ],
+                "summary": "Get port information",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Port number",
+                        "name": "port",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Port information",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_services.ServiceInfo"
+                        }
+                    },
+                    "404": {
+                        "description": "Port not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/pty": {
             "get": {
                 "description": "Establishes a WebSocket connection for terminal access",
@@ -822,6 +887,29 @@ const docTemplate = `{
                     "description": "Branch this worktree was originally created from",
                     "type": "string",
                     "example": "main"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_services.ServiceInfo": {
+            "type": "object",
+            "properties": {
+                "health": {
+                    "type": "string"
+                },
+                "last_seen": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "integer"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "service_type": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },

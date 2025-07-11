@@ -5,10 +5,15 @@ WORKDIR /build
 
 # Copy go mod files
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod download && \
+    go install github.com/swaggo/swag/cmd/swag@latest && \
+    apk add just
 
 # Copy source code
 COPY . .
+
+# Install swag and generate swagger documentation
+RUN just swagger
 
 # Build the binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go

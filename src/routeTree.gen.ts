@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as GitRouteImport } from './routes/git'
+import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TerminalIndexRouteImport } from './routes/terminal.index'
 import { Route as TerminalSessionIdRouteImport } from './routes/terminal.$sessionId'
@@ -18,6 +19,11 @@ import { Route as GhSplatRouteImport } from './routes/gh.$'
 const GitRoute = GitRouteImport.update({
   id: '/git',
   path: '/git',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsRoute = DocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -43,6 +49,7 @@ const GhSplatRoute = GhSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/docs': typeof DocsRoute
   '/git': typeof GitRoute
   '/gh/$': typeof GhSplatRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
@@ -50,6 +57,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/docs': typeof DocsRoute
   '/git': typeof GitRoute
   '/gh/$': typeof GhSplatRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
@@ -58,6 +66,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/docs': typeof DocsRoute
   '/git': typeof GitRoute
   '/gh/$': typeof GhSplatRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
@@ -65,12 +74,19 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/git' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
+  fullPaths:
+    | '/'
+    | '/docs'
+    | '/git'
+    | '/gh/$'
+    | '/terminal/$sessionId'
+    | '/terminal'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/git' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
+  to: '/' | '/docs' | '/git' | '/gh/$' | '/terminal/$sessionId' | '/terminal'
   id:
     | '__root__'
     | '/'
+    | '/docs'
     | '/git'
     | '/gh/$'
     | '/terminal/$sessionId'
@@ -79,6 +95,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DocsRoute: typeof DocsRoute
   GitRoute: typeof GitRoute
   GhSplatRoute: typeof GhSplatRoute
   TerminalSessionIdRoute: typeof TerminalSessionIdRoute
@@ -92,6 +109,13 @@ declare module '@tanstack/react-router' {
       path: '/git'
       fullPath: '/git'
       preLoaderRoute: typeof GitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -127,6 +151,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DocsRoute: DocsRoute,
   GitRoute: GitRoute,
   GhSplatRoute: GhSplatRoute,
   TerminalSessionIdRoute: TerminalSessionIdRoute,

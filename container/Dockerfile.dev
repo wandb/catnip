@@ -9,10 +9,10 @@ RUN mkdir -p /live/catnip/node_modules && chown -R catnip:catnip /live/catnip
 USER catnip
 WORKDIR /workspace
 
-# Install Air for Go hot reloading with cache mount
+# Install Air and swag for Go hot reloading with cache mount
 RUN --mount=type=cache,target=/home/catnip/.cache/go-build,uid=1000,gid=1000 \
     --mount=type=cache,target=/home/catnip/go/pkg/mod,uid=1000,gid=1000 \
-    bash -c 'source /etc/profile.d/catnip.sh && go install github.com/air-verse/air@latest'
+    bash -c 'source /etc/profile.d/catnip.sh && go install github.com/air-verse/air@latest && go install github.com/swaggo/swag/cmd/swag@latest'
 
 # Copy development scripts
 COPY --chown=catnip:catnip container/scripts/dev-entrypoint.sh ./dev-entrypoint.sh

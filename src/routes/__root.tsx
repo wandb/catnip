@@ -2,7 +2,7 @@ import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { WebSocketProvider, useWebSocket } from "@/lib/websocket-context";
 import { useState, useEffect, useRef } from "react";
-import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github } from "lucide-react";
+import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github, FileText } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -103,6 +103,14 @@ function RootLayout() {
                   <GitBranch size={20} />
                   <span>Git</span>
                 </Link>
+                <Link
+                  to="/docs"
+                  className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <FileText size={20} />
+                  <span>Docs</span>
+                </Link>
                 
                 <div className="border-t border-gray-700 my-2" />
                 
@@ -168,6 +176,13 @@ function RootLayout() {
                 title="Git"
               >
                 <GitBranch size={20} />
+              </Link>
+              <Link
+                to="/docs"
+                className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
+                title="Documentation"
+              >
+                <FileText size={20} />
               </Link>
             </div>
           </div>

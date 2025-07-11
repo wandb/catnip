@@ -144,6 +144,21 @@ definitions:
         example: main
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_services.ServiceInfo:
+    properties:
+      health:
+        type: string
+      last_seen:
+        type: string
+      pid:
+        type: integer
+      port:
+        type: integer
+      service_type:
+        type: string
+      title:
+        type: string
+    type: object
   internal_handlers.ActiveSessionInfo:
     description: Active session information with timing and Claude session details
     properties:
@@ -658,6 +673,50 @@ paths:
       summary: Check sync conflicts
       tags:
       - git
+  /v1/ports:
+    get:
+      consumes:
+      - application/json
+      description: Returns a list of all currently detected ports with their service
+        information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of detected ports and services
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get detected ports
+      tags:
+      - ports
+  /v1/ports/{port}:
+    get:
+      consumes:
+      - application/json
+      description: Returns detailed information about a specific port if it exists
+      parameters:
+      - description: Port number
+        in: path
+        name: port
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Port information
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_services.ServiceInfo'
+        "404":
+          description: Port not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get port information
+      tags:
+      - ports
   /v1/pty:
     get:
       description: Establishes a WebSocket connection for terminal access
