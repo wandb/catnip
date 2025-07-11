@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react'
 import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { ErrorDisplay } from '@/components/ErrorDisplay'
 
 export const Route = createFileRoute('/preview/$port')({
   component: PreviewComponent,
@@ -88,7 +89,7 @@ function PreviewComponent() {
   // Handle iframe errors
   const handleIframeError = () => {
     setIframeLoading(false)
-    setError(`Failed to load service on port ${port}`)
+    setError(`Failed to load service on port ${port}. The service might be down or not responding.`)
   }
 
   const openInNewTab = () => {
@@ -108,38 +109,23 @@ function PreviewComponent() {
 
   if (error || !service) {
     return (
-      <div className="p-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            {error || `Service on port ${port} not found`}
-          </AlertDescription>
-        </Alert>
-        <div className="mt-4">
-          <Button variant="outline" onClick={() => window.history.back()}>
-            Go Back
-          </Button>
-        </div>
-      </div>
+      <ErrorDisplay
+        title="Service Not Found"
+        message={error || `No service is running on port ${port}. Make sure your application is running and accessible.`}
+        onRetry={() => window.location.reload()}
+        retryLabel="Refresh"
+      />
     )
   }
 
   if (service.service_type !== 'http' || service.health !== 'healthy') {
     return (
-      <div className="p-6">
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>
-            Service on port {port} is not a healthy HTTP service. 
-            Type: {service.service_type}, Health: {service.health}
-          </AlertDescription>
-        </Alert>
-        <div className="mt-4">
-          <Button variant="outline" onClick={() => window.history.back()}>
-            Go Back
-          </Button>
-        </div>
-      </div>
+      <ErrorDisplay
+        title="Service Not Ready"
+        message={`Service on port ${port} is not ready for preview. Service type: ${service.service_type}, Health: ${service.health}`}
+        onRetry={() => window.location.reload()}
+        retryLabel="Check Again"
+      />
     )
   }
 

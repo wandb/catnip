@@ -161,7 +161,7 @@ export function Navbar() {
       )}
 
       {/* Desktop Sidebar Navigation */}
-      <nav className="hidden sm:block w-16 bg-[#1a1a1a] flex-shrink-0 border-r border-gray-800">
+      <nav className="hidden sm:block fixed left-0 top-0 w-16 h-screen bg-[#1a1a1a] border-r border-gray-800 z-40">
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="p-3 flex justify-center relative">

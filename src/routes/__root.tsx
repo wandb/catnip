@@ -5,13 +5,14 @@ import { Navbar } from "@/components/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { Link } from "@tanstack/react-router";
 import { useWebSocket } from "@/lib/websocket-context";
+import { Suspense } from "react";
 
 function RootLayout() {
   const { isConnected } = useWebSocket();
 
   return (
     <>
-      <div className="min-h-screen bg-background flex">
+      <div className="min-h-screen bg-background">
         {/* Mobile Header - Only visible on small screens */}
         <header className="sm:hidden fixed top-0 left-0 right-0 h-14 bg-[#1a1a1a] flex items-center justify-between px-4 border-b border-gray-800 z-50">
           {/* Logo with Connection Status */}
@@ -36,9 +37,18 @@ function RootLayout() {
         <Navbar />
 
         {/* Main Content - Responsive margins and height */}
-        <main className="flex-1 pt-14 sm:pt-0">
+        <main className="pt-14 sm:pt-0 sm:pl-16">
           <div className="h-[calc(100vh-4rem)] sm:h-screen">
-            <Outlet />
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center space-y-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                  <p className="text-muted-foreground">Loading...</p>
+                </div>
+              </div>
+            }>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>

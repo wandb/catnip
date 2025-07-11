@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { RepoSelector } from "@/components/RepoSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DiffViewer } from "@/components/DiffViewer";
+import { ErrorAlert } from "@/components/ErrorAlert";
 import {
   GitBranch,
   Copy,
@@ -22,7 +23,16 @@ import {
   Eye,
   AlertTriangle,
   FileText,
+  MoreHorizontal,
+  Terminal,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 
 // Utility function for relative time display
@@ -111,6 +121,15 @@ function GitPage() {
     title: "",
     description: "",
     onConfirm: () => {},
+  });
+  const [errorAlert, setErrorAlert] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+  }>({
+    open: false,
+    title: "",
+    description: "",
   });
 
   const fetchGitStatus = async () => {
@@ -286,7 +305,11 @@ function GitPage() {
           } else {
             const errorData = await response.json();
             console.error("Failed to checkout local repository:", errorData);
-            toast.error(`Failed to checkout local repository: ${errorData.error || 'Unknown error'}`);
+            setErrorAlert({
+              open: true,
+              title: "Checkout Failed",
+              description: `Failed to checkout local repository: ${errorData.error || 'Unknown error'}`
+            });
           }
         }
       } else if (url.startsWith("https://github.com/")) {
@@ -307,16 +330,28 @@ function GitPage() {
           } else {
             const errorData = await response.json();
             console.error("Failed to checkout repository:", errorData);
-            toast.error(`Failed to checkout repository: ${errorData.error || 'Unknown error'}`);
+            setErrorAlert({
+              open: true,
+              title: "Checkout Failed",
+              description: `Failed to checkout repository: ${errorData.error || 'Unknown error'}`
+            });
           }
         }
       } else {
         console.error("Unknown URL format:", url);
-        toast.error(`Unknown repository URL format: ${url}`);
+        setErrorAlert({
+          open: true,
+          title: "Invalid URL",
+          description: `Unknown repository URL format: ${url}`
+        });
       }
     } catch (error) {
       console.error("Failed to checkout repository:", error);
-      toast.error(`Failed to checkout repository: ${error}`);
+      setErrorAlert({
+        open: true,
+        title: "Checkout Failed",
+        description: `Failed to checkout repository: ${error}`
+      });
     } finally {
       setLoading(false);
     }
@@ -355,26 +390,15 @@ function GitPage() {
 
       const claudePrompt = `I have a merge conflict during a ${operation} operation. ${conflictText}. Please help me resolve these conflicts by examining the files, understanding the conflicting changes, and providing a resolution strategy.`;
 
-      toast.error(
-        <div className="space-y-2">
-          <div className="font-semibold">Merge Conflict in {worktreeName}</div>
-          <div className="text-sm">{conflictText}</div>
-          <div className="space-y-1">
-            <a 
-              href={terminalUrl} 
-              className="inline-block text-blue-600 hover:text-blue-800 underline text-sm"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open Terminal to Resolve →
-            </a>
-            <div className="text-xs text-gray-600">
-              Suggested Claude prompt: "{claudePrompt}"
-            </div>
-          </div>
-        </div>,
-        { duration: 15000 }
-      );
+      setErrorAlert({
+        open: true,
+        title: `Merge Conflict in ${worktreeName}`,
+        description: `${conflictText}
+
+Open terminal to resolve: ${terminalUrl}
+
+Suggested Claude prompt: "${claudePrompt}"`
+      });
       return true;
     }
     return false;
@@ -396,12 +420,20 @@ function GitPage() {
       } else {
         const errorData = await response.json();
         if (!handleMergeConflict(errorData, "sync")) {
-          toast.error(`Failed to sync worktree: ${errorData.error}`);
+          setErrorAlert({
+            open: true,
+            title: "Sync Failed",
+            description: `Failed to sync worktree: ${errorData.error}`
+          });
         }
       }
     } catch (error) {
       console.error("Failed to sync worktree:", error);
-      toast.error(`Failed to sync worktree: ${error}`);
+      setErrorAlert({
+        open: true,
+        title: "Sync Failed",
+        description: `Failed to sync worktree: ${error}`
+      });
     }
   };
 
@@ -422,12 +454,20 @@ function GitPage() {
       } else {
         const errorData = await response.json();
         if (!handleMergeConflict(errorData, "merge")) {
-          toast.error(`Failed to merge worktree: ${errorData.error}`);
+          setErrorAlert({
+            open: true,
+            title: "Merge Failed",
+            description: `Failed to merge worktree: ${errorData.error}`
+          });
         }
       }
     } catch (error) {
       console.error("Failed to merge worktree:", error);
-      toast.error(`Failed to merge worktree: ${error}`);
+      setErrorAlert({
+        open: true,
+        title: "Merge Failed",
+        description: `Failed to merge worktree: ${error}`
+      });
     }
   };
 
@@ -443,11 +483,19 @@ function GitPage() {
         });
       } else {
         const errorData = await response.json();
-        toast.error(`Failed to create preview: ${errorData.error}`);
+        setErrorAlert({
+          open: true,
+          title: "Preview Failed",
+          description: `Failed to create preview: ${errorData.error}`
+        });
       }
     } catch (error) {
       console.error("Failed to create preview:", error);
-      toast.error(`Failed to create preview: ${error}`);
+      setErrorAlert({
+        open: true,
+        title: "Preview Failed",
+        description: `Failed to create preview: ${error}`
+      });
     }
   };
 
@@ -609,110 +657,135 @@ function GitPage() {
                         <span>Vibe</span>
                       </Button>
                     </Link>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => toggleDiff(worktree.id)}
-                      title="View diff against source branch"
-                      className={
-                        openDiffWorktreeId === worktree.id
-                          ? "text-blue-600 border-blue-200 bg-blue-50"
-                          : "text-gray-600 border-gray-200 hover:bg-gray-50"
-                      }
-                    >
-                      <FileText size={16} />
-                    </Button>
-                    {worktree.commits_behind > 0 && (
+{(worktree.is_dirty || worktree.commit_count > 0) && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => syncWorktree(worktree.id)}
-                        title={
-                          syncConflicts[worktree.id]?.has_conflicts
-                            ? `⚠️ Sync will cause conflicts: ${syncConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}`
-                            : `Sync ${worktree.commits_behind} commits from ${worktree.source_branch}`
-                        }
+                        onClick={() => toggleDiff(worktree.id)}
+                        title="View diff against source branch"
                         className={
-                          syncConflicts[worktree.id]?.has_conflicts
-                            ? "text-red-600 border-red-200 hover:bg-red-50"
-                            : "text-orange-600 border-orange-200 hover:bg-orange-50"
+                          openDiffWorktreeId === worktree.id
+                            ? "text-blue-600 border-blue-200 bg-blue-50"
+                            : "text-gray-600 border-gray-200 hover:bg-gray-50"
                         }
                       >
-                        {syncConflicts[worktree.id]?.has_conflicts ? (
-                          <AlertTriangle size={16} />
-                        ) : (
-                          <RefreshCw size={16} />
+                        <FileText size={16} />
+                      </Button>
+                    )}
+                    
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="relative">
+                          <MoreHorizontal size={16} />
+                          {((syncConflicts[worktree.id]?.has_conflicts || mergeConflicts[worktree.id]?.has_conflicts) || 
+                            (worktree.commits_behind > 0 && syncConflicts[worktree.id]?.has_conflicts)) && (
+                            <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
+                          )}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link
+                            to="/terminal/$sessionId"
+                            params={{ sessionId: worktree.name }}
+                            className="cursor-pointer"
+                          >
+                            <Terminal size={16} />
+                            Open Terminal
+                          </Link>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        {worktree.commits_behind > 0 && (
+                          <DropdownMenuItem
+                            onClick={() => syncWorktree(worktree.id)}
+                            className={
+                              syncConflicts[worktree.id]?.has_conflicts
+                                ? "text-red-600"
+                                : "text-orange-600"
+                            }
+                          >
+                            {syncConflicts[worktree.id]?.has_conflicts ? (
+                              <AlertTriangle size={16} />
+                            ) : (
+                              <RefreshCw size={16} />
+                            )}
+                            {syncConflicts[worktree.id]?.has_conflicts
+                              ? `Sync (${worktree.commits_behind} commits, conflicts)`
+                              : `Sync ${worktree.commits_behind} commits`
+                            }
+                          </DropdownMenuItem>
                         )}
-                      </Button>
-                    )}
-                    {worktree.repo_id.startsWith("local/") && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => createWorktreePreview(worktree.id, worktree.branch)}
-                        title={`Create preview branch to view changes outside container`}
-                        className="text-purple-600 border-purple-200 hover:bg-purple-50"
-                      >
-                        <Eye size={16} />
-                      </Button>
-                    )}
-                    {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setConfirmDialog({
-                            open: true,
-                            title: "Merge to Main",
-                            description: mergeConflicts[worktree.id]?.has_conflicts
-                              ? `⚠️ Warning: This merge will cause conflicts in ${mergeConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}. Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch anyway?`
-                              : `Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
-                            onConfirm: () => mergeWorktreeToMain(worktree.id, worktree.name),
-                            variant: mergeConflicts[worktree.id]?.has_conflicts ? "destructive" : "default",
-                          });
-                        }}
-                        title={
-                          mergeConflicts[worktree.id]?.has_conflicts
-                            ? `⚠️ Merge will cause conflicts: ${mergeConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}`
-                            : `Merge ${worktree.commit_count} commits to ${worktree.source_branch}`
-                        }
-                        className={
-                          mergeConflicts[worktree.id]?.has_conflicts
-                            ? "text-red-600 border-red-200 hover:bg-red-50"
-                            : "text-blue-600 border-blue-200 hover:bg-blue-50"
-                        }
-                      >
-                        {mergeConflicts[worktree.id]?.has_conflicts ? (
-                          <AlertTriangle size={16} />
-                        ) : (
-                          <GitMerge size={16} />
+                        
+                        {worktree.repo_id.startsWith("local/") && (
+                          <DropdownMenuItem
+                            onClick={() => createWorktreePreview(worktree.id, worktree.branch)}
+                            className="text-purple-600"
+                          >
+                            <Eye size={16} />
+                            Create Preview
+                          </DropdownMenuItem>
                         )}
-                      </Button>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (worktree.is_dirty || worktree.commit_count > 0) {
-                          const changesList = [];
-                          if (worktree.is_dirty) changesList.push("uncommitted changes");
-                          if (worktree.commit_count > 0) changesList.push(`${worktree.commit_count} commits`);
-                          
-                          setConfirmDialog({
-                            open: true,
-                            title: "Delete Worktree",
-                            description: `Delete worktree "${worktree.name}"? This worktree has ${changesList.join(" and ")}. This action cannot be undone.`,
-                            onConfirm: () => deleteWorktree(worktree.id),
-                            variant: "destructive",
-                          });
-                        } else {
-                          deleteWorktree(worktree.id);
-                        }
-                      }}
-                      className="text-destructive hover:text-destructive"
-                    >
-                      <Trash2 size={16} />
-                    </Button>
+                        
+                        {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setConfirmDialog({
+                                open: true,
+                                title: "Merge to Main",
+                                description: mergeConflicts[worktree.id]?.has_conflicts
+                                  ? `⚠️ Warning: This merge will cause conflicts in ${mergeConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}. Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch anyway?`
+                                  : `Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
+                                onConfirm: () => mergeWorktreeToMain(worktree.id, worktree.name),
+                                variant: mergeConflicts[worktree.id]?.has_conflicts ? "destructive" : "default",
+                              });
+                            }}
+                            className={
+                              mergeConflicts[worktree.id]?.has_conflicts
+                                ? "text-red-600"
+                                : "text-blue-600"
+                            }
+                          >
+                            {mergeConflicts[worktree.id]?.has_conflicts ? (
+                              <AlertTriangle size={16} />
+                            ) : (
+                              <GitMerge size={16} />
+                            )}
+                            {mergeConflicts[worktree.id]?.has_conflicts
+                              ? `Merge ${worktree.commit_count} commits (conflicts)`
+                              : `Merge ${worktree.commit_count} commits`
+                            }
+                          </DropdownMenuItem>
+                        )}
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem
+                          onClick={() => {
+                            if (worktree.is_dirty || worktree.commit_count > 0) {
+                              const changesList = [];
+                              if (worktree.is_dirty) changesList.push("uncommitted changes");
+                              if (worktree.commit_count > 0) changesList.push(`${worktree.commit_count} commits`);
+                              
+                              setConfirmDialog({
+                                open: true,
+                                title: "Delete Worktree",
+                                description: `Delete worktree "${worktree.name}"? This worktree has ${changesList.join(" and ")}. This action cannot be undone.`,
+                                onConfirm: () => deleteWorktree(worktree.id),
+                                variant: "destructive",
+                              });
+                            } else {
+                              deleteWorktree(worktree.id);
+                            }
+                          }}
+                          variant="destructive"
+                        >
+                          <Trash2 size={16} />
+                          Delete Worktree
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   </div>
                   <DiffViewer
@@ -896,6 +969,14 @@ function GitPage() {
         onConfirm={confirmDialog.onConfirm}
         variant={confirmDialog.variant}
         confirmText={confirmDialog.variant === "destructive" ? "Delete" : "Continue"}
+      />
+
+      {/* Error Alert */}
+      <ErrorAlert
+        open={errorAlert.open}
+        onOpenChange={(open) => setErrorAlert(prev => ({ ...prev, open }))}
+        title={errorAlert.title}
+        description={errorAlert.description}
       />
     </div>
   );
