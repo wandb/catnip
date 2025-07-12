@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This project is called catnip and is meant to make the process of agentic coding fun and productive. It can be run as either a service on localhost, or in the cloud using CloudFlares
+This project is called catnip and is meant to make the process of agentic coding fun and productive. It can be run as either a service on localhost, or in the cloud using Cloudflare's
 new [containers product](https://developers.cloudflare.com/containers). The project combines:
 
 - **Frontend**: React/Vite SPA that uses SWC, tailwindcss, and ShadCN
@@ -15,7 +15,7 @@ new [containers product](https://developers.cloudflare.com/containers). The proj
 
 `pnpm` is used for dependency management.
 
-We should use [ShadCN components](https://ui.shadcn.com/docs/components) whenever most practical. New componets are added by running: `pnpm dlx shadcn@latest add button`. Styles can leverate tailwindcss and care should be taken for dark and light mode themes.
+We should use [ShadCN components](https://ui.shadcn.com/docs/components) whenever most practical. New components are added by running: `pnpm dlx shadcn@latest add button`. Styles can leverage tailwindcss and care should be taken for dark and light mode themes.
 
 ### Worker
 
@@ -23,7 +23,7 @@ The cloudflare worker is only relevant when we're running in production mode. In
 
 ### Container
 
-The container is a sandboxed coding environment. It's meant to support the most popular coding environments and developer tools. At its heart is a golang server that provides API's for running commands in the container or creating PTY's. We keep all endpoints well documented with OpenAPI specs generally using JSONRPC when possible.
+The container is a sandboxed coding environment. It's meant to support the most popular coding environments and developer tools. At its heart is a golang server that provides APIs for running commands in the container or creating PTYs. We keep all endpoints well documented with OpenAPI specs generally using JSONRPC when possible.
 
 ## Features
 
@@ -34,7 +34,7 @@ Many of these have yet to be implemented, but here's the big vision:
 3. Git checkout and git worktree use for editing multiple projects in parallel
 4. HTTP git server for fetching changes made to different branches
 5. Automatic port forwarding / proxy for services started in the container
-6. Browser based MCP server that mimics the Pupeteer MCP server
+6. Browser based MCP server that mimics the Puppeteer MCP server
 7. Automatic log aggregation to make agentic debugging simpler
 8. SSH server for remote vscode sessions
 9. CLI for launching and syncing state with a server
@@ -64,7 +64,6 @@ catnip/
 ## Documentation
 
 The `docs/` directory contains detailed documentation:
-
 - **GIT.md**: Git operations and worktree management
 - **LOCAL_REPOSITORIES.md**: Local repository handling
 - **SETTINGS_SYNC.md**: Settings synchronization
@@ -85,21 +84,17 @@ I've prototyped a number of these features in a folder named "reference". It cou
 ## Operation Guidelines
 
 - Don't restart the container unless explicitly asked to.
+- We use swagger for docs. There's a justfile in the container directory, running `just swagger` regenerates docs. We do this automatically in dev and prod envs.
 
 ## Troubleshooting
 
-- If you start getting no such file or directory, run `pwd` and get yourself into the root catnip directory
-
-## Documentation Management
-
-- We use swagger for docs. There's a justfile in the container directory, running just swagger regenerates docs. We do this automatically in dev and prod envs.
+- If you start getting "no such file or directory", run `pwd` and get yourself into the root catnip directory
 
 ## Port Detection and Preview System
 
 The application includes an automatic port detection system with iframe preview capabilities:
 
 ### Features
-
 - **Real-time port monitoring**: Detects services automatically when they start
 - **Health checking**: Validates HTTP and TCP services
 - **Reverse proxy**: Routes `/$PORT/*` to `localhost:$PORT` services
@@ -120,3 +115,4 @@ The application includes an automatic port detection system with iframe preview 
 - HTML injection with iframe resizer script for seamless embedding
 - PostMessage communication for height updates and security
 - ResizeObserver and MutationObserver for dynamic content changes
+
