@@ -1,5 +1,5 @@
 import { TranscriptViewer } from './TranscriptViewer'
-import { TranscriptSession } from '../lib/transcript-types'
+import type { TranscriptSession } from '../lib/transcript-types'
 
 const mockTranscriptData: TranscriptSession = {
   messages: [

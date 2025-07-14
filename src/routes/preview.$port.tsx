@@ -1,8 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useEffect, useRef } from 'react'
-import { AlertTriangle, ExternalLink, Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Loader2 } from 'lucide-react'
 import { ErrorDisplay } from '@/components/ErrorDisplay'
 
 export const Route = createFileRoute('/preview/$port')({
@@ -92,9 +90,6 @@ function PreviewComponent() {
     setError(`Failed to load service on port ${port}. The service might be down or not responding.`)
   }
 
-  const openInNewTab = () => {
-    window.open(`/${port}/`, '_blank')
-  }
 
   if (loading) {
     return (

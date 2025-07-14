@@ -1,4 +1,4 @@
-import { TranscriptMessage, TranscriptSession, ParsedTranscript } from './transcript-types'
+import type { TranscriptMessage, TranscriptSession, ParsedTranscript } from './transcript-types'
 
 export function parseTranscript(session: TranscriptSession): ParsedTranscript {
   const { messages } = session
