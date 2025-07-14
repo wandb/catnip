@@ -19,9 +19,6 @@ if (process.env.CLOUDFLARE_DEV === "true") {
   plugins.push(cloudflare());
 }
 
-// Detect if we're running in a container (Catnip development environment)
-const isContainer = process.env.CATNIP_DEV === "true";
-
 // https://vite.dev/config/
 export default defineConfig({
   plugins,
@@ -36,15 +33,10 @@ export default defineConfig({
     strictPort: true, // Don't try other ports if 5173 is busy
     hmr: {
       // Configure HMR for container development
-      host: isContainer ? "localhost" : "localhost",
+      host: "localhost",
       port: 5173,
       // Use WebSocket for HMR in containers
       protocol: "ws",
     },
-    /*watch: {
-      // Use polling for better file watching in containers/Docker
-      usePolling: isContainer,
-      interval: isContainer ? 1000 : undefined, // Check for changes every second in containers
-    }*/
   },
 });
