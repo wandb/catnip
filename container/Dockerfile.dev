@@ -1,5 +1,5 @@
 # Development Dockerfile based on main catnip image
-FROM catnip-dev
+FROM catnip
 
 # Pre-create live directory and project directory with correct ownership
 RUN mkdir -p /live && chown -R catnip:catnip /live
