@@ -10,6 +10,9 @@ import { Webhooks } from "@octokit/webhooks";
 export class CatnipContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "10m";
+  environmentVariables = {
+    CATNIP_PROXY: "http://localhost:8787",
+  };
 }
 
 export interface Env {
@@ -235,7 +238,7 @@ export function createApp(env: Env) {
   });
 
   // Logout endpoint
-  app.post("/v1/auth/logout", async (c) => {
+  app.get("/v1/auth/logout", async (c) => {
     const sessionId = c.get("sessionId");
 
     if (sessionId) {
@@ -255,7 +258,7 @@ export function createApp(env: Env) {
       path: "/",
     });
 
-    return c.json({ success: true });
+    return c.redirect("/");
   });
 
   // Auth status endpoint
@@ -276,6 +279,14 @@ export function createApp(env: Env) {
       authenticated: true,
       userId: session.userId,
       username: session.username,
+    });
+  });
+
+  // Settings endpoint - bypasses auth to expose configuration
+  app.get("/v1/settings", (c) => {
+    return c.json({
+      catnipProxy: "http://localhost:8787",
+      authRequired: true,
     });
   });
 
@@ -382,8 +393,8 @@ export function createApp(env: Env) {
       return next();
     }
 
-    // Skip auth for auth endpoints
-    if (pathname.startsWith("/v1/auth/")) {
+    // Skip auth for auth endpoints and settings
+    if (pathname.startsWith("/v1/auth/") || pathname === "/v1/settings") {
       return next();
     }
 

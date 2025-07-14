@@ -79,6 +79,15 @@ func main() {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
+	// Settings endpoint - returns environment configuration
+	app.Get("/v1/settings", func(c *fiber.Ctx) error {
+		catnipProxy := os.Getenv("CATNIP_PROXY")
+		return c.JSON(fiber.Map{
+			"catnipProxy": catnipProxy,
+			"authRequired": catnipProxy != "",
+		})
+	})
+
 	// Swagger documentation
 	app.Get("/swagger/*", swagger.HandlerDefault)
 
