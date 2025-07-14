@@ -6,7 +6,7 @@ build: swagger
 
 # Build the CLI binary
 build-cli:
-    go build -o catnip cmd/cli/main.go
+    go build -o bin/catctrl cmd/cli/main.go
 
 # Run the server
 run: build

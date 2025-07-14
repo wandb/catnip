@@ -9,8 +9,24 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version information
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+	builtBy = "unknown"
+)
+
+// SetVersionInfo sets the version information from the main package
+func SetVersionInfo(v, c, d, b string) {
+	version = v
+	commit = c
+	date = d
+	builtBy = b
+}
+
 var rootCmd = &cobra.Command{
-	Use:   "catnip",
+	Use:   "catctrl",
 	Short: "🐱 Catnip - Modern containerized coding environment",
 	Long: `# 🐱 Catnip
 
@@ -26,9 +42,10 @@ var rootCmd = &cobra.Command{
 
 ## 🚀 Getting Started
 
-Run **catnip run** to start a new container with an interactive TUI.
+Run **catctrl run** to start a new container with an interactive TUI.
 
-Use **catnip run --help** for detailed options and examples.`,
+Use **catctrl run --help** for detailed options and examples.`,
+	Version: version,
 }
 
 func Execute() {
@@ -41,10 +58,32 @@ func Execute() {
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 	
+	// Add version command
+	rootCmd.AddCommand(versionCmd)
+	
 	// Set custom help function to use Glow for beautiful markdown rendering
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		renderMarkdownHelp(cmd)
 	})
+}
+
+// Version command
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show version information",
+	Long:  "Display detailed version information including build date and commit.",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("catctrl version %s\n", version)
+		if commit != "none" && commit != "unknown" && commit != "" {
+			fmt.Printf("Git commit: %s\n", commit)
+		}
+		if date != "unknown" && date != "" {
+			fmt.Printf("Built: %s\n", date)
+		}
+		if builtBy != "unknown" && builtBy != "" {
+			fmt.Printf("Built by: %s\n", builtBy)
+		}
+	},
 }
 
 // renderMarkdownHelp renders command help using glamour for beautiful markdown display
