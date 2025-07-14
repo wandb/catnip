@@ -478,9 +478,42 @@ Suggested Claude prompt: "${claudePrompt}"`
       });
       if (response.ok) {
         const previewBranch = `preview/${branchName}`;
-        toast.success(`Preview branch created! Run: git checkout ${previewBranch}`, {
-          duration: 8000,
-        });
+        const command = `git checkout ${previewBranch}`;
+
+        // Custom toast with clickable copy functionality
+        toast.success(
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex-1">
+              <div className="font-medium">Preview branch created!</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                Run: <code className="bg-muted px-1 py-0.5 rounded text-xs">{command}</code>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(command);
+
+                // Show brief success feedback
+                const button = e.currentTarget;
+                const originalContent = button.innerHTML;
+                button.innerHTML = '<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+
+                setTimeout(() => {
+                  button.innerHTML = originalContent;
+                }, 1000);
+              }}
+              className="p-1 hover:bg-muted rounded transition-colors"
+              title="Copy command to clipboard"
+            >
+              <Copy className="w-4 h-4" />
+            </button>
+          </div>,
+          {
+            duration: 8000,
+          }
+        );
       } else {
         const errorData = await response.json();
         setErrorAlert({
