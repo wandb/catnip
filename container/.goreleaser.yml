@@ -65,17 +65,22 @@ builds:
 # Archive configuration
 archives:
   - id: default
-    builds:
-      - catctrl
+    # Modern v2 syntax: use ids instead of builds
+    ids: [catctrl]
     
     # Archive name template
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     
-    # Archive format
-    format: tar.gz
+    # Archive format (modern v2 syntax)
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
+      - goos: linux
+        formats: [tar.gz]
+      - goos: darwin
+        formats: [tar.gz]
+      - goos: freebsd
+        formats: [tar.gz]
     
     # Files to include in archive
     files:
