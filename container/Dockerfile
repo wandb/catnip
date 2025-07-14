@@ -230,5 +230,6 @@ RUN chmod +x ${CATNIP_ROOT}/bin/catnip
 WORKDIR /workspace
 
 # Default command
+EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["catnip"]

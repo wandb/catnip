@@ -29,6 +29,9 @@ dist-ssr
 .wrangler
 .dev.vars*
 
+# secrets
+*.pem
+
 # reference files
 reference
 container/Dockerfile.backup
