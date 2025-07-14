@@ -22,52 +22,52 @@ type CheckoutResponse struct {
 	// Repository information
 	Repository models.Repository `json:"repository"`
 	// Created worktree information
-	Worktree   models.Worktree   `json:"worktree"`
+	Worktree models.Worktree `json:"worktree"`
 	// Success message
-	Message    string            `json:"message" example:"Repository checked out successfully"`
+	Message string `json:"message" example:"Repository checked out successfully"`
 }
 
 // GitHubRepository represents a GitHub repository from the API
 // @Description GitHub repository information from the GitHub API
 type GitHubRepository struct {
 	// GitHub repository ID
-	ID          int    `json:"id" example:"123456789"`
+	ID int `json:"id" example:"123456789"`
 	// Repository name
-	Name        string `json:"name" example:"claude-code"`
+	Name string `json:"name" example:"claude-code"`
 	// Full repository name (org/repo)
-	FullName    string `json:"full_name" example:"anthropics/claude-code"`
+	FullName string `json:"full_name" example:"anthropics/claude-code"`
 	// Repository description
 	Description string `json:"description" example:"AI coding assistant"`
 	// Whether the repository is private
-	Private     bool   `json:"private" example:"false"`
+	Private bool `json:"private" example:"false"`
 	// Repository URL
-	HTMLURL     string `json:"html_url" example:"https://github.com/anthropics/claude-code"`
+	HTMLURL string `json:"html_url" example:"https://github.com/anthropics/claude-code"`
 	// Git clone URL
-	CloneURL    string `json:"clone_url" example:"https://github.com/anthropics/claude-code.git"`
+	CloneURL string `json:"clone_url" example:"https://github.com/anthropics/claude-code.git"`
 }
 
 // ConflictCheckResponse represents the response when checking for conflicts
 // @Description Response containing conflict information for sync/merge operations
 type ConflictCheckResponse struct {
 	// Whether conflicts were detected
-	HasConflicts  bool     `json:"has_conflicts" example:"true"`
+	HasConflicts bool `json:"has_conflicts" example:"true"`
 	// Operation type (sync/merge)
-	Operation     string   `json:"operation,omitempty" example:"sync"`
+	Operation string `json:"operation,omitempty" example:"sync"`
 	// Name of the worktree
-	WorktreeName  string   `json:"worktree_name,omitempty" example:"feature-branch"`
+	WorktreeName string `json:"worktree_name,omitempty" example:"feature-branch"`
 	// List of files with conflicts
 	ConflictFiles []string `json:"conflict_files,omitempty" example:"[\"src/main.go\", \"README.md\"]"`
 	// Status message
-	Message       string   `json:"message" example:"No conflicts detected"`
+	Message string `json:"message" example:"No conflicts detected"`
 }
 
 // WorktreeOperationResponse represents the response for worktree operations
 // @Description Response for worktree operations like delete, sync, merge, preview
 type WorktreeOperationResponse struct {
 	// Operation result message
-	Message  string `json:"message" example:"Worktree deleted successfully"`
+	Message string `json:"message" example:"Worktree deleted successfully"`
 	// Worktree ID
-	ID       string `json:"id" example:"abc123-def456-ghi789"`
+	ID string `json:"id" example:"abc123-def456-ghi789"`
 	// Strategy used for sync operations
 	Strategy string `json:"strategy,omitempty" example:"rebase"`
 }
@@ -76,15 +76,15 @@ type WorktreeOperationResponse struct {
 // @Description Response containing git diff information for a worktree
 type WorktreeDiffResponse struct {
 	// Raw git diff output
-	Diff         string   `json:"diff" example:"diff --git a/main.go b/main.go..."`
+	Diff string `json:"diff" example:"diff --git a/main.go b/main.go..."`
 	// List of changed files
 	FilesChanged []string `json:"files_changed" example:"[\"main.go\", \"README.md\"]"`
 	// Number of lines added
-	Additions    int      `json:"additions" example:"25"`
+	Additions int `json:"additions" example:"25"`
 	// Number of lines deleted
-	Deletions    int      `json:"deletions" example:"10"`
+	Deletions int `json:"deletions" example:"10"`
 	// Diff summary
-	Summary      string   `json:"summary" example:"2 files changed, 25 insertions(+), 10 deletions(-)"`
+	Summary string `json:"summary" example:"2 files changed, 25 insertions(+), 10 deletions(-)"`
 }
 
 // NewGitHandler creates a new Git handler
@@ -110,9 +110,9 @@ func (h *GitHandler) CheckoutRepository(c *fiber.Ctx) error {
 	org := c.Params("org")
 	repo := c.Params("repo")
 	branch := c.Query("branch", "")
-	
+
 	log.Printf("📦 Checkout request: %s/%s (branch: %s)", org, repo, branch)
-	
+
 	repository, worktree, err := h.gitService.CheckoutRepository(org, repo, branch)
 	if err != nil {
 		log.Printf("❌ Checkout failed: %v", err)
@@ -120,7 +120,7 @@ func (h *GitHandler) CheckoutRepository(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
 		"repository": repository,
 		"worktree":   worktree,
@@ -140,7 +140,6 @@ func (h *GitHandler) GetStatus(c *fiber.Ctx) error {
 	return c.JSON(status)
 }
 
-
 // ListWorktrees returns all worktrees
 // @Summary List all worktrees
 // @Description Returns a list of all worktrees for the current repository
@@ -152,7 +151,6 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 	worktrees := h.gitService.ListWorktrees()
 	return c.JSON(worktrees)
 }
-
 
 // ListGitHubRepositories returns user's GitHub repositories
 // @Summary List GitHub repositories
@@ -168,7 +166,7 @@ func (h *GitHandler) ListGitHubRepositories(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(repos)
 }
 
@@ -182,7 +180,7 @@ func (h *GitHandler) ListGitHubRepositories(c *fiber.Ctx) error {
 // @Router /v1/git/branches/{repo_id} [get]
 func (h *GitHandler) GetRepositoryBranches(c *fiber.Ctx) error {
 	repoID := c.Params("repo_id")
-	
+
 	// URL decode the repo ID to handle slashes
 	decodedRepoID, err := url.QueryUnescape(repoID)
 	if err != nil {
@@ -190,14 +188,14 @@ func (h *GitHandler) GetRepositoryBranches(c *fiber.Ctx) error {
 			"error": "Invalid repository ID",
 		})
 	}
-	
+
 	branches, err := h.gitService.GetRepositoryBranches(decodedRepoID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(branches)
 }
 
@@ -211,13 +209,13 @@ func (h *GitHandler) GetRepositoryBranches(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees/{id} [delete]
 func (h *GitHandler) DeleteWorktree(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
-	
+
 	if err := h.gitService.DeleteWorktree(worktreeID); err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
 		"message": "Worktree deleted successfully",
 		"id":      worktreeID,
@@ -236,22 +234,22 @@ func (h *GitHandler) DeleteWorktree(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees/{id}/sync [post]
 func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
-	
+
 	var syncRequest struct {
 		Strategy string `json:"strategy"`
 	}
-	
+
 	if err := c.BodyParser(&syncRequest); err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": "Invalid request body",
 		})
 	}
-	
+
 	// Default to rebase strategy if not specified
 	if syncRequest.Strategy == "" {
 		syncRequest.Strategy = "rebase"
 	}
-	
+
 	if err := h.gitService.SyncWorktree(worktreeID, syncRequest.Strategy); err != nil {
 		// Check if this is a merge conflict error
 		var mergeConflictErr *models.MergeConflictError
@@ -269,10 +267,10 @@ func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
-		"message": "Worktree synced successfully",
-		"id":      worktreeID,
+		"message":  "Worktree synced successfully",
+		"id":       worktreeID,
 		"strategy": syncRequest.Strategy,
 	})
 }
@@ -289,14 +287,14 @@ func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees/{id}/merge [post]
 func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
-	
+
 	var mergeRequest struct {
 		Squash bool `json:"squash"`
 	}
-	
+
 	// Parse body if present, but don't require it for backwards compatibility
 	c.BodyParser(&mergeRequest)
-	
+
 	if err := h.gitService.MergeWorktreeToMain(worktreeID, mergeRequest.Squash); err != nil {
 		// Check if this is a merge conflict error
 		var mergeConflictErr *models.MergeConflictError
@@ -314,7 +312,7 @@ func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
 		"message": "Worktree merged to main successfully",
 		"id":      worktreeID,
@@ -331,13 +329,13 @@ func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees/{id}/preview [post]
 func (h *GitHandler) CreateWorktreePreview(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
-	
+
 	if err := h.gitService.CreateWorktreePreview(worktreeID); err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
 		"message": "Preview branch created successfully",
 		"id":      worktreeID,
@@ -354,14 +352,14 @@ func (h *GitHandler) CreateWorktreePreview(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees/{id}/sync/check [get]
 func (h *GitHandler) CheckSyncConflicts(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
-	
+
 	conflictErr, err := h.gitService.CheckSyncConflicts(worktreeID)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	if conflictErr != nil {
 		return c.JSON(fiber.Map{
 			"has_conflicts":  true,
@@ -371,7 +369,7 @@ func (h *GitHandler) CheckSyncConflicts(c *fiber.Ctx) error {
 			"message":        conflictErr.Message,
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
 		"has_conflicts": false,
 		"message":       "No conflicts detected for sync operation",
@@ -388,14 +386,14 @@ func (h *GitHandler) CheckSyncConflicts(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees/{id}/merge/check [get]
 func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
-	
+
 	conflictErr, err := h.gitService.CheckMergeConflicts(worktreeID)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	if conflictErr != nil {
 		return c.JSON(fiber.Map{
 			"has_conflicts":  true,
@@ -405,7 +403,7 @@ func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
 			"message":        conflictErr.Message,
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
 		"has_conflicts": false,
 		"message":       "No conflicts detected for merge operation",
@@ -422,14 +420,49 @@ func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees/{id}/diff [get]
 func (h *GitHandler) GetWorktreeDiff(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
-	
+
 	diff, err := h.gitService.GetWorktreeDiff(worktreeID)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(diff)
 }
 
+// CreatePullRequestRequest represents a request to create a pull request
+type CreatePullRequestRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+// CreatePullRequest creates a pull request for a worktree
+// @Summary Create pull request
+// @Description Creates a pull request for a worktree branch
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param request body CreatePullRequestRequest true "Pull request details"
+// @Success 200 {object} models.PullRequestResponse
+// @Router /v1/git/worktrees/{id}/pr [post]
+func (h *GitHandler) CreatePullRequest(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	var req CreatePullRequestRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	pr, err := h.gitService.CreatePullRequest(worktreeID, req.Title, req.Body)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(pr)
+}

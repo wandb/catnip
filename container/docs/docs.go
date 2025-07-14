@@ -403,6 +403,47 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/git/worktrees/{id}/pr": {
+            "post": {
+                "description": "Creates a pull request for a worktree branch",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Create pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pull request details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/worktrees/{id}/preview": {
             "post": {
                 "description": "Creates a preview branch in the main repo for viewing changes outside container",
@@ -956,6 +997,47 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_vanpelt_catnip_internal_models.PullRequestResponse": {
+            "description": "Response containing pull request information after creation",
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "description": "Base branch (target branch of the PR)",
+                    "type": "string",
+                    "example": "main"
+                },
+                "body": {
+                    "description": "Body/description of the pull request",
+                    "type": "string",
+                    "example": "This PR adds new functionality to the system"
+                },
+                "head_branch": {
+                    "description": "Head branch (source branch of the PR)",
+                    "type": "string",
+                    "example": "feature/new-feature"
+                },
+                "number": {
+                    "description": "Pull request number",
+                    "type": "integer",
+                    "example": 123
+                },
+                "repository": {
+                    "description": "Repository in owner/repo format",
+                    "type": "string",
+                    "example": "owner/repo"
+                },
+                "title": {
+                    "description": "Title of the pull request",
+                    "type": "string",
+                    "example": "Feature: Add new functionality"
+                },
+                "url": {
+                    "description": "URL to the pull request",
+                    "type": "string",
+                    "example": "https://github.com/owner/repo/pull/123"
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_models.Repository": {
             "description": "Git repository information and metadata",
             "type": "object",
@@ -1236,6 +1318,17 @@ const docTemplate = `{
                     "description": "Name of the worktree",
                     "type": "string",
                     "example": "feature-branch"
+                }
+            }
+        },
+        "internal_handlers.CreatePullRequestRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
