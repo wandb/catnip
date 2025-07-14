@@ -90,6 +90,7 @@ func main() {
 
 	// Initialize services
 	claudeService := services.NewClaudeService()
+	anthropicService := services.NewAnthropicService()
 
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService)
@@ -97,6 +98,7 @@ func main() {
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService)
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
+	anthropicHandler := handlers.NewAnthropicHandler(anthropicService)
 	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService)
 	portsHandler := handlers.NewPortsHandler(portMonitor)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
@@ -130,6 +132,9 @@ func main() {
 	v1.Get("/claude/session", claudeHandler.GetWorktreeSessionSummary)
 	v1.Get("/claude/session/:uuid", claudeHandler.GetSessionByUUID)
 	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
+
+	// Anthropic API routes
+	v1.Post("/anthropic/messages", anthropicHandler.CreateMessage)
 
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)

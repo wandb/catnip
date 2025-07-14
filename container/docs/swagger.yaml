@@ -1,4 +1,7 @@
 definitions:
+  fiber.Map:
+    additionalProperties: true
+    type: object
   github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry:
     properties:
       display:
@@ -265,6 +268,44 @@ definitions:
         example: main
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_services.AnthropicMessage:
+    properties:
+      content:
+        type: string
+      role:
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_services.AnthropicResponse:
+    properties:
+      content:
+        items:
+          properties:
+            text:
+              type: string
+            type:
+              type: string
+          type: object
+        type: array
+      id:
+        type: string
+      model:
+        type: string
+      role:
+        type: string
+      stop_reason:
+        type: string
+      stop_sequence:
+        type: string
+      type:
+        type: string
+      usage:
+        properties:
+          input_tokens:
+            type: integer
+          output_tokens:
+            type: integer
+        type: object
+    type: object
   github_com_vanpelt_catnip_internal_services.ServiceInfo:
     properties:
       health:
@@ -370,6 +411,23 @@ definitions:
       worktree_name:
         description: Name of the worktree
         example: feature-branch
+        type: string
+    type: object
+  internal_handlers.CreateMessageRequest:
+    description: Request to create a message using the Anthropic API
+    properties:
+      max_tokens:
+        description: Maximum number of tokens to generate
+        example: 4000
+        type: integer
+      messages:
+        description: Array of messages in the conversation
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_services.AnthropicMessage'
+        type: array
+      model:
+        description: The model to use for the request
+        example: claude-3-5-sonnet-20241022
         type: string
     type: object
   internal_handlers.CreatePullRequestRequest:
@@ -495,6 +553,36 @@ info:
   title: Catnip Container API
   version: "1.0"
 paths:
+  /v1/anthropic/messages:
+    post:
+      consumes:
+      - application/json
+      description: Send a message to the Anthropic API and get a response
+      parameters:
+      - description: Message request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_services.AnthropicResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/fiber.Map'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/fiber.Map'
+      summary: Create a message
+      tags:
+      - anthropic
   /v1/auth/github/start:
     post:
       description: Initiates GitHub device flow authentication

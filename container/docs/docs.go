@@ -15,6 +15,52 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/v1/anthropic/messages": {
+            "post": {
+                "description": "Send a message to the Anthropic API and get a response",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "anthropic"
+                ],
+                "summary": "Create a message",
+                "parameters": [
+                    {
+                        "description": "Message request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_services.AnthropicResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/github/start": {
             "post": {
                 "description": "Initiates GitHub device flow authentication",
@@ -821,6 +867,10 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "fiber.Map": {
+            "type": "object",
+            "additionalProperties": true
+        },
         "github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry": {
             "type": "object",
             "properties": {
@@ -1171,6 +1221,65 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_vanpelt_catnip_internal_services.AnthropicMessage": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_services.AnthropicResponse": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "model": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "stop_reason": {
+                    "type": "string"
+                },
+                "stop_sequence": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "usage": {
+                    "type": "object",
+                    "properties": {
+                        "input_tokens": {
+                            "type": "integer"
+                        },
+                        "output_tokens": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_services.ServiceInfo": {
             "type": "object",
             "properties": {
@@ -1318,6 +1427,29 @@ const docTemplate = `{
                     "description": "Name of the worktree",
                     "type": "string",
                     "example": "feature-branch"
+                }
+            }
+        },
+        "internal_handlers.CreateMessageRequest": {
+            "description": "Request to create a message using the Anthropic API",
+            "type": "object",
+            "properties": {
+                "max_tokens": {
+                    "description": "Maximum number of tokens to generate",
+                    "type": "integer",
+                    "example": 4000
+                },
+                "messages": {
+                    "description": "Array of messages in the conversation",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_services.AnthropicMessage"
+                    }
+                },
+                "model": {
+                    "description": "The model to use for the request",
+                    "type": "string",
+                    "example": "claude-3-5-sonnet-20241022"
                 }
             }
         },
