@@ -10,6 +10,8 @@ git:
   # What should be used to sort tags when gathering the current and previous
   # tags if there are more than one tag in the same commit.
   tag_sort: -version:refname
+  ignore_tags:
+    - "nightly"
 
 # Build configuration
 builds:
@@ -252,7 +254,4 @@ before:
 env:
   - CGO_ENABLED=0
 
-# Git tag configuration
-git:
-  ignore_tags:
-    - "nightly"
+# Git tag configuration moved to top git section
