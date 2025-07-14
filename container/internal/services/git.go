@@ -565,7 +565,7 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 	// Save state
 	s.saveState()
 	
-	log.Printf("✅ Local repo worktree created: %s", worktree.Name)
+	log.Printf("✅ Local repo worktree created: %s from branch %s", worktree.Name, worktree.SourceBranch)
 	return localRepo, worktree, nil
 }
 
