@@ -37,3 +37,9 @@ worker/*.js
 # reference files
 reference
 container/Dockerfile.backup
+
+# fallback frontend assets for local go builds (real assets are built in docker)
+# keep the dummy index.html but ignore anything else that gets copied here
+container/internal/assets/dist/*
+!container/internal/assets/dist/index.html
+!container/internal/assets/dist/.gitkeep

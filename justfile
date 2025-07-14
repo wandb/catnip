@@ -1,9 +1,9 @@
 # Catnip Development Container Management
 
-# Build the catnip container for the current platform
+# Build the catnip container for the current platform  
 build-container:
     @echo "🏗️  Building catnip container for current platform..."
-    docker build -t catnip:latest container/
+    docker build -f container/Dockerfile -t catnip:latest -t ghcr.io/wandb/catnip:latest .
     @echo "✅ Build complete! Run with: docker run -it catnip:latest"
 
 # Update language versions to latest stable and rebuild
@@ -14,7 +14,7 @@ update-versions:
 # Build for multiple architectures (requires buildx)
 build-multi:
     @echo "🏗️  Building catnip container for multiple architectures..."
-    docker buildx build --platform linux/amd64,linux/arm64 -t catnip-dev container/
+    docker buildx build -f container/Dockerfile --platform linux/amd64,linux/arm64 -t catnip:latest .
     @echo "✅ Multi-arch build complete!"
 
 # Run the container interactively
