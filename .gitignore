@@ -28,6 +28,8 @@ dist-ssr
 # wrangler files
 .wrangler
 .dev.vars*
+# worker is generating js?
+worker/*.js
 
 # secrets
 *.pem
