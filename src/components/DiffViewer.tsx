@@ -281,12 +281,98 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
                   {isExpanded && (
                     <div className="border-t">
                       {file.change_type.includes('added') && file.change_type.includes('untracked') ? (
-                        // Show new file content for untracked files
-                        <div className="p-3 bg-green-50 dark:bg-green-950/20">
-                          <div className="text-xs text-muted-foreground mb-2">New file content:</div>
-                          <pre className="text-sm font-mono whitespace-pre-wrap bg-background p-3 rounded border max-h-96 overflow-auto">
-                            {file.new_content || 'No content to display'}
-                          </pre>
+                        // Show new file content for untracked files using ReactDiffViewer
+                        <div 
+                          className="border-t font-mono" 
+                          style={{
+                            fontSize: '0.75rem',
+                            lineHeight: '1.25'
+                          }}
+                        >
+                          <ReactDiffViewer
+                            oldValue=""
+                            newValue={file.new_content || ''}
+                            splitView={false}
+                            compareMethod={DiffMethod.WORDS}
+                            hideLineNumbers={false}
+                            showDiffOnly={false}
+                            useDarkTheme={document.documentElement.classList.contains('dark')}
+                            renderContent={(source: string) => {
+                              const language = getLanguageFromFilePath(file.file_path);
+                              return (
+                                <pre 
+                                  className="font-mono text-xs leading-tight"
+                                  dangerouslySetInnerHTML={{
+                                    __html: highlightSyntax(source, language)
+                                  }}
+                                />
+                              );
+                            }}
+                            styles={{
+                              variables: {
+                                light: {
+                                  codeFoldGutterBackground: '#f1f3f4',
+                                  codeFoldBackground: '#f1f3f4',
+                                  addedBackground: '#e6ffed',
+                                  addedColor: '#24292e',
+                                  removedBackground: '#ffeef0',
+                                  removedColor: '#24292e',
+                                  wordAddedBackground: '#acf2bd',
+                                  wordRemovedBackground: '#fdb8c0',
+                                  addedGutterBackground: '#cdffd8',
+                                  removedGutterBackground: '#fdbdbc',
+                                  gutterBackground: '#f1f3f4',
+                                  gutterBackgroundDark: '#f1f3f4',
+                                  highlightBackground: '#fffbdd',
+                                  highlightGutterBackground: '#fff5b4',
+                                  gutterColor: '#6b7280',
+                                },
+                                dark: {
+                                  codeFoldGutterBackground: '#21262d',
+                                  codeFoldBackground: '#21262d',
+                                  addedBackground: '#0d1117',
+                                  addedColor: '#e6edf3',
+                                  removedBackground: '#0d1117',
+                                  removedColor: '#e6edf3',
+                                  wordAddedBackground: '#033a16',
+                                  wordRemovedBackground: '#67060c',
+                                  addedGutterBackground: '#033a16',
+                                  removedGutterBackground: '#67060c',
+                                  gutterBackground: '#21262d',
+                                  gutterBackgroundDark: '#21262d',
+                                  highlightBackground: '#373e47',
+                                  highlightGutterBackground: '#373e47',
+                                  gutterColor: '#9ca3af',
+                                },
+                              },
+                              lineNumber: {
+                                fontSize: '0.75rem',
+                                lineHeight: '1.25',
+                              },
+                              gutter: {
+                                fontSize: '0.75rem',
+                                lineHeight: '1.25',
+                                minWidth: '2.5rem',
+                              },
+                              codeFold: {
+                                fontSize: '0.75rem',
+                                fontWeight: 'normal',
+                                color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280',
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                                lineHeight: '1.25',
+                                '&:hover': {
+                                  color: document.documentElement.classList.contains('dark') ? '#d1d5db' : '#374151',
+                                },
+                              },
+                              codeFoldGutter: {
+                                fontSize: '0.75rem',
+                                fontWeight: 'normal',
+                                color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280',
+                                lineHeight: '1.25',
+                              },
+                            }}
+                          />
                         </div>
                       ) : file.change_type.includes('deleted') ? (
                         // Show deletion message for deleted files
