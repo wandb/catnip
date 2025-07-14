@@ -14,7 +14,7 @@ update-versions:
 # Build for multiple architectures (requires buildx)
 build-multi:
     @echo "🏗️  Building catnip container for multiple architectures..."
-    docker buildx build -f container/Dockerfile --platform linux/amd64,linux/arm64 -t catnip:latest .
+    docker buildx build -f container/Dockerfile --platform linux/amd64,linux/arm64 -t catnip:latest --load .
     @echo "✅ Multi-arch build complete!"
 
 # Run the container interactively
