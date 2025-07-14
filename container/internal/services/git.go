@@ -2312,9 +2312,14 @@ func (s *GitService) parseGitHubURL(url string) (string, error) {
 
 // pushBranchToRemote pushes a worktree branch to the remote repository (for local repos)
 func (s *GitService) pushBranchToRemote(worktree *models.Worktree, repo *models.Repository, remoteURL string) error {
+	// Store the original remote URL for restoration
+	originalURL := remoteURL
+
 	// Convert SSH URL to HTTPS if needed to use GitHub CLI authentication
 	httpsURL := s.convertToHTTPS(remoteURL)
-	if httpsURL != remoteURL {
+	needsRestore := httpsURL != remoteURL
+
+	if needsRestore {
 		remoteURL = httpsURL
 	}
 
@@ -2325,8 +2330,12 @@ func (s *GitService) pushBranchToRemote(worktree *models.Worktree, repo *models.
 		"USER=catnip",
 	)
 
+	var existingURL string
+	var remoteExists bool
+
 	if output, err := cmd.Output(); err == nil {
-		existingURL := strings.TrimSpace(string(output))
+		existingURL = strings.TrimSpace(string(output))
+		remoteExists = true
 
 		// If it's different from what we want, update it
 		if existingURL != remoteURL {
@@ -2349,11 +2358,28 @@ func (s *GitService) pushBranchToRemote(worktree *models.Worktree, repo *models.
 		if err := cmd.Run(); err != nil {
 			log.Printf("⚠️ Failed to add remote: %v", err)
 		}
+		remoteExists = false
 	}
 
-	// Push the branch to the remote
-	if err := s.pushBranchToOrigin(worktree); err != nil {
-		return err
+	// Push the branch to the remote (but don't let it handle URL conversion again)
+	pushErr := s.pushBranchToOriginDirect(worktree)
+
+	// Always restore the original URL if we changed it
+	if needsRestore && remoteExists {
+		restoreCmd := exec.Command("git", "-C", worktree.Path, "remote", "set-url", "origin", originalURL)
+		restoreCmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		if err := restoreCmd.Run(); err != nil {
+			log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
+		} else {
+			log.Printf("✅ Restored original remote URL: %s", originalURL)
+		}
+	}
+
+	if pushErr != nil {
+		return pushErr
 	}
 
 	log.Printf("✅ Pushed branch %s to remote", worktree.Branch)
@@ -2363,14 +2389,16 @@ func (s *GitService) pushBranchToRemote(worktree *models.Worktree, repo *models.
 // pushBranchToOrigin pushes a worktree branch to origin (for remote repos)
 func (s *GitService) pushBranchToOrigin(worktree *models.Worktree) error {
 	// Get the current remote URL
-	remoteURL, err := s.getRemoteURL(worktree.Path)
+	originalURL, err := s.getRemoteURL(worktree.Path)
 	if err != nil {
 		return fmt.Errorf("failed to get remote URL: %v", err)
 	}
 
 	// Convert SSH URL to HTTPS if needed to use GitHub CLI authentication
-	httpsURL := s.convertToHTTPS(remoteURL)
-	if httpsURL != remoteURL {
+	httpsURL := s.convertToHTTPS(originalURL)
+	urlWasChanged := false
+
+	if httpsURL != originalURL {
 		// Temporarily set the remote URL to HTTPS
 		cmd := exec.Command("git", "-C", worktree.Path, "remote", "set-url", "origin", httpsURL)
 		cmd.Env = append(os.Environ(),
@@ -2381,20 +2409,45 @@ func (s *GitService) pushBranchToOrigin(worktree *models.Worktree) error {
 		if err := cmd.Run(); err != nil {
 			log.Printf("⚠️ Failed to set HTTPS remote URL: %v", err)
 		} else {
-			// Restore original URL after push
-			defer func() {
-				restoreCmd := exec.Command("git", "-C", worktree.Path, "remote", "set-url", "origin", remoteURL)
-				restoreCmd.Env = append(os.Environ(),
-					"HOME=/home/catnip",
-					"USER=catnip",
-				)
-				if err := restoreCmd.Run(); err != nil {
-					log.Printf("⚠️ Failed to restore original remote URL: %v", err)
-				}
-			}()
+			urlWasChanged = true
 		}
 	}
 
+	// Execute the push
+	cmd := exec.Command("git", "-C", worktree.Path, "push", "-u", "origin", worktree.Branch)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.CombinedOutput()
+	pushErr := err
+
+	// Always restore the original URL if we changed it
+	if urlWasChanged {
+		restoreCmd := exec.Command("git", "-C", worktree.Path, "remote", "set-url", "origin", originalURL)
+		restoreCmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		if err := restoreCmd.Run(); err != nil {
+			log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
+		} else {
+			log.Printf("✅ Restored original remote URL: %s", originalURL)
+		}
+	}
+
+	// Return the push error if there was one
+	if pushErr != nil {
+		return fmt.Errorf("failed to push branch %s to origin: %v\n%s", worktree.Branch, pushErr, output)
+	}
+
+	log.Printf("✅ Pushed branch %s to origin", worktree.Branch)
+	return nil
+}
+
+// pushBranchToOriginDirect pushes a worktree branch to origin without URL conversion (used by pushBranchToRemote)
+func (s *GitService) pushBranchToOriginDirect(worktree *models.Worktree) error {
 	cmd := exec.Command("git", "-C", worktree.Path, "push", "-u", "origin", worktree.Branch)
 	cmd.Env = append(os.Environ(),
 		"HOME=/home/catnip",
@@ -2406,7 +2459,6 @@ func (s *GitService) pushBranchToOrigin(worktree *models.Worktree) error {
 		return fmt.Errorf("failed to push branch %s to origin: %v\n%s", worktree.Branch, err, output)
 	}
 
-	log.Printf("✅ Pushed branch %s to origin", worktree.Branch)
 	return nil
 }
 
