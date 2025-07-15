@@ -51,6 +51,12 @@ type model struct {
 	height           int
 	lastUpdate       time.Time
 	
+	// Health status and animation
+	appHealthy       bool
+	bootingAnimDots  int
+	bootingBold      bool
+	bootingBoldTimer time.Time
+	
 	// Enhanced logs view
 	logsViewport     viewport.Model
 	searchInput      textinput.Model
@@ -67,6 +73,8 @@ type logsMsg []string
 type portsMsg []string
 type errMsg error
 type quitMsg struct{}
+type healthStatusMsg bool
+type animationTickMsg time.Time
 
 var debugLogger *log.Logger
 var debugEnabled bool
@@ -154,8 +162,12 @@ func (m model) Init() tea.Cmd {
 	// Start background data fetching
 	result := tea.Batch(
 		m.fetchRepositoryInfo(),
+		m.fetchHealthStatus(),
 		tea.Tick(time.Second*5, func(t time.Time) tea.Msg {
 			return tickMsg(t)
+		}),
+		tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
+			return animationTickMsg(t)
 		}),
 	)
 	
@@ -288,14 +300,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			)
 		case "0":
 			debugLog("TUI Update() MAIN UI KEY DETECTED")
-			go func() {
-				if isAppReady("http://localhost:8080") {
+			if m.appHealthy {
+				go func() {
 					openBrowser("http://localhost:8080")
-				} else {
-					// Could show a message to the user, but for now just silently fail
-					// The user will see the app isn't ready in the UI
-				}
-			}()
+				}()
+			} else {
+				// App is not ready, show bold feedback
+				m.bootingBold = true
+				m.bootingBoldTimer = time.Now()
+			}
 			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			debugLog("TUI Update() PORT KEY DETECTED: %s", msg.String())
@@ -325,7 +338,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tick(),
 			m.fetchContainerInfo(),
 			m.fetchPorts(),
+			m.fetchHealthStatus(),
 		)
+	
+	case animationTickMsg:
+		debugLog("TUI Update() animationTickMsg - elapsed: %v", time.Since(start))
+		// Update animation state
+		m.bootingAnimDots = (m.bootingAnimDots + 1) % 4
+		
+		// Check if we need to turn off bold
+		if m.bootingBold && time.Since(m.bootingBoldTimer) > 3*time.Second {
+			m.bootingBold = false
+		}
+		
+		return m, tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
+			return animationTickMsg(t)
+		})
 
 	case containerInfoMsg:
 		debugLog("TUI Update() containerInfoMsg - elapsed: %v", time.Since(start))
@@ -347,6 +375,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case portsMsg:
 		debugLog("TUI Update() portsMsg - elapsed: %v", time.Since(start))
 		m.ports = []string(msg)
+
+	case healthStatusMsg:
+		debugLog("TUI Update() healthStatusMsg: %t - elapsed: %v", bool(msg), time.Since(start))
+		m.appHealthy = bool(msg)
 
 	case errMsg:
 		debugLog("TUI Update() errMsg: %v - elapsed: %v", error(msg), time.Since(start))
@@ -481,7 +513,22 @@ func (m model) renderOverview() string {
 		Bold(true)
 	
 	sections = append(sections, uiStyle.Render("🖥️  Catnip UI"))
-	sections = append(sections, fmt.Sprintf("  %s Main UI → http://localhost:8080", keyHighlight.Render("0.")))
+	
+	// Show booting animation if not healthy
+	if !m.appHealthy {
+		dots := strings.Repeat(".", m.bootingAnimDots)
+		spaces := strings.Repeat(" ", 3-m.bootingAnimDots)
+		bootingText := fmt.Sprintf("Booting%s%s", dots, spaces)
+		
+		if m.bootingBold {
+			bootingStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+			sections = append(sections, fmt.Sprintf("  %s %s", keyHighlight.Render("0."), bootingStyle.Render(bootingText)))
+		} else {
+			sections = append(sections, fmt.Sprintf("  %s %s", keyHighlight.Render("0."), bootingText))
+		}
+	} else {
+		sections = append(sections, fmt.Sprintf("  %s Main UI → http://localhost:8080", keyHighlight.Render("0.")))
+	}
 	sections = append(sections, "")
 
 	// Ports
@@ -913,4 +960,12 @@ func isAppReady(baseURL string) bool {
 	defer resp.Body.Close()
 	
 	return resp.StatusCode == http.StatusOK
+}
+
+// fetchHealthStatus checks the health of the main application
+func (m model) fetchHealthStatus() tea.Cmd {
+	return func() tea.Msg {
+		healthy := isAppReady("http://localhost:8080")
+		return healthStatusMsg(healthy)
+	}
 }
