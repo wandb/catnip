@@ -4,14 +4,30 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
+// Types
+type BumpType = 'major' | 'minor' | 'patch' | 'dev';
+
+interface Version {
+  major: number;
+  minor: number;
+  patch: number;
+  dev: number | null;
+}
+
+interface ParsedArgs {
+  bump: BumpType;
+  push: boolean;
+  message?: string;
+}
+
 // Parse command line arguments
 const args = process.argv.slice(2);
-const bump = args[0] || 'minor';
+const bump = (args[0] || 'minor') as BumpType;
 const push = args.includes('--push');
 const message = args.find(arg => arg.startsWith('--message='))?.split('=')[1];
 
 // Validate bump type
-const validBumps = ['major', 'minor', 'patch', 'dev'];
+const validBumps: BumpType[] = ['major', 'minor', 'patch', 'dev'];
 if (!validBumps.includes(bump)) {
   console.error(`❌ Invalid bump type: ${bump}`);
   console.error(`   Valid options: ${validBumps.join(', ')}`);
@@ -25,15 +41,15 @@ if (push && !message) {
   process.exit(1);
 }
 
-function run(command, options = {}) {
+function run(command: string, options: Record<string, any> = {}): string {
   try {
     return execSync(command, { encoding: 'utf8', ...options }).trim();
-  } catch (error) {
+  } catch (error: any) {
     throw new Error(`Command failed: ${command}\n${error.message}`);
   }
 }
 
-function getCurrentVersion() {
+function getCurrentVersion(): string {
   try {
     // Try to get latest tag
     const latestTag = run('git describe --tags --abbrev=0 2>/dev/null || echo ""');
@@ -48,7 +64,7 @@ function getCurrentVersion() {
   return '0.0.0';
 }
 
-function parseVersion(version) {
+function parseVersion(version: string): Version {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?$/);
   if (!match) {
     throw new Error(`Invalid version format: ${version}`);
@@ -62,7 +78,7 @@ function parseVersion(version) {
   };
 }
 
-function bumpVersion(current, bumpType) {
+function bumpVersion(current: string, bumpType: BumpType): string {
   const version = parseVersion(current);
   
   switch (bumpType) {
@@ -83,7 +99,7 @@ function bumpVersion(current, bumpType) {
   }
 }
 
-function createTag(version, message) {
+function createTag(version: string, message?: string): string {
   const tag = `v${version}`;
   const tagMessage = message || `Release ${tag}`;
   
@@ -99,7 +115,7 @@ function createTag(version, message) {
   return tag;
 }
 
-function main() {
+function main(): void {
   console.log('🚀 Catnip Release Manager\n');
   
   // Check if we're in a git repo

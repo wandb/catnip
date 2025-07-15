@@ -125,7 +125,7 @@ info:
 # Release management
 release BUMP="minor" *ARGS="":
     @echo "🚀 Creating release with {{BUMP}} version bump..."
-    node scripts/release.js {{BUMP}} {{ARGS}}
+    npx tsx scripts/release.ts {{BUMP}} {{ARGS}}
 
 # Release shortcuts for common workflows
 release-patch *ARGS="": (release "patch" ARGS)
