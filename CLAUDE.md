@@ -20,6 +20,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Worker**: Hono-based Cloudflare Worker (production only)
 - **Container**: Go server in Docker providing PTY/shell access
 
+## Tech Stack & Guidelines
+
+### Frontend
+- Use `pnpm` for dependency management
+- Prefer [ShadCN components](https://ui.shadcn.com/docs/components): `pnpm dlx shadcn@latest add button`
+- Use TailwindCSS with dark/light mode support
+- ShadCN theme variables preferred (extend in `index.css` if needed)
+
+### Container (Go)
+- OpenAPI/Swagger docs (auto-generated)
+- JSONRPC endpoints where possible
+- Build with `just build` in container directory
+- Dev server auto-rebuilds on changes
+
+### Development
+- Dev server runs on `catnip-dev` container
+- Execute commands: `bash --login -c '...'`
+- Check logs: `docker logs --tail 50 catnip-dev`
+- Don't restart container unless explicitly asked
+
 ## Directory Structure
 
 ```
@@ -28,8 +48,7 @@ catnip/
 ├── container/              # Go server & Docker
 ├── worker/                 # Cloudflare Worker
 ├── docs/                   # Documentation
-├── reference/              # Prototype examples
-└── LLM_GUIDELINES.md       # Just-in-time guideline sections
+└── reference/              # Prototype examples
 ```
 
 ## Features
@@ -42,6 +61,13 @@ catnip/
 
 **Planned:**
 - Credential persistence, Git worktrees, SSH server, MCP browser server
+
+## Port Detection & Preview System
+
+- **Auto-detection**: Monitors `/proc/net/tcp` every 500ms
+- **Preview**: `/preview/$PORT` with iframe auto-sizing
+- **Direct access**: `/$PORT/` with SPA routing support
+- **Health checks**: HTTP/TCP validation
 
 ## Claude Completion API
 
