@@ -411,7 +411,7 @@ func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensi
 	}
 	
 	// Try to fix ownership (might fail if not root)
-	os.Chown(destPath, 1000, 1000)
+	_ = os.Chown(destPath, 1000, 1000)
 	
 	s.lastModTimes[sourcePath] = info.ModTime()
 	log.Printf("📋 Synced %s to volume", destName)

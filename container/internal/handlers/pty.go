@@ -229,7 +229,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					if hasBuffer && bufferCols > 0 && bufferRows > 0 {
 						// First, resize PTY to match buffered dimensions
 						log.Printf("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
-						h.resizePTY(session.PTY, bufferCols, bufferRows)
+						_ = h.resizePTY(session.PTY, bufferCols, bufferRows)
 						
 						// Tell client what size to use for replay
 						sizeMsg := struct {
@@ -243,7 +243,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 						}
 						
 						if data, err := json.Marshal(sizeMsg); err == nil {
-							session.writeToConnection(conn, websocket.TextMessage, data)
+							_ = session.writeToConnection(conn, websocket.TextMessage, data)
 						}
 						
 						// Then replay the buffer
@@ -267,7 +267,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					}
 					
 					if data, err := json.Marshal(completeMsg); err == nil {
-						session.writeToConnection(conn, websocket.TextMessage, data)
+						_ = session.writeToConnection(conn, websocket.TextMessage, data)
 					}
 					continue
 				}
@@ -278,7 +278,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			if err := json.Unmarshal(data, &resizeMsg); err == nil && resizeMsg.Cols > 0 && resizeMsg.Rows > 0 {
 				session.cols = resizeMsg.Cols
 				session.rows = resizeMsg.Rows
-				h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
+				_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
 				log.Printf("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
 				continue
 			}
@@ -409,7 +409,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 	}
 
 	// Set initial size
-	h.resizePTY(ptmx, 80, 24)
+	_ = h.resizePTY(ptmx, 80, 24)
 
 	session = &Session{
 		ID:            sessionID,
@@ -543,8 +543,8 @@ func (h *PTYHandler) recreateSession(session *Session) {
 
 	// Terminate old process
 	if session.Cmd != nil && session.Cmd.Process != nil {
-		session.Cmd.Process.Kill()
-		session.Cmd.Wait()
+		_ = session.Cmd.Process.Kill()
+		_ = session.Cmd.Wait()
 	}
 
 	// Check for existing Claude session to resume (for recreated sessions)
@@ -575,7 +575,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	session.bufferMutex.Unlock()
 
 	// Resize to match previous size
-	h.resizePTY(ptmx, session.cols, session.rows)
+	_ = h.resizePTY(ptmx, session.cols, session.rows)
 
 	log.Printf("✅ PTY recreated successfully for session: %s", session.ID)
 }
@@ -600,8 +600,8 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	// Terminate process
 	if session.Cmd != nil && session.Cmd.Process != nil {
-		session.Cmd.Process.Kill()
-		session.Cmd.Wait()
+		_ = session.Cmd.Process.Kill()
+		_ = session.Cmd.Wait()
 	}
 
 	// Remove from sessions map

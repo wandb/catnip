@@ -52,7 +52,7 @@ func NewSessionService() *SessionService {
 	}
 	
 	// Load existing active sessions state
-	service.loadActiveSessionsState()
+	_ = service.loadActiveSessionsState()
 	
 	return service
 }

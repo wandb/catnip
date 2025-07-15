@@ -316,7 +316,7 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	
 	// Remove existing remote first to avoid conflicts
 	removeRemoteCmd := exec.Command("git", "-C", bareRepoPath, "remote", "remove", remoteName)
-	removeRemoteCmd.Run() // Ignore error - remote might not exist
+	_ = removeRemoteCmd.Run() // Ignore error - remote might not exist
 	
 	// Add remote
 	addRemoteCmd := exec.Command("git", "-C", bareRepoPath, "remote", "add", remoteName, commitInfo.WorktreePath)
@@ -349,7 +349,7 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 		}
 		if err != nil {
 			// Clean up the remote before returning error
-			removeRemoteCmd.Run()
+			_ = removeRemoteCmd.Run()
 			return fmt.Errorf("failed to fetch from worktree: %v\n%s", err, output)
 		}
 	}
@@ -360,12 +360,12 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	updateOutput, err := updateRefCmd.CombinedOutput()
 	if err != nil {
 		// Clean up the remote before returning error
-		removeRemoteCmd.Run()
+		_ = removeRemoteCmd.Run()
 		return fmt.Errorf("failed to update branch ref: %v\n%s", err, updateOutput)
 	}
 
 	// Clean up the temporary remote
-	removeRemoteCmd.Run()
+	_ = removeRemoteCmd.Run()
 
 	return nil
 }
@@ -443,7 +443,7 @@ func (css *CommitSyncService) cleanupOrphanedRemotesForRepo(bareRepoPath string)
 		if strings.HasPrefix(remote, "sync-") || strings.HasPrefix(remote, "worktree-") {
 			log.Printf("🧹 Cleaning up orphaned remote: %s", remote)
 			removeCmd := exec.Command("git", "-C", bareRepoPath, "remote", "remove", remote)
-			removeCmd.Run() // Ignore errors
+			_ = removeCmd.Run() // Ignore errors
 		}
 	}
 }

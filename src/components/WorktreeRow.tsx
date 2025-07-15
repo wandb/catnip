@@ -29,6 +29,13 @@ interface WorktreeRowProps {
   syncConflicts: Record<string, any>;
   mergeConflicts: Record<string, any>;
   openDiffWorktreeId: string | null;
+  setPrDialog: (dialog: {
+    open: boolean;
+    worktreeId: string;
+    branchName: string;
+    title: string;
+    description: string;
+  }) => void;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
   onMerge: (id: string, name: string) => void;
@@ -44,6 +51,7 @@ export function WorktreeRow({
   syncConflicts,
   mergeConflicts,
   openDiffWorktreeId,
+  setPrDialog,
   onToggleDiff,
   onSync,
   onMerge,
@@ -54,6 +62,16 @@ export function WorktreeRow({
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = syncConflicts[worktree.id]?.has_conflicts || mergeConflicts[worktree.id]?.has_conflicts;
+
+  const openPrDialog = (worktreeId: string, branchName: string) => {
+    setPrDialog({
+      open: true,
+      worktreeId,
+      branchName,
+      title: `Pull request from ${branchName}`,
+      description: `Automated pull request created from worktree ${branchName}`,
+    });
+  };
 
   const renderClaudeSessionStatus = () => {
     if (!claudeSession) {
@@ -232,6 +250,16 @@ export function WorktreeRow({
                 >
                   <Eye size={16} />
                   Create Preview
+                </DropdownMenuItem>
+              )}
+
+              {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
+                <DropdownMenuItem
+                  onClick={() => openPrDialog(worktree.id, worktree.branch)}
+                  className="text-green-600"
+                >
+                  <GitMerge size={16} />
+                  Create PR (GitHub)
                 </DropdownMenuItem>
               )}
               

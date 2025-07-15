@@ -1,9 +1,9 @@
 # Catnip Development Container Management
 
-# Build the catnip container for the current platform
+# Build the catnip container for the current platform  
 build-container:
     @echo "🏗️  Building catnip container for current platform..."
-    docker build -t catnip:latest container/
+    docker build -f container/Dockerfile -t catnip:latest -t ghcr.io/wandb/catnip:latest .
     @echo "✅ Build complete! Run with: docker run -it catnip:latest"
 
 # Update language versions to latest stable and rebuild
@@ -14,7 +14,7 @@ update-versions:
 # Build for multiple architectures (requires buildx)
 build-multi:
     @echo "🏗️  Building catnip container for multiple architectures..."
-    docker buildx build --platform linux/amd64,linux/arm64 -t catnip-dev container/
+    docker buildx build -f container/Dockerfile --platform linux/amd64,linux/arm64 -t catnip:latest --load .
     @echo "✅ Multi-arch build complete!"
 
 # Run the container interactively
@@ -112,10 +112,22 @@ info:
     @echo "  just container::dev    - Run Go server locally with Air"
     @echo "  just container::test   - Run Go tests"
     @echo ""
+    @echo "Release Management:"
+    @echo "  just release           - Create minor release (local tag)"
+    @echo "  just release --patch   - Create patch release"
+    @echo "  just release --major   - Create major release"
+    @echo "  just release --dev     - Create dev release"
+    @echo "  Add --push --message=\"...\" to actually release"
+    @echo ""
     @echo "Cleanup:"
     @echo "  just clean-containers  - Remove container images"
     @echo "  just clean-dev-volumes - Remove development volumes"
     @echo "  just clean-all         - Clean everything"
+
+# Release management (defaults to minor version bump)
+release *ARGS="":
+    @echo "🚀 Creating release..."
+    npx tsx scripts/release.ts {{ARGS}}
 
 # Import container justfile with a namespace
 mod container

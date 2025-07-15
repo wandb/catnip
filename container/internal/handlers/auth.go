@@ -67,8 +67,8 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 
 	// Kill any existing auth process
 	if h.activeAuth != nil && h.activeAuth.Cmd != nil && h.activeAuth.Cmd.Process != nil {
-		h.activeAuth.Cmd.Process.Kill()
-		h.activeAuth.Cmd.Wait()
+		_ = h.activeAuth.Cmd.Process.Kill()
+		_ = h.activeAuth.Cmd.Wait()
 		h.activeAuth = nil
 	}
 
@@ -134,7 +134,7 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 		case <-timeout:
 			// Kill the process if it's still running
 			if h.activeAuth.Cmd != nil && h.activeAuth.Cmd.Process != nil {
-				h.activeAuth.Cmd.Process.Kill()
+				_ = h.activeAuth.Cmd.Process.Kill()
 			}
 			return c.Status(408).JSON(fiber.Map{"error": "Authentication timeout - please try again"})
 			
