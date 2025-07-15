@@ -210,3 +210,29 @@ type AnthropicAPIError struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
+
+// TranscriptSessionListEntry represents a session entry for the transcript UI
+// @Description Session entry for transcript list UI
+type TranscriptSessionListEntry struct {
+	// Unique session identifier
+	SessionId string `json:"sessionId" example:"abc123-def456-ghi789"`
+	// Number of messages in the session
+	MessageCount int `json:"messageCount" example:"45"`
+	// When the session started
+	StartTime string `json:"startTime" example:"2025-07-10T23:08:24.376Z"`
+	// When the session was last active
+	LastActivity string `json:"lastActivity" example:"2025-07-10T23:12:52.629Z"`
+}
+
+// TranscriptSessionData represents full session data for the transcript UI
+// @Description Complete session data for transcript viewer
+type TranscriptSessionData struct {
+	// Unique session identifier
+	SessionId string `json:"sessionId" example:"abc123-def456-ghi789"`
+	// All messages in the session
+	Messages []ClaudeSessionMessage `json:"messages"`
+	// When the session started
+	StartTime *time.Time `json:"startTime,omitempty" example:"2024-01-15T14:30:00Z"`
+	// When the session ended
+	EndTime *time.Time `json:"endTime,omitempty" example:"2024-01-15T16:45:30Z"`
+}

@@ -148,3 +148,92 @@ func (h *ClaudeHandler) GetClaudeCompletion(c *fiber.Ctx) error {
 
 	return c.JSON(resp)
 }
+
+// GetTranscriptSessions returns a list of Claude sessions formatted for the transcript UI
+// @Summary Get transcript sessions list
+// @Description Returns a list of Claude sessions with metadata for the transcript UI
+// @Tags claude
+// @Produce json
+// @Success 200 {array} models.TranscriptSessionListEntry
+// @Router /v1/claude/sessions [get]
+func (h *ClaudeHandler) GetTranscriptSessions(c *fiber.Ctx) error {
+	// Get all session summaries
+	summaries, err := h.claudeService.GetAllWorktreeSessionSummaries()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	var sessions []models.TranscriptSessionListEntry
+
+	// Convert each summary to transcript format
+	for _, summary := range summaries {
+		for _, session := range summary.AllSessions {
+			var messageCount int
+			
+			// Try to get message count from session data
+			if sessionData, err := h.claudeService.GetSessionByID(summary.WorktreePath, session.SessionId); err == nil {
+				messageCount = len(sessionData.Messages)
+			}
+
+			var startTime, lastActivity string
+			if session.StartTime != nil {
+				startTime = session.StartTime.Format("2006-01-02T15:04:05.000Z")
+			}
+			lastActivity = session.LastModified.Format("2006-01-02T15:04:05.000Z")
+
+			sessionEntry := models.TranscriptSessionListEntry{
+				SessionId:    session.SessionId,
+				MessageCount: messageCount,
+				StartTime:    startTime,
+				LastActivity: lastActivity,
+			}
+
+			sessions = append(sessions, sessionEntry)
+		}
+	}
+
+	return c.JSON(sessions)
+}
+
+// GetTranscriptSession returns full session data formatted for the transcript UI
+// @Summary Get transcript session data
+// @Description Returns complete session data for the transcript UI
+// @Tags claude
+// @Produce json
+// @Param sessionId path string true "Session ID (UUID)"
+// @Success 200 {object} models.TranscriptSessionData
+// @Router /v1/claude/session/{sessionId} [get]
+func (h *ClaudeHandler) GetTranscriptSession(c *fiber.Ctx) error {
+	sessionId := c.Params("sessionId")
+	if sessionId == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "session ID is required",
+		})
+	}
+
+	sessionData, err := h.claudeService.GetSessionByUUID(sessionId)
+	if err != nil {
+		if err.Error() == "session not found: "+sessionId {
+			return c.Status(404).JSON(fiber.Map{
+				"error": "Session not found",
+				"sessionId": sessionId,
+			})
+		}
+		return c.Status(500).JSON(fiber.Map{
+			"error":   "Failed to get session data",
+			"details": err.Error(),
+		})
+	}
+
+	// Convert to transcript format
+	transcriptData := models.TranscriptSessionData{
+		SessionId: sessionId,
+		Messages:  sessionData.Messages,
+		StartTime: sessionData.SessionInfo.SessionStartTime,
+		EndTime:   sessionData.SessionInfo.SessionEndTime,
+	}
+
+	return c.JSON(transcriptData)
+}

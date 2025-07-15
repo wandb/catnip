@@ -24,23 +24,23 @@ function TranscriptIndex() {
     void fetchSessions()
   }, [])
 
-  const fetchSessions = () => {
+  const fetchSessions = async () => {
     try {
-      // This would be the actual API call when the endpoint exists
-      // const response = await fetch('/v1/claude/sessions')
-      // const data = await response.json()
+      const response = await fetch('/v1/claude/sessions')
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const data = await response.json()
       
-      // Mock data for now
-      const mockSessions: Session[] = [
-        {
-          sessionId: '5dd5fb40-6571-4cf3-a846-4e02a9c6dcad',
-          messageCount: 45,
-          startTime: '2025-07-10T23:08:24.376Z',
-          lastActivity: '2025-07-10T23:12:52.629Z'
-        }
-      ]
+      // Convert the data to the expected format
+      const sessions: Session[] = data.map((session: any) => ({
+        sessionId: session.sessionId,
+        messageCount: session.messageCount,
+        startTime: session.startTime,
+        lastActivity: session.lastActivity
+      }))
       
-      setSessions(mockSessions)
+      setSessions(sessions)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch sessions')
     } finally {
