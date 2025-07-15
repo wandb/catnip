@@ -24,13 +24,10 @@ linters:
     - unused
     - misspell
     - revive
-    - unconvert
-  
-  # Disable gosec for development tools - too many false positives
-  disable:
     - gosec
+    - unconvert
     
-  # Exclude common low-risk issues
+  # Exclude targeted low-risk issues  
   exclusions:
     rules:
       # Ignore errcheck for Close() calls - very common and usually safe
@@ -43,17 +40,26 @@ linters:
         linters:
           - errcheck
           
-      # Ignore gosec G104 (errors unhandled) for Close() calls
+      # Gosec G104: Allow ignoring errors for cleanup operations
       - text: "G104.*Close"
         linters:
           - gosec
-      
-      # Ignore gosec G104 for os.Remove - cleanup operations 
       - text: "G104.*os.Remove"
         linters:
           - gosec
           
-      # Ignore gosec file permission warnings for standard permissions
+      # Gosec G204: Allow trusted subprocess calls for development tools
+      - text: "G204.*git"
+        linters:
+          - gosec
+      - text: "G204.*docker"
+        linters:
+          - gosec
+      - text: "G204.*gh"
+        linters:
+          - gosec
+          
+      # Gosec G301/G306: Allow standard directory/file permissions for non-sensitive files
       - text: "G301.*0755"
         linters:
           - gosec
@@ -61,37 +67,26 @@ linters:
         linters:
           - gosec
           
-      # Ignore gosec file inclusion warnings for legitimate file operations
-      - text: "G304.*Potential file inclusion"
+      # Gosec G304: Allow file operations for legitimate development tool functionality
+      - text: "G304.*Potential file inclusion via variable"
         linters:
           - gosec
           
-      # Ignore gosec subprocess warnings for git commands (trusted)
-      - text: "G204.*git"
+      # Gosec G103: Allow unsafe pointer usage for PTY operations
+      - text: "G103.*Use of unsafe calls should be audited"
         linters:
           - gosec
           
-      # Ignore gosec subprocess warnings for docker commands (trusted)
-      - text: "G204.*docker"
-        linters:
-          - gosec
-          
-      # Ignore revive export comment requirements - often not needed for internal packages
+      # Revive: Reduce noise for internal packages
       - text: "exported.*should have comment or be unexported"
         linters:
           - revive
-          
-      # Ignore revive package comment requirements
       - text: "should have a package comment"
         linters:
           - revive
-          
-      # Ignore revive unused parameter warnings
       - text: "unused-parameter"
         linters:
           - revive
-          
-      # Ignore revive variable naming for ID/UUID fields (common in APIs)
       - text: "var-naming.*Id.*should be.*ID"
         linters:
           - revive
@@ -101,8 +96,6 @@ linters:
       - text: "var-naming.*Tcp.*should be.*TCP"
         linters:
           - revive
-          
-      # Ignore some revive style issues that are acceptable
       - text: "indent-error-flow"
         linters:
           - revive
