@@ -22,24 +22,35 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: cvpwb
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Docker meta
+      - name: Docker meta (ghcr)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: |
             ghcr.io/${{ github.repository }}
-            name=${{ github.repository }},enable={{is_default_branch}}
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Docker meta (dockerhub)
+        id: meta_dockerhub
+        if: github.ref_name == 'main' || startsWith(github.ref, 'refs/tags/v')
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}},enable=true
 
       - name: Build and push
         uses: depot/build-push-action@v1
@@ -49,5 +60,9 @@ jobs:
           file: ./container/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ steps.meta_dockerhub.outputs.tags || '' }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            ${{ steps.meta_dockerhub.outputs.labels || '' }}
