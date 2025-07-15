@@ -45,6 +45,7 @@ function GitPage() {
     syncConflicts,
     mergeConflicts,
     worktreeSummaries,
+    diffStats,
     loading,
     reposLoading,
     fetchGitStatus,
@@ -282,6 +283,7 @@ function GitPage() {
                   syncConflicts={syncConflicts}
                   mergeConflicts={mergeConflicts}
                   worktreeSummaries={worktreeSummaries}
+                  diffStats={diffStats}
                   openDiffWorktreeId={openDiffWorktreeId}
                   setPrDialog={setPrDialog}
                   onToggleDiff={toggleDiff}

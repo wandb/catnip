@@ -21,7 +21,7 @@ import {
   Terminal, 
   Trash2 
 } from "lucide-react";
-import { type Worktree } from "@/lib/git-api";
+import { type Worktree, type WorktreeDiffStats } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 import { getRelativeTime, getDuration } from "@/lib/git-utils";
 
@@ -43,6 +43,7 @@ interface WorktreeRowProps {
   syncConflicts: Record<string, ConflictStatus>;
   mergeConflicts: Record<string, ConflictStatus>;
   worktreeSummaries: Record<string, WorktreeSummary>;
+  diffStats: Record<string, WorktreeDiffStats>;
   openDiffWorktreeId: string | null;
   setPrDialog: (dialog: {
     open: boolean;
@@ -340,6 +341,7 @@ export function WorktreeRow({
   syncConflicts,
   mergeConflicts,
   worktreeSummaries,
+  diffStats,
   openDiffWorktreeId,
   setPrDialog,
   onToggleDiff,
@@ -353,6 +355,7 @@ export function WorktreeRow({
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = Boolean(syncConflicts[worktree.id]?.has_conflicts ?? mergeConflicts[worktree.id]?.has_conflicts);
   const summary = worktreeSummaries[worktree.id];
+  const diffStat = diffStats[worktree.id];
 
   const openPrDialog = (worktreeId: string, branchName: string) => {
     // Use pre-generated summary if available
@@ -384,6 +387,12 @@ export function WorktreeRow({
             {worktree.commit_count > 0 && (
               <span>
                 {worktree.commit_count} commit{worktree.commit_count !== 1 ? 's' : ''}
+              </span>
+            )}
+            {diffStat && (diffStat.additions > 0 || diffStat.deletions > 0) && (
+              <span className="flex items-center gap-1 font-mono text-xs">
+                <span className="text-green-600">+{diffStat.additions}</span>
+                <span className="text-red-600">-{diffStat.deletions}</span>
               </span>
             )}
             {worktree.commits_behind > 0 && (

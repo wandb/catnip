@@ -27,6 +27,12 @@ export interface Repository {
   fullName?: string;
 }
 
+export interface WorktreeDiffStats {
+  additions: number;
+  deletions: number;
+  summary: string;
+}
+
 export interface ErrorHandler {
   setErrorAlert: (alert: { open: boolean; title: string; description: string }) => void;
 }
@@ -269,6 +275,24 @@ export const gitApi = {
     return branchMap;
   },
 
+  async fetchWorktreeDiffStats(worktreeId: string): Promise<WorktreeDiffStats | null> {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${worktreeId}/diff`);
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          additions: data.additions || 0,
+          deletions: data.deletions || 0,
+          summary: data.summary || ""
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error(`Failed to fetch diff stats for ${worktreeId}:`, error);
+      return null;
+    }
+  },
+
   async checkAllConflicts(worktrees: Worktree[]): Promise<{
     syncConflicts: Record<string, any>;
     mergeConflicts: Record<string, any>;
@@ -310,5 +334,27 @@ export const gitApi = {
     });
 
     return { syncConflicts, mergeConflicts };
+  },
+
+  async fetchAllDiffStats(worktrees: Worktree[]): Promise<Record<string, WorktreeDiffStats>> {
+    if (worktrees.length === 0) {
+      return {};
+    }
+
+    const diffPromises = worktrees.map(async (worktree) => {
+      const data = await this.fetchWorktreeDiffStats(worktree.id);
+      return { worktreeId: worktree.id, data };
+    });
+
+    const diffResults = await Promise.all(diffPromises);
+    const diffStats: Record<string, WorktreeDiffStats> = {};
+    
+    diffResults.forEach(({ worktreeId, data }) => {
+      if (data) {
+        diffStats[worktreeId] = data;
+      }
+    });
+
+    return diffStats;
   }
 };

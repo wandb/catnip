@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { gitApi, type GitStatus, type Worktree, type Repository } from "@/lib/git-api";
+import { gitApi, type GitStatus, type Worktree, type Repository, type WorktreeDiffStats } from "@/lib/git-api";
 import { generateWorktreeSummary, shouldGenerateSummary, type WorktreeSummary } from "@/lib/worktree-summary";
 
 export interface GitState {
@@ -12,6 +12,7 @@ export interface GitState {
   syncConflicts: Record<string, any>;
   mergeConflicts: Record<string, any>;
   worktreeSummaries: Record<string, WorktreeSummary>;
+  diffStats: Record<string, WorktreeDiffStats>;
   loading: boolean;
   reposLoading: boolean;
 }
@@ -27,6 +28,7 @@ export function useGitState() {
     syncConflicts: {},
     mergeConflicts: {},
     worktreeSummaries: {},
+    diffStats: {},
     loading: false,
     reposLoading: false,
   });
@@ -80,6 +82,11 @@ export function useGitState() {
   const checkConflicts = async () => {
     const { syncConflicts, mergeConflicts } = await gitApi.checkAllConflicts(state.worktrees);
     setState(prev => ({ ...prev, syncConflicts, mergeConflicts }));
+  };
+
+  const fetchDiffStats = async () => {
+    const diffStats = await gitApi.fetchAllDiffStats(state.worktrees);
+    setState(prev => ({ ...prev, diffStats }));
   };
 
   // Generate summary for a specific worktree
@@ -232,10 +239,11 @@ export function useGitState() {
     void fetchActiveSessions();
   }, []);
 
-  // Check for conflicts when worktrees change
+  // Check for conflicts and fetch diff stats when worktrees change
   useEffect(() => {
     if (state.worktrees.length > 0) {
       void checkConflicts();
+      void fetchDiffStats();
     }
   }, [state.worktrees]);
 
@@ -254,6 +262,7 @@ export function useGitState() {
     fetchClaudeSessions,
     fetchActiveSessions,
     checkConflicts,
+    fetchDiffStats,
     generateWorktreeSummaryForId,
     generateAllWorktreeSummaries,
     clearWorktreeSummary,
