@@ -78,6 +78,8 @@ type ClaudeSessionSummary struct {
 	CurrentSessionId *string `json:"currentSessionId,omitempty" example:"xyz789-ghi012"`
 	// List of all available sessions for this worktree
 	AllSessions []SessionListEntry `json:"allSessions,omitempty"`
+	// Header/title of the session from the Claude history
+	Header *string `json:"header,omitempty" example:"Fix bug in user authentication"`
 
 	// Metrics (from completed sessions)
 	// Cost in USD of the last completed session

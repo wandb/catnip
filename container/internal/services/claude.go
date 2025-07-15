@@ -97,6 +97,15 @@ func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.
 		TurnCount:    len(projectMeta.History),
 	}
 
+	// Extract header from the most recent history entry
+	if len(projectMeta.History) > 0 {
+		// Get the most recent history entry
+		latestHistory := projectMeta.History[len(projectMeta.History)-1]
+		if latestHistory.Display != "" {
+			summary.Header = &latestHistory.Display
+		}
+	}
+
 	// Check if this is an active session (no completion metrics)
 	summary.IsActive = projectMeta.LastSessionId == nil
 
