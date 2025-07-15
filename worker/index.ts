@@ -62,27 +62,25 @@ function shouldRouteToContainer(pathname: string): boolean {
   return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
 }
 
-// Cache for GitHub App installation tokens
-interface TokenCache {
-  token: string;
-  expiresAt: number;
-}
-
-const tokenCache = new Map<string, TokenCache>();
-
 // Helper function to get GitHub App installation token with caching
-async function getGitHubAppToken(env: Env): Promise<string | null> {
+async function getGitHubAppToken(env: Env, ctx: ExecutionContext): Promise<string | null> {
   if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
     return null;
   }
 
-  const cacheKey = `${env.GITHUB_APP_ID}-wandb`;
+  const cacheKey = `github-app-token-${env.GITHUB_APP_ID}-wandb`;
   const now = Date.now();
 
-  // Check cache first
-  const cached = tokenCache.get(cacheKey);
-  if (cached && now < cached.expiresAt) {
-    return cached.token;
+  // Check Cloudflare cache first
+  const cache = caches.default;
+  const cacheRequest = new Request(`https://cache.internal/${cacheKey}`);
+  const cachedResponse = await cache.match(cacheRequest);
+  
+  if (cachedResponse) {
+    const cachedData = await cachedResponse.json();
+    if (now < cachedData.expiresAt) {
+      return cachedData.token;
+    }
   }
 
   try {
@@ -109,10 +107,20 @@ async function getGitHubAppToken(env: Env): Promise<string | null> {
 
     // Cache the token for 50 minutes (tokens expire after 1 hour)
     const expiresAt = now + (50 * 60 * 1000);
-    tokenCache.set(cacheKey, {
+    const tokenData = {
       token: installationToken.data.token,
       expiresAt,
+    };
+
+    // Store in Cloudflare cache
+    const cacheResponse = new Response(JSON.stringify(tokenData), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'max-age=3000', // 50 minutes
+      },
     });
+    
+    ctx.waitUntil(cache.put(cacheRequest, cacheResponse));
 
     return installationToken.data.token;
   } catch (error) {
@@ -431,7 +439,7 @@ export function createApp(env: Env) {
 
   // GitHub release proxy endpoints for install.sh
   app.get("/v1/github/releases/latest", async (c) => {
-    const token = await getGitHubAppToken(c.env);
+    const token = await getGitHubAppToken(c.env, c.executionCtx);
     if (!token) {
       return c.text("GitHub App authentication not configured", 500);
     }
@@ -446,7 +454,6 @@ export function createApp(env: Env) {
       });
 
       if (!response.ok) {
-        console.error("Failed to fetch latest release:", response.status, response.statusText);
         return c.text("Failed to fetch latest release", 500);
       }
 
@@ -459,7 +466,7 @@ export function createApp(env: Env) {
   });
 
   app.get("/v1/github/releases/download/:version/:filename", async (c) => {
-    const token = await getGitHubAppToken(c.env);
+    const token = await getGitHubAppToken(c.env, c.executionCtx);
     if (!token) {
       return c.text("GitHub App authentication not configured", 500);
     }
@@ -472,26 +479,52 @@ export function createApp(env: Env) {
     }
 
     try {
-      const downloadUrl = `https://github.com/wandb/catnip/releases/download/${version}/${filename}`;
-      const response = await fetch(downloadUrl, {
+      // Get the release info first
+      const releaseResponse = await fetch(`https://api.github.com/repos/wandb/catnip/releases/tags/${version}`, {
         headers: {
           "Authorization": `token ${token}`,
-          "Accept": "application/octet-stream",
+          "Accept": "application/vnd.github.v3+json",
           "User-Agent": "catnip-proxy/1.0",
         },
       });
 
-      if (!response.ok) {
-        console.error("Failed to download release asset:", response.status, response.statusText);
+      if (!releaseResponse.ok) {
+        return c.text("Failed to get release info", 500);
+      }
+
+      const releaseData = await releaseResponse.json() as any;
+      
+      // Find the asset with the matching filename
+      const asset = releaseData.assets.find((asset: any) => asset.name === filename);
+      if (!asset) {
+        return c.text("Asset not found", 404);
+      }
+
+      // Determine content type based on file extension
+      const isTextFile = filename.endsWith('.txt') || filename.endsWith('.md') || filename.endsWith('.json');
+      const contentType = isTextFile ? 'text/plain' : 'application/octet-stream';
+
+      // Download the asset using the GitHub API with the same token
+      // GitHub API always requires application/octet-stream for asset downloads
+      const assetResponse = await fetch(`https://api.github.com/repos/wandb/catnip/releases/assets/${asset.id}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Accept": "application/octet-stream",
+          "User-Agent": "catnip-proxy/1.0",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+
+      if (!assetResponse.ok) {
         return c.text("Failed to download release asset", 500);
       }
 
-      // Stream the response back to the client
-      return new Response(response.body, {
-        status: response.status,
+      // Return the asset data as a stream
+      return new Response(assetResponse.body, {
+        status: 200,
         headers: {
-          "Content-Type": response.headers.get("Content-Type") || "application/octet-stream",
-          "Content-Length": response.headers.get("Content-Length") || "",
+          "Content-Type": contentType,
+          "Content-Length": assetResponse.headers.get("Content-Length") || "",
           "Cache-Control": "public, max-age=3600", // Cache for 1 hour
         },
       });
