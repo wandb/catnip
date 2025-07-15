@@ -172,18 +172,30 @@ func main() {
 			return handlers.ProxyToVite(c)
 		})
 	} else {
-		// Production mode: serve static files
-		staticPath := os.Getenv("STATIC_PATH")
-		if staticPath == "" {
-			staticPath = "./dist"
+		// Production mode: serve embedded static files or fallback to external
+		if handlers.HasEmbeddedAssets() {
+			log.Println("🚀 Production mode: serving embedded frontend assets")
+			
+			// Serve embedded static files
+			app.Use("/", handlers.ServeEmbeddedAssets())
+			
+			// Fallback to index.html for SPA routing (embedded)
+			app.Get("/*", handlers.ServeEmbeddedSPA)
+		} else {
+			// Fallback to external static files if assets not embedded
+			log.Println("⚠️  Production mode: frontend assets not embedded, serving from ./dist")
+			staticPath := os.Getenv("STATIC_PATH")
+			if staticPath == "" {
+				staticPath = "./dist"
+			}
+			
+			app.Static("/", staticPath)
+			
+			// Fallback to index.html for SPA routing
+			app.Get("/*", func(c *fiber.Ctx) error {
+				return c.SendFile(staticPath + "/index.html")
+			})
 		}
-		
-		app.Static("/", staticPath)
-		
-		// Fallback to index.html for SPA routing
-		app.Get("/*", func(c *fiber.Ctx) error {
-			return c.SendFile(staticPath + "/index.html")
-		})
 	}
 
 	port := os.Getenv("PORT")

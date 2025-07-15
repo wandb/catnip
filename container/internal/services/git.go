@@ -52,14 +52,14 @@ func NewGitService() *GitService {
 	}
 	
 	// Ensure workspace directory exists
-	os.MkdirAll(workspaceDir, 0755)
-	os.MkdirAll(gitStateDir, 0755)
+	_ = os.MkdirAll(workspaceDir, 0755)
+	_ = os.MkdirAll(gitStateDir, 0755)
 	
 	// Configure Git to use gh as credential helper if available
 	s.configureGitCredentials()
 	
 	// Load existing state if available
-	s.loadState()
+	_ = s.loadState()
 	
 	// Detect and load any local repositories in /live
 	s.detectLocalRepos()
@@ -159,7 +159,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 	}
 	
 	// Save state
-	s.saveState()
+	_ = s.saveState()
 	
 	log.Printf("✅ Worktree created from existing repository: %s", repoID)
 	return repo, worktree, nil
@@ -218,7 +218,7 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 	}
 	
 	// Save state
-	s.saveState()
+	_ = s.saveState()
 	
 	log.Printf("✅ Repository cloned successfully: %s", repository.ID)
 	return repository, worktree, nil
@@ -397,7 +397,7 @@ func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) 
 	
 	// Add all local repositories
 	s.mu.RLock()
-	for repoID, _ := range s.repositories {
+	for repoID := range s.repositories {
 		if strings.HasPrefix(repoID, "local/") {
 			// Extract the directory name from the repo ID
 			dirName := strings.TrimPrefix(repoID, "local/")
@@ -530,10 +530,6 @@ func (s *GitService) getLocalRepoDefaultBranch(repoPath string) string {
 	return branch
 }
 
-// getDevRepoDefaultBranch gets the current branch of the dev repo (backwards compatibility)
-func (s *GitService) getDevRepoDefaultBranch() string {
-	return s.getLocalRepoDefaultBranch(devRepoPath)
-}
 
 // handleLocalRepoWorktree creates a worktree for any local repo
 func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Repository, *models.Worktree, error) {
@@ -563,16 +559,12 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 	}
 	
 	// Save state
-	s.saveState()
+	_ = s.saveState()
 	
 	log.Printf("✅ Local repo worktree created: %s from branch %s", worktree.Name, worktree.SourceBranch)
 	return localRepo, worktree, nil
 }
 
-// handleDevRepoWorktree creates a worktree for the dev repo (backwards compatibility)
-func (s *GitService) handleDevRepoWorktree(branch string) (*models.Repository, *models.Worktree, error) {
-	return s.handleLocalRepoWorktree("local/catnip", branch)
-}
 
 // localRepoBranchExists checks if a branch exists in a local repo
 func (s *GitService) localRepoBranchExists(repoPath, branch string) bool {
@@ -584,10 +576,6 @@ func (s *GitService) localRepoBranchExists(repoPath, branch string) bool {
 	return cmd.Run() == nil
 }
 
-// devRepoBranchExists checks if a branch exists in the dev repo (backwards compatibility)
-func (s *GitService) devRepoBranchExists(branch string) bool {
-	return s.localRepoBranchExists(devRepoPath, branch)
-}
 
 // createLocalRepoWorktree creates a worktree for any local repo
 func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, name string) (*models.Worktree, error) {
@@ -672,16 +660,12 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	
 	// Update current symlink to point to this worktree if it's the first one
 	if len(s.worktrees) == 1 {
-		s.updateCurrentSymlink(worktreePath)
+		_ = s.updateCurrentSymlink(worktreePath)
 	}
 	
 	return worktree, nil
 }
 
-// createDevRepoWorktree creates a worktree for the dev repo (backwards compatibility)
-func (s *GitService) createDevRepoWorktree(repo *models.Repository, branch, name string) (*models.Worktree, error) {
-	return s.createLocalRepoWorktree(repo, branch, name)
-}
 
 // GetRepositoryBranches returns the remote branches for a repository
 func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
@@ -728,33 +712,6 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 				branches = append(branches, branch)
 				branchSet[branch] = true
 			}
-		}
-	}
-	
-	return branches, nil
-}
-
-// getDevRepoBranches returns the local branches for the dev repo
-func (s *GitService) getDevRepoBranches() ([]string, error) {
-	cmd := exec.Command("git", "-C", devRepoPath, "branch")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dev repo branches: %v", err)
-	}
-	
-	var branches []string
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			// Remove the * prefix for current branch
-			branch := strings.TrimPrefix(line, "* ")
-			branches = append(branches, branch)
 		}
 	}
 	
@@ -871,7 +828,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	delete(s.worktrees, worktreeID)
 	
 	// Step 7: Save state
-	s.saveState()
+	_ = s.saveState()
 	
 	log.Printf("✅ Completed comprehensive cleanup for worktree %s", worktree.Name)
 	return nil
@@ -924,7 +881,7 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 					"HOME=/home/catnip",
 					"USER=catnip",
 				)
-				fetchCmd.Run() // Ignore errors for now
+				_ = fetchCmd.Run() // Ignore errors for now
 			}
 		} else {
 			// Fetch latest from origin for regular repos
@@ -933,11 +890,11 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 				"HOME=/home/catnip",
 				"USER=catnip",
 			)
-			fetchCmd.Run() // Ignore errors for now
+			_ = fetchCmd.Run() // Ignore errors for now
 		}
 		
 		// Determine source reference based on repo type
-		sourceRef := worktree.SourceBranch
+		var sourceRef string
 		if strings.HasPrefix(worktree.RepoID, "local/") {
 			sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
 		} else {
@@ -1056,7 +1013,7 @@ func (s *GitService) syncLocalWorktree(worktree *models.Worktree, strategy strin
 	}
 	
 	// Update worktree status
-	s.UpdateWorktreeStatus(worktree.ID)
+	_ = s.UpdateWorktreeStatus(worktree.ID)
 	
 	log.Printf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
 	return nil
@@ -1095,7 +1052,7 @@ func (s *GitService) syncRegularWorktree(worktree *models.Worktree, strategy str
 	}
 	
 	// Update worktree status
-	s.UpdateWorktreeStatus(worktree.ID)
+	_ = s.UpdateWorktreeStatus(worktree.ID)
 	
 	log.Printf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
 	return nil
@@ -1186,7 +1143,7 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 		"HOME=/home/catnip",
 		"USER=catnip",
 	)
-	cmd.Run() // Ignore errors - branch might be in use
+	_ = cmd.Run() // Ignore errors - branch might be in use
 	
 	// Get the new commit hash from the main branch after merge
 	cmd = exec.Command("git", "-C", repo.Path, "rev-parse", "HEAD")
@@ -1252,7 +1209,7 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 			if tempCommitHash != "" {
 				resetCmd := exec.Command("git", "-C", worktree.Path, "reset", "--mixed", "HEAD~1")
 				resetCmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-				resetCmd.Run()
+				_ = resetCmd.Run()
 			}
 		}()
 	}
@@ -1596,7 +1553,7 @@ func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConfli
 	defer func() {
 		cmd := exec.Command("git", "-C", repo.Path, "branch", "-D", tempBranch)
 		cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-		cmd.Run() // Ignore errors
+		_ = cmd.Run() // Ignore errors
 	}()
 	
 	// Try a dry-run merge to detect conflicts
@@ -1790,7 +1747,7 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 	}
 	
 	// Save state
-	s.saveState()
+	_ = s.saveState()
 	
 	log.Printf("✅ Worktree created for existing repository: %s", repo.ID)
 	return repo, worktree, nil
@@ -1899,7 +1856,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	
 	if isInitial || len(s.worktrees) == 1 {
 		// Update current symlink to point to the first/initial worktree
-		s.updateCurrentSymlink(worktreePath)
+		_ = s.updateCurrentSymlink(worktreePath)
 	}
 	
 	// Git worktrees automatically sync to bare repository
