@@ -78,11 +78,11 @@ jobs:
             ubuntu-latest-go-
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v6.1.2
         with:
-          version: v1.64.8
+          version: latest
           working-directory: container
-          args: --timeout=5m --verbose
+          args: --verbose
 
   goreleaser-check:
     runs-on: ubuntu-latest
