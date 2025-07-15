@@ -77,7 +77,7 @@ async function getGitHubAppToken(env: Env, ctx: ExecutionContext): Promise<strin
   const cachedResponse = await cache.match(cacheRequest);
   
   if (cachedResponse) {
-    const cachedData = await cachedResponse.json();
+    const cachedData = await cachedResponse.json() as { token: string; expiresAt: number };
     if (now < cachedData.expiresAt) {
       return cachedData.token;
     }
