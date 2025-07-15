@@ -1,10 +1,11 @@
 package services
 
 import (
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,8 +33,10 @@ var nouns = []string{"otter", "kraken", "wombat", "quokka", "nebula", "photon", 
 	"badger", "pangolin", "goblin", "cyborg", "ninja", "gizmo", "raptor", "penguin"}
 
 func generateSessionName() string {
-	verb := verbs[rand.Intn(len(verbs))]
-	noun := nouns[rand.Intn(len(nouns))]
+	verbIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(verbs))))
+	nounIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(nouns))))
+	verb := verbs[verbIndex.Int64()]
+	noun := nouns[nounIndex.Int64()]
 	return fmt.Sprintf("%s-%s", verb, noun)
 }
 
@@ -736,32 +739,6 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	return branches, nil
 }
 
-// getDevRepoBranches returns the local branches for the dev repo
-func (s *GitService) getDevRepoBranches() ([]string, error) {
-	cmd := exec.Command("git", "-C", devRepoPath, "branch")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dev repo branches: %v", err)
-	}
-
-	var branches []string
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			// Remove the * prefix for current branch
-			branch := strings.TrimPrefix(line, "* ")
-			branches = append(branches, branch)
-		}
-	}
-
-	return branches, nil
-}
 
 // DeleteWorktree removes a worktree
 func (s *GitService) DeleteWorktree(worktreeID string) error {
@@ -2160,11 +2137,12 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 	// Generate summary
 	var summary string
 	totalFiles := len(fileDiffs)
-	if totalFiles == 0 {
+	switch totalFiles {
+	case 0:
 		summary = "No changes"
-	} else if totalFiles == 1 {
+	case 1:
 		summary = "1 file changed"
-	} else {
+	default:
 		summary = fmt.Sprintf("%d files changed", totalFiles)
 	}
 

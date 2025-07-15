@@ -18,7 +18,7 @@ builds:
   - id: catctrl
     main: ./cmd/cli/main.go
     binary: catctrl
-    
+
     # Build flags and ldflags for version injection
     flags:
       - -trimpath
@@ -28,24 +28,24 @@ builds:
       - -X main.commit={{.ShortCommit}}
       - -X main.date={{.Date}}
       - -X main.builtBy=goreleaser
-    
+
     # Target platforms
     goos:
       - linux
       - darwin
       - freebsd
-    
+
     goarch:
       - amd64
       - arm64
       - arm
       - 386
-    
+
     # ARM variants
     goarm:
       - 6
       - 7
-    
+
     # Ignore combinations that don't make sense
     ignore:
       - goos: darwin
@@ -62,10 +62,10 @@ archives:
   - id: default
     # Modern v2 syntax: use ids instead of builds
     ids: [catctrl]
-    
+
     # Archive name template
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
-    
+
     # Archive format (modern v2 syntax)
     format_overrides:
       - goos: linux
@@ -74,19 +74,20 @@ archives:
         formats: [tar.gz]
       - goos: freebsd
         formats: [tar.gz]
-    
+
     # Files to include in archive
     files:
       - README.md
       - LICENSE
-      - docs/*
-    
+      - docs/swagger.json
+      - docs/swagger.yaml
+
     # Wrap binaries in directory
     wrap_in_directory: false
 
 # Checksum configuration
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
   algorithm: sha256
 
 # Changelog configuration
@@ -95,76 +96,76 @@ changelog:
   sort: asc
   abbrev: 0
   groups:
-    - title: '🚀 Features'
+    - title: "🚀 Features"
       regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
       order: 0
-    - title: '🐛 Bug fixes'
+    - title: "🐛 Bug fixes"
       regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
       order: 1
-    - title: '📚 Documentation'
+    - title: "📚 Documentation"
       regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
       order: 2
-    - title: '🏗️ Build & CI'
+    - title: "🏗️ Build & CI"
       regexp: '^.*?(build|ci)(\([[:word:]]+\))??!?:.+$'
       order: 3
     - title: Other
       order: 999
   filters:
     exclude:
-      - '^test:'
-      - '^chore:'
+      - "^test:"
+      - "^chore:"
       - typo
 
 # Release configuration
 release:
   # Draft release for manual review
   draft: false
-  
+
   # Mark as prerelease if version contains alpha, beta or rc
   prerelease: auto
-  
+
   # Release name template
   name_template: "{{.ProjectName}} {{.Version}}"
-  
+
   # Release header and footer
   header: |
     ## 🐱 Catnip CLI (catctrl) {{.Version}}
-    
+
     Welcome to this new release of catctrl! 
-    
+
     ### 📦 Installation
-    
+
     ```bash
     # Quick install (latest version)
     curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh
-    
+
     # Install specific version
     curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh -s -- --version {{.Version}}
     ```
-    
+
     ### 📋 What's Changed
-  
+
   footer: |
     ---
-    
+
     ### 🔍 Verification
-    
+
     All binaries are signed and checksummed for security. Verify downloads with:
-    
+
     ```bash
     # Download checksum file
     curl -sL https://github.com/wandb/catnip/releases/download/{{.Version}}/checksums.txt
-    
+
     # Verify binary (example for Linux amd64)
     sha256sum -c checksums.txt --ignore-missing
     ```
-    
+
     ### 📖 Documentation
-    
+
     - [Installation Guide](https://github.com/wandb/catnip#installation)
     - [Usage Examples](https://github.com/wandb/catnip#usage)
     - [Contributing](https://github.com/wandb/catnip/blob/main/CONTRIBUTING.md)
-    
+
     **Full Changelog**: https://github.com/wandb/catnip/compare/{{.PreviousTag}}...{{.Tag}}
 
 # Homebrew tap (disabled for now - can be enabled later)
@@ -173,18 +174,18 @@ release:
 #     description: "🐱 Catnip CLI - Modern containerized coding environment"
 #     homepage: "https://github.com/wandb/catnip"
 #     url_template: "https://github.com/wandb/catnip/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-#     
+#
 #     # Tap repository (you'll need to create this)
 #     repository:
 #       owner: wandb
 #       name: homebrew-catnip
 #       branch: main
 #       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-#     
+#
 #     # Install configuration
 #     install: |
 #       bin.install "catctrl"
-#     
+#
 #     # Test configuration
 #     test: |
 #       system "#{bin}/catctrl", "--version"
@@ -194,7 +195,7 @@ release:
 #   - name: catctrl
 #     description: "🐱 Catnip CLI - Modern containerized coding environment"
 #     homepage: "https://github.com/wandb/catnip"
-#     
+#
 #     # Scoop bucket (you'll need to create this)
 #     repository:
 #       owner: wandb
@@ -207,9 +208,9 @@ release:
 #   - image_templates:
 #       - "ghcr.io/wandb/catctrl:{{ .Version }}"
 #       - "ghcr.io/wandb/catctrl:latest"
-#     
+#
 #     dockerfile: Dockerfile.goreleaser
-#     
+#
 #     build_flag_templates:
 #       - "--pull"
 #       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -217,29 +218,29 @@ release:
 #       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
 #       - "--label=org.opencontainers.image.version={{.Version}}"
 #       - "--label=org.opencontainers.image.source=https://github.com/wandb/catnip"
-#     
+#
 #     extra_files:
 #       - LICENSE
 #       - README.md
 
-# Snapcraft (optional - for Linux snap packages)
-snapcrafts:
-  - name: catctrl
-    title: Catnip CLI
-    summary: Modern containerized coding environment CLI
-    description: |
-      Catnip is a modern CLI tool for managing containerized coding environments
-      with interactive TUI, real-time logs, port detection, and Git integration.
-    
-    grade: stable
-    confinement: strict
-    
-    publish: true
-    
-    apps:
-      catctrl:
-        command: catctrl
-        plugs: ["home", "network", "removable-media"]
+# Snapcraft (disabled - for Linux snap packages, we would need to install it in our action)
+# snapcrafts:
+#   - name: catctrl
+#     title: Catnip CLI
+#     summary: Modern containerized coding environment CLI
+#     description: |
+#       Catnip is a modern CLI tool for managing containerized coding environments
+#       with interactive TUI, real-time logs, port detection, and Git integration.
+#
+#     grade: stable
+#     confinement: strict
+#
+#     publish: true
+#
+#     apps:
+#       catctrl:
+#         command: catctrl
+#         plugs: ["home", "network", "removable-media"]
 
 # Validation rules
 before:
@@ -251,5 +252,4 @@ before:
 # Build environment
 env:
   - CGO_ENABLED=0
-
 # Git tag configuration moved to top git section
