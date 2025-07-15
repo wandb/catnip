@@ -82,16 +82,18 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
         throw new Error(`Failed to fetch diff: ${response.statusText}`);
       }
       
-      const data = await response.json();
+      const data = await response.json() as WorktreeDiffResponse;
       setDiffData(data);
       
       // Auto-expand files that should be expanded by default
       const autoExpanded = new Set<string>();
-      data.file_diffs.forEach((file: FileDiff) => {
-        if (file.is_expanded) {
-          autoExpanded.add(file.file_path);
-        }
-      });
+      if (data.file_diffs && data.file_diffs.length > 0) {
+        data.file_diffs.forEach((file: FileDiff) => {
+          if (file.is_expanded) {
+            autoExpanded.add(file.file_path);
+          }
+        });
+      }
       setExpandedFiles(autoExpanded);
       
     } catch (err) {
@@ -102,7 +104,7 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
   };
 
   useEffect(() => {
-    fetchDiff();
+    void fetchDiff();
   }, [worktreeId, isOpen]);
 
   const toggleFileExpansion = (filePath: string) => {
@@ -155,7 +157,7 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
       if (Prism.languages[language]) {
         return Prism.highlight(code, Prism.languages[language], language);
       }
-    } catch (e) {
+    } catch {
       // Fallback to plain text if highlighting fails
     }
     return code;
@@ -201,7 +203,7 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
             <FileText className="w-5 h-5" />
-            Diff against {diffData?.source_branch || 'source branch'}
+            Diff against {diffData?.source_branch ?? 'source branch'}
           </CardTitle>
           <div className="flex items-center gap-2">
             {isWideScreen && (
@@ -245,14 +247,14 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
           </div>
         )}
         
-        {diffData && diffData.file_diffs.length === 0 && (
+        {diffData && !diffData.file_diffs?.length && (
           <div className="text-center py-8 text-muted-foreground">
             <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>No changes to show</p>
           </div>
         )}
         
-        {diffData && diffData.file_diffs.length > 0 && (
+        {diffData && diffData.file_diffs?.length > 0 && (
           <div className="space-y-3">
             {diffData.file_diffs.map((file) => {
               const isExpanded = expandedFiles.has(file.file_path);
@@ -280,8 +282,8 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
                   
                   {isExpanded && (
                     <div className="border-t">
-                      {file.change_type.includes('added') && file.change_type.includes('untracked') ? (
-                        // Show new file content for untracked files using ReactDiffViewer
+                      {file.change_type.includes('added') ? (
+                        // Show new file content for added files using ReactDiffViewer
                         <div 
                           className="border-t font-mono" 
                           style={{
@@ -291,7 +293,7 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
                         >
                           <ReactDiffViewer
                             oldValue=""
-                            newValue={file.new_content || ''}
+                            newValue={file.new_content ?? ''}
                             splitView={false}
                             compareMethod={DiffMethod.WORDS}
                             hideLineNumbers={false}

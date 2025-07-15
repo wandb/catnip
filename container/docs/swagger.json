@@ -46,6 +46,58 @@
                 }
             }
         },
+        "/v1/claude/completion": {
+            "post": {
+                "description": "Sends a message to Claude and returns the completion response",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Get Claude completion",
+                "parameters": [
+                    {
+                        "description": "Completion request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/session": {
             "get": {
                 "description": "Returns Claude Code session metadata for a specific worktree",
@@ -934,6 +986,104 @@
                     "description": "Path to the worktree directory",
                     "type": "string",
                     "example": "/workspace/my-project"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.CompletionMessage": {
+            "description": "A message in the conversation context",
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "Content of the message",
+                    "type": "string",
+                    "example": "What is the weather like?"
+                },
+                "role": {
+                    "description": "Role of the message sender",
+                    "type": "string",
+                    "example": "user"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.CompletionRequest": {
+            "description": "Request payload for Claude completion API",
+            "type": "object",
+            "properties": {
+                "context": {
+                    "description": "Optional conversation context",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionMessage"
+                    }
+                },
+                "max_tokens": {
+                    "description": "Maximum number of tokens to generate",
+                    "type": "integer",
+                    "example": 1024
+                },
+                "message": {
+                    "description": "The message to send to Claude",
+                    "type": "string",
+                    "example": "Hello, how are you?"
+                },
+                "model": {
+                    "description": "Model to use for completion",
+                    "type": "string",
+                    "example": "claude-3-5-sonnet-20241022"
+                },
+                "system": {
+                    "description": "Optional system prompt",
+                    "type": "string",
+                    "example": "You are a helpful assistant."
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.CompletionResponse": {
+            "description": "Response from Claude completion API",
+            "type": "object",
+            "properties": {
+                "model": {
+                    "description": "Model used for the completion",
+                    "type": "string",
+                    "example": "claude-3-5-sonnet-20241022"
+                },
+                "response": {
+                    "description": "Generated response text",
+                    "type": "string",
+                    "example": "I'm doing well, thank you for asking!"
+                },
+                "truncated": {
+                    "description": "Whether the response was truncated",
+                    "type": "boolean"
+                },
+                "usage": {
+                    "description": "Number of tokens used in the request",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionUsage"
+                        }
+                    ]
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.CompletionUsage": {
+            "description": "Token usage information for completion",
+            "type": "object",
+            "properties": {
+                "input_tokens": {
+                    "description": "Tokens used in the input",
+                    "type": "integer",
+                    "example": 15
+                },
+                "output_tokens": {
+                    "description": "Tokens generated in the output",
+                    "type": "integer",
+                    "example": 25
+                },
+                "total_tokens": {
+                    "description": "Total tokens used",
+                    "type": "integer",
+                    "example": 40
                 }
             }
         },
