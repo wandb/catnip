@@ -436,10 +436,10 @@ export function createApp(env: Env) {
     if (shouldRouteToContainer(url.pathname)) {
       const userId = c.get("userId") || "default";
       const container = await getContainer(c.env.CATNIP_CONTAINER, userId);
-      const url = new URL(c.req.url);
-      url.host = `container:8080`;
+      const containerUrl = new URL(c.req.url);
+      containerUrl.host = `container:8080`;
       return await container.fetch(
-        new Request(url, {
+        new Request(containerUrl, {
           method: c.req.method,
           headers: c.req.raw.headers,
           body: c.req.raw.body,
