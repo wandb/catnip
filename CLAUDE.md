@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Required Status Tracking
+
+**IMPORTANT**: After every step in your processing, do the following:
+
+1. Generate a "status.txt" file in `/project/<branch>` with only a few words summarizing the current status, like "writing tests" or "updating frontend"
+2. Git add all changes and commit with the status as the commit message: `git add . && git commit -m "<status>"`
+
 ## Project Overview
 
 This project is called catnip and is meant to make the process of agentic coding fun and productive. It can be run as either a service on localhost, or in the cloud using Cloudflare's
