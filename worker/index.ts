@@ -405,6 +405,32 @@ export function createApp(env: Env) {
   // Handle container routes
   app.all("*", async (c) => {
     const url = new URL(c.req.url);
+    const userAgent = c.req.header("User-Agent") || "";
+
+    // Check if this is curl or wget requesting the root path
+    if (url.pathname === "/" && (userAgent.toLowerCase().includes("curl") || userAgent.toLowerCase().includes("wget"))) {
+      // Serve the install script
+      try {
+        const installScriptUrl = new URL("/install.sh", c.req.url);
+        const response = await c.env.ASSETS.fetch(new Request(installScriptUrl, {
+          method: "GET",
+          headers: c.req.raw.headers,
+        }));
+        
+        if (response.ok) {
+          // Return the install script with proper content type
+          return new Response(response.body, {
+            status: response.status,
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "public, max-age=300", // Cache for 5 minutes
+            },
+          });
+        }
+      } catch (e) {
+        console.error("Failed to serve install script:", e);
+      }
+    }
 
     // Check if this should route to container
     if (shouldRouteToContainer(url.pathname)) {
