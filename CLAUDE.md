@@ -1,13 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Required Status Tracking
-
-**IMPORTANT**: After every step in your processing, do the following:
-
-1. Generate a "status.txt" file in `/project/<branch>` with only a few words summarizing the current status, like "writing tests" or "updating frontend"
-2. Git add all changes and commit with the status as the commit message: `git add . && git commit -m "<status>"`
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository, and mandatory instructions.
 
 ## Project Overview
 
@@ -219,3 +212,10 @@ Common errors:
 - `Message is required` - Include a message in the request
 - `API error: [details]` - Check your API key and request format
 
+
+# Required Status Tracking
+
+**IMPORTANT**: SUPER IMPORTANT, FOR ALL CHAT SESSIONS, ALWAYS DO THIS, AFTER EVERY STEP:
+
+1. Generate a "status.txt" file in `/workspace/<branch>` with only a few words summarizing the current status, like "writing tests" or "updating frontend"
+2. Git add all changes (not the status file)and commit with the status as the commit message: `git add . && git commit -m "<status>"`

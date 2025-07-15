@@ -83,6 +83,10 @@ definitions:
         description: When the current session started
         example: "2024-01-15T14:30:00Z"
         type: string
+      status:
+        description: Current status from status.txt file
+        example: writing tests
+        type: string
       turnCount:
         description: Number of conversation turns in the session
         example: 15

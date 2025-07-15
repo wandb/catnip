@@ -982,6 +982,11 @@
                     "type": "string",
                     "example": "2024-01-15T14:30:00Z"
                 },
+                "status": {
+                    "description": "Current status from status.txt file",
+                    "type": "string",
+                    "example": "writing tests"
+                },
                 "turnCount": {
                     "description": "Number of conversation turns in the session",
                     "type": "integer",

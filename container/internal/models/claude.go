@@ -80,6 +80,8 @@ type ClaudeSessionSummary struct {
 	AllSessions []SessionListEntry `json:"allSessions,omitempty"`
 	// Header/title of the session from the Claude history
 	Header *string `json:"header,omitempty" example:"Fix bug in user authentication"`
+	// Current status from status.txt file
+	Status *string `json:"status,omitempty" example:"writing tests"`
 
 	// Metrics (from completed sessions)
 	// Cost in USD of the last completed session

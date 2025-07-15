@@ -32,6 +32,7 @@ interface ClaudeSession {
   turnCount: number;
   lastCost: number;
   header?: string;
+  status?: string;
 }
 
 interface ConflictStatus {
@@ -148,6 +149,11 @@ function WorktreeClaudeStatus({ claudeSession }: WorktreeClaudeStatusProps) {
       {claudeSession.header && (
         <p className="text-xs font-medium text-foreground mt-2" title={claudeSession.header}>
           Session prompt: "{claudeSession.header}"
+        </p>
+      )}
+      {claudeSession.status && (
+        <p className="text-xs font-medium text-foreground mt-2" title={claudeSession.status}>
+          Current status: <span className="font-bold">{claudeSession.status}</span>
         </p>
       )}
     </div>

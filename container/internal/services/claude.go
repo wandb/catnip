@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -77,6 +78,56 @@ func NewClaudeService() *ClaudeService {
 	}
 }
 
+// readStatusFile reads the status from /project/<branch>/status.txt if it exists
+func (s *ClaudeService) readStatusFile(worktreePath string) (*string, error) {
+	// Get the branch name from the worktree path
+	log.Printf("🔍 [DEBUG] Reading status file for worktree: %s", worktreePath)
+	branch := s.getBranchFromWorktreePath(worktreePath)
+	if branch == "" {
+		return nil, nil // No branch found
+	}
+
+	// Construct the status file path
+	statusFilePath := filepath.Join("/workspace", branch, "status.txt")
+
+	// Check if the file exists
+	if _, err := os.Stat(statusFilePath); os.IsNotExist(err) {
+		return nil, nil // File doesn't exist, return nil
+	}
+
+	// Read the file content
+	content, err := os.ReadFile(statusFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read status file: %w", err)
+	}
+
+	// Trim whitespace and return
+	status := strings.TrimSpace(string(content))
+	if status == "" {
+		return nil, nil // Empty file
+	}
+
+	log.Printf("🔥 [DEBUG] Status file content: %s", status)
+
+	return &status, nil
+}
+
+// getBranchFromWorktreePath extracts the branch name from the worktree path
+// The branch is always the last segment of the path (e.g., "workspace/catnip/teleport-otter" -> "teleport-otter")
+func (s *ClaudeService) getBranchFromWorktreePath(worktreePath string) string {
+	if worktreePath == "" {
+		return ""
+	}
+
+	// Split the path and get the last segment
+	parts := strings.Split(filepath.Clean(worktreePath), "/")
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return parts[len(parts)-1]
+}
+
 // GetWorktreeSessionSummary gets Claude session information for a worktree
 func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.ClaudeSessionSummary, error) {
 	// Read claude.json
@@ -143,6 +194,12 @@ func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.
 	allSessions, err := s.GetAllSessionsForWorkspace(worktreePath)
 	if err == nil {
 		summary.AllSessions = allSessions
+	}
+
+	// Read status from status.txt file (ignore errors)
+	status, err := s.readStatusFile(worktreePath)
+	if err == nil {
+		summary.Status = status
 	}
 
 	return summary, nil
