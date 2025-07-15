@@ -64,9 +64,10 @@ interface WorktreeHeaderProps {
   worktree: Worktree;
   hasConflicts: boolean;
   claudeSession?: ClaudeSession;
+  summary?: WorktreeSummary;
 }
 
-function WorktreeHeader({ worktree, hasConflicts, claudeSession }: WorktreeHeaderProps) {
+function WorktreeHeader({ worktree, hasConflicts, claudeSession, summary }: WorktreeHeaderProps) {
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2">
@@ -75,7 +76,7 @@ function WorktreeHeader({ worktree, hasConflicts, claudeSession }: WorktreeHeade
           params={{ sessionId: encodeURIComponent(worktree.name) }}
           className="text-lg font-medium hover:underline"
         >
-          {worktree.name}
+          {summary?.status === 'completed' && summary.title ? summary.title : worktree.name}
         </Link>
         <Badge variant="outline" className="text-xs">
           {worktree.branch}
@@ -382,7 +383,7 @@ export function WorktreeRow({
     <div className="border rounded-lg p-4 mb-4 bg-card">
       <div className="flex items-center justify-between">
         <div className="flex-1">
-          <WorktreeHeader worktree={worktree} hasConflicts={hasConflicts} claudeSession={claudeSession} />
+          <WorktreeHeader worktree={worktree} hasConflicts={hasConflicts} claudeSession={claudeSession} summary={summary} />
           
           <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
             <span className="text-xs">
