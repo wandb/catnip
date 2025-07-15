@@ -9,6 +9,12 @@
   "account_id": "0081e9dfbeb0e1a212ec5101e3c8768a",
   "compatibility_date": "2025-07-05",
   "compatibility_flags": ["nodejs_compat"],
+  "r2_buckets": [
+    {
+      "binding": "CATNIP_ASSETS",
+      "bucket_name": "catnip"
+    }
+  ],
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist", // Temporary until @cloudflare/vite-plugin supports containers
@@ -78,6 +84,12 @@
         "GITHUB_CLIENT_ID": "Iv23liQAclientid",
         "ENVIRONMENT": "qa"
       },
+      "r2_buckets": [
+        {
+          "binding": "CATNIP_ASSETS",
+          "bucket_name": "catnip"
+        }
+      ],
       "routes": [{ "pattern": "qa.catnip.run/*", "zone_name": "catnip.run" }],
       "durable_objects": {
         "bindings": [
@@ -113,6 +125,12 @@
         "GITHUB_CLIENT_ID": "Iv23liz5Ry8r5913ZAhz",
         "ENVIRONMENT": "production"
       },
+      "r2_buckets": [
+        {
+          "binding": "CATNIP_ASSETS",
+          "bucket_name": "catnip"
+        }
+      ],
       "routes": [
         { "pattern": "catnip.run/*", "zone_name": "catnip.run" },
         { "pattern": "install.catnip.sh/*", "zone_name": "catnip.sh" }

@@ -5,7 +5,6 @@ import { HTTPException } from "hono/http-exception";
 import { githubAuth } from "@hono/oauth-providers/github";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
-import { App } from "@octokit/app";
 
 // Durable Object for container management
 export class CatnipContainer extends Container {
@@ -20,6 +19,7 @@ export interface Env {
   CATNIP_CONTAINER: DurableObjectNamespace<CatnipContainer>;
   ASSETS: Fetcher;
   SESSIONS: DurableObjectNamespace;
+  CATNIP_ASSETS: R2Bucket;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
   GITHUB_APP_ID?: string;
@@ -62,64 +62,8 @@ function shouldRouteToContainer(pathname: string): boolean {
   return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
 }
 
-// Cache for GitHub App installation tokens
-interface TokenCache {
-  token: string;
-  expiresAt: number;
-}
 
-const tokenCache = new Map<string, TokenCache>();
 
-// Helper function to get GitHub App installation token with caching
-async function getGitHubAppToken(env: Env): Promise<string | null> {
-  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
-    return null;
-  }
-
-  const cacheKey = `${env.GITHUB_APP_ID}-wandb`;
-  const now = Date.now();
-
-  // Check cache first
-  const cached = tokenCache.get(cacheKey);
-  if (cached && now < cached.expiresAt) {
-    return cached.token;
-  }
-
-  try {
-    const app = new App({
-      appId: env.GITHUB_APP_ID,
-      privateKey: env.GITHUB_APP_PRIVATE_KEY,
-    });
-
-    // Get the installation for the wandb organization
-    const installations = await app.octokit.request('GET /app/installations');
-    const installation = installations.data.find(
-      (inst: any) => inst.account?.login === "wandb"
-    );
-
-    if (!installation) {
-      console.error("No GitHub App installation found for wandb organization");
-      return null;
-    }
-
-    // Get installation token
-    const installationToken = await app.octokit.request('POST /app/installations/{installation_id}/access_tokens', {
-      installation_id: installation.id,
-    });
-
-    // Cache the token for 50 minutes (tokens expire after 1 hour)
-    const expiresAt = now + (50 * 60 * 1000);
-    tokenCache.set(cacheKey, {
-      token: installationToken.data.token,
-      expiresAt,
-    });
-
-    return installationToken.data.token;
-  } catch (error) {
-    console.error("Failed to get GitHub App installation token:", error);
-    return null;
-  }
-}
 
 // Factory function to create app with environment bindings
 export function createApp(env: Env) {
@@ -361,6 +305,7 @@ export function createApp(env: Env) {
     });
   });
 
+
   // GitHub App webhook endpoint
   app.post("/v1/github/webhooks", async (c) => {
     const signature = c.req.header("x-hub-signature-256");
@@ -388,7 +333,8 @@ export function createApp(env: Env) {
       // Log webhook event
       console.log(`Received GitHub webhook: ${eventName}`, event.action);
 
-      // TODO: Handle specific webhook events
+      // Release events are now handled by GitHub Actions uploading to R2
+
       return c.json({ received: true });
     } catch (error) {
       console.error("Webhook error:", error);
@@ -429,99 +375,66 @@ export function createApp(env: Env) {
     });
   });
 
-  // GitHub release proxy endpoints for install.sh
+  // Release metadata endpoint - serves release info from R2
   app.get("/v1/github/releases/latest", async (c) => {
-    const token = await getGitHubAppToken(c.env);
-    if (!token) {
-      return c.text("GitHub App authentication not configured", 500);
-    }
-
     try {
-      const response = await fetch("https://api.github.com/repos/wandb/catnip/releases/latest", {
-        headers: {
-          "Authorization": `token ${token}`,
-          "Accept": "application/vnd.github.v3+json",
-          "User-Agent": "catnip-proxy/1.0",
-        },
-      });
-
-      if (!response.ok) {
-        return c.text("Failed to fetch latest release", 500);
+      const releaseObject = await c.env.CATNIP_ASSETS.get("releases/latest.json");
+      
+      if (!releaseObject) {
+        return c.text("Latest release not found", 404);
       }
 
-      const data = await response.json();
-      return c.json(data as any);
+      const releaseText = await releaseObject.text();
+      const releaseData = JSON.parse(releaseText);
+      return c.json(releaseData);
     } catch (error) {
-      console.error("Error fetching latest release:", error);
+      console.error("Error fetching latest release from R2:", error);
       return c.text("Internal server error", 500);
     }
   });
 
   app.get("/v1/github/releases/download/:version/:filename", async (c) => {
-    const token = await getGitHubAppToken(c.env);
-    if (!token) {
-      return c.text("GitHub App authentication not configured", 500);
-    }
-
     const version = c.req.param("version");
     const filename = c.req.param("filename");
 
+    console.log(`Download request: version=${version}, filename=${filename}`);
+
     if (!version || !filename) {
+      console.error("Missing version or filename", { version, filename });
       return c.text("Version and filename are required", 400);
     }
 
     try {
-      // Get the release info first
-      const releaseResponse = await fetch(`https://api.github.com/repos/wandb/catnip/releases/tags/${version}`, {
-        headers: {
-          "Authorization": `token ${token}`,
-          "Accept": "application/vnd.github.v3+json",
-          "User-Agent": "catnip-proxy/1.0",
-        },
-      });
-
-      if (!releaseResponse.ok) {
-        return c.text("Failed to get release info", 500);
-      }
-
-      const releaseData = await releaseResponse.json() as any;
+      // Get the asset from R2
+      const assetKey = `releases/${version}/${filename}`;
+      const assetObject = await c.env.CATNIP_ASSETS.get(assetKey);
       
-      // Find the asset with the matching filename
-      const asset = releaseData.assets.find((asset: any) => asset.name === filename);
-      if (!asset) {
+      if (!assetObject) {
+        console.error(`Asset not found in R2: ${assetKey}`);
         return c.text("Asset not found", 404);
       }
 
       // Determine content type based on file extension
-      const isTextFile = filename.endsWith('.txt') || filename.endsWith('.md') || filename.endsWith('.json');
-      const contentType = isTextFile ? 'text/plain' : 'application/octet-stream';
+      const isTextFile =
+        filename.endsWith(".txt") ||
+        filename.endsWith(".md") ||
+        filename.endsWith(".json");
+      const contentType = isTextFile
+        ? "text/plain"
+        : "application/octet-stream";
 
-      // Download the asset using the GitHub API with the same token
-      // GitHub API always requires application/octet-stream for asset downloads
-      const assetResponse = await fetch(`https://api.github.com/repos/wandb/catnip/releases/assets/${asset.id}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Accept": "application/octet-stream",
-          "User-Agent": "catnip-proxy/1.0",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      });
-
-      if (!assetResponse.ok) {
-        return c.text("Failed to download release asset", 500);
-      }
-
-      // Return the asset data as a stream
-      return new Response(assetResponse.body, {
+      // Return the asset data with proper caching headers
+      return new Response(assetObject.body, {
         status: 200,
         headers: {
           "Content-Type": contentType,
-          "Content-Length": assetResponse.headers.get("Content-Length") || "",
-          "Cache-Control": "public, max-age=3600", // Cache for 1 hour
+          "Cache-Control": "public, max-age=3600, s-maxage=3600", // Cache for 1 hour in CDN too
+          "Content-Disposition": `attachment; filename="${filename}"`,
+          "ETag": assetObject.etag,
         },
       });
     } catch (error) {
-      console.error("Error downloading release asset:", error);
+      console.error("Error downloading release asset from R2:", error);
       return c.text("Internal server error", 500);
     }
   });

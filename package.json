@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:cf": "echo \"I hope you ran pnpm build first\" && wrangler dev",
+    "dev:cf": "pnpm run build && wrangler dev 2>&1 | tee /tmp/wrangler.log",
+    "dev:cf:catctrl": "./container/bin/catctrl logs pnpm run build && ./container/bin/catctrl logs wrangler dev",
     "dev:cf:vite": "CLOUDFLARE_DEV=true vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
@@ -19,6 +20,7 @@
     "@cloudflare/containers": "^0.0.22",
     "@hono/oauth-providers": "^0.8.2",
     "@octokit/app": "^16.0.1",
+    "@octokit/core": "^7.0.3",
     "@octokit/webhooks": "^14.1.1",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-dialog": "^1.1.14",

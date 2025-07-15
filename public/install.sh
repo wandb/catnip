@@ -28,19 +28,19 @@ NC='\033[0m' # No Color
 
 # Logging functions
 log() {
-    echo -e "${BLUE}[INFO]${NC} $*" >&2
+    printf "${BLUE}[INFO]${NC} %s\n" "$*" >&2
 }
 
 warn() {
-    echo -e "${YELLOW}[WARN]${NC} $*" >&2
+    printf "${YELLOW}[WARN]${NC} %s\n" "$*" >&2
 }
 
 error() {
-    echo -e "${RED}[ERROR]${NC} $*" >&2
+    printf "${RED}[ERROR]${NC} %s\n" "$*" >&2
 }
 
 success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $*" >&2
+    printf "${GREEN}[SUCCESS]${NC} %s\n" "$*" >&2
 }
 
 fatal() {
