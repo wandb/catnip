@@ -146,14 +146,14 @@ func renderMarkdownHelp(cmd *cobra.Command) {
 	)
 	if err != nil {
 		// Fallback to default help if glamour fails
-		cmd.Help()
+		_ = cmd.Help()
 		return
 	}
 	
 	rendered, err := renderer.Render(helpContent.String())
 	if err != nil {
 		// Fallback to default help if rendering fails
-		cmd.Help()
+		_ = cmd.Help()
 		return
 	}
 	

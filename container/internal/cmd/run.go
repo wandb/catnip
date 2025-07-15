@@ -132,7 +132,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	if err := tuiApp.Run(ctx, workDir); err != nil {
 		// Clean up container on TUI error
 		fmt.Printf("Stopping container '%s'...\n", name)
-		containerService.StopContainer(ctx, name)
+		_ = containerService.StopContainer(ctx, name)
 		return fmt.Errorf("TUI error: %w", err)
 	}
 
@@ -174,7 +174,7 @@ func tailContainerLogs(ctx context.Context, containerService *services.Container
 	// Set up cleanup
 	defer func() {
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 	}()
 

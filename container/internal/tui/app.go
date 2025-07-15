@@ -81,7 +81,7 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 	searchInput.Prompt = "🔍 "
 	searchInput.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 	searchInput.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
-	searchInput.CursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
+	searchInput.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	
 	// Initialize viewport (will be sized in Update)
 	logsViewport := viewport.New(80, 20)
@@ -176,16 +176,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m = m.updateLogFilter()
 				return m, nil
 			case "up", "k":
-				m.logsViewport.LineUp(1)
+				m.logsViewport.ScrollUp(1)
 				return m, nil
 			case "down", "j":
-				m.logsViewport.LineDown(1)
+				m.logsViewport.ScrollDown(1)
 				return m, nil
 			case "pgup", "b":
-				m.logsViewport.ViewUp()
+				m.logsViewport.PageUp()
 				return m, nil
 			case "pgdown", "f":
-				m.logsViewport.ViewDown()
+				m.logsViewport.PageDown()
 				return m, nil
 			case "home", "g":
 				m.logsViewport.GotoTop()
@@ -228,7 +228,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentView == overviewView {
 				// Open the main UI at port 8080
 				url := "http://localhost:8080"
-				go browser.OpenURL(url)
+				go func() { _ = browser.OpenURL(url) }()
 			}
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			if m.currentView == overviewView {
@@ -236,7 +236,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if portIndex < len(m.ports) {
 					port := m.ports[portIndex]
 					url := fmt.Sprintf("http://localhost:8080/%s", port)
-					go browser.OpenURL(url)
+					go func() { _ = browser.OpenURL(url) }()
 				}
 			}
 		}
