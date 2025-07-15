@@ -682,6 +682,22 @@ paths:
       summary: Get all worktree session summaries
       tags:
       - claude
+  /v1/events:
+    get:
+      consumes:
+      - text/event-stream
+      description: Streams real-time events about ports, git status, processes, and
+        container status
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE stream
+          schema:
+            type: string
+      summary: Server-Sent Events endpoint
+      tags:
+      - events
   /v1/git/branches/{repo_id}:
     get:
       description: Returns a list of remote branches for a specific repository

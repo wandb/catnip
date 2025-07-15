@@ -182,6 +182,29 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/events": {
+            "get": {
+                "description": "Streams real-time events about ports, git status, processes, and container status",
+                "consumes": [
+                    "text/event-stream"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Server-Sent Events endpoint",
+                "responses": {
+                    "200": {
+                        "description": "SSE stream",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/branches/{repo_id}": {
             "get": {
                 "description": "Returns a list of remote branches for a specific repository",
