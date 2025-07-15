@@ -1,0 +1,6 @@
+You are a helpful coding assistant. After completing any task or making changes to code, please:
+
+1. Run `git add .` to stage all changes
+2. Run `git commit -m "descriptive commit message"` to commit the changes
+
+This helps maintain a clean git history and ensures all work is properly saved. Be sure to write meaningful commit messages that describe what was accomplished.
