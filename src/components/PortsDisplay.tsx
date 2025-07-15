@@ -1,64 +1,13 @@
-import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
-import { ExternalLink, Globe, Server, Loader2, Eye } from 'lucide-react'
+import { ExternalLink, Globe, Server, Eye } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
-
-interface ServiceInfo {
-  port: number
-  service_type: string
-  health: string
-  last_seen: string
-  title?: string
-  pid?: number
-}
-
-interface PortsResponse {
-  ports: Record<number, ServiceInfo>
-  count: number
-}
+import { useAppStore } from '../stores/appStore'
 
 export function PortsDisplay() {
-  const [ports, setPorts] = useState<Record<number, ServiceInfo>>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const fetchPorts = async () => {
-    try {
-      const response = await fetch('/v1/ports')
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      const data: PortsResponse = await response.json()
-      setPorts(data.ports)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch ports')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchPorts()
-    
-    // Poll for updates every 2 seconds
-    const interval = setInterval(fetchPorts, 2000)
-    
-    return () => clearInterval(interval)
-  }, [])
-
-  const getHealthColor = (health: string) => {
-    switch (health) {
-      case 'healthy':
-        return 'bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100'
-      case 'unhealthy':
-        return 'bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100'
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100'
-    }
-  }
+  const { getActivePorts, sseConnected } = useAppStore()
+  const activePorts = getActivePorts()
 
   const getServiceIcon = (serviceType: string) => {
     switch (serviceType) {
@@ -75,31 +24,7 @@ export function PortsDisplay() {
     window.open(`/${port}/`, '_blank')
   }
 
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Detecting Ports...
-          </CardTitle>
-        </CardHeader>
-      </Card>
-    )
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-red-600">Error</CardTitle>
-          <CardDescription>{error}</CardDescription>
-        </CardHeader>
-      </Card>
-    )
-  }
-
-  const portCount = Object.keys(ports).length
+  const portCount = activePorts.length
 
   return (
     <Card>
@@ -108,6 +33,9 @@ export function PortsDisplay() {
           <Server className="h-5 w-5" />
           Active Ports
           <Badge variant="secondary">{portCount}</Badge>
+          {!sseConnected && (
+            <Badge variant="destructive">Disconnected</Badge>
+          )}
         </CardTitle>
         <CardDescription>
           Services automatically detected and available for proxy
@@ -120,35 +48,34 @@ export function PortsDisplay() {
           </p>
         ) : (
           <div className="space-y-4">
-            {Object.entries(ports).map(([portStr, service]) => (
+            {activePorts.map((port) => (
               <div
-                key={portStr}
+                key={port.port}
                 className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  {getServiceIcon(service.service_type)}
+                  {getServiceIcon(port.service || 'unknown')}
                   <div>
                     <div className="font-medium">
-                      Port {service.port}
-                      {service.title && (
+                      Port {port.port}
+                      {port.title && (
                         <span className="text-sm text-muted-foreground ml-2">
-                          • {service.title}
+                          • {port.title}
                         </span>
                       )}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {service.service_type.toUpperCase()} service
-                      {service.pid && ` • PID ${service.pid}`}
+                      {(port.service || 'unknown').toUpperCase()} service
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge className={getHealthColor(service.health)}>
-                    {service.health}
+                  <Badge variant="outline">
+                    {port.service || 'unknown'}
                   </Badge>
-                  {service.service_type === 'http' && service.health === 'healthy' && (
+                  {port.service === 'http' && (
                     <div className="flex gap-1">
-                      <Link to="/preview/$port" params={{ port: service.port.toString() }}>
+                      <Link to="/preview/$port" params={{ port: port.port.toString() }}>
                         <Button
                           size="sm"
                           variant="outline"
@@ -161,7 +88,7 @@ export function PortsDisplay() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => openService(service.port)}
+                        onClick={() => openService(port.port)}
                         className="gap-1"
                       >
                         <ExternalLink className="h-3 w-3" />

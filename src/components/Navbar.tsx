@@ -1,6 +1,19 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
-import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github, FileText, ExternalLink, Globe, MessageSquare } from "lucide-react";
+import { useState } from "react";
+import {
+  Home,
+  Terminal,
+  Settings,
+  RotateCcw,
+  GitBranch,
+  Menu,
+  X,
+  Github,
+  FileText,
+  ExternalLink,
+  Globe,
+  MessageSquare,
+} from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import {
   DropdownMenu,
@@ -8,26 +21,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useWebSocket } from "@/lib/websocket-context";
-
-interface ServiceInfo {
-  port: number;
-  service_type: string;
-  health: string;
-  title?: string;
-}
+import { useAppStore } from "@/stores/appStore";
 
 export function Navbar() {
-  const { isConnected } = useWebSocket();
+  const { sseConnected, getActivePorts } = useAppStore();
   const router = useRouter();
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [ports, setPorts] = useState<Record<number, ServiceInfo>>({});
-  
+  const activePorts = getActivePorts();
+
   // Get current route params
   const currentPath = router.state.location.pathname;
-  const isPreviewRoute = currentPath.startsWith('/preview/');
-  const currentPort = isPreviewRoute ? parseInt(currentPath.split('/')[2]) : null;
+  const isPreviewRoute = currentPath.startsWith("/preview/");
+  const currentPort = isPreviewRoute
+    ? parseInt(currentPath.split("/")[2])
+    : null;
 
   const handleReset = () => {
     // Call the reset function if it exists (on terminal page)
@@ -39,26 +47,6 @@ export function Navbar() {
   const handleGitHubLogin = () => {
     setAuthModalOpen(true);
   };
-
-  // Fetch ports data
-  useEffect(() => {
-    const fetchPorts = async () => {
-      try {
-        const response = await fetch('/v1/ports');
-        if (response.ok) {
-          const data = await response.json();
-          setPorts(data.ports || {});
-        }
-      } catch (error) {
-        console.error('Failed to fetch ports:', error);
-      }
-    };
-
-    fetchPorts();
-    const interval = setInterval(fetchPorts, 2000);
-    return () => clearInterval(interval);
-  }, []);
-
 
   return (
     <>
@@ -75,7 +63,10 @@ export function Navbar() {
       {/* Mobile Navigation Menu */}
       {mobileMenuOpen && (
         <div className="sm:hidden fixed inset-0 z-40">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setMobileMenuOpen(false)} />
+          <div
+            className="fixed inset-0 bg-black/50"
+            onClick={() => setMobileMenuOpen(false)}
+          />
           <div className="fixed top-14 right-0 w-64 h-full bg-[#1a1a1a] border-l border-gray-800">
             <div className="flex flex-col p-4 space-y-2">
               <Link
@@ -118,14 +109,16 @@ export function Navbar() {
                 <MessageSquare size={20} />
                 <span>Transcripts</span>
               </Link>
-              
+
               {/* Ports Section in Mobile Menu */}
-              {Object.keys(ports).length > 0 && (
+              {activePorts.length > 0 && (
                 <>
                   <div className="border-t border-gray-700 my-2" />
-                  <div className="text-xs text-muted-foreground px-3 py-1">Active Ports</div>
-                  {Object.values(ports)
-                    .filter(p => p.service_type === 'http' && p.health === 'healthy')
+                  <div className="text-xs text-muted-foreground px-3 py-1">
+                    Active Ports
+                  </div>
+                  {activePorts
+                    .filter((p) => p.service === "http")
                     .map((service) => (
                       <Link
                         key={service.port}
@@ -138,25 +131,33 @@ export function Navbar() {
                         <div className="flex flex-col">
                           <span>Port {service.port}</span>
                           {service.title && (
-                            <span className="text-xs text-muted-foreground">{service.title}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {service.title}
+                            </span>
                           )}
                         </div>
                       </Link>
                     ))}
                 </>
               )}
-              
+
               <div className="border-t border-gray-700 my-2" />
-              
+
               <button
-                onClick={() => { handleGitHubLogin(); setMobileMenuOpen(false); }}
+                onClick={() => {
+                  handleGitHubLogin();
+                  setMobileMenuOpen(false);
+                }}
                 className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded text-left w-full"
               >
                 <Github size={20} />
                 <span>GitHub Login</span>
               </button>
               <button
-                onClick={() => { handleReset(); setMobileMenuOpen(false); }}
+                onClick={() => {
+                  handleReset();
+                  setMobileMenuOpen(false);
+                }}
                 className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded text-left w-full"
               >
                 <RotateCcw size={20} />
@@ -183,11 +184,11 @@ export function Navbar() {
             {/* Connection Status - positioned at logo's top right */}
             <div
               className={`absolute top-1 right-1 h-2 w-2 rounded-full ${
-                isConnected
+                sseConnected
                   ? "bg-green-500 shadow-green-500/50 animate-pulse"
                   : "bg-red-500"
               }`}
-              title={isConnected ? "Connected" : "Disconnected"}
+              title={sseConnected ? "SSE Connected" : "SSE Disconnected"}
             />
           </div>
 
@@ -222,9 +223,9 @@ export function Navbar() {
               >
                 <MessageSquare size={20} />
               </Link>
-              
+
               {/* Ports Dropdown */}
-              {Object.keys(ports).length > 0 && (
+              {activePorts.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -234,25 +235,40 @@ export function Navbar() {
                       <Globe size={20} />
                     </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" side="right" className="w-56">
-                    {Object.values(ports)
-                      .filter(p => p.service_type === 'http' && p.health === 'healthy')
+                  <DropdownMenuContent
+                    align="start"
+                    side="right"
+                    className="w-56"
+                  >
+                    {activePorts
+                      .filter((p) => p.service === "http")
                       .map((service) => (
-                        <DropdownMenuItem 
-                          key={service.port} 
+                        <DropdownMenuItem
+                          key={service.port}
                           asChild
-                          className={currentPort === service.port ? 'bg-accent' : ''}
+                          className={
+                            currentPort === service.port ? "bg-accent" : ""
+                          }
                         >
-                          <Link to="/preview/$port" params={{ port: service.port.toString() }}>
+                          <Link
+                            to="/preview/$port"
+                            params={{ port: service.port.toString() }}
+                          >
                             <div className="flex flex-col w-full">
                               <div className="flex items-center gap-2">
-                                <span className="font-medium">Port {service.port}</span>
+                                <span className="font-medium">
+                                  Port {service.port}
+                                </span>
                                 {currentPort === service.port && (
-                                  <span className="text-xs text-muted-foreground">(current)</span>
+                                  <span className="text-xs text-muted-foreground">
+                                    (current)
+                                  </span>
                                 )}
                               </div>
                               {service.title && (
-                                <span className="text-xs text-muted-foreground">{service.title}</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {service.title}
+                                </span>
                               )}
                             </div>
                           </Link>
@@ -261,13 +277,13 @@ export function Navbar() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}
-              
+
               {/* Open in New Tab (only on preview routes) */}
               {isPreviewRoute && currentPort && (
                 <button
                   className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
                   title="Open in New Tab"
-                  onClick={() => window.open(`/${currentPort}/`, '_blank')}
+                  onClick={() => window.open(`/${currentPort}/`, "_blank")}
                 >
                   <ExternalLink size={20} />
                 </button>
@@ -314,10 +330,7 @@ export function Navbar() {
       </nav>
 
       {/* GitHub Auth Modal */}
-      <GitHubAuthModal 
-        open={authModalOpen}
-        onOpenChange={setAuthModalOpen}
-      />
+      <GitHubAuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
     </>
   );
 }
