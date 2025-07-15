@@ -18,6 +18,7 @@ import {
   FileText,
 } from "lucide-react";
 import type { SessionCardData } from "@/types/session";
+import { generateSessionName } from "@/lib/session-names";
 
 interface SessionActionsProps {
   session: SessionCardData;
@@ -142,9 +143,23 @@ function handleSync(session: SessionCardData, onError: SessionActionsProps["onEr
   console.log("Sync session:", session.id);
 }
 
-function handleRegenerateName(session: SessionCardData, onError: SessionActionsProps["onError"]) {
-  // TODO: Implement name regeneration using Claude completion API
-  console.log("Regenerate name for session:", session.id);
+async function handleRegenerateName(session: SessionCardData, onError: SessionActionsProps["onError"]) {
+  try {
+    const newName = await generateSessionName(session);
+    
+    // TODO: Update the session name in the backend/state
+    console.log("Generated new name:", newName, "for session:", session.id);
+    
+    // For now, just show success - will integrate with backend later
+    // toast.success(`Generated new name: "${newName}"`);
+    
+  } catch (error) {
+    onError({
+      open: true,
+      title: "Name Generation Failed",
+      description: "Failed to generate a new name for this session. Please try again.",
+    });
+  }
 }
 
 function handleDelete(session: SessionCardData, onError: SessionActionsProps["onError"]) {

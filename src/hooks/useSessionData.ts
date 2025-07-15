@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useGitState } from "./useGitState";
+import { batchGenerateNames } from "@/lib/session-names";
 import type { SessionCardData } from "@/types/session";
 
 // Hook to manage session data combining worktrees and Claude sessions
@@ -7,6 +8,7 @@ export function useSessionData() {
   const [sessions, setSessions] = useState<SessionCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [generatedNames, setGeneratedNames] = useState<Record<string, string>>({});
   
   const {
     worktrees,
@@ -23,15 +25,34 @@ export function useSessionData() {
     }
 
     try {
-      const combinedSessions = combineWorktreesAndSessions(worktrees, claudeSessions);
+      const combinedSessions = combineWorktreesAndSessions(worktrees, claudeSessions, generatedNames);
       setSessions(combinedSessions);
       setError(null);
+      
+      // Generate names for sessions that don't have them
+      generateMissingNames(combinedSessions);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load sessions");
     } finally {
       setLoading(false);
     }
-  }, [worktrees, claudeSessions, gitLoading]);
+  }, [worktrees, claudeSessions, gitLoading, generatedNames]);
+
+  // Generate names for sessions that don't have them
+  const generateMissingNames = async (sessions: SessionCardData[]) => {
+    const sessionsNeedingNames = sessions.filter(
+      session => !session.generatedName && !generatedNames[session.id]
+    );
+    
+    if (sessionsNeedingNames.length === 0) return;
+    
+    try {
+      const newNames = await batchGenerateNames(sessionsNeedingNames);
+      setGeneratedNames(prev => ({ ...prev, ...newNames }));
+    } catch (error) {
+      console.error('Failed to generate session names:', error);
+    }
+  };
 
   // Refresh sessions data
   const refreshSessions = () => {
@@ -49,27 +70,34 @@ export function useSessionData() {
 // Combine worktrees with their Claude sessions
 function combineWorktreesAndSessions(
   worktrees: any[],
-  claudeSessions: Record<string, any>
+  claudeSessions: Record<string, any>,
+  generatedNames: Record<string, string>
 ): SessionCardData[] {
   return worktrees.map(worktree => {
     const claudeSession = claudeSessions[worktree.path];
+    const generatedName = generatedNames[worktree.id];
     
     return {
       id: worktree.id,
-      name: generateDisplayName(worktree, claudeSession),
+      name: generateDisplayName(worktree, claudeSession, generatedName),
       worktree,
       claudeSession,
       status: determineStatus(worktree, claudeSession),
       metrics: calculateMetrics(claudeSession),
       position: { x: 0, y: 0 }, // Default position
-      generatedName: claudeSession?.generatedName,
+      generatedName,
     };
   });
 }
 
 // Generate a display name for the session
-function generateDisplayName(worktree: any, claudeSession?: any): string {
+function generateDisplayName(worktree: any, claudeSession?: any, generatedName?: string): string {
   // Use generated name if available
+  if (generatedName) {
+    return generatedName;
+  }
+  
+  // Use stored generated name from Claude session
   if (claudeSession?.generatedName) {
     return claudeSession.generatedName;
   }
