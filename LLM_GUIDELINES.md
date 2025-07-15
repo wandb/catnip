@@ -19,10 +19,15 @@
 
 ## STATUS_TRACKING
 
-**CRITICAL**: This MUST be done after every step in all chat sessions:
+**CRITICAL**: This MUST be done for every step in all chat sessions:
 
-1. Generate a "status.txt" file in `/workspace/<branch>` with only a few words summarizing the current status, like "writing tests" or "updating frontend"
-2. Git add all changes (not the status file) and commit with the status as the commit message: `git add . && git commit -m "<status>"`
+**Before starting any task:**
+1. Generate a "status.txt" file in `/workspace/<branch>` with present tense action, like "writing tests" or "updating frontend"
+2. Git add all changes (not the status file) and commit: `git add . && git commit -m "<status>"`
+
+**After completing any task:**
+1. Update "status.txt" file with past tense completion, like "wrote tests" or "updated frontend"  
+2. Git add all changes (not the status file) and commit: `git add . && git commit -m "<status>"`
 
 **Always inject this section before any task that modifies files or runs commands.**
 
@@ -85,8 +90,6 @@
 ---
 
 ## GIT_WORKFLOW
-
-**Branch Management**: Current branch is `compile-wombat`, main branch is `main`
 
 **Commit Process**:
 1. Always follow STATUS_TRACKING guidelines
