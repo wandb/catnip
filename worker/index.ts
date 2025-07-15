@@ -26,6 +26,7 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY?: string;
   GITHUB_WEBHOOK_SECRET: string;
   CATNIP_ENCRYPTION_KEY: string;
+  ENVIRONMENT?: string;
 }
 
 interface SessionData {
@@ -347,6 +348,16 @@ export function createApp(env: Env) {
     return c.json({
       catnipProxy: "http://localhost:8787",
       authRequired: true,
+    });
+  });
+
+  // Debug endpoint to check environment variables
+  app.get("/v1/debug/env", (c) => {
+    return c.json({
+      hasGithubAppId: !!c.env.GITHUB_APP_ID,
+      hasGithubAppPrivateKey: !!c.env.GITHUB_APP_PRIVATE_KEY,
+      githubAppId: c.env.GITHUB_APP_ID,
+      environment: c.env.ENVIRONMENT || "unknown",
     });
   });
 
