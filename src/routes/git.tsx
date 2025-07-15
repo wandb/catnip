@@ -10,6 +10,15 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { RepoSelector } from "@/components/RepoSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DiffViewer } from "@/components/DiffViewer";
@@ -131,6 +140,22 @@ function GitPage() {
     title: "",
     description: "",
   });
+
+  const [prDialog, setPrDialog] = useState<{
+    open: boolean;
+    worktreeId: string;
+    branchName: string;
+    title: string;
+    description: string;
+  }>({
+    open: false,
+    worktreeId: "",
+    branchName: "",
+    title: "",
+    description: "",
+  });
+
+  const [prLoading, setPrLoading] = useState(false);
 
   const fetchGitStatus = async () => {
     try {
@@ -532,6 +557,86 @@ Suggested Claude prompt: "${claudePrompt}"`
     }
   };
 
+  const openPrDialog = (worktreeId: string, branchName: string) => {
+    setPrDialog({
+      open: true,
+      worktreeId,
+      branchName,
+      title: `Pull request from ${branchName}`,
+      description: `Automated pull request created from worktree ${branchName}`,
+    });
+  };
+
+  const createPullRequest = async () => {
+    setPrLoading(true);
+    try {
+      const response = await fetch(`/v1/git/worktrees/${prDialog.worktreeId}/pr`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: prDialog.title,
+          body: prDialog.description,
+        }),
+      });
+      if (response.ok) {
+        const prData = await response.json();
+        
+        // Success toast with PR link
+        toast.success(
+          <div className="flex items-center gap-2 w-full">
+            <div className="flex-1">
+              <div className="font-medium">Pull request created!</div>
+              <div className="text-sm text-muted-foreground mt-1">
+                PR #{prData.number}: {prData.title}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.open(prData.url, "_blank");
+              }}
+              className="p-1 hover:bg-muted rounded transition-colors"
+              title="Open pull request"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          </div>,
+          {
+            duration: 10000,
+          }
+        );
+        
+        // Close the dialog after successful creation
+        setPrDialog({
+          open: false,
+          worktreeId: "",
+          branchName: "",
+          title: "",
+          description: "",
+        });
+      } else {
+        const errorData = await response.json();
+        setErrorAlert({
+          open: true,
+          title: "Pull Request Failed",
+          description: `Failed to create pull request: ${errorData.error ?? 'Unknown error'}`
+        });
+      }
+    } catch (error) {
+      console.error("Failed to create pull request:", error);
+      setErrorAlert({
+        open: true,
+        title: "Pull Request Failed",
+        description: `Failed to create pull request: ${error}`
+      });
+    } finally {
+      setPrLoading(false);
+    }
+  };
+
   const toggleDiff = (worktreeId: string) => {
     setOpenDiffWorktreeId(prev => prev === worktreeId ? null : worktreeId);
   };
@@ -758,6 +863,16 @@ Suggested Claude prompt: "${claudePrompt}"`
                           >
                             <Eye size={16} />
                             Create Preview
+                          </DropdownMenuItem>
+                        )}
+                        
+                        {worktree.commit_count > 0 && (
+                          <DropdownMenuItem
+                            onClick={() => openPrDialog(worktree.id, worktree.branch)}
+                            className="text-green-600"
+                          >
+                            <GitMerge size={16} />
+                            Create PR (GitHub)
                           </DropdownMenuItem>
                         )}
                         
@@ -1011,6 +1126,62 @@ Suggested Claude prompt: "${claudePrompt}"`
         title={errorAlert.title}
         description={errorAlert.description}
       />
+
+      {/* Pull Request Dialog */}
+      <Dialog open={prDialog.open} onOpenChange={(open) => setPrDialog(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Pull Request</DialogTitle>
+            <DialogDescription>
+              Create a pull request for the worktree {prDialog.branchName}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="pr-title" className="text-right">
+                Title
+              </Label>
+              <Input
+                id="pr-title"
+                value={prDialog.title}
+                onChange={(e) =>
+                  setPrDialog((prev) => ({ ...prev, title: e.target.value }))
+                }
+                className="col-span-3"
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="pr-body" className="text-right">
+                Body
+              </Label>
+              <textarea
+                id="pr-body"
+                value={prDialog.description}
+                onChange={(e) =>
+                  setPrDialog((prev) => ({ ...prev, description: e.target.value }))
+                }
+                className="col-span-3 min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+                placeholder="Enter pull request description..."
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPrDialog({ ...prDialog, open: false })}>
+              Cancel
+            </Button>
+            <Button onClick={createPullRequest} disabled={prLoading}>
+              {prLoading ? (
+                <>
+                  <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                  Creating PR...
+                </>
+              ) : (
+                "Create PR"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

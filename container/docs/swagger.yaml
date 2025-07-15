@@ -127,6 +127,38 @@ definitions:
         example: 3
         type: integer
     type: object
+  github_com_vanpelt_catnip_internal_models.PullRequestResponse:
+    description: Response containing pull request information after creation
+    properties:
+      base_branch:
+        description: Base branch (target branch of the PR)
+        example: main
+        type: string
+      body:
+        description: Body/description of the pull request
+        example: This PR adds new functionality to the system
+        type: string
+      head_branch:
+        description: Head branch (source branch of the PR)
+        example: feature/new-feature
+        type: string
+      number:
+        description: Pull request number
+        example: 123
+        type: integer
+      repository:
+        description: Repository in owner/repo format
+        example: owner/repo
+        type: string
+      title:
+        description: Title of the pull request
+        example: 'Feature: Add new functionality'
+        type: string
+      url:
+        description: URL to the pull request
+        example: https://github.com/owner/repo/pull/123
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.Repository:
     description: Git repository information and metadata
     properties:
@@ -338,6 +370,13 @@ definitions:
       worktree_name:
         description: Name of the worktree
         example: feature-branch
+        type: string
+    type: object
+  internal_handlers.CreatePullRequestRequest:
+    properties:
+      body:
+        type: string
+      title:
         type: string
     type: object
   internal_handlers.DeleteSessionResponse:
@@ -712,6 +751,33 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.ConflictCheckResponse'
       summary: Check merge conflicts
+      tags:
+      - git
+  /v1/git/worktrees/{id}/pr:
+    post:
+      consumes:
+      - application/json
+      description: Creates a pull request for a worktree branch
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreatePullRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse'
+      summary: Create pull request
       tags:
       - git
   /v1/git/worktrees/{id}/preview:
