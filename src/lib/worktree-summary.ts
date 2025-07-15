@@ -4,7 +4,7 @@ export interface WorktreeSummary {
   worktreeId: string;
   title: string;
   summary: string;
-  status: 'pending' | 'generating' | 'completed' | 'error';
+  status: 'pending' | 'generating' | 'completed' | 'error' | 'empty';
   error?: string;
   generatedAt?: Date;
 }
@@ -63,8 +63,7 @@ export async function generateWorktreeSummary(worktreeId: string): Promise<Workt
       worktreeId,
       title: '',
       summary: '',
-      status: 'error',
-      error: 'Failed to fetch diff data'
+      status: 'empty',
     };
   }
 
