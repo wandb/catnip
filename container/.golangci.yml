@@ -1,137 +1,41 @@
-# golangci-lint configuration for catnip container
-# See: https://golangci-lint.run/usage/configuration/
+version: "2"
 
 run:
-  # Timeout for analysis
   timeout: 10m
-  
-  # Exit code when at least one issue was found
   issues-exit-code: 1
-  
-  # Include test files or not
   tests: true
-  
-  # Allow multiple parallel golangci-lint instances running
   allow-parallel-runners: true
 
 output:
-  # Print lines of code with issue
-  print-issued-lines: true
-  
-  # Print linter name in the end of issue text
-  print-linter-name: true
+  formats:
+    text:
+      path: stdout
+      colors: true
+      print-linter-name: true
+      print-issued-lines: true
+  show-stats: true
 
 linters:
-  # Enable specific linters
   enable:
-    - errcheck      # Check for unchecked errors
-    - gosimple      # Simplify code
-    - govet         # Go vet
-    - ineffassign   # Detect ineffectual assignments
-    - staticcheck   # Go static analysis
-    - unused        # Check for unused constants, variables, functions and types
-    - typecheck     # Parse and type-check Go code
-    - gofmt         # Check if code is gofmt-ed
-    - goimports     # Check if imports are sorted
-    - misspell      # Find misspelled English words in comments
-    - revive        # Fast configurable linter
-    - gosec         # Security issues
-    - unconvert     # Remove unnecessary type conversions
-
-  # Disable specific linters (removed deprecated ones)
-  disable: []
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gosec
+    - unconvert
 
 issues:
-  # Maximum issues count per one linter
   max-issues-per-linter: 0
-  
-  # Maximum count of issues with the same text
   max-same-issues: 0
-  
-  # Show only new issues created after git revision
   new: false
-  
-  # Exclude rules for specific issues
-  exclude-rules:
-    # Exclude some linters from running on tests files
-    - path: _test\.go
-      linters:
-        - gosec
-        - errcheck
-    
-    # Exclude known false positives
-    - text: "weak cryptographic primitive"
-      linters:
-        - gosec
-    
-    # Allow embedding for assets
-    - path: internal/assets/embedded\.go
-      linters:
-        - unused
-
-linters-settings:
-  errcheck:
-    # Report about not checking of errors in type assertions: `a := b.(MyStruct)`
-    check-type-assertions: true
-    
-    # Report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`
-    check-blank: false
-    
-    # Exclude functions to check (use blank assignments instead)
-    exclude-functions:
-      - io/ioutil.ReadFile
-      - io.Copy(*bytes.Buffer)
-      - io.Copy(os.Stdout)
-
-  gosimple:
-    # Sxxxx checks to disable
-    checks: ["all"]
-
-  staticcheck:
-    # Sxxxx checks to disable
-    checks: ["all", "-SA1019"] # Disable deprecation warnings for now
-
-  unused:
-    # Field alignment checks
-    field-writes-are-uses: true
-
-  govet:
-    # Settings per analyzer
-    settings:
-      printf:
-        # Comma-separated list of print function names to check
-        funcs:
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
-
-  revive:
-    # See https://github.com/mgechev/revive#available-rules for details
-    rules:
-      - name: exported
-        disabled: true # Allow unexported items in exported types
-      - name: package-comments
-        disabled: true # Don't require package comments
-      - name: var-naming
-        disabled: true # Allow var naming flexibility
-
-  misspell:
-    # Correct spellings using locale preferences for US or UK
-    locale: US
-
-  goimports:
-    # Put imports beginning with prefix after 3rd-party packages
-    local-prefixes: github.com/vanpelt/catnip
+  uniq-by-line: true
 
 severity:
-  # Default severity for issues
-  default-severity: error
-  
-  # Custom severities for specific rules
+  default: error
   rules:
     - linters:
         - misspell
-        - gofmt
-        - goimports
       severity: warning
