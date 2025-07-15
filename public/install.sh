@@ -56,7 +56,7 @@ command_exists() {
 verify_dependencies() {
     local missing_deps=()
     
-    for cmd in curl tar unzip; do
+    for cmd in curl tar; do
         if ! command_exists "$cmd"; then
             missing_deps+=("$cmd")
         fi
@@ -78,9 +78,9 @@ detect_os() {
     case "$(uname -s)" in
         Linux*)     os="linux";;
         Darwin*)    os="darwin";;
-        CYGWIN*)    os="windows";;
-        MINGW*)     os="windows";;
-        MSYS*)      os="windows";;
+        CYGWIN*)    fatal "Windows is not currently supported. Catnip requires Docker and containers, which work best on Linux/macOS. Consider using WSL2 on Windows.";;
+        MINGW*)     fatal "Windows is not currently supported. Catnip requires Docker and containers, which work best on Linux/macOS. Consider using WSL2 on Windows.";;
+        MSYS*)      fatal "Windows is not currently supported. Catnip requires Docker and containers, which work best on Linux/macOS. Consider using WSL2 on Windows.";;
         *)          fatal "Unsupported operating system: $(uname -s)";;
     esac
     echo "$os"
@@ -203,11 +203,6 @@ install_catctrl() {
     local archive_name="${BINARY_NAME}_${version#v}_${os}_${arch}.tar.gz"
     local checksum_name="checksums.txt"
     
-    # Handle special cases for Windows
-    if [[ "$os" == "windows" ]]; then
-        archive_name="${BINARY_NAME}_${version#v}_${os}_${arch}.zip"
-    fi
-    
     binary_url="${base_url}/${archive_name}"
     checksum_url="${base_url}/${checksum_name}"
     
@@ -235,15 +230,9 @@ install_catctrl() {
     log "Extracting and installing catctrl..."
     create_install_dir
     
-    # Extract based on file type
-    if [[ "$archive_name" == *.zip ]]; then
-        if ! unzip -q "$binary_file" -d "$temp_dir"; then
-            fatal "Failed to extract zip archive"
-        fi
-    else
-        if ! tar -xzf "$binary_file" -C "$temp_dir"; then
-            fatal "Failed to extract tar.gz archive"
-        fi
+    # Extract tar.gz archive
+    if ! tar -xzf "$binary_file" -C "$temp_dir"; then
+        fatal "Failed to extract tar.gz archive"
     fi
     
     local extracted_binary="$temp_dir/$BINARY_NAME"
