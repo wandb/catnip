@@ -186,7 +186,71 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		debugLog("TUI Update() KeyMsg: %s (type: %T, runes: %v)", msg.String(), msg, msg.Runes)
 		
-		// SIMPLE key handling like working test - NO filtering
+		// Handle search mode keys first
+		if m.currentView == logsView && m.searchMode {
+			switch msg.String() {
+			case "esc":
+				debugLog("TUI Update() SEARCH MODE ESC")
+				m.searchMode = false
+				m.searchInput.Blur()
+				return m, nil
+			case "enter":
+				debugLog("TUI Update() SEARCH MODE ENTER")
+				m.searchMode = false
+				m.searchInput.Blur()
+				m.searchPattern = m.searchInput.Value()
+				m = m.updateLogFilter()
+				return m, nil
+			default:
+				debugLog("TUI Update() SEARCH MODE INPUT")
+				var cmd tea.Cmd
+				m.searchInput, cmd = m.searchInput.Update(msg)
+				return m, cmd
+			}
+		}
+		
+		// Handle logs view navigation
+		if m.currentView == logsView && !m.searchMode {
+			switch msg.String() {
+			case "/":
+				debugLog("TUI Update() LOGS SEARCH KEY")
+				m.searchMode = true
+				cmd := m.searchInput.Focus()
+				return m, cmd
+			case "c":
+				debugLog("TUI Update() LOGS CLEAR FILTER")
+				m.searchPattern = ""
+				m.searchInput.SetValue("")
+				m = m.updateLogFilter()
+				return m, nil
+			case "up", "k":
+				debugLog("TUI Update() LOGS SCROLL UP")
+				m.logsViewport.ScrollUp(1)
+				return m, nil
+			case "down", "j":
+				debugLog("TUI Update() LOGS SCROLL DOWN")
+				m.logsViewport.ScrollDown(1)
+				return m, nil
+			case "pgup", "b":
+				debugLog("TUI Update() LOGS PAGE UP")
+				m.logsViewport.PageUp()
+				return m, nil
+			case "pgdown", "f":
+				debugLog("TUI Update() LOGS PAGE DOWN")
+				m.logsViewport.PageDown()
+				return m, nil
+			case "home", "g":
+				debugLog("TUI Update() LOGS GOTO TOP")
+				m.logsViewport.GotoTop()
+				return m, nil
+			case "end", "G":
+				debugLog("TUI Update() LOGS GOTO BOTTOM")
+				m.logsViewport.GotoBottom()
+				return m, nil
+			}
+		}
+		
+		// Global key handlers
 		switch msg.String() {
 		case "q", "ctrl+c":
 			debugLog("TUI Update() QUIT KEY DETECTED: %s", msg.String())
@@ -200,15 +264,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.currentView = logsView
 				debugLog("TUI Update() switched to logs view")
+				// Update viewport size and content
+				if m.height > 0 {
+					headerHeight := 4
+					m.logsViewport.Width = m.width - 4
+					m.logsViewport.Height = m.height - headerHeight
+				}
+				m = m.updateLogFilter()
 				return m, m.fetchLogs()
 			}
 		case "o":
 			debugLog("TUI Update() OVERVIEW KEY DETECTED")
 			m.currentView = overviewView
 			return m, nil
+		case "r":
+			debugLog("TUI Update() REFRESH KEY DETECTED")
+			if m.currentView == logsView {
+				return m, m.fetchLogs()
+			}
+			return m, tea.Batch(
+				m.fetchContainerInfo(),
+				m.fetchPorts(),
+			)
 		case "0":
 			debugLog("TUI Update() MAIN UI KEY DETECTED")
-			openBrowser("http://localhost:8080")
+			go func() {
+				if isAppReady("http://localhost:8080") {
+					openBrowser("http://localhost:8080")
+				} else {
+					// Could show a message to the user, but for now just silently fail
+					// The user will see the app isn't ready in the UI
+				}
+			}()
 			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			debugLog("TUI Update() PORT KEY DETECTED: %s", msg.String())
@@ -218,14 +305,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					port := m.ports[portIndex]
 					url := fmt.Sprintf("http://localhost:8080/%s", port)
 					debugLog("TUI Update() opening port %s at %s", port, url)
-					openBrowser(url)
+					go func() {
+						if isAppReady("http://localhost:8080") {
+							openBrowser(url)
+						}
+					}()
 				}
 			}
 			return m, nil
 		}
 		
-		// NO COMPLEX LOGS VIEW HANDLING - just the simple keys above
-		debugLog("TUI Update() KeyMsg not handled by simple handler - elapsed: %v", time.Since(start))
+		debugLog("TUI Update() KeyMsg not handled - elapsed: %v", time.Since(start))
 		return m, nil
 
 	case tickMsg:
@@ -467,7 +557,12 @@ func (m model) renderOverview() string {
 			}
 		}
 	} else {
-		sections = append(sections, "  Stats: Loading...")
+		// Only show "Loading..." if we don't have any container info yet
+		if len(m.containerInfo) == 0 {
+			sections = append(sections, "  Stats: Loading...")
+		} else {
+			sections = append(sections, "  Stats: Unavailable")
+		}
 	}
 
 	// Error display
@@ -806,4 +901,16 @@ func openBrowser(url string) error {
 	}
 	
 	return cmd.Start()
+}
+
+// isAppReady checks if the app is ready by hitting the /health endpoint
+func isAppReady(baseURL string) bool {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(baseURL + "/health")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	
+	return resp.StatusCode == http.StatusOK
 }
