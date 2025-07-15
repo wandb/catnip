@@ -601,6 +601,22 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 	return s.GetSessionByID(targetWorktree, sessionUUID)
 }
 
+// loadSystemPrompt loads the system prompt from the configuration file
+func (s *ClaudeService) loadSystemPrompt() string {
+	// Path to the system prompt configuration file
+	promptPath := "/workspace/catnip/stream-otter/container/setup/claude-system-prompt.txt"
+
+	// Read the system prompt file
+	content, err := os.ReadFile(promptPath)
+	if err != nil {
+		// If file doesn't exist or can't be read, return empty string
+		return ""
+	}
+
+	// Return the content as a string, trimming whitespace
+	return strings.TrimSpace(string(content))
+}
+
 // GetCompletion sends a completion request to the Anthropic API
 func (s *ClaudeService) GetCompletion(req *models.CompletionRequest) (*models.CompletionResponse, error) {
 	// Get API key from environment
@@ -634,12 +650,25 @@ func (s *ClaudeService) GetCompletion(req *models.CompletionRequest) (*models.Co
 		Content: req.Message,
 	})
 
+	// Load system prompt from file and combine with request system prompt
+	systemPrompt := req.System
+	fileSystemPrompt := s.loadSystemPrompt()
+	if fileSystemPrompt != "" {
+		if systemPrompt != "" {
+			// Combine both prompts with a separator
+			systemPrompt = systemPrompt + "\n\n" + fileSystemPrompt
+		} else {
+			// Use only the file system prompt
+			systemPrompt = fileSystemPrompt
+		}
+	}
+
 	// Create the API request
 	apiReq := models.AnthropicAPIRequest{
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
 		Messages:  messages,
-		System:    req.System,
+		System:    systemPrompt,
 	}
 
 	// Marshal the request
