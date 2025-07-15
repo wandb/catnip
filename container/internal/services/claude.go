@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -81,7 +80,6 @@ func NewClaudeService() *ClaudeService {
 // readStatusFile reads the status from /project/<branch>/status.txt if it exists
 func (s *ClaudeService) readStatusFile(worktreePath string) (*string, error) {
 	// Get the branch name from the worktree path
-	log.Printf("🔍 [DEBUG] Reading status file for worktree: %s", worktreePath)
 	branch := s.getBranchFromWorktreePath(worktreePath)
 	if branch == "" {
 		return nil, nil // No branch found
@@ -106,8 +104,6 @@ func (s *ClaudeService) readStatusFile(worktreePath string) (*string, error) {
 	if status == "" {
 		return nil, nil // Empty file
 	}
-
-	log.Printf("🔥 [DEBUG] Status file content: %s", status)
 
 	return &status, nil
 }
