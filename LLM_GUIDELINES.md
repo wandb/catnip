@@ -23,7 +23,6 @@
 
 **Before starting any task:**
 1. Generate a "status.txt" file in `/workspace/<branch>` with present tense action, like "writing tests" or "updating frontend"
-2. Git add all changes (not the status file) and commit: `git add . && git commit -m "<status>"`
 
 **After completing any task:**
 1. Update "status.txt" file with past tense completion, like "wrote tests" or "updated frontend"  
