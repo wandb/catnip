@@ -54,6 +54,22 @@ If you want to use a custom domain like `catnip.run`:
    ]
    ```
 
+### 5. Configure HTTPS Redirects
+
+To redirect HTTP to HTTPS, you have several options:
+
+**Option A: Cloudflare Dashboard (Recommended)**
+1. Go to **SSL/TLS** → **Edge Certificates**
+2. Enable **Always Use HTTPS**
+
+**Option B: Page Rules**
+1. Go to **Rules** → **Page Rules**
+2. Create rule for `http://catnip.run/*`
+3. Set **Always Use HTTPS** action
+
+**Option C: Already Configured in Worker**
+The Worker code already includes HTTP to HTTPS redirects (except for curl/wget requests to preserve install script functionality).
+
 ## Environment Variables and Secrets
 
 Catnip uses a mix of public environment variables (configured in `wrangler.jsonc`) and secrets (added via `wrangler secret`).

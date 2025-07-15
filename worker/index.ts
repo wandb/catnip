@@ -406,17 +406,22 @@ export function createApp(env: Env) {
   app.all("*", async (c) => {
     const url = new URL(c.req.url);
     const userAgent = c.req.header("User-Agent") || "";
-
     // Check if this is curl or wget requesting the root path
-    if (url.pathname === "/" && (userAgent.toLowerCase().includes("curl") || userAgent.toLowerCase().includes("wget"))) {
+    if (
+      url.pathname === "/" &&
+      (userAgent.toLowerCase().includes("curl") ||
+        userAgent.toLowerCase().includes("wget"))
+    ) {
       // Serve the install script
       try {
         const installScriptUrl = new URL("/install.sh", c.req.url);
-        const response = await c.env.ASSETS.fetch(new Request(installScriptUrl, {
-          method: "GET",
-          headers: c.req.raw.headers,
-        }));
-        
+        const response = await c.env.ASSETS.fetch(
+          new Request(installScriptUrl, {
+            method: "GET",
+            headers: c.req.raw.headers,
+          })
+        );
+
         if (response.ok) {
           // Return the install script with proper content type
           return new Response(response.body, {
@@ -438,7 +443,7 @@ export function createApp(env: Env) {
       const container = await getContainer(c.env.CATNIP_CONTAINER, userId);
       const containerUrl = new URL(c.req.url);
       containerUrl.host = `container:8080`;
-      return await container.fetch(
+      return container.fetch(
         new Request(containerUrl, {
           method: c.req.method,
           headers: c.req.raw.headers,
