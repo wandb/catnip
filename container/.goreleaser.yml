@@ -79,7 +79,8 @@ archives:
     files:
       - README.md
       - LICENSE
-      - docs/*
+      - docs/swagger.json
+      - docs/swagger.yaml
     
     # Wrap binaries in directory
     wrap_in_directory: false
