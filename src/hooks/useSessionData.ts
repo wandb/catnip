@@ -107,7 +107,7 @@ function generateDisplayName(worktree: any, claudeSession?: any, generatedName?:
 }
 
 // Determine session status based on worktree and Claude session state
-function determineStatus(worktree: any, claudeSession?: any): SessionCardData["status"] {
+function determineStatus(_worktree: any, claudeSession?: any): SessionCardData["status"] {
   if (!claudeSession) {
     return "finished";
   }

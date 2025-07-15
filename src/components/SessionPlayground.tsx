@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { SessionCard } from "./SessionCard";
 import { SessionGrid } from "./SessionGrid";
 import { useSessionData } from "@/hooks/useSessionData";
 import { ErrorAlert } from "./ErrorAlert";

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as PlaygroundRouteImport } from './routes/playground'
 import { Route as GitRouteImport } from './routes/git'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
@@ -20,6 +21,11 @@ import { Route as TerminalSessionIdRouteImport } from './routes/terminal.$sessio
 import { Route as PreviewPortRouteImport } from './routes/preview.$port'
 import { Route as GhSplatRouteImport } from './routes/gh.$'
 
+const PlaygroundRoute = PlaygroundRouteImport.update({
+  id: '/playground',
+  path: '/playground',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GitRoute = GitRouteImport.update({
   id: '/git',
   path: '/git',
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
   '/git': typeof GitRoute
+  '/playground': typeof PlaygroundRoute
   '/gh/$': typeof GhSplatRoute
   '/preview/$port': typeof PreviewPortRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
@@ -87,6 +94,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
   '/git': typeof GitRoute
+  '/playground': typeof PlaygroundRoute
   '/gh/$': typeof GhSplatRoute
   '/preview/$port': typeof PreviewPortRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
   '/git': typeof GitRoute
+  '/playground': typeof PlaygroundRoute
   '/gh/$': typeof GhSplatRoute
   '/preview/$port': typeof PreviewPortRoute
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/'
     | '/docs'
     | '/git'
+    | '/playground'
     | '/gh/$'
     | '/preview/$port'
     | '/terminal/$sessionId'
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/docs'
     | '/git'
+    | '/playground'
     | '/gh/$'
     | '/preview/$port'
     | '/terminal/$sessionId'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/'
     | '/docs'
     | '/git'
+    | '/playground'
     | '/gh/$'
     | '/preview/$port'
     | '/terminal/$sessionId'
@@ -151,6 +163,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DocsRoute: typeof DocsRoute
   GitRoute: typeof GitRoute
+  PlaygroundRoute: typeof PlaygroundRoute
   GhSplatRoute: typeof GhSplatRoute
   PreviewPortRoute: typeof PreviewPortRoute
   TerminalSessionIdRoute: typeof TerminalSessionIdRoute
@@ -162,6 +175,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/playground': {
+      id: '/playground'
+      path: '/playground'
+      fullPath: '/playground'
+      preLoaderRoute: typeof PlaygroundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/git': {
       id: '/git'
       path: '/git'
@@ -239,6 +259,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DocsRoute: DocsRoute,
   GitRoute: GitRoute,
+  PlaygroundRoute: PlaygroundRoute,
   GhSplatRoute: GhSplatRoute,
   PreviewPortRoute: PreviewPortRoute,
   TerminalSessionIdRoute: TerminalSessionIdRoute,

@@ -123,22 +123,22 @@ function handleViewDiff(session: SessionCardData) {
   console.log("View diff for session:", session.id);
 }
 
-function handleCreatePR(session: SessionCardData, onError: SessionActionsProps["onError"]) {
+function handleCreatePR(session: SessionCardData, _onError: SessionActionsProps["onError"]) {
   // TODO: Implement PR creation
   console.log("Create PR for session:", session.id);
 }
 
-function handleMerge(session: SessionCardData, onError: SessionActionsProps["onError"]) {
+function handleMerge(session: SessionCardData, _onError: SessionActionsProps["onError"]) {
   // TODO: Implement merge
   console.log("Merge session:", session.id);
 }
 
-function handleCreatePreview(session: SessionCardData, onError: SessionActionsProps["onError"]) {
+function handleCreatePreview(session: SessionCardData, _onError: SessionActionsProps["onError"]) {
   // TODO: Implement preview creation
   console.log("Create preview for session:", session.id);
 }
 
-function handleSync(session: SessionCardData, onError: SessionActionsProps["onError"]) {
+function handleSync(session: SessionCardData, _onError: SessionActionsProps["onError"]) {
   // TODO: Implement sync
   console.log("Sync session:", session.id);
 }
@@ -162,7 +162,7 @@ async function handleRegenerateName(session: SessionCardData, onError: SessionAc
   }
 }
 
-function handleDelete(session: SessionCardData, onError: SessionActionsProps["onError"]) {
+function handleDelete(session: SessionCardData, _onError: SessionActionsProps["onError"]) {
   // TODO: Implement deletion with confirmation
   console.log("Delete session:", session.id);
 }

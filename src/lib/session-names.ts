@@ -32,7 +32,7 @@ export async function generateSessionName(session: SessionCardData): Promise<str
 
 // Build context about the session for name generation
 function buildSessionContext(session: SessionCardData): string {
-  const { worktree, claudeSession, metrics } = session;
+  const { worktree, metrics } = session;
   
   const context = [
     `Branch: ${worktree.branch}`,

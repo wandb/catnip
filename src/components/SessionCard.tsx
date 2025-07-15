@@ -6,8 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Terminal, 
   GitMerge, 
-  Eye, 
-  MoreHorizontal,
   Loader2,
   CheckCircle,
   XCircle,
@@ -28,7 +26,7 @@ interface SessionCardProps {
 }
 
 // Main session card component with drag-and-drop
-export function SessionCard({ session, position, onError, isDragging = false }: SessionCardProps) {
+export function SessionCard({ session, onError, isDragging = false }: SessionCardProps) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: session.id,
   });
@@ -169,7 +167,7 @@ function SessionMetrics({ metrics }: { metrics: SessionCardData["metrics"] }) {
 }
 
 // Individual metric item
-function MetricItem({ icon, label, value }: { 
+function MetricItem({ icon, value }: { 
   icon: React.ReactNode; 
   label: string; 
   value: string; 
