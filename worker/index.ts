@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import { githubAuth } from "@hono/oauth-providers/github";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
+import { App } from "@octokit/app";
 
 // Durable Object for container management
 export class CatnipContainer extends Container {
@@ -58,6 +59,65 @@ const CONTAINER_ROUTES = [
 
 function shouldRouteToContainer(pathname: string): boolean {
   return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
+}
+
+// Cache for GitHub App installation tokens
+interface TokenCache {
+  token: string;
+  expiresAt: number;
+}
+
+const tokenCache = new Map<string, TokenCache>();
+
+// Helper function to get GitHub App installation token with caching
+async function getGitHubAppToken(env: Env): Promise<string | null> {
+  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
+    return null;
+  }
+
+  const cacheKey = `${env.GITHUB_APP_ID}-wandb`;
+  const now = Date.now();
+
+  // Check cache first
+  const cached = tokenCache.get(cacheKey);
+  if (cached && now < cached.expiresAt) {
+    return cached.token;
+  }
+
+  try {
+    const app = new App({
+      appId: env.GITHUB_APP_ID,
+      privateKey: env.GITHUB_APP_PRIVATE_KEY,
+    });
+
+    // Get the installation for the wandb organization
+    const installations = await app.octokit.request('GET /app/installations');
+    const installation = installations.data.find(
+      (inst: any) => inst.account?.login === "wandb"
+    );
+
+    if (!installation) {
+      console.error("No GitHub App installation found for wandb organization");
+      return null;
+    }
+
+    // Get installation token
+    const installationToken = await app.octokit.request('POST /app/installations/{installation_id}/access_tokens', {
+      installation_id: installation.id,
+    });
+
+    // Cache the token for 50 minutes (tokens expire after 1 hour)
+    const expiresAt = now + (50 * 60 * 1000);
+    tokenCache.set(cacheKey, {
+      token: installationToken.data.token,
+      expiresAt,
+    });
+
+    return installationToken.data.token;
+  } catch (error) {
+    console.error("Failed to get GitHub App installation token:", error);
+    return null;
+  }
 }
 
 // Factory function to create app with environment bindings
@@ -356,6 +416,78 @@ export function createApp(env: Env) {
         "pull_request_review_comment",
       ],
     });
+  });
+
+  // GitHub release proxy endpoints for install.sh
+  app.get("/v1/github/releases/latest", async (c) => {
+    const token = await getGitHubAppToken(c.env);
+    if (!token) {
+      return c.text("GitHub App authentication not configured", 500);
+    }
+
+    try {
+      const response = await fetch("https://api.github.com/repos/wandb/catnip/releases/latest", {
+        headers: {
+          "Authorization": `token ${token}`,
+          "Accept": "application/vnd.github.v3+json",
+          "User-Agent": "catnip-proxy/1.0",
+        },
+      });
+
+      if (!response.ok) {
+        console.error("Failed to fetch latest release:", response.status, response.statusText);
+        return c.text("Failed to fetch latest release", 500);
+      }
+
+      const data = await response.json();
+      return c.json(data as any);
+    } catch (error) {
+      console.error("Error fetching latest release:", error);
+      return c.text("Internal server error", 500);
+    }
+  });
+
+  app.get("/v1/github/releases/download/:version/:filename", async (c) => {
+    const token = await getGitHubAppToken(c.env);
+    if (!token) {
+      return c.text("GitHub App authentication not configured", 500);
+    }
+
+    const version = c.req.param("version");
+    const filename = c.req.param("filename");
+
+    if (!version || !filename) {
+      return c.text("Version and filename are required", 400);
+    }
+
+    try {
+      const downloadUrl = `https://github.com/wandb/catnip/releases/download/${version}/${filename}`;
+      const response = await fetch(downloadUrl, {
+        headers: {
+          "Authorization": `token ${token}`,
+          "Accept": "application/octet-stream",
+          "User-Agent": "catnip-proxy/1.0",
+        },
+      });
+
+      if (!response.ok) {
+        console.error("Failed to download release asset:", response.status, response.statusText);
+        return c.text("Failed to download release asset", 500);
+      }
+
+      // Stream the response back to the client
+      return new Response(response.body, {
+        status: response.status,
+        headers: {
+          "Content-Type": response.headers.get("Content-Type") || "application/octet-stream",
+          "Content-Length": response.headers.get("Content-Length") || "",
+          "Cache-Control": "public, max-age=3600", // Cache for 1 hour
+        },
+      });
+    } catch (error) {
+      console.error("Error downloading release asset:", error);
+      return c.text("Internal server error", 500);
+    }
   });
 
   // Authentication middleware for protected routes

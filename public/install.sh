@@ -6,9 +6,9 @@
 # from GitHub releases with SHA256 verification.
 #
 # Usage:
-#   curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh
-#   curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh -s -- --version v1.0.0
-#   curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | INSTALL_DIR=/usr/local/bin sh
+#   curl -sSfL install.catnip.sh | sh
+#   curl -sSfL install.catnip.sh | sh -s -- --version v1.0.0
+#   curl -sSfL install.catnip.sh | INSTALL_DIR=/usr/local/bin sh
 
 set -euo pipefail
 
@@ -17,6 +17,7 @@ GITHUB_REPO="wandb/catnip"
 BINARY_NAME="catctrl"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 VERSION="${1:-latest}"
+CATNIP_PROXY_URL="${CATNIP_PROXY_URL:-https://install.catnip.sh}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -100,9 +101,9 @@ detect_arch() {
     echo "$arch"
 }
 
-# Get latest release version from GitHub API
+# Get latest release version from Catnip proxy
 get_latest_version() {
-    local api_url="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+    local api_url="${CATNIP_PROXY_URL}/v1/github/releases/latest"
     local version
     
     log "Fetching latest release information..."
@@ -115,7 +116,7 @@ get_latest_version() {
     fi
     
     if [[ -z "$version" || "$version" == "null" ]]; then
-        fatal "Failed to get latest version from GitHub API"
+        fatal "Failed to get latest version from Catnip proxy"
     fi
     
     echo "$version"
@@ -198,8 +199,8 @@ install_catctrl() {
     
     log "Installing catctrl version: $version"
     
-    # Construct download URLs (GoReleaser format)
-    local base_url="https://github.com/${GITHUB_REPO}/releases/download/${version}"
+    # Construct download URLs (GoReleaser format) - using proxy
+    local base_url="${CATNIP_PROXY_URL}/v1/github/releases/download/${version}"
     local archive_name="${BINARY_NAME}_${version#v}_${os}_${arch}.tar.gz"
     local checksum_name="checksums.txt"
     
@@ -298,13 +299,13 @@ ENVIRONMENT VARIABLES:
 
 EXAMPLES:
     # Install latest version
-    curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh
+    curl -sSfL install.catnip.sh | sh
 
     # Install specific version
-    curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh -s -- --version v1.0.0
+    curl -sSfL install.catnip.sh | sh -s -- --version v1.0.0
 
     # Install to custom directory
-    curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | INSTALL_DIR=/usr/local/bin sh
+    curl -sSfL install.catnip.sh | INSTALL_DIR=/usr/local/bin sh
 
 EOF
                 exit 0
