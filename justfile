@@ -112,9 +112,9 @@ info:
     @echo ""
     @echo "Release Management:"
     @echo "  just release           - Create minor release (local tag)"
-    @echo "  just release-patch     - Create patch release"
-    @echo "  just release-major     - Create major release"
-    @echo "  just release-dev       - Create dev release"
+    @echo "  just release --patch   - Create patch release"
+    @echo "  just release --major   - Create major release"
+    @echo "  just release --dev     - Create dev release"
     @echo "  Add --push --message=\"...\" to actually release"
     @echo ""
     @echo "Cleanup:"
@@ -122,16 +122,10 @@ info:
     @echo "  just clean-dev-volumes - Remove development volumes"
     @echo "  just clean-all         - Clean everything"
 
-# Release management
-release BUMP="minor" *ARGS="":
-    @echo "🚀 Creating release with {{BUMP}} version bump..."
-    npx tsx scripts/release.ts {{BUMP}} {{ARGS}}
-
-# Release shortcuts for common workflows
-release-patch *ARGS="": (release "patch" ARGS)
-release-minor *ARGS="": (release "minor" ARGS) 
-release-major *ARGS="": (release "major" ARGS)
-release-dev *ARGS="": (release "dev" ARGS)
+# Release management (defaults to minor version bump)
+release *ARGS="":
+    @echo "🚀 Creating release..."
+    npx tsx scripts/release.ts {{ARGS}}
 
 # Import container justfile with a namespace
 mod container

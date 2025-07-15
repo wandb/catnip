@@ -22,23 +22,48 @@ interface ParsedArgs {
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-const bump = (args[0] || 'minor') as BumpType;
+
+// Determine bump type from flags (default: minor)
+let bump: BumpType = 'minor';
+if (args.includes('--major')) bump = 'major';
+else if (args.includes('--patch')) bump = 'patch';
+else if (args.includes('--dev')) bump = 'dev';
+else if (args.includes('--minor')) bump = 'minor';
+
 const push = args.includes('--push');
 const message = args.find(arg => arg.startsWith('--message='))?.split('=')[1];
-
-// Validate bump type
-const validBumps: BumpType[] = ['major', 'minor', 'patch', 'dev'];
-if (!validBumps.includes(bump)) {
-  console.error(`❌ Invalid bump type: ${bump}`);
-  console.error(`   Valid options: ${validBumps.join(', ')}`);
-  process.exit(1);
-}
 
 // If pushing, require a message
 if (push && !message) {
   console.error('❌ --message is required when using --push');
-  console.error('   Example: just release minor --push --message="Add new feature"');
+  console.error('   Example: just release --push --message="Add new feature"');
   process.exit(1);
+}
+
+// Check for help flag
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`
+🚀 Catnip Release Manager
+
+USAGE:
+    npx tsx scripts/release.ts [OPTIONS]
+
+OPTIONS:
+    --major              Create major release (x+1.0.0)
+    --minor              Create minor release (x.y+1.0) [default]
+    --patch              Create patch release (x.y.z+1)
+    --dev                Create dev release (x.y.z+1-dev.1)
+    --push               Push tag to trigger GoReleaser
+    --message=MESSAGE    Release message (required with --push)
+    --help, -h           Show this help
+
+EXAMPLES:
+    just release                                    # Create v0.1.0 (minor, local)
+    just release --patch                           # Create v0.0.1 (patch, local)
+    just release --major --push --message="v1.0!" # Create and release v1.0.0
+    just release --dev                             # Create v0.0.1-dev.1 (local)
+`);
+  process.exit(0);
 }
 
 function run(command: string, options: Record<string, any> = {}): string {
