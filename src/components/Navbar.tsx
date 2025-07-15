@@ -1,6 +1,6 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github, FileText, ExternalLink, Globe, MessageSquare } from "lucide-react";
+import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github, FileText, ExternalLink, Globe, MessageSquare, Layout } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import {
   DropdownMenu,
@@ -101,6 +101,14 @@ export function Navbar() {
               >
                 <GitBranch size={20} />
                 <span>Git</span>
+              </Link>
+              <Link
+                to="/playground"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <Layout size={20} />
+                <span>Playground</span>
               </Link>
               <Link
                 to="/docs"
@@ -214,6 +222,13 @@ export function Navbar() {
                 title="Git"
               >
                 <GitBranch size={20} />
+              </Link>
+              <Link
+                to="/playground"
+                className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
+                title="Playground"
+              >
+                <Layout size={20} />
               </Link>
               <Link
                 to="/transcript"
