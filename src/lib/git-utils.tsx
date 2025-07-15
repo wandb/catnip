@@ -33,7 +33,7 @@ export const getDuration = (startDate: string | Date, endDate: string | Date) =>
 
 export const copyRemoteCommand = (url: string) => {
   const command = `git remote add catnip ${url} && git fetch catnip`;
-  navigator.clipboard.writeText(command);
+  void navigator.clipboard.writeText(command);
   toast.success("Command copied to clipboard");
 };
 
@@ -52,12 +52,13 @@ export const showPreviewToast = (branchName: string) => {
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          navigator.clipboard.writeText(command);
-          
+          void navigator.clipboard.writeText(command);
+
+          // Show brief success feedback
           const button = e.currentTarget;
           const originalContent = button.innerHTML;
           button.innerHTML = '<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
-          
+
           setTimeout(() => {
             button.innerHTML = originalContent;
           }, 1000);
@@ -68,7 +69,9 @@ export const showPreviewToast = (branchName: string) => {
         <Copy className="w-4 h-4" />
       </button>
     </div>,
-    { duration: 8000 }
+    {
+      duration: 8000,
+    }
   );
 };
 
