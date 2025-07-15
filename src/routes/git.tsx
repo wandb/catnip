@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -12,103 +12,41 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RepoSelector } from "@/components/RepoSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { DiffViewer } from "@/components/DiffViewer";
 import { ErrorAlert } from "@/components/ErrorAlert";
+import { WorktreeRow } from "@/components/WorktreeRow";
 import {
   GitBranch,
   Copy,
   RefreshCw,
-  Trash2,
-  GitMerge,
-  Eye,
-  AlertTriangle,
-  FileText,
-  MoreHorizontal,
-  Terminal,
 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+import { copyRemoteCommand, showPreviewToast, parseGitUrl } from "@/lib/git-utils";
+import { gitApi } from "@/lib/git-api";
+import { useGitState } from "@/hooks/useGitState";
 
-// Utility function for relative time display
-const getRelativeTime = (date: string | Date) => {
-  const now = new Date();
-  const then = new Date(date);
-  const diffMs = now.getTime() - then.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60)
-    return `${diffMins} minute${diffMins !== 1 ? "s" : ""} ago`;
-  if (diffHours < 24)
-    return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
-  return `${diffDays} day${diffDays !== 1 ? "s" : ""} ago`;
-};
-
-const getDuration = (startDate: string | Date, endDate: string | Date) => {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const diffMs = end.getTime() - start.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-
-  if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? "s" : ""}`;
-  if (diffHours < 24)
-    return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ${
-      diffMins % 60
-    } minute${diffMins % 60 !== 1 ? "s" : ""}`;
-  return `${Math.floor(diffHours / 24)} day${
-    Math.floor(diffHours / 24) !== 1 ? "s" : ""
-  }`;
-};
-
-interface GitStatus {
-  repositories?: Record<string, any>;
-  worktree_count?: number;
-}
-
-interface Worktree {
-  id: string;
-  repo_id: string;
-  name: string;
-  branch: string;
-  source_branch: string;
-  path: string;
-  commit_hash: string;
-  commit_count: number;
-  commits_behind: number;
-  is_dirty: boolean;
-}
-
-interface Repository {
-  name: string;
-  url: string;
-  private: boolean;
-  description?: string;
-  fullName?: string;
-}
 
 function GitPage() {
+  const {
+    gitStatus,
+    worktrees,
+    repositories,
+    repoBranches,
+    claudeSessions,
+    activeSessions,
+    syncConflicts,
+    mergeConflicts,
+    loading,
+    reposLoading,
+    fetchGitStatus,
+    fetchWorktrees,
+    fetchRepositories,
+    fetchClaudeSessions,
+    fetchActiveSessions,
+    refreshAll,
+    setLoading,
+  } = useGitState();
+
   const [githubUrl, setGithubUrl] = useState("");
-  const [gitStatus, setGitStatus] = useState<GitStatus>({});
-  const [worktrees, setWorktrees] = useState<Worktree[]>([]);
-  const [repositories, setRepositories] = useState<Repository[]>([]);
-  const [repoBranches, setRepoBranches] = useState<Record<string, string[]>>(
-    {}
-  );
-  const [claudeSessions, setClaudeSessions] = useState<Record<string, any>>({});
-  const [activeSessions, setActiveSessions] = useState<Record<string, any>>({});
-  const [syncConflicts, setSyncConflicts] = useState<Record<string, any>>({});
-  const [mergeConflicts, setMergeConflicts] = useState<Record<string, any>>({});
-  const [loading, setLoading] = useState(false);
-  const [reposLoading, setReposLoading] = useState(false);
   const [openDiffWorktreeId, setOpenDiffWorktreeId] = useState<string | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
@@ -132,217 +70,38 @@ function GitPage() {
     description: "",
   });
 
-  const fetchGitStatus = async () => {
-    try {
-      const response = await fetch("/v1/git/status");
-      if (response.ok) {
-        const data = await response.json();
-        setGitStatus(data);
-
-        // Fetch branches for each repository
-        if (data.repositories) {
-          const branchPromises = Object.keys(data.repositories).map(
-            async (repoId) => {
-              try {
-                const branchResponse = await fetch(
-                  `/v1/git/branches/${encodeURIComponent(repoId)}`
-                );
-                if (branchResponse.ok) {
-                  const branches = await branchResponse.json();
-                  return { repoId, branches };
-                }
-              } catch (error) {
-                console.error(`Failed to fetch branches for ${repoId}:`, error);
-              }
-              return { repoId, branches: [] };
-            }
-          );
-
-          const branchResults = await Promise.all(branchPromises);
-          const branchMap: Record<string, string[]> = {};
-          branchResults.forEach(({ repoId, branches }) => {
-            branchMap[repoId] = branches;
-          });
-          setRepoBranches(branchMap);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to fetch git status:", error);
-    }
-  };
-
-  const fetchWorktrees = async () => {
-    try {
-      const response = await fetch("/v1/git/worktrees");
-      if (response.ok) {
-        const data = await response.json();
-        setWorktrees(data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch worktrees:", error);
-    }
-  };
-
-  const fetchClaudeSessions = async () => {
-    try {
-      const response = await fetch("/v1/claude/sessions");
-      if (response.ok) {
-        const data = await response.json();
-        setClaudeSessions(data || {});
-      } else {
-        // Don't error on missing Claude data, just set empty object
-        setClaudeSessions({});
-      }
-    } catch (error) {
-      console.error("Failed to fetch Claude sessions:", error);
-      // Set empty object on error so UI doesn't break
-      setClaudeSessions({});
-    }
-  };
-
-  const fetchRepositories = async () => {
-    setReposLoading(true);
-    try {
-      const response = await fetch("/v1/git/github/repos");
-      if (response.ok) {
-        const data = await response.json();
-        setRepositories(data);
-      }
-    } catch (error) {
-      console.error("Failed to fetch repositories:", error);
-    } finally {
-      setReposLoading(false);
-    }
-  };
-
-  const fetchActiveSessions = async () => {
-    try {
-      const response = await fetch("/v1/sessions/active");
-      if (response.ok) {
-        const data = await response.json();
-        setActiveSessions(data || {});
-      }
-    } catch (error) {
-      console.error("Failed to fetch active sessions:", error);
-      setActiveSessions({});
-    }
-  };
-
-  const checkConflicts = async () => {
-    if (worktrees.length === 0) return;
-    
-    const syncConflictPromises = worktrees.map(async (worktree) => {
-      try {
-        const response = await fetch(`/v1/git/worktrees/${worktree.id}/sync/check`);
-        if (response.ok) {
-          const data = await response.json();
-          return { worktreeId: worktree.id, data };
-        }
-      } catch (error) {
-        console.error(`Failed to check sync conflicts for ${worktree.id}:`, error);
-      }
-      return { worktreeId: worktree.id, data: null };
-    });
-
-    const mergeConflictPromises = worktrees.map(async (worktree) => {
-      // Only check merge conflicts for local repos
-      if (!worktree.repo_id.startsWith("local/")) {
-        return { worktreeId: worktree.id, data: null };
-      }
-      
-      try {
-        const response = await fetch(`/v1/git/worktrees/${worktree.id}/merge/check`);
-        if (response.ok) {
-          const data = await response.json();
-          return { worktreeId: worktree.id, data };
-        }
-      } catch (error) {
-        console.error(`Failed to check merge conflicts for ${worktree.id}:`, error);
-      }
-      return { worktreeId: worktree.id, data: null };
-    });
-
-    const [syncResults, mergeResults] = await Promise.all([
-      Promise.all(syncConflictPromises),
-      Promise.all(mergeConflictPromises)
-    ]);
-
-    // Update sync conflicts state
-    const newSyncConflicts: Record<string, any> = {};
-    syncResults.forEach(({ worktreeId, data }) => {
-      if (data) {
-        newSyncConflicts[worktreeId] = data;
-      }
-    });
-    setSyncConflicts(newSyncConflicts);
-
-    // Update merge conflicts state
-    const newMergeConflicts: Record<string, any> = {};
-    mergeResults.forEach(({ worktreeId, data }) => {
-      if (data) {
-        newMergeConflicts[worktreeId] = data;
-      }
-    });
-    setMergeConflicts(newMergeConflicts);
-  };
 
   const handleCheckout = async (url: string) => {
     setLoading(true);
     try {
-      // Handle local repositories (format: local/dirname)
-      if (url.startsWith("local/")) {
-        const parts = url.split("/");
-        if (parts.length >= 2) {
-          // Format: local/dirname -> send as org=local, repo=dirname
-          const response = await fetch(`/v1/git/checkout/${parts[0]}/${parts[1]}`, {
-            method: "POST",
-          });
-          if (response.ok) {
-            fetchGitStatus();
-            fetchWorktrees();
-            fetchActiveSessions();
-            toast.success("Local repository checked out successfully");
-          } else {
-            const errorData = await response.json();
-            console.error("Failed to checkout local repository:", errorData);
-            setErrorAlert({
-              open: true,
-              title: "Checkout Failed",
-              description: `Failed to checkout local repository: ${errorData.error || 'Unknown error'}`
-            });
-          }
-        }
-      } else if (url.startsWith("https://github.com/")) {
-        // Handle regular GitHub repos
-        const urlParts = url.replace("https://github.com/", "").split("/");
-        if (urlParts.length >= 2) {
-          const [org, repoWithGit] = urlParts;
-          // Remove .git extension if present
-          const repo = repoWithGit.replace(/\.git$/, "");
-          const response = await fetch(`/v1/git/checkout/${org}/${repo}`, {
-            method: "POST",
-          });
-          if (response.ok) {
-            fetchGitStatus();
-            fetchWorktrees();
-            fetchActiveSessions();
-            toast.success("Repository checked out successfully");
-          } else {
-            const errorData = await response.json();
-            console.error("Failed to checkout repository:", errorData);
-            setErrorAlert({
-              open: true,
-              title: "Checkout Failed",
-              description: `Failed to checkout repository: ${errorData.error || 'Unknown error'}`
-            });
-          }
-        }
-      } else {
-        console.error("Unknown URL format:", url);
+      const parsedUrl = parseGitUrl(url);
+      if (!parsedUrl) {
         setErrorAlert({
           open: true,
           title: "Invalid URL",
           description: `Unknown repository URL format: ${url}`
+        });
+        return;
+      }
+
+      const { org, repo } = parsedUrl;
+      const response = await fetch(`/v1/git/checkout/${org}/${repo}`, {
+        method: "POST",
+      });
+      
+      if (response.ok) {
+        refreshAll();
+        const message = parsedUrl.type === "local" 
+          ? "Local repository checked out successfully"
+          : "Repository checked out successfully";
+        toast.success(message);
+      } else {
+        const errorData = await response.json();
+        console.error("Failed to checkout repository:", errorData);
+        setErrorAlert({
+          open: true,
+          title: "Checkout Failed",
+          description: `Failed to checkout repository: ${errorData.error || 'Unknown error'}`
         });
       }
     } catch (error) {
@@ -359,176 +118,35 @@ function GitPage() {
 
   const deleteWorktree = async (id: string) => {
     try {
-      const response = await fetch(`/v1/git/worktrees/${id}`, {
-        method: "DELETE",
-      });
-      if (response.ok) {
-        fetchWorktrees();
-        fetchActiveSessions();
-      }
+      await gitApi.deleteWorktree(id);
+      fetchWorktrees();
+      fetchActiveSessions();
     } catch (error) {
       console.error("Failed to delete worktree:", error);
     }
   };
 
-  const copyRemoteCommand = (url: string) => {
-    const command = `git remote add catnip ${url} && git fetch catnip`;
-    navigator.clipboard.writeText(command);
-    toast.success("Command copied to clipboard");
-  };
 
-  const handleMergeConflict = (errorData: any, operation: string) => {
-    if (errorData.error === "merge_conflict") {
-      const worktreeName = errorData.worktree_name;
-      const conflictFiles = errorData.conflict_files || [];
-      const sessionId = encodeURIComponent(worktreeName);
-      const terminalUrl = `/terminal/${sessionId}`;
-      
-      const conflictText = conflictFiles.length > 0 
-        ? `Conflicts in: ${conflictFiles.join(", ")}`
-        : "Multiple files have conflicts";
-
-      const claudePrompt = `I have a merge conflict during a ${operation} operation. ${conflictText}. Please help me resolve these conflicts by examining the files, understanding the conflicting changes, and providing a resolution strategy.`;
-
-      setErrorAlert({
-        open: true,
-        title: `Merge Conflict in ${worktreeName}`,
-        description: `${conflictText}
-
-Open terminal to resolve: ${terminalUrl}
-
-Suggested Claude prompt: "${claudePrompt}"`
-      });
-      return true;
-    }
-    return false;
-  };
 
   const syncWorktree = async (id: string) => {
-    try {
-      const response = await fetch(`/v1/git/worktrees/${id}/sync`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ strategy: "rebase" }),
-      });
-      if (response.ok) {
-        fetchWorktrees();
-        // Show success feedback
-        toast.success(`Successfully synced worktree`);
-      } else {
-        const errorData = await response.json();
-        if (!handleMergeConflict(errorData, "sync")) {
-          setErrorAlert({
-            open: true,
-            title: "Sync Failed",
-            description: `Failed to sync worktree: ${errorData.error}`
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Failed to sync worktree:", error);
-      setErrorAlert({
-        open: true,
-        title: "Sync Failed",
-        description: `Failed to sync worktree: ${error}`
-      });
+    const success = await gitApi.syncWorktree(id, { setErrorAlert });
+    if (success) {
+      fetchWorktrees();
     }
   };
 
   const mergeWorktreeToMain = async (id: string, worktreeName: string, squash: boolean = true) => {
-    try {
-      const response = await fetch(`/v1/git/worktrees/${id}/merge`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ squash }),
-      });
-      if (response.ok) {
-        fetchWorktrees();
-        fetchGitStatus();
-        const mergeType = squash ? "squash merged" : "merged";
-        toast.success(`Successfully ${mergeType} ${worktreeName} to main branch`);
-      } else {
-        const errorData = await response.json();
-        if (!handleMergeConflict(errorData, "merge")) {
-          setErrorAlert({
-            open: true,
-            title: "Merge Failed",
-            description: `Failed to merge worktree: ${errorData.error}`
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Failed to merge worktree:", error);
-      setErrorAlert({
-        open: true,
-        title: "Merge Failed",
-        description: `Failed to merge worktree: ${error}`
-      });
+    const success = await gitApi.mergeWorktree(id, worktreeName, squash, { setErrorAlert });
+    if (success) {
+      fetchWorktrees();
+      fetchGitStatus();
     }
   };
 
   const createWorktreePreview = async (id: string, branchName: string) => {
-    try {
-      const response = await fetch(`/v1/git/worktrees/${id}/preview`, {
-        method: "POST",
-      });
-      if (response.ok) {
-        const previewBranch = `preview/${branchName}`;
-        const command = `git checkout ${previewBranch}`;
-
-        // Custom toast with clickable copy functionality
-        toast.success(
-          <div className="flex items-center gap-2 w-full">
-            <div className="flex-1">
-              <div className="font-medium">Preview branch created!</div>
-              <div className="text-sm text-muted-foreground mt-1">
-                Run: <code className="bg-muted px-1 py-0.5 rounded text-xs">{command}</code>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigator.clipboard.writeText(command);
-
-                // Show brief success feedback
-                const button = e.currentTarget;
-                const originalContent = button.innerHTML;
-                button.innerHTML = '<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
-
-                setTimeout(() => {
-                  button.innerHTML = originalContent;
-                }, 1000);
-              }}
-              className="p-1 hover:bg-muted rounded transition-colors"
-              title="Copy command to clipboard"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
-          </div>,
-          {
-            duration: 8000,
-          }
-        );
-      } else {
-        const errorData = await response.json();
-        setErrorAlert({
-          open: true,
-          title: "Preview Failed",
-          description: `Failed to create preview: ${errorData.error}`
-        });
-      }
-    } catch (error) {
-      console.error("Failed to create preview:", error);
-      setErrorAlert({
-        open: true,
-        title: "Preview Failed",
-        description: `Failed to create preview: ${error}`
-      });
+    const success = await gitApi.createWorktreePreview(id, { setErrorAlert });
+    if (success) {
+      showPreviewToast(branchName);
     }
   };
 
@@ -536,20 +154,6 @@ Suggested Claude prompt: "${claudePrompt}"`
     setOpenDiffWorktreeId(prev => prev === worktreeId ? null : worktreeId);
   };
 
-  useEffect(() => {
-    fetchGitStatus();
-    fetchWorktrees();
-    fetchRepositories();
-    fetchClaudeSessions();
-    fetchActiveSessions();
-  }, []);
-
-  useEffect(() => {
-    // Check for conflicts when worktrees change
-    if (worktrees.length > 0) {
-      checkConflicts();
-    }
-  }, [worktrees]);
 
   return (
     <div className="container mx-auto px-4 py-6 space-y-6">
@@ -570,263 +174,43 @@ Suggested Claude prompt: "${claudePrompt}"`
           {worktrees.length > 0 ? (
             <div className="space-y-2">
               {worktrees.map((worktree) => (
-                <div key={worktree.id} className="space-y-0">
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium">{worktree.name}</span>
-                      {activeSessions[worktree.path] && (
-                        <div
-                          className="w-2 h-2 bg-green-500 rounded-full animate-pulse"
-                          title="Active session running"
-                        />
-                      )}
-                      <Badge variant="outline">
-                        {worktree.repo_id}@{worktree.source_branch || "unknown"}
-                      </Badge>
-                      {worktree.is_dirty ? (
-                        <Badge variant="destructive">Dirty</Badge>
-                      ) : (
-                        <Badge
-                          variant="secondary"
-                          className="text-xs bg-green-100 text-green-800 border-green-200"
-                        >
-                          Clean
-                        </Badge>
-                      )}
-                      {worktree.commit_count > 0 && (
-                        <Badge variant="secondary">
-                          +{worktree.commit_count} commits
-                        </Badge>
-                      )}
-                      {worktree.commits_behind > 0 && (
-                        <Badge variant="outline" className="border-orange-200 text-orange-800 bg-orange-50">
-                          {worktree.commits_behind} behind
-                          {syncConflicts[worktree.id]?.has_conflicts && " ⚠️"}
-                        </Badge>
-                      )}
-                      {(syncConflicts[worktree.id]?.has_conflicts || mergeConflicts[worktree.id]?.has_conflicts) && (
-                        <Badge variant="outline" className="border-red-200 text-red-800 bg-red-50">
-                          Conflicts detected
-                        </Badge>
-                      )}
-                      {claudeSessions[worktree.path] && (
-                        <>
-                          <Badge variant="secondary" className="text-xs">
-                            {claudeSessions[worktree.path].turnCount} turns
-                          </Badge>
-                          {claudeSessions[worktree.path].lastCost > 0 && (
-                            <Badge variant="secondary" className="text-xs">
-                              $
-                              {claudeSessions[worktree.path].lastCost.toFixed(
-                                4
-                              )}
-                            </Badge>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <Link
-                        to="/terminal/$sessionId"
-                        params={{ sessionId: worktree.name }}
-                        search={{ agent: undefined }}
-                        className="cursor-pointer hover:text-primary underline-offset-4 hover:underline"
-                      >
-                        {worktree.path}
-                      </Link>
-                      {claudeSessions[worktree.path] ? (
-                        <div className="space-y-1">
-                          {claudeSessions[worktree.path].sessionStartTime &&
-                          !claudeSessions[worktree.path].isActive ? (
-                            // Finished session (has start time and is not active)
-                            <p>
-                              Finished:{" "}
-                              {getRelativeTime(
-                                claudeSessions[worktree.path].sessionEndTime ||
-                                  claudeSessions[worktree.path].sessionStartTime
-                              )}{" "}
-                              • Lasted:{" "}
-                              {getDuration(
-                                claudeSessions[worktree.path].sessionStartTime,
-                                claudeSessions[worktree.path].sessionEndTime ||
-                                  claudeSessions[worktree.path].sessionStartTime
-                              )}
-                            </p>
-                          ) : claudeSessions[worktree.path].sessionStartTime &&
-                            claudeSessions[worktree.path].isActive ? (
-                            // Active session with timing data
-                            <p>
-                              Running:{" "}
-                              {getDuration(
-                                claudeSessions[worktree.path].sessionStartTime,
-                                new Date()
-                              )}
-                            </p>
-                          ) : claudeSessions[worktree.path].isActive ? (
-                            // Active session without timestamp data
-                            <p>Running: recently started</p>
-                          ) : (
-                            // Completed session without timestamp data
-                            <p>Session completed (timing data unavailable)</p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-1">
-                          <p className="text-xs text-muted-foreground">
-                            No Claude sessions
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Link
-                      to="/terminal/$sessionId"
-                      params={{ sessionId: worktree.name }}
-                      search={{ agent: "claude" }}
-                    >
-                      <Button variant="outline" size="sm" asChild>
-                        <span>Vibe</span>
-                      </Button>
-                    </Link>
-{(worktree.is_dirty || worktree.commit_count > 0) && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => toggleDiff(worktree.id)}
-                        title="View diff against source branch"
-                        className={
-                          openDiffWorktreeId === worktree.id
-                            ? "text-blue-600 border-blue-200 bg-blue-50"
-                            : "text-gray-600 border-gray-200 hover:bg-gray-50"
-                        }
-                      >
-                        <FileText size={16} />
-                      </Button>
-                    )}
+                <WorktreeRow
+                  key={worktree.id}
+                  worktree={worktree}
+                  activeSessions={activeSessions}
+                  claudeSessions={claudeSessions}
+                  syncConflicts={syncConflicts}
+                  mergeConflicts={mergeConflicts}
+                  openDiffWorktreeId={openDiffWorktreeId}
+                  onToggleDiff={toggleDiff}
+                  onSync={syncWorktree}
+                  onMerge={(id, name) => {
+                    setConfirmDialog({
+                      open: true,
+                      title: "Merge to Main",
+                      description: mergeConflicts[id]?.has_conflicts
+                        ? `⚠️ Warning: This merge will cause conflicts in ${mergeConflicts[id]?.conflict_files?.join(", ") || "multiple files"}. Merge ${worktree.commit_count} commits from "${name}" back to the ${worktree.source_branch} branch anyway?`
+                        : `Merge ${worktree.commit_count} commits from "${name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
+                      onConfirm: () => mergeWorktreeToMain(id, name),
+                      variant: mergeConflicts[id]?.has_conflicts ? "destructive" : "default",
+                    });
+                  }}
+                  onCreatePreview={createWorktreePreview}
+                  onDelete={deleteWorktree}
+                  onConfirmDelete={(id, name, isDirty, commitCount) => {
+                    const changesList = [];
+                    if (isDirty) changesList.push("uncommitted changes");
+                    if (commitCount > 0) changesList.push(`${commitCount} commits`);
                     
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="relative">
-                          <MoreHorizontal size={16} />
-                          {((syncConflicts[worktree.id]?.has_conflicts || mergeConflicts[worktree.id]?.has_conflicts) || 
-                            (worktree.commits_behind > 0 && syncConflicts[worktree.id]?.has_conflicts)) && (
-                            <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
-                          )}
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem asChild>
-                          <Link
-                            to="/terminal/$sessionId"
-                            params={{ sessionId: worktree.name }}
-                            className="cursor-pointer"
-                          >
-                            <Terminal size={16} />
-                            Open Terminal
-                          </Link>
-                        </DropdownMenuItem>
-                        
-                        <DropdownMenuSeparator />
-                        
-                        {worktree.commits_behind > 0 && (
-                          <DropdownMenuItem
-                            onClick={() => syncWorktree(worktree.id)}
-                            className={
-                              syncConflicts[worktree.id]?.has_conflicts
-                                ? "text-red-600"
-                                : "text-orange-600"
-                            }
-                          >
-                            {syncConflicts[worktree.id]?.has_conflicts ? (
-                              <AlertTriangle size={16} />
-                            ) : (
-                              <RefreshCw size={16} />
-                            )}
-                            {syncConflicts[worktree.id]?.has_conflicts
-                              ? `Sync (${worktree.commits_behind} commits, conflicts)`
-                              : `Sync ${worktree.commits_behind} commits`
-                            }
-                          </DropdownMenuItem>
-                        )}
-                        
-                        {worktree.repo_id.startsWith("local/") && (
-                          <DropdownMenuItem
-                            onClick={() => createWorktreePreview(worktree.id, worktree.branch)}
-                            className="text-purple-600"
-                          >
-                            <Eye size={16} />
-                            Create Preview
-                          </DropdownMenuItem>
-                        )}
-                        
-                        {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setConfirmDialog({
-                                open: true,
-                                title: "Merge to Main",
-                                description: mergeConflicts[worktree.id]?.has_conflicts
-                                  ? `⚠️ Warning: This merge will cause conflicts in ${mergeConflicts[worktree.id]?.conflict_files?.join(", ") || "multiple files"}. Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch anyway?`
-                                  : `Merge ${worktree.commit_count} commits from "${worktree.name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
-                                onConfirm: () => mergeWorktreeToMain(worktree.id, worktree.name),
-                                variant: mergeConflicts[worktree.id]?.has_conflicts ? "destructive" : "default",
-                              });
-                            }}
-                            className={
-                              mergeConflicts[worktree.id]?.has_conflicts
-                                ? "text-red-600"
-                                : "text-blue-600"
-                            }
-                          >
-                            {mergeConflicts[worktree.id]?.has_conflicts ? (
-                              <AlertTriangle size={16} />
-                            ) : (
-                              <GitMerge size={16} />
-                            )}
-                            {mergeConflicts[worktree.id]?.has_conflicts
-                              ? `Merge ${worktree.commit_count} commits (conflicts)`
-                              : `Merge ${worktree.commit_count} commits`
-                            }
-                          </DropdownMenuItem>
-                        )}
-                        
-                        <DropdownMenuSeparator />
-                        
-                        <DropdownMenuItem
-                          onClick={() => {
-                            if (worktree.is_dirty || worktree.commit_count > 0) {
-                              const changesList = [];
-                              if (worktree.is_dirty) changesList.push("uncommitted changes");
-                              if (worktree.commit_count > 0) changesList.push(`${worktree.commit_count} commits`);
-                              
-                              setConfirmDialog({
-                                open: true,
-                                title: "Delete Worktree",
-                                description: `Delete worktree "${worktree.name}"? This worktree has ${changesList.join(" and ")}. This action cannot be undone.`,
-                                onConfirm: () => deleteWorktree(worktree.id),
-                                variant: "destructive",
-                              });
-                            } else {
-                              deleteWorktree(worktree.id);
-                            }
-                          }}
-                          variant="destructive"
-                        >
-                          <Trash2 size={16} />
-                          Delete Worktree
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  </div>
-                  <DiffViewer
-                    worktreeId={worktree.id}
-                    isOpen={openDiffWorktreeId === worktree.id}
-                    onClose={() => setOpenDiffWorktreeId(null)}
-                  />
-                </div>
+                    setConfirmDialog({
+                      open: true,
+                      title: "Delete Worktree",
+                      description: `Delete worktree "${name}"? This worktree has ${changesList.join(" and ")}. This action cannot be undone.`,
+                      onConfirm: () => deleteWorktree(id),
+                      variant: "destructive",
+                    });
+                  }}
+                />
               ))}
             </div>
           ) : (
@@ -899,12 +283,7 @@ Suggested Claude prompt: "${claudePrompt}"`
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                fetchGitStatus();
-                fetchWorktrees();
-                fetchClaudeSessions();
-                fetchActiveSessions();
-              }}
+              onClick={refreshAll}
             >
               <RefreshCw className="h-4 w-4" />
             </Button>
