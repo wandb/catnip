@@ -58,7 +58,7 @@ export async function getWorktreeDiff(worktreeId: string): Promise<WorktreeDiffR
 export async function generateWorktreeSummary(worktreeId: string): Promise<WorktreeSummary> {
   const diffData = await getWorktreeDiff(worktreeId);
 
-  if (!diffData) {
+  if (!diffData?.file_diffs) {
     return {
       worktreeId,
       title: '',
@@ -141,6 +141,10 @@ Format the response as a proper pull request description with clear sections.`,
 // Create a concise diff summary for the AI
 function createDiffSummary(diffData: WorktreeDiffResponse): string {
   const { file_diffs, total_files, summary } = diffData;
+
+  if (!file_diffs) {
+    return summary;
+  }
   
   let diffSummary = `Summary: ${summary}\n`;
   diffSummary += `Total files changed: ${total_files}\n\n`;
