@@ -155,6 +155,8 @@ function GitPage() {
     description: "",
   });
 
+  const [prLoading, setPrLoading] = useState(false);
+
   const fetchGitStatus = async () => {
     try {
       const response = await fetch("/v1/git/status");
@@ -566,6 +568,7 @@ Suggested Claude prompt: "${claudePrompt}"`
   };
 
   const createPullRequest = async () => {
+    setPrLoading(true);
     try {
       const response = await fetch(`/v1/git/worktrees/${prDialog.worktreeId}/pr`, {
         method: "POST",
@@ -629,6 +632,8 @@ Suggested Claude prompt: "${claudePrompt}"`
         title: "Pull Request Failed",
         description: `Failed to create pull request: ${error}`
       });
+    } finally {
+      setPrLoading(false);
     }
   };
 
@@ -1164,7 +1169,16 @@ Suggested Claude prompt: "${claudePrompt}"`
             <Button variant="outline" onClick={() => setPrDialog({ ...prDialog, open: false })}>
               Cancel
             </Button>
-            <Button onClick={createPullRequest}>Create PR</Button>
+            <Button onClick={createPullRequest} disabled={prLoading}>
+              {prLoading ? (
+                <>
+                  <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                  Creating PR...
+                </>
+              ) : (
+                "Create PR"
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
