@@ -739,7 +739,6 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	return branches, nil
 }
 
-
 // DeleteWorktree removes a worktree
 func (s *GitService) DeleteWorktree(worktreeID string) error {
 	s.mu.Lock()

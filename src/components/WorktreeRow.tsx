@@ -21,7 +21,7 @@ import {
   Terminal, 
   Trash2 
 } from "lucide-react";
-import { type Worktree, type WorktreeDiffStats } from "@/lib/git-api";
+import { type Worktree, type WorktreeDiffStats, type PullRequestInfo } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 import { getRelativeTime, getDuration } from "@/lib/git-utils";
 
@@ -31,6 +31,7 @@ interface ClaudeSession {
   isActive: boolean;
   turnCount: number;
   lastCost: number;
+  header?: string;
 }
 
 interface ConflictStatus {
@@ -51,13 +52,13 @@ interface WorktreeRowProps {
     branchName: string;
     title: string;
     description: string;
+    isUpdate: boolean;
   }) => void;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
   onMerge: (id: string, name: string) => void;
   onCreatePreview: (id: string, branch: string) => void;
   onConfirmDelete: (id: string, name: string, isDirty: boolean, commitCount: number) => void;
-  onRegenerateSummary?: (worktreeId: string) => void;
 }
 
 interface WorktreeHeaderProps {
@@ -123,37 +124,42 @@ function WorktreeClaudeStatus({ claudeSession }: WorktreeClaudeStatusProps) {
     return <p className="text-xs text-muted-foreground">No Claude sessions</p>;
   }
 
-  if (claudeSession.sessionStartTime && !claudeSession.isActive) {
-    // Finished session
-    return (
-      <p>
-        Finished: {getRelativeTime(claudeSession.sessionEndTime ?? claudeSession.sessionStartTime)} • 
-        Lasted: {getDuration(claudeSession.sessionStartTime, claudeSession.sessionEndTime ?? claudeSession.sessionStartTime)}
+  const sessionStatusText = (() => {
+    if (claudeSession.sessionStartTime && !claudeSession.isActive) {
+      // Finished session
+      return `Finished: ${getRelativeTime(claudeSession.sessionEndTime ?? claudeSession.sessionStartTime)} • Lasted: ${getDuration(claudeSession.sessionStartTime, claudeSession.sessionEndTime ?? claudeSession.sessionStartTime)}`;
+    } else if (claudeSession.sessionStartTime && claudeSession.isActive) {
+      // Active session with timing
+      return `Running: ${getDuration(claudeSession.sessionStartTime, new Date())}`;
+    } else if (claudeSession.isActive) {
+      // Active session without timestamp
+      return "Running: recently started";
+    } else {
+      // Completed session without timestamp
+      return "Completed session";
+    }
+  })();
+
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">
+        {sessionStatusText}
       </p>
-    );
-  } else if (claudeSession.sessionStartTime && claudeSession.isActive) {
-    // Active session with timing
-    return (
-      <p>
-        Running: {getDuration(claudeSession.sessionStartTime, new Date())}
-      </p>
-    );
-  } else if (claudeSession.isActive) {
-    // Active session without timestamp
-    return <p>Running: recently started</p>;
-  } else {
-    // Completed session without timestamp
-    return <p>Completed session</p>;
-  }
+      {claudeSession.header && (
+        <p className="text-xs font-medium text-foreground mt-2" title={claudeSession.header}>
+          {claudeSession.header}
+        </p>
+      )}
+    </div>
+  );
 }
 
 interface WorktreeSummaryStatusProps {
   worktree: Worktree;
   summary?: WorktreeSummary;
-  onRegenerateSummary?: (worktreeId: string) => void;
 }
 
-function WorktreeSummaryStatus({ worktree, summary, onRegenerateSummary }: WorktreeSummaryStatusProps) {
+function WorktreeSummaryStatus({ worktree, summary }: WorktreeSummaryStatusProps) {
   // Only show summary for local repos with more than 1 commit
   if (!worktree.repo_id.startsWith("local/") || worktree.commit_count <= 1) {
     return null;
@@ -187,21 +193,7 @@ function WorktreeSummaryStatus({ worktree, summary, onRegenerateSummary }: Workt
       );
     case 'error':
       return (
-        <div className="flex items-center gap-2 text-xs text-red-600">
-          <AlertTriangle className="h-3 w-3" />
-          <span>Summary generation failed</span>
-          {onRegenerateSummary && (
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                onRegenerateSummary(worktree.id);
-              }}
-              className="ml-1 text-xs underline hover:no-underline"
-            >
-              Retry
-            </button>
-          )}
-        </div>
+        <div></div>
       );
     default:
       return null;
@@ -213,6 +205,7 @@ interface WorktreeActionsProps {
   mergeConflicts: Record<string, ConflictStatus>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   openDiffWorktreeId: string | null;
+  prStatus?: PullRequestInfo;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
   onMerge: (id: string, name: string) => void;
@@ -226,6 +219,7 @@ function WorktreeActions({
   mergeConflicts, 
   diffStats,
   openDiffWorktreeId, 
+  prStatus,
   onToggleDiff, 
   onSync, 
   onMerge, 
@@ -237,8 +231,7 @@ function WorktreeActions({
     onConfirmDelete(worktree.id, worktree.name, worktree.is_dirty, worktree.commit_count);
   };
 
-  const diffStat = diffStats[worktree.id];
-  const hasDiff = (diffStat && (diffStat.additions > 0 || diffStat.deletions > 0)) || worktree.commit_count > 0;
+  const hasDiff = (diffStats[worktree.id]?.file_diffs?.length ?? 0) > 0;
 
   return (
     <div className="flex items-center gap-2">
@@ -302,10 +295,15 @@ function WorktreeActions({
           {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
             <DropdownMenuItem
               onClick={() => onOpenPrDialog(worktree.id, worktree.branch)}
-              className="text-green-600"
+              className={prStatus?.has_commits_ahead === false ? "text-muted-foreground" : "text-green-600"}
+              disabled={prStatus?.has_commits_ahead === false}
             >
               <GitMerge size={16} />
-              Create PR (GitHub)
+              {prStatus?.has_commits_ahead === false 
+                ? "No new commits" 
+                : prStatus?.exists 
+                  ? "Update PR (GitHub)" 
+                  : "Create PR (GitHub)"}
             </DropdownMenuItem>
           )}
           
@@ -342,6 +340,10 @@ function WorktreeActions({
   );
 }
 
+interface WorktreeRowPropsWithPR extends WorktreeRowProps {
+  prStatuses?: Record<string, PullRequestInfo | undefined>;
+}
+
 export function WorktreeRow({
   worktree,
   claudeSessions,
@@ -356,25 +358,39 @@ export function WorktreeRow({
   onMerge,
   onCreatePreview,
   onConfirmDelete,
-  onRegenerateSummary,
-}: WorktreeRowProps) {
+  prStatuses,
+}: WorktreeRowPropsWithPR) {
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = Boolean(syncConflicts[worktree.id]?.has_conflicts ?? mergeConflicts[worktree.id]?.has_conflicts);
   const summary = worktreeSummaries[worktree.id];
   const diffStat = diffStats[worktree.id];
+  const prStatus = prStatuses?.[worktree.id];
 
   const openPrDialog = (worktreeId: string, branchName: string) => {
-    // Use pre-generated summary if available
-    const defaultTitle = `Pull request from ${branchName}`;
-    const defaultDescription = `Automated pull request created from worktree ${branchName}`;
+    // Check if PR already exists
+    const isUpdate = prStatus?.exists ?? false;
+    
+    // Use pre-generated summary if available, or existing PR data if updating
+    const defaultTitle = isUpdate && prStatus?.title 
+      ? prStatus.title 
+      : summary?.status === 'completed' 
+        ? summary.title 
+        : `Pull request from ${branchName}`;
+    
+    const defaultDescription = isUpdate && prStatus?.body
+      ? prStatus.body
+      : summary?.status === 'completed' 
+        ? summary.summary 
+        : `Automated pull request created from worktree ${branchName}`;
     
     setPrDialog({
       open: true,
       worktreeId,
       branchName,
-      title: summary?.status === 'completed' ? summary.title : defaultTitle,
-      description: summary?.status === 'completed' ? summary.summary : defaultDescription,
+      title: defaultTitle,
+      description: defaultDescription,
+      isUpdate,
     });
   };
 
@@ -416,7 +432,6 @@ export function WorktreeRow({
             <WorktreeSummaryStatus 
               worktree={worktree} 
               summary={summary} 
-              onRegenerateSummary={onRegenerateSummary} 
             />
           </div>
         </div>
@@ -426,6 +441,7 @@ export function WorktreeRow({
           mergeConflicts={mergeConflicts}
           diffStats={diffStats}
           openDiffWorktreeId={openDiffWorktreeId}
+          prStatus={prStatus}
           onToggleDiff={onToggleDiff}
           onSync={onSync}
           onMerge={onMerge}

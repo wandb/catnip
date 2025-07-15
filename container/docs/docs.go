@@ -940,6 +940,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "xyz789-ghi012"
                 },
+                "header": {
+                    "description": "Header/title of the session from the Claude history",
+                    "type": "string",
+                    "example": "Fix bug in user authentication"
+                },
                 "isActive": {
                     "description": "Whether this session is currently active",
                     "type": "boolean",

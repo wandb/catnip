@@ -27,10 +27,30 @@ export interface Repository {
   fullName?: string;
 }
 
+interface FileDiff {
+  file_path: string;
+  change_type: string;
+  old_content?: string;
+  new_content?: string;
+  diff_text?: string;
+  is_expanded: boolean;
+}
+
 export interface WorktreeDiffStats {
-  additions: number;
-  deletions: number;
   summary: string;
+  file_diffs: FileDiff[];
+  total_files: number;
+  worktree_id: string;
+  worktree_name: string;
+  source_branch: string;
+  fork_commit: string;
+}
+
+export interface PullRequestInfo {
+  has_commits_ahead: boolean;
+  exists: boolean;
+  title?: string;
+  body?: string;
 }
 
 export interface ErrorHandler {
@@ -281,9 +301,13 @@ export const gitApi = {
       if (response.ok) {
         const data = await response.json();
         return {
-          additions: data.additions || 0,
-          deletions: data.deletions || 0,
-          summary: data.summary || ""
+          summary: data?.summary || "",
+          file_diffs: data?.file_diffs || [],
+          total_files: data?.total_files || 0,
+          worktree_id: data?.worktree_id || "",
+          worktree_name: data?.worktree_name || "",
+          source_branch: data?.source_branch || "",
+          fork_commit: data?.fork_commit || "",
         };
       }
       return null;

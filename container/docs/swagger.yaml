@@ -45,6 +45,10 @@ definitions:
         description: ID of the currently active session
         example: xyz789-ghi012
         type: string
+      header:
+        description: Header/title of the session from the Claude history
+        example: Fix bug in user authentication
+        type: string
       isActive:
         description: Whether this session is currently active
         example: true

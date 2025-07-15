@@ -52,7 +52,6 @@ function GitPage() {
     fetchWorktrees,
     fetchRepositories,
     fetchActiveSessions,
-    generateWorktreeSummaryForId,
     refreshAll,
     setLoading,
   } = useGitState();
@@ -313,7 +312,6 @@ function GitPage() {
                       variant: "destructive",
                     });
                   }}
-                  onRegenerateSummary={generateWorktreeSummaryForId}
                 />
               ))}
             </div>

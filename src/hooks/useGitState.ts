@@ -138,9 +138,7 @@ export function useGitState() {
 
   // Generate summaries for all qualifying worktrees
   const generateAllWorktreeSummaries = async () => {
-    console.log('generateAllWorktreeSummaries called with worktrees:', state.worktrees);
     const qualifyingWorktrees = state.worktrees.filter(shouldGenerateSummary);
-    console.log('Qualifying worktrees for summary generation:', qualifyingWorktrees);
     
     // Initialize pending summaries
     const pendingSummaries: Record<string, WorktreeSummary> = {};
