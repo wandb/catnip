@@ -15,17 +15,11 @@ run:
   allow-parallel-runners: true
 
 output:
-  # Colored output format
-  format: colored-line-number
-  
   # Print lines of code with issue
   print-issued-lines: true
   
   # Print linter name in the end of issue text
   print-linter-name: true
-  
-  # Make issues output unique by line
-  uniq-by-line: true
 
 linters:
   # Enable specific linters
@@ -44,12 +38,8 @@ linters:
     - gosec         # Security issues
     - unconvert     # Remove unnecessary type conversions
 
-  # Disable specific linters
-  disable:
-    - deadcode      # Deprecated, replaced by unused
-    - varcheck      # Deprecated, replaced by unused
-    - structcheck   # Deprecated, replaced by unused
-    - scopelint     # Deprecated, replaced by exportloopref
+  # Disable specific linters (removed deprecated ones)
+  disable: []
 
 issues:
   # Maximum issues count per one linter
@@ -94,27 +84,18 @@ linters-settings:
       - io.Copy(os.Stdout)
 
   gosimple:
-    # Select the Go version to target
-    go: "1.24"
-    
     # Sxxxx checks to disable
     checks: ["all"]
 
   staticcheck:
-    # Select the Go version to target
-    go: "1.24"
-    
     # Sxxxx checks to disable
     checks: ["all", "-SA1019"] # Disable deprecation warnings for now
 
   unused:
-    # Select the Go version to target
-    go: "1.24"
+    # Field alignment checks
+    field-writes-are-uses: true
 
   govet:
-    # Report about shadowed variables
-    check-shadowing: false
-    
     # Settings per analyzer
     settings:
       printf:
