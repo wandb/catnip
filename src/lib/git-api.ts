@@ -336,7 +336,7 @@ export const gitApi = {
     return { syncConflicts, mergeConflicts };
   },
 
-  async fetchAllDiffStats(worktrees: Worktree[]): Promise<Record<string, WorktreeDiffStats>> {
+  async fetchAllDiffStats(worktrees: Worktree[]): Promise<Record<string, WorktreeDiffStats | undefined>> {
     if (worktrees.length === 0) {
       return {};
     }

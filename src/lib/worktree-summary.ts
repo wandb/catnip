@@ -56,13 +56,16 @@ export async function getWorktreeDiff(worktreeId: string): Promise<WorktreeDiffR
 
 // Function to generate a summary from diff data
 export async function generateWorktreeSummary(worktreeId: string): Promise<WorktreeSummary> {
+  console.log('generateWorktreeSummary called for worktree:', worktreeId);
   const diffData = await getWorktreeDiff(worktreeId);
+
+  console.log('diffData', diffData);
   
   if (!diffData) {
     return {
       worktreeId,
-      title: 'Failed to generate summary',
-      summary: 'Unable to fetch diff data',
+      title: '',
+      summary: '',
       status: 'error',
       error: 'Failed to fetch diff data'
     };
@@ -74,7 +77,8 @@ export async function generateWorktreeSummary(worktreeId: string): Promise<Workt
     
     // Generate PR title with timeout and error handling
     const titleRequest = createCompletionRequest({
-      message: `Generate a concise, descriptive pull request title for these changes. The title should be 10 words or less and clearly indicate what was changed or added. Focus on the main feature or fix.
+      message: `Generate a concise, descriptive pull request title for these changes. The title should be 10 words or less and clearly indicate what was changed or added. Focus on the main feature or fix. 
+      Only return the title, no additional text or quotes.
 
 Changes in ${diffData.worktree_name}:
 ${diffSummary}
@@ -91,6 +95,8 @@ Return only the title, no additional text or quotes.`,
 2. Any especially notable implementation details
 3. Use bullet points for clarity
 
+!! Only return the description, no additional text or quotes. !!
+
 Changes in ${diffData.worktree_name}:
 ${diffSummary}
 
@@ -99,12 +105,11 @@ Format the response as a proper pull request description with clear sections.`,
       system: 'You are a helpful assistant that generates professional pull request descriptions based on code changes. Focus on being clear, concise, and informative.'
     });
 
-    // Generate both title and summary with Promise.allSettled for better error handling
     const [titleResult, summaryResult] = await Promise.allSettled([
       getCompletion({ request: titleRequest, cacheKey: `title-${worktreeId}` }),
       getCompletion({ request: summaryRequest, cacheKey: `summary-${worktreeId}` })
     ]);
-
+    
     // Handle results with fallbacks
     let title = diffData.worktree_name || 'Changes';
     let summary = '';
@@ -197,5 +202,5 @@ export function shouldGenerateSummary(worktree: {
   repo_id: string; 
   commit_count: number; 
 }): boolean {
-  return worktree.repo_id.startsWith("local/") && worktree.commit_count > 1;
+  return worktree.repo_id.startsWith("local/") && worktree.commit_count > 0;
 } 

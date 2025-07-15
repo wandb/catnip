@@ -12,7 +12,7 @@ export interface GitState {
   syncConflicts: Record<string, any>;
   mergeConflicts: Record<string, any>;
   worktreeSummaries: Record<string, WorktreeSummary>;
-  diffStats: Record<string, WorktreeDiffStats>;
+  diffStats: Record<string, WorktreeDiffStats | undefined>;
   loading: boolean;
   reposLoading: boolean;
 }
@@ -85,8 +85,12 @@ export function useGitState() {
   };
 
   const fetchDiffStats = async () => {
-    const diffStats = await gitApi.fetchAllDiffStats(state.worktrees);
-    setState(prev => ({ ...prev, diffStats }));
+    try {
+      const diffStats = await gitApi.fetchAllDiffStats(state.worktrees);
+      setState(prev => ({ ...prev, diffStats }));
+    } catch (error) {
+      console.error("Failed to fetch diff stats:", error);
+    }
   };
 
   // Generate summary for a specific worktree
@@ -134,7 +138,9 @@ export function useGitState() {
 
   // Generate summaries for all qualifying worktrees
   const generateAllWorktreeSummaries = async () => {
+    console.log('generateAllWorktreeSummaries called with worktrees:', state.worktrees);
     const qualifyingWorktrees = state.worktrees.filter(shouldGenerateSummary);
+    console.log('Qualifying worktrees for summary generation:', qualifyingWorktrees);
     
     // Initialize pending summaries
     const pendingSummaries: Record<string, WorktreeSummary> = {};

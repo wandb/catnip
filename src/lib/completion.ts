@@ -121,6 +121,7 @@ function clearCompletionCache(): void {
 
 // Direct usage function
 export async function getCompletion(config: CompletionConfig): Promise<CompletionResponse> {
+  console.log('getCompletion called with config:', config);
   const { request, ignoreCache = false, cacheKey } = config;
   
   // Check cache first (unless ignored)

@@ -43,7 +43,7 @@ interface WorktreeRowProps {
   syncConflicts: Record<string, ConflictStatus>;
   mergeConflicts: Record<string, ConflictStatus>;
   worktreeSummaries: Record<string, WorktreeSummary>;
-  diffStats: Record<string, WorktreeDiffStats>;
+  diffStats: Record<string, WorktreeDiffStats | undefined>;
   openDiffWorktreeId: string | null;
   setPrDialog: (dialog: {
     open: boolean;
@@ -211,6 +211,7 @@ function WorktreeSummaryStatus({ worktree, summary, onRegenerateSummary }: Workt
 interface WorktreeActionsProps {
   worktree: Worktree;
   mergeConflicts: Record<string, ConflictStatus>;
+  diffStats: Record<string, WorktreeDiffStats | undefined>;
   openDiffWorktreeId: string | null;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
@@ -223,6 +224,7 @@ interface WorktreeActionsProps {
 function WorktreeActions({ 
   worktree, 
   mergeConflicts, 
+  diffStats,
   openDiffWorktreeId, 
   onToggleDiff, 
   onSync, 
@@ -235,17 +237,22 @@ function WorktreeActions({
     onConfirmDelete(worktree.id, worktree.name, worktree.is_dirty, worktree.commit_count);
   };
 
+  const diffStat = diffStats[worktree.id];
+  const hasDiff = (diffStat && (diffStat.additions > 0 || diffStat.deletions > 0)) || worktree.commit_count > 0;
+
   return (
     <div className="flex items-center gap-2">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => onToggleDiff(worktree.id)}
-        className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
-      >
-        <FileText size={16} />
-        View Diff
-      </Button>
+      {hasDiff && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onToggleDiff(worktree.id)}
+          className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
+        >
+          <FileText size={16} />
+          View Diff
+        </Button>
+      )}
       
       <Link
         to="/terminal/$sessionId"
@@ -417,6 +424,7 @@ export function WorktreeRow({
         <WorktreeActions
           worktree={worktree}
           mergeConflicts={mergeConflicts}
+          diffStats={diffStats}
           openDiffWorktreeId={openDiffWorktreeId}
           onToggleDiff={onToggleDiff}
           onSync={onSync}
