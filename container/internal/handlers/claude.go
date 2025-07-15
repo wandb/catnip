@@ -1,11 +1,11 @@
 package handlers
 
 import (
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
-	
-	// Import models for swagger documentation
-	_ "github.com/vanpelt/catnip/internal/models"
 )
 
 // ClaudeHandler handles Claude Code session-related API endpoints
@@ -35,20 +35,20 @@ func (h *ClaudeHandler) GetWorktreeSessionSummary(c *fiber.Ctx) error {
 			"error": "worktree_path query parameter is required",
 		})
 	}
-	
+
 	summary, err := h.claudeService.GetWorktreeSessionSummary(worktreePath)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	if summary == nil {
 		return c.Status(404).JSON(fiber.Map{
 			"error": "No Claude session found for this worktree",
 		})
 	}
-	
+
 	return c.JSON(summary)
 }
 
@@ -66,7 +66,7 @@ func (h *ClaudeHandler) GetAllWorktreeSessionSummaries(c *fiber.Ctx) error {
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(summaries)
 }
 
@@ -85,20 +85,66 @@ func (h *ClaudeHandler) GetSessionByUUID(c *fiber.Ctx) error {
 			"error": "session UUID is required",
 		})
 	}
-	
+
 	sessionData, err := h.claudeService.GetSessionByUUID(sessionUUID)
 	if err != nil {
 		if err.Error() == "session not found: "+sessionUUID {
 			return c.Status(404).JSON(fiber.Map{
 				"error": "Session not found",
-				"uuid": sessionUUID,
+				"uuid":  sessionUUID,
 			})
 		}
 		return c.Status(500).JSON(fiber.Map{
-			"error": "Failed to get session data",
+			"error":   "Failed to get session data",
 			"details": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(sessionData)
+}
+
+// GetClaudeCompletion handles requests to get completions from the Anthropic API
+// @Summary Get Claude completion
+// @Description Sends a message to Claude and returns the completion response
+// @Tags claude
+// @Accept json
+// @Produce json
+// @Param request body models.CompletionRequest true "Completion request"
+// @Success 200 {object} models.CompletionResponse
+// @Failure 400 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /v1/claude/completion [post]
+func (h *ClaudeHandler) GetClaudeCompletion(c *fiber.Ctx) error {
+	var req models.CompletionRequest
+
+	// Parse the request body
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Validate required fields
+	if req.Message == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Message is required",
+		})
+	}
+
+	// Call the service to get completion
+	resp, err := h.claudeService.GetCompletion(&req)
+	if err != nil {
+		// Handle specific error types
+		if strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "API key not configured",
+			})
+		}
+
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(resp)
 }

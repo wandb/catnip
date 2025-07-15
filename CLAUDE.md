@@ -116,3 +116,99 @@ The application includes an automatic port detection system with iframe preview 
 - PostMessage communication for height updates and security
 - ResizeObserver and MutationObserver for dynamic content changes
 
+# Claude Completion API
+
+## Setup
+
+Set the API key environment variable:
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key-here"
+```
+
+## Endpoint
+
+**POST** `/v1/claude/completion`
+
+## Request
+
+```json
+{
+  "message": "Your message to Claude",
+  "max_tokens": 1024,
+  "model": "claude-3-5-sonnet-20241022",
+  "system": "Optional system prompt",
+  "context": [
+    {
+      "role": "user",
+      "content": "Previous message"
+    },
+    {
+      "role": "assistant", 
+      "content": "Previous response"
+    }
+  ]
+}
+```
+
+## Response
+
+```json
+{
+  "response": "Claude's response text",
+  "model": "claude-3-5-sonnet-20241022",
+  "usage": {
+    "input_tokens": 15,
+    "output_tokens": 25,
+    "total_tokens": 40
+  },
+  "truncated": false
+}
+```
+
+## Examples
+
+### Basic request
+```bash
+curl -X POST http://localhost:8080/v1/claude/completion \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello, how are you?"}'
+```
+
+### With context
+```bash
+curl -X POST http://localhost:8080/v1/claude/completion \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What did we discuss?",
+    "context": [
+      {"role": "user", "content": "Tell me about Go"},
+      {"role": "assistant", "content": "Go is a programming language..."}
+    ]
+  }'
+```
+
+### With system prompt
+```bash
+curl -X POST http://localhost:8080/v1/claude/completion \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Write a function to reverse a string",
+    "system": "You are a helpful programming assistant",
+    "max_tokens": 500
+  }'
+```
+
+## Error Responses
+
+```json
+{
+  "error": "Error message"
+}
+```
+
+Common errors:
+- `API key not configured` - Set ANTHROPIC_API_KEY environment variable
+- `Message is required` - Include a message in the request
+- `API error: [details]` - Check your API key and request format
+

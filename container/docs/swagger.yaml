@@ -88,6 +88,78 @@ definitions:
         example: /workspace/my-project
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_models.CompletionMessage:
+    description: A message in the conversation context
+    properties:
+      content:
+        description: Content of the message
+        example: What is the weather like?
+        type: string
+      role:
+        description: Role of the message sender
+        example: user
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.CompletionRequest:
+    description: Request payload for Claude completion API
+    properties:
+      context:
+        description: Optional conversation context
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionMessage'
+        type: array
+      max_tokens:
+        description: Maximum number of tokens to generate
+        example: 1024
+        type: integer
+      message:
+        description: The message to send to Claude
+        example: Hello, how are you?
+        type: string
+      model:
+        description: Model to use for completion
+        example: claude-3-5-sonnet-20241022
+        type: string
+      system:
+        description: Optional system prompt
+        example: You are a helpful assistant.
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.CompletionResponse:
+    description: Response from Claude completion API
+    properties:
+      model:
+        description: Model used for the completion
+        example: claude-3-5-sonnet-20241022
+        type: string
+      response:
+        description: Generated response text
+        example: I'm doing well, thank you for asking!
+        type: string
+      truncated:
+        description: Whether the response was truncated
+        type: boolean
+      usage:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionUsage'
+        description: Number of tokens used in the request
+    type: object
+  github_com_vanpelt_catnip_internal_models.CompletionUsage:
+    description: Token usage information for completion
+    properties:
+      input_tokens:
+        description: Tokens used in the input
+        example: 15
+        type: integer
+      output_tokens:
+        description: Tokens generated in the output
+        example: 25
+        type: integer
+      total_tokens:
+        description: Total tokens used
+        example: 40
+        type: integer
+    type: object
   github_com_vanpelt_catnip_internal_models.FullSessionData:
     description: Complete session data with all messages and metadata
     properties:
@@ -478,6 +550,40 @@ paths:
       summary: Get authentication status
       tags:
       - auth
+  /v1/claude/completion:
+    post:
+      consumes:
+      - application/json
+      description: Sends a message to Claude and returns the completion response
+      parameters:
+      - description: Completion request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get Claude completion
+      tags:
+      - claude
   /v1/claude/session:
     get:
       description: Returns Claude Code session metadata for a specific worktree

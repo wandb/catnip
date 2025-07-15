@@ -20,7 +20,7 @@ build-multi:
 # Run the container interactively
 run:
     @echo "🚀 Starting catnip container..."
-    docker run -it --rm -v catnip-state:/volume -p 8080:8080 catnip-dev
+    docker run -it --rm -v catnip-state:/volume -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY -p 8080:8080 catnip-dev
 
 # Run the container in development mode with hot reloading (interactive)
 run-dev: build-dev
@@ -38,6 +38,7 @@ run-dev: build-dev
         -e CLAUDE_CODE_IDE_HOST_OVERRIDE=host.docker.internal \
         -e CATNIP_SESSION=catnip \
         -e CATNIP_USERNAME=$USER \
+        -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
         -p 8080:8080 \
         -p 5173:5173 \
         catnip-dev:dev
@@ -48,6 +49,7 @@ test-dev: build-dev
     docker run --rm \
         -v $(pwd):/live/catnip \
         -v catnip-dev-node-modules:/live/catnip/node_modules \
+        -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
         -p 8080:8080 \
         -p 5173:5173 \
         catnip-dev:dev &
