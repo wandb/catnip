@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -182,17 +183,33 @@ func (cs *ContainerService) GetContainerPorts(ctx context.Context, containerName
 }
 
 func (cs *ContainerService) GetContainerInfo(ctx context.Context, containerName string) (map[string]interface{}, error) {
-	portsCmd := exec.CommandContext(ctx, string(cs.runtime), "port", containerName)
-	portsOutput, _ := portsCmd.Output()
-	
-	statsCmd := exec.CommandContext(ctx, string(cs.runtime), "stats", "--no-stream", "--format", "table {{.CPUPerc}}\t{{.MemUsage}}", containerName)
-	statsOutput, _ := statsCmd.Output()
+	// Check if container is running first
+	if !cs.IsContainerRunning(ctx, containerName) {
+		return map[string]interface{}{
+			"name":    containerName,
+			"runtime": string(cs.runtime),
+			"ports":   "",
+			"stats":   "",
+		}, nil
+	}
 	
 	info := map[string]interface{}{
 		"name":    containerName,
 		"runtime": string(cs.runtime),
-		"ports":   string(portsOutput),
-		"stats":   string(statsOutput),
+		"ports":   "",
+		"stats":   "",
+	}
+	
+	// Get container stats with timeout
+	statsCmd := exec.CommandContext(ctx, string(cs.runtime), "stats", "--no-stream", "--format", "table {{.CPUPerc}}\t{{.MemUsage}}", containerName)
+	if statsOutput, err := statsCmd.Output(); err == nil {
+		info["stats"] = string(statsOutput)
+	}
+	
+	// Get container port mappings with timeout  
+	portsCmd := exec.CommandContext(ctx, string(cs.runtime), "port", containerName)
+	if portsOutput, err := portsCmd.Output(); err == nil {
+		info["ports"] = string(portsOutput)
 	}
 	
 	return info, nil
@@ -241,9 +258,34 @@ func findGitRoot(startDir string) (string, bool) {
 	return "", false
 }
 
+var containerLogger *log.Logger
+var containerDebugEnabled bool
+
+func init() {
+	containerDebugEnabled = os.Getenv("DEBUG") == "true"
+	if containerDebugEnabled {
+		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalln("Failed to open debug log file:", err)
+		}
+		containerLogger = log.New(logFile, "[CONTAINER] ", log.LstdFlags|log.Lmicroseconds)
+	}
+}
+
+func containerDebugLog(format string, args ...interface{}) {
+	if containerDebugEnabled && containerLogger != nil {
+		containerLogger.Printf(format, args...)
+	}
+}
+
 // GetRepositoryInfo returns information about mounted repositories
 func (cs *ContainerService) GetRepositoryInfo(ctx context.Context, workDir string) map[string]interface{} {
+	start := time.Now()
+	containerDebugLog("GetRepositoryInfo() starting - workDir: %s", workDir)
+	
+	containerDebugLog("GetRepositoryInfo() calling findGitRoot - elapsed: %v", time.Since(start))
 	gitRoot, isGitRepo := findGitRoot(workDir)
+	containerDebugLog("GetRepositoryInfo() findGitRoot returned - isGitRepo: %t, elapsed: %v", isGitRepo, time.Since(start))
 	
 	info := map[string]interface{}{
 		"is_git_repo": isGitRepo,
@@ -254,34 +296,55 @@ func (cs *ContainerService) GetRepositoryInfo(ctx context.Context, workDir strin
 		info["repo_name"] = filepath.Base(gitRoot)
 		
 		// Get current branch if possible
+		containerDebugLog("GetRepositoryInfo() calling getCurrentBranch - elapsed: %v", time.Since(start))
 		if branch := getCurrentBranch(gitRoot); branch != "" {
 			info["current_branch"] = branch
 		}
+		containerDebugLog("GetRepositoryInfo() getCurrentBranch returned - elapsed: %v", time.Since(start))
 		
 		// Get remote origin if possible
+		containerDebugLog("GetRepositoryInfo() calling getRemoteOrigin - elapsed: %v", time.Since(start))
 		if origin := getRemoteOrigin(gitRoot); origin != "" {
 			info["remote_origin"] = origin
 		}
+		containerDebugLog("GetRepositoryInfo() getRemoteOrigin returned - elapsed: %v", time.Since(start))
 	}
 	
+	containerDebugLog("GetRepositoryInfo() finished - elapsed: %v", time.Since(start))
 	return info
 }
 
 // getCurrentBranch gets the current git branch
 func getCurrentBranch(gitRoot string) string {
+	start := time.Now()
+	containerDebugLog("getCurrentBranch() starting - gitRoot: %s", gitRoot)
+	
 	cmd := exec.Command("git", "-C", gitRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	containerDebugLog("getCurrentBranch() executing git command - elapsed: %v", time.Since(start))
+	
 	if output, err := cmd.Output(); err == nil {
-		return strings.TrimSpace(string(output))
+		result := strings.TrimSpace(string(output))
+		containerDebugLog("getCurrentBranch() finished - result: %s, elapsed: %v", result, time.Since(start))
+		return result
 	}
+	containerDebugLog("getCurrentBranch() failed - elapsed: %v", time.Since(start))
 	return ""
 }
 
 // getRemoteOrigin gets the remote origin URL
 func getRemoteOrigin(gitRoot string) string {
+	start := time.Now()
+	containerDebugLog("getRemoteOrigin() starting - gitRoot: %s", gitRoot)
+	
 	cmd := exec.Command("git", "-C", gitRoot, "remote", "get-url", "origin")
+	containerDebugLog("getRemoteOrigin() executing git command - elapsed: %v", time.Since(start))
+	
 	if output, err := cmd.Output(); err == nil {
-		return strings.TrimSpace(string(output))
+		result := strings.TrimSpace(string(output))
+		containerDebugLog("getRemoteOrigin() finished - result: %s, elapsed: %v", result, time.Since(start))
+		return result
 	}
+	containerDebugLog("getRemoteOrigin() failed - elapsed: %v", time.Since(start))
 	return ""
 }
 

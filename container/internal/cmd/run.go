@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui"
+	"golang.org/x/term"
 )
 
 var runCmd = &cobra.Command{
@@ -127,6 +128,13 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		return tailContainerLogs(ctx, containerService, name)
 	}
 
+	// Check if we have a TTY, if not, fallback to no-tui mode
+	if !isTTY() {
+		fmt.Printf("No TTY detected, falling back to log tailing mode...\n")
+		fmt.Printf("Tailing logs for container '%s' (press Ctrl+C to stop)...\n", name)
+		return tailContainerLogs(ctx, containerService, name)
+	}
+
 	// Start the TUI
 	tuiApp := tui.NewApp(containerService, name, workDir)
 	if err := tuiApp.Run(ctx, workDir); err != nil {
@@ -223,4 +231,8 @@ func tailContainerLogs(ctx context.Context, containerService *services.Container
 			return err
 		}
 	}
+}
+
+func isTTY() bool {
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }

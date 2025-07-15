@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -15,7 +18,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/pkg/browser"
 	"github.com/vanpelt/catnip/internal/services"
 )
 
@@ -64,6 +66,28 @@ type containerReposMsg map[string]interface{}
 type logsMsg []string
 type portsMsg []string
 type errMsg error
+type quitMsg struct{}
+
+var debugLogger *log.Logger
+var debugEnabled bool
+
+func init() {
+	debugEnabled = os.Getenv("DEBUG") == "true"
+	if debugEnabled {
+		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Fatalln("Failed to open debug log file:", err)
+		}
+		debugLogger = log.New(logFile, "", log.LstdFlags|log.Lmicroseconds)
+		debugLogger.Println("=== TUI DEBUG LOG STARTED ===")
+	}
+}
+
+func debugLog(format string, args ...interface{}) {
+	if debugEnabled && debugLogger != nil {
+		debugLogger.Printf(format, args...)
+	}
+}
 
 func NewApp(containerService *services.ContainerService, containerName, workDir string) *App {
 	return &App{
@@ -73,7 +97,11 @@ func NewApp(containerService *services.ContainerService, containerName, workDir 
 }
 
 func (a *App) Run(ctx context.Context, workDir string) error {
+	start := time.Now()
+	debugLog("TUI Run() starting - workDir: %s", workDir)
+	
 	// Initialize search input
+	debugLog("TUI Run() initializing search input - elapsed: %v", time.Since(start))
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Enter search pattern (regex supported)..."
 	searchInput.CharLimit = 100
@@ -84,7 +112,12 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 	searchInput.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	
 	// Initialize viewport (will be sized in Update)
+	debugLog("TUI Run() initializing viewport - elapsed: %v", time.Since(start))
 	logsViewport := viewport.New(80, 20)
+	
+	debugLog("TUI Run() loading logo - elapsed: %v", time.Since(start))
+	logo := loadLogo()
+	debugLog("TUI Run() logo loaded - elapsed: %v", time.Since(start))
 	
 	m := model{
 		containerService: a.containerService,
@@ -97,7 +130,7 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		logs:             []string{},
 		filteredLogs:     []string{},
 		ports:            []string{},
-		logo:             loadLogo(),
+		logo:             logo,
 		lastUpdate:       time.Now(),
 		logsViewport:     logsViewport,
 		searchInput:      searchInput,
@@ -105,30 +138,37 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		searchPattern:    "",
 	}
 
+	debugLog("TUI Run() creating tea program - elapsed: %v", time.Since(start))
 	a.program = tea.NewProgram(m, tea.WithAltScreen())
 
-	go func() {
-		<-ctx.Done()
-		a.program.Quit()
-	}()
-
+	debugLog("TUI Run() starting tea program - elapsed: %v", time.Since(start))
 	_, err := a.program.Run()
+	debugLog("TUI Run() tea program finished - elapsed: %v, err: %v", time.Since(start), err)
 	return err
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(
-		tick(),
-		m.fetchContainerInfo(),
-		m.fetchPorts(),
+	start := time.Now()
+	debugLog("TUI Init() starting")
+	
+	// Start background data fetching
+	result := tea.Batch(
 		m.fetchRepositoryInfo(),
-		m.fetchContainerRepos(),
+		tea.Tick(time.Second*5, func(t time.Time) tea.Msg {
+			return tickMsg(t)
+		}),
 	)
+	
+	debugLog("TUI Init() finished - elapsed: %v", time.Since(start))
+	return result
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	start := time.Now()
+	
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		debugLog("TUI Update() WindowSizeMsg: %dx%d", msg.Width, msg.Height)
 		m.width = msg.Width
 		m.height = msg.Height
 		
@@ -139,143 +179,105 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logsViewport.Height = msg.Height - headerHeight
 			m.searchInput.Width = msg.Width - 20
 		}
+		
+		debugLog("TUI Update() WindowSizeMsg processed - elapsed: %v", time.Since(start))
 		return m, nil
 
 	case tea.KeyMsg:
-		// Handle search mode keys first
-		if m.currentView == logsView && m.searchMode {
-			switch msg.String() {
-			case "esc":
-				m.searchMode = false
-				m.searchInput.Blur()
-				return m, nil
-			case "enter":
-				m.searchMode = false
-				m.searchInput.Blur()
-				m.searchPattern = m.searchInput.Value()
-				m = m.updateLogFilter()
-				return m, nil
-			default:
-				var cmd tea.Cmd
-				m.searchInput, cmd = m.searchInput.Update(msg)
-				return m, cmd
-			}
-		}
+		debugLog("TUI Update() KeyMsg: %s (type: %T, runes: %v)", msg.String(), msg, msg.Runes)
 		
-		// Handle logs view navigation
-		if m.currentView == logsView && !m.searchMode {
-			switch msg.String() {
-			case "/":
-				m.searchMode = true
-				cmd := m.searchInput.Focus()
-				return m, cmd
-			case "c":
-				// Clear search filter
-				m.searchPattern = ""
-				m.searchInput.SetValue("")
-				m = m.updateLogFilter()
-				return m, nil
-			case "up", "k":
-				m.logsViewport.ScrollUp(1)
-				return m, nil
-			case "down", "j":
-				m.logsViewport.ScrollDown(1)
-				return m, nil
-			case "pgup", "b":
-				m.logsViewport.PageUp()
-				return m, nil
-			case "pgdown", "f":
-				m.logsViewport.PageDown()
-				return m, nil
-			case "home", "g":
-				m.logsViewport.GotoTop()
-				return m, nil
-			case "end", "G":
-				m.logsViewport.GotoBottom()
-				return m, nil
-			}
-		}
-		
-		// Global key handlers
+		// SIMPLE key handling like working test - NO filtering
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "q", "ctrl+c":
+			debugLog("TUI Update() QUIT KEY DETECTED: %s", msg.String())
 			return m, tea.Quit
 		case "l":
+			debugLog("TUI Update() LOGS KEY DETECTED")
 			if m.currentView == logsView {
 				m.currentView = overviewView
+				debugLog("TUI Update() switched to overview view")
+				return m, nil
 			} else {
 				m.currentView = logsView
-				// Update viewport size and content
-				if m.height > 0 {
-					headerHeight := 4
-					m.logsViewport.Width = m.width - 4
-					m.logsViewport.Height = m.height - headerHeight
-				}
-				m = m.updateLogFilter()
+				debugLog("TUI Update() switched to logs view")
 				return m, m.fetchLogs()
 			}
 		case "o":
+			debugLog("TUI Update() OVERVIEW KEY DETECTED")
 			m.currentView = overviewView
-		case "r":
-			if m.currentView == logsView {
-				return m, m.fetchLogs()
-			}
-			return m, tea.Batch(
-				m.fetchContainerInfo(),
-				m.fetchPorts(),
-			)
+			return m, nil
 		case "0":
-			if m.currentView == overviewView {
-				// Open the main UI at port 8080
-				url := "http://localhost:8080"
-				go func() { _ = browser.OpenURL(url) }()
-			}
+			debugLog("TUI Update() MAIN UI KEY DETECTED")
+			openBrowser("http://localhost:8080")
+			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			debugLog("TUI Update() PORT KEY DETECTED: %s", msg.String())
 			if m.currentView == overviewView {
-				portIndex := int(msg.String()[0] - '1')
+				portIndex := int(msg.String()[0] - '1') // Convert '1'-'9' to 0-8
 				if portIndex < len(m.ports) {
 					port := m.ports[portIndex]
 					url := fmt.Sprintf("http://localhost:8080/%s", port)
-					go func() { _ = browser.OpenURL(url) }()
+					debugLog("TUI Update() opening port %s at %s", port, url)
+					openBrowser(url)
 				}
 			}
+			return m, nil
 		}
+		
+		// NO COMPLEX LOGS VIEW HANDLING - just the simple keys above
+		debugLog("TUI Update() KeyMsg not handled by simple handler - elapsed: %v", time.Since(start))
+		return m, nil
 
 	case tickMsg:
+		debugLog("TUI Update() tickMsg - elapsed: %v", time.Since(start))
 		m.lastUpdate = time.Time(msg)
 		return m, tea.Batch(
 			tick(),
 			m.fetchContainerInfo(),
 			m.fetchPorts(),
-			m.fetchContainerRepos(),
 		)
 
 	case containerInfoMsg:
+		debugLog("TUI Update() containerInfoMsg - elapsed: %v", time.Since(start))
 		m.containerInfo = map[string]interface{}(msg)
 
 	case repositoryInfoMsg:
+		debugLog("TUI Update() repositoryInfoMsg - elapsed: %v", time.Since(start))
 		m.repositoryInfo = map[string]interface{}(msg)
 
 	case containerReposMsg:
+		debugLog("TUI Update() containerReposMsg - elapsed: %v", time.Since(start))
 		m.containerRepos = map[string]interface{}(msg)
 
 	case logsMsg:
+		debugLog("TUI Update() logsMsg - elapsed: %v", time.Since(start))
 		m.logs = []string(msg)
 		m = m.updateLogFilter()
 
 	case portsMsg:
+		debugLog("TUI Update() portsMsg - elapsed: %v", time.Since(start))
 		m.ports = []string(msg)
 
 	case errMsg:
+		debugLog("TUI Update() errMsg: %v - elapsed: %v", error(msg), time.Since(start))
 		m.err = error(msg)
+		
+	case quitMsg:
+		debugLog("TUI Update() quitMsg - elapsed: %v", time.Since(start))
+		return m, tea.Quit
 	}
 
+	debugLog("TUI Update() finished - elapsed: %v", time.Since(start))
 	return m, nil
 }
 
 
 func (m model) View() string {
+	start := time.Now()
+	debugLog("TUI View() starting - currentView: %d, width: %d", m.currentView, m.width)
+	
 	if m.width == 0 {
+		debugLog("TUI View() returning empty - no width")
 		return ""
 	}
 
@@ -283,12 +285,17 @@ func (m model) View() string {
 	
 	switch m.currentView {
 	case overviewView:
+		debugLog("TUI View() calling renderOverview() - elapsed: %v", time.Since(start))
 		content = m.renderOverview()
+		debugLog("TUI View() renderOverview() finished - elapsed: %v", time.Since(start))
 	case logsView:
+		debugLog("TUI View() calling renderLogs() - elapsed: %v", time.Since(start))
 		content = m.renderLogs()
+		debugLog("TUI View() renderLogs() finished - elapsed: %v", time.Since(start))
 	}
 
 	// Header
+	debugLog("TUI View() creating header style - elapsed: %v", time.Since(start))
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("6")).
@@ -297,9 +304,12 @@ func (m model) View() string {
 		Width(m.width - 2).
 		Padding(0, 1)
 
+	debugLog("TUI View() rendering header - elapsed: %v", time.Since(start))
 	header := headerStyle.Render(fmt.Sprintf("🐱 Catnip - %s", m.containerName))
+	debugLog("TUI View() header rendered - elapsed: %v", time.Since(start))
 
 	// Footer
+	debugLog("TUI View() creating footer - elapsed: %v", time.Since(start))
 	footerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
 		BorderStyle(lipgloss.NormalBorder()).
@@ -309,7 +319,9 @@ func (m model) View() string {
 
 	var footer string
 	if m.currentView == overviewView {
-		footer = footerStyle.Render(m.renderMarkdown("Press **l** for logs, **0** to open UI, **1-9** to open ports, **r** to refresh, **q** to quit"))
+		debugLog("TUI View() rendering overview footer - elapsed: %v", time.Since(start))
+		footer = footerStyle.Render("Press l for logs, 0 to open UI, 1-9 to open ports, r to refresh, q to quit")
+		debugLog("TUI View() overview footer rendered - elapsed: %v", time.Since(start))
 	} else {
 		if m.searchMode {
 			// Replace footer with search input
@@ -317,25 +329,35 @@ func (m model) View() string {
 			searchContent := searchPrompt + m.searchInput.View() + " (Enter to apply, Esc to cancel)"
 			footer = footerStyle.Render(searchContent)
 		} else {
-			footer = footerStyle.Render(m.renderMarkdown("**/** search, **c** clear filter, **↑↓** scroll, **o** overview, **r** refresh, **q** quit"))
+			footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit")
 		}
 	}
 
 	// Main content area
+	debugLog("TUI View() creating main content area - elapsed: %v", time.Since(start))
 	mainHeight := m.height - 4 // Account for header and footer
 	mainStyle := lipgloss.NewStyle().
 		Width(m.width - 2).
 		Height(mainHeight).
 		Padding(1)
 
+	debugLog("TUI View() rendering main content - elapsed: %v", time.Since(start))
 	mainContent := mainStyle.Render(content)
+	debugLog("TUI View() main content rendered - elapsed: %v", time.Since(start))
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, mainContent, footer)
+	debugLog("TUI View() joining vertical layout - elapsed: %v", time.Since(start))
+	result := lipgloss.JoinVertical(lipgloss.Left, header, mainContent, footer)
+	debugLog("TUI View() finished - elapsed: %v", time.Since(start))
+	return result
 }
 
 func (m model) renderOverview() string {
+	start := time.Now()
+	debugLog("renderOverview() starting")
+	
 	// Check if we have enough width for the logo (70 cols + 70 for content = 140+ total)
 	showLogo := m.width >= 150 && len(m.logo) > 0
+	debugLog("renderOverview() showLogo: %t - elapsed: %v", showLogo, time.Since(start))
 	
 	var sections []string
 
@@ -345,13 +367,16 @@ func (m model) renderOverview() string {
 		Foreground(lipgloss.Color("2"))
 	
 	sections = append(sections, statusStyle.Render("📦 Container Status"))
+	debugLog("renderOverview() added container status header - elapsed: %v", time.Since(start))
 	
 	if m.containerInfo["name"] != nil {
 		sections = append(sections, fmt.Sprintf("  Name: %v", m.containerInfo["name"]))
 		sections = append(sections, fmt.Sprintf("  Runtime: %v", m.containerInfo["runtime"]))
 		sections = append(sections, fmt.Sprintf("  Last updated: %s", m.lastUpdate.Format("15:04:05")))
+		debugLog("renderOverview() added container info - elapsed: %v", time.Since(start))
 	} else {
 		sections = append(sections, "  Status: Starting...")
+		debugLog("renderOverview() added starting status - elapsed: %v", time.Since(start))
 	}
 
 	sections = append(sections, "")
@@ -514,19 +539,20 @@ func (m model) renderLogs() string {
 
 // Commands
 func tick() tea.Cmd {
-	return tea.Tick(time.Second*3, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Second*5, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
 }
 
 func (m model) fetchContainerInfo() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		
 		info, err := m.containerService.GetContainerInfo(ctx, m.containerName)
 		if err != nil {
-			return errMsg(err)
+			// Don't show errors for timeout/context cancellation to reduce noise
+			return nil
 		}
 		return containerInfoMsg(info)
 	}
@@ -534,17 +560,17 @@ func (m model) fetchContainerInfo() tea.Cmd {
 
 func (m model) fetchLogs() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		
 		cmd, err := m.containerService.GetContainerLogs(ctx, m.containerName, false)
 		if err != nil {
-			return errMsg(err)
+			return nil
 		}
 		
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return errMsg(err)
+			return nil
 		}
 		
 		lines := strings.Split(string(output), "\n")
@@ -554,12 +580,12 @@ func (m model) fetchLogs() tea.Cmd {
 
 func (m model) fetchPorts() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		
 		ports, err := m.containerService.GetContainerPorts(ctx, m.containerName)
 		if err != nil {
-			return errMsg(err)
+			return nil
 		}
 		return portsMsg(ports)
 	}
@@ -567,10 +593,16 @@ func (m model) fetchPorts() tea.Cmd {
 
 func (m model) fetchRepositoryInfo() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		start := time.Now()
+		debugLog("fetchRepositoryInfo() starting")
+		
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		
+		debugLog("fetchRepositoryInfo() calling GetRepositoryInfo - elapsed: %v", time.Since(start))
 		info := m.containerService.GetRepositoryInfo(ctx, m.workDir)
+		debugLog("fetchRepositoryInfo() GetRepositoryInfo returned - elapsed: %v", time.Since(start))
+		
 		return repositoryInfoMsg(info)
 	}
 }
@@ -578,7 +610,7 @@ func (m model) fetchRepositoryInfo() tea.Cmd {
 func (m model) fetchContainerRepos() tea.Cmd {
 	return func() tea.Msg {
 		// Try to fetch repositories from the container's API
-		client := &http.Client{Timeout: 2 * time.Second}
+		client := &http.Client{Timeout: 1 * time.Second}
 		resp, err := client.Get("http://localhost:8080/v1/git/status")
 		if err != nil {
 			// If we can't reach the API, return empty repos
@@ -756,4 +788,22 @@ func (m model) updateLogFilter() model {
 	// Scroll to bottom to show most recent logs
 	m.logsViewport.GotoBottom()
 	return m
+}
+
+// openBrowser opens the specified URL in the default browser
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+	
+	return cmd.Start()
 }

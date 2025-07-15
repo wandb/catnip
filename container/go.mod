@@ -13,9 +13,9 @@ require (
 	github.com/gofiber/swagger v1.1.0
 	github.com/gofiber/websocket/v2 v2.2.1
 	github.com/google/uuid v1.6.0
-	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/spf13/cobra v1.9.1
 	github.com/swaggo/swag v1.16.3
+	golang.org/x/term v0.33.0
 )
 
 require (
