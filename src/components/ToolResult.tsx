@@ -11,7 +11,7 @@ interface ToolResultProps {
   isError: boolean
 }
 
-export function ToolResult({ toolUseId, content, isError }: ToolResultProps) {
+export function ToolResult({ content, isError }: ToolResultProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   
   // Try to detect if content is likely truncated

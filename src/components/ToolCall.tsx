@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
-import { ChevronDown, ChevronRight, ChevronUp, Code2, Terminal, FileText, Edit3, CheckSquare, Search, Globe, FileSearch2, BookOpen, LogOut } from 'lucide-react'
+import { ChevronDown, ChevronRight, Code2, Terminal, FileText, Edit3, CheckSquare, Search, Globe, FileSearch2, BookOpen, LogOut } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { ToolCallRenderer } from './ToolCallRenderer'
 
@@ -19,7 +19,7 @@ interface ToolCallProps {
 
 type ExpansionState = 'minimal' | 'full'
 
-const TOOL_ICONS: Record<string, any> = {
+const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   Bash: Terminal,
   Read: FileText,
   Edit: Edit3,
@@ -86,7 +86,7 @@ function ToolCallContent({ toolName, toolInput, result, expansionState }: {
   );
 }
 
-export function ToolCall({ toolId, toolName, toolInput, result, defaultExpanded = false, fullWidth = false }: ToolCallProps) {
+export function ToolCall({ toolName, toolInput, result, defaultExpanded = false, fullWidth = false }: ToolCallProps) {
   const [expansionState, setExpansionState] = useState<ExpansionState>(
     defaultExpanded ? 'minimal' : 'minimal'
   )

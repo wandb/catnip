@@ -9,7 +9,6 @@ import { TranscriptMessage } from "./TranscriptMessage";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { ErrorDisplay } from "./ErrorDisplay";
-import { cn } from "../lib/utils";
 
 interface TranscriptViewerProps {
   sessionId?: string;
@@ -196,7 +195,7 @@ export function TranscriptViewer({
     );
   }
 
-  const { messages, rootMessages, messageTree } = parsedTranscript;
+  const { messages, messageTree } = parsedTranscript;
   const processedMessages = preprocessMessages(messages);
   
   // Find the model from the first assistant message
@@ -226,7 +225,7 @@ export function TranscriptViewer({
         </CardHeader>
         <CardContent className="px-6 py-4">
           <div className="space-y-4">
-            {processedMessages.map((message, index) => (
+            {processedMessages.map((message) => (
               <TranscriptMessage
                 key={message.uuid}
                 message={message}

@@ -1,6 +1,7 @@
 # Binaries
 bin/
 *.exe
+catnip
 
 # Air temporary files
 tmp/

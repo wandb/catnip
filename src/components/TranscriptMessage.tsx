@@ -2,10 +2,9 @@ import { useState } from "react";
 import type { TranscriptMessage as TranscriptMessageType } from "../lib/transcript-types";
 import { getChildMessages, formatTimestamp } from "../lib/transcript-utils";
 import { MessageContent } from "./MessageContent";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
-import { ChevronDown, ChevronUp, Code2 } from "lucide-react";
+import { ChevronDown, Code2 } from "lucide-react";
 import { ToolCall } from "./ToolCall";
 
 interface ExtendedTranscriptMessage extends TranscriptMessageType {
@@ -101,7 +100,6 @@ export function TranscriptMessage({
 }: TranscriptMessageProps) {
   const [showToolCalls, setShowToolCalls] = useState(false);
   const childMessages = isChronological ? [] : getChildMessages(message.uuid, messageTree);
-  const isUser = message.type === "user";
   const isAssistant = message.type === "assistant";
   
   const textContent = getTextContent(message);
@@ -195,7 +193,7 @@ export function TranscriptMessage({
                   </>
                 )}
               </div>
-              {showToolCalls ? <ChevronUp className="h-3 w-3 ml-1" /> : <ChevronDown className="h-3 w-3 ml-1" />}
+              {showToolCalls ? <ChevronDown className="h-3 w-3 ml-1 rotate-180" /> : <ChevronDown className="h-3 w-3 ml-1" />}
             </Button>
 
             {/* Expandable Aggregated Tool Calls */}

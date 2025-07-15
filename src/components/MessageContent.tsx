@@ -1,4 +1,4 @@
-import { TranscriptMessage } from '../lib/transcript-types'
+import type { TranscriptMessage } from '../lib/transcript-types'
 import { isToolCall, isToolResult, isTextContent } from '../lib/transcript-utils'
 import { ToolCall } from './ToolCall'
 import { ToolResult } from './ToolResult'

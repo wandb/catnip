@@ -1,16 +1,40 @@
-# Stage 1: Build the Go binary
+# Stage 1: Build the frontend
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /frontend
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install pnpm and dependencies
+RUN corepack enable && \
+    corepack prepare pnpm@latest --activate && \
+    pnpm install --frozen-lockfile
+
+# Copy frontend source
+COPY . .
+
+# Build frontend
+RUN pnpm build
+
+# Stage 2: Build the Go binary
 FROM golang:1.24-alpine AS builder
 
 WORKDIR /build
 
 # Copy go mod files
-COPY go.mod go.sum ./
+COPY container/go.mod container/go.sum ./
 RUN go mod download && \
     go install github.com/swaggo/swag/cmd/swag@latest && \
     apk add just
 
 # Copy source code
-COPY . .
+COPY container/ .
+
+# Copy built frontend assets for embedding
+COPY --from=frontend-builder /frontend/dist ./dist
+# Also copy to where the embed expects it (relative to embedded.go)
+COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
 # Install swag and generate swagger documentation
 RUN just swagger
@@ -18,7 +42,7 @@ RUN just swagger
 # Build the binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go
 
-# Stage 2: Final image
+# Stage 3: Final image
 FROM ubuntu:24.04
 
 # Build arguments for language versions with stable defaults
@@ -168,7 +192,7 @@ RUN mkdir -p ${CATNIP_ROOT}/pipx && \
     ln -sf /usr/bin/python3 /usr/bin/python
 
 # Copy and set up global shell environment for all users
-COPY setup/catnip-profile.sh /etc/profile.d/catnip.sh
+COPY container/setup/catnip-profile.sh /etc/profile.d/catnip.sh
 RUN chmod +x /etc/profile.d/catnip.sh
 
 # Install default Node.js version and enable corepack for pnpm
@@ -188,7 +212,7 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
 
 # Configure Starship with catnip config
-COPY setup/starship.toml /etc/starship.toml
+COPY container/setup/starship.toml /etc/starship.toml
 RUN mkdir -p /home/catnip/.config /root/.config && \
     cp /etc/starship.toml /home/catnip/.config/starship.toml && \
     cp /etc/starship.toml /root/.config/starship.toml && \
@@ -197,7 +221,7 @@ RUN mkdir -p /home/catnip/.config /root/.config && \
     echo 'eval "$(starship init bash)"' >> /root/.bashrc
 
 # Setup dynamic welcome banner and suppress sudo message
-COPY setup/generate-banner.sh /usr/local/bin/generate-banner.sh
+COPY container/setup/generate-banner.sh /usr/local/bin/generate-banner.sh
 RUN chmod +x /usr/local/bin/generate-banner.sh && \
     rm -f /etc/motd && \
     touch /etc/motd && \
@@ -216,8 +240,8 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
 USER root
 
 # Copy and set up entrypoint script
-COPY setup/entrypoint.sh /entrypoint.sh
-COPY setup/setup-truecolor.sh /usr/local/bin/setup-truecolor.sh
+COPY container/setup/entrypoint.sh /entrypoint.sh
+COPY container/setup/setup-truecolor.sh /usr/local/bin/setup-truecolor.sh
 RUN chmod +x /entrypoint.sh && \
     chmod +x /usr/local/bin/setup-truecolor.sh && \
     /usr/local/bin/setup-truecolor.sh
@@ -230,5 +254,6 @@ RUN chmod +x ${CATNIP_ROOT}/bin/catnip
 WORKDIR /workspace
 
 # Default command
+EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["catnip"]

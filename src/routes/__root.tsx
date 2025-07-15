@@ -7,9 +7,15 @@ import { Link } from "@tanstack/react-router";
 import { useWebSocket } from "@/lib/websocket-context";
 import { Suspense } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { LoginModal } from "@/components/LoginModal";
 
 function RootLayout() {
   const { isConnected } = useWebSocket();
+  const { isAuthenticated, isLoading, authRequired } = useAuth();
+  
+  // Show login modal if auth is required and user is not authenticated
+  const showLoginModal = !isLoading && authRequired && !isAuthenticated;
 
   return (
     <>
@@ -59,6 +65,9 @@ function RootLayout() {
       {/* Toast notifications */}
       <Toaster />
       
+      {/* Login Modal */}
+      <LoginModal open={showLoginModal} />
+      
       <TanStackRouterDevtools position="bottom-right" />
     </>
   );
@@ -66,9 +75,11 @@ function RootLayout() {
 
 function RootComponent() {
   return (
-    <WebSocketProvider>
-      <RootLayout />
-    </WebSocketProvider>
+    <AuthProvider>
+      <WebSocketProvider>
+        <RootLayout />
+      </WebSocketProvider>
+    </AuthProvider>
   );
 }
 

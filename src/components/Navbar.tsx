@@ -1,8 +1,7 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Home, Terminal, Settings, RotateCcw, GitBranch, Menu, X, Github, FileText, ExternalLink, Globe, MessageSquare } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -316,8 +315,8 @@ export function Navbar() {
 
       {/* GitHub Auth Modal */}
       <GitHubAuthModal 
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
+        open={authModalOpen}
+        onOpenChange={setAuthModalOpen}
       />
     </>
   );

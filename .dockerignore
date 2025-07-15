@@ -5,6 +5,8 @@ yarn-debug.log*
 yarn-error.log*
 .npm
 .pnpm-debug.log*
+.pnpm-store/
+.pnpm-state/
 
 # Go
 bin/
@@ -28,6 +30,8 @@ docs/
 .env.development.local
 .env.test.local
 .env.production.local
+.wrangler/
+reference/
 
 # IDE
 .vscode/

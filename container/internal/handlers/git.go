@@ -293,7 +293,7 @@ func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 	}
 
 	// Parse body if present, but don't require it for backwards compatibility
-	c.BodyParser(&mergeRequest)
+	_ = c.BodyParser(&mergeRequest)
 
 	if err := h.gitService.MergeWorktreeToMain(worktreeID, mergeRequest.Squash); err != nil {
 		// Check if this is a merge conflict error

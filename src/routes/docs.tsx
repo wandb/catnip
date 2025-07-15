@@ -67,6 +67,7 @@ function CodeBlock({ code, language = "json" }: { code: string; language?: strin
     const loadPrism = async () => {
       if (codeRef.current) {
         const Prism = (await import("prismjs")).default;
+        // @ts-ignore - prismjs components don't have type declarations
         await import("prismjs/components/prism-json");
         Prism.highlightElement(codeRef.current);
       }

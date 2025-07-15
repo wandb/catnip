@@ -1,8 +1,8 @@
-import { FC } from "react";
+import type { FC } from "react";
 import { cn } from "../lib/utils";
 import { InlineDiff } from "./InlineDiff";
 import { TodoDisplay } from "./TodoDisplay";
-import { Terminal, FileText, Code2, Search, Globe, BookOpen, FileSearch2, LogOut } from "lucide-react";
+import { Terminal, Search, Globe, BookOpen, FileSearch2, LogOut } from "lucide-react";
 
 interface ToolCallRendererProps {
   toolName: string;
@@ -15,7 +15,7 @@ interface ToolCallRendererProps {
 }
 
 // Tool-specific render functions
-const toolRenderers: Record<string, FC<ToolCallRendererProps>> = {
+const toolRenderers: Record<string, React.FC<ToolCallRendererProps>> = {
   Bash: ({ toolInput, result, showMinimal }) => {
     if (showMinimal) return null;
     
@@ -47,7 +47,7 @@ const toolRenderers: Record<string, FC<ToolCallRendererProps>> = {
     );
   },
 
-  Read: ({ toolInput, result, showMinimal }) => {
+  Read: ({ result, showMinimal }) => {
     if (showMinimal) {
       return result && result.content ? (
         <div className="text-xs text-muted-foreground -my-0.5">

@@ -8,7 +8,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+dist/
+!container/internal/assets/dist/
 dist-ssr
 *.local
 .pnpm-store
@@ -28,7 +29,19 @@ dist-ssr
 # wrangler files
 .wrangler
 .dev.vars*
+# worker is generating js?
+worker/*.js
+
+# secrets
+*.pem
 
 # reference files
 reference
 container/Dockerfile.backup
+public/*.jsonl
+
+# fallback frontend assets for local go builds (real assets are built in docker)
+# keep the dummy index.html but ignore anything else that gets copied here
+container/internal/assets/dist/*
+!container/internal/assets/dist/index.html
+!container/internal/assets/dist/.gitkeep

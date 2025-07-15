@@ -5,15 +5,21 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:cf": "CLOUDFLARE_DEV=true vite",
+    "dev:cf": "echo \"I hope you ran pnpm build first\" && wrangler dev",
+    "dev:cf:vite": "CLOUDFLARE_DEV=true vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
+    "typecheck:worker": "tsc --noEmit -p tsconfig.worker.json",
     "lint": "eslint .",
     "preview": "pnpm run build && vite preview",
     "deploy": "pnpm run build && wrangler deploy",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.0.22",
+    "@hono/oauth-providers": "^0.8.2",
+    "@octokit/app": "^16.0.1",
+    "@octokit/webhooks": "^14.1.1",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-dropdown-menu": "^2.1.15",
@@ -32,6 +38,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "hono": "^4.8.4",
     "lucide-react": "^0.525.0",
     "next-themes": "^0.4.6",
     "prismjs": "^1.30.0",
@@ -46,7 +53,8 @@
     "tailwindcss": "^4.1.11"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.9.0",
+    "@cloudflare/vite-plugin": "^1.9.4",
+    "@cloudflare/workers-types": "^4.20250712.0",
     "@eslint/js": "^9.29.0",
     "@tanstack/router-plugin": "^1.125.5",
     "@types/node": "^24.0.10",
@@ -64,6 +72,6 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.34.1",
     "vite": "^7.0.0",
-    "wrangler": "^4.23.0"
+    "wrangler": "^4.24.3"
   }
 }
