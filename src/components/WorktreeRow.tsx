@@ -364,7 +364,7 @@ export function WorktreeRow({
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = Boolean(syncConflicts[worktree.id]?.has_conflicts ?? mergeConflicts[worktree.id]?.has_conflicts);
   const summary = worktreeSummaries[worktree.id];
-  const diffStat = diffStats[worktree.id];
+  // const diffStat = diffStats[worktree.id];
   const prStatus = prStatuses?.[worktree.id];
 
   const openPrDialog = (worktreeId: string, branchName: string) => {
@@ -394,6 +394,9 @@ export function WorktreeRow({
     });
   };
 
+  // const totalAdditions = diffStat?.file_diffs?.filter(diff => diff.change_type === 'added').length ?? 0;
+  // const totalDeletions = diffStat?.file_diffs?.filter(diff => diff.change_type === 'deleted').length ?? 0;
+
   return (
     <div className="border rounded-lg p-4 mb-4 bg-card">
       <div className="flex items-center justify-between">
@@ -412,12 +415,13 @@ export function WorktreeRow({
                 {worktree.commit_count} commit{worktree.commit_count !== 1 ? 's' : ''}
               </span>
             )}
-            {diffStat && (diffStat.additions > 0 || diffStat.deletions > 0) && (
+            {/* TODO: Add total changes */}
+            {/* {diffStat && (diffStat.file_diffs?.length ?? 0) > 0 && (
               <span className="flex items-center gap-1 font-mono text-xs">
-                <span className="text-green-600">+{diffStat.additions}</span>
-                <span className="text-red-600">-{diffStat.deletions}</span>
+                <span className="text-green-600">+{totalAdditions}</span>
+                /<span className="text-red-600">-{totalDeletions}</span>
               </span>
-            )}
+            )} */}
             {worktree.commits_behind > 0 && (
               <span className="text-orange-600">
                 {worktree.commits_behind} behind
