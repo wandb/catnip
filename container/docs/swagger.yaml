@@ -376,6 +376,12 @@ definitions:
         example: "2024-01-15T14:30:00Z"
         type: string
     type: object
+  internal_handlers.AppEvent:
+    properties:
+      payload: {}
+      type:
+        $ref: '#/definitions/internal_handlers.EventType'
+    type: object
   internal_handlers.AuthStartResponse:
     description: Response when starting GitHub device flow authentication
     properties:
@@ -467,6 +473,26 @@ definitions:
         example: /workspace/my-project
         type: string
     type: object
+  internal_handlers.EventType:
+    enum:
+    - port:opened
+    - port:closed
+    - git:dirty
+    - git:clean
+    - process:started
+    - process:stopped
+    - container:status
+    - heartbeat
+    type: string
+    x-enum-varnames:
+    - PortOpenedEvent
+    - PortClosedEvent
+    - GitDirtyEvent
+    - GitCleanEvent
+    - ProcessStartedEvent
+    - ProcessStoppedEvent
+    - ContainerStatusEvent
+    - HeartbeatEvent
   internal_handlers.GitHubRepository:
     description: GitHub repository information from the GitHub API
     properties:
@@ -498,6 +524,15 @@ definitions:
         description: Whether the repository is private
         example: false
         type: boolean
+    type: object
+  internal_handlers.SSEMessage:
+    properties:
+      event:
+        $ref: '#/definitions/internal_handlers.AppEvent'
+      id:
+        type: string
+      timestamp:
+        type: integer
     type: object
   internal_handlers.SessionsResponse:
     additionalProperties:
@@ -686,16 +721,65 @@ paths:
     get:
       consumes:
       - text/event-stream
-      description: Streams real-time events about ports, git status, processes, and
-        container status
+      description: |-
+        Streams real-time events in Server-Sent Events format. Events include port changes, git status, processes, and container status updates.
+
+        ## Event Types
+
+        ### Port Events
+        - **port:opened**: Fired when a new port is detected
+        - `port` (int): Port number
+        - `service` (string): Service type (http, tcp)
+        - `protocol` (string): Protocol used
+        - `title` (string): Service title/name if detected
+        - **port:closed**: Fired when a port is no longer available
+        - `port` (int): Port number that was closed
+
+        ### Git Events
+        - **git:dirty**: Fired when git workspace has uncommitted changes
+        - `workspace` (string): Workspace path
+        - `files` ([]string): List of modified files
+        - **git:clean**: Fired when git workspace becomes clean
+        - `workspace` (string): Workspace path
+
+        ### Process Events
+        - **process:started**: Fired when a new process starts
+        - `pid` (int): Process ID
+        - `command` (string): Command that was executed
+        - `workspace` (string): Workspace where process started
+        - **process:stopped**: Fired when a process terminates
+        - `pid` (int): Process ID that stopped
+        - `exitCode` (int): Exit code of the process
+
+        ### Container Events
+        - **container:status**: Fired when container status changes
+        - `status` (string): Container status (running, stopped, error)
+        - `message` (string): Optional status message
+
+        ### System Events
+        - **heartbeat**: Sent every 5 seconds to keep connection alive
+        - `timestamp` (int64): Current timestamp in milliseconds
+        - `uptime` (int64): Server uptime in milliseconds
+
+        ## Message Format
+        Each SSE message is a JSON object with:
+        - `event`: Event object containing `type` and `payload`
+        - `timestamp`: Event timestamp in milliseconds
+        - `id`: Unique event identifier
+
+        ## Connection Behavior
+        - Auto-reconnects on disconnection
+        - Sends current state on initial connection
+        - Heartbeat every 5 seconds
+        - Rate limited to prevent spam
       produces:
       - text/event-stream
       responses:
         "200":
-          description: SSE stream
+          description: SSE stream of events
           schema:
-            type: string
-      summary: Server-Sent Events endpoint
+            $ref: '#/definitions/internal_handlers.SSEMessage'
+      summary: Server-Sent Events endpoint for real-time container events
       tags:
       - events
   /v1/git/branches/{repo_id}:

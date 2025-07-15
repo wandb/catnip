@@ -104,12 +104,61 @@ func NewEventsHandler(portMonitor *services.PortMonitor, gitService *services.Gi
 }
 
 // HandleSSE handles Server-Sent Events connections
-// @Summary Server-Sent Events endpoint
-// @Description Streams real-time events about ports, git status, processes, and container status
+// @Summary Server-Sent Events endpoint for real-time container events
+// @Description Streams real-time events in Server-Sent Events format. Events include port changes, git status, processes, and container status updates.
+// @Description
+// @Description ## Event Types
+// @Description
+// @Description ### Port Events
+// @Description - **port:opened**: Fired when a new port is detected
+// @Description   - `port` (int): Port number
+// @Description   - `service` (string): Service type (http, tcp)
+// @Description   - `protocol` (string): Protocol used
+// @Description   - `title` (string): Service title/name if detected
+// @Description - **port:closed**: Fired when a port is no longer available
+// @Description   - `port` (int): Port number that was closed
+// @Description
+// @Description ### Git Events
+// @Description - **git:dirty**: Fired when git workspace has uncommitted changes
+// @Description   - `workspace` (string): Workspace path
+// @Description   - `files` ([]string): List of modified files
+// @Description - **git:clean**: Fired when git workspace becomes clean
+// @Description   - `workspace` (string): Workspace path
+// @Description
+// @Description ### Process Events
+// @Description - **process:started**: Fired when a new process starts
+// @Description   - `pid` (int): Process ID
+// @Description   - `command` (string): Command that was executed
+// @Description   - `workspace` (string): Workspace where process started
+// @Description - **process:stopped**: Fired when a process terminates
+// @Description   - `pid` (int): Process ID that stopped
+// @Description   - `exitCode` (int): Exit code of the process
+// @Description
+// @Description ### Container Events
+// @Description - **container:status**: Fired when container status changes
+// @Description   - `status` (string): Container status (running, stopped, error)
+// @Description   - `message` (string): Optional status message
+// @Description
+// @Description ### System Events
+// @Description - **heartbeat**: Sent every 5 seconds to keep connection alive
+// @Description   - `timestamp` (int64): Current timestamp in milliseconds
+// @Description   - `uptime` (int64): Server uptime in milliseconds
+// @Description
+// @Description ## Message Format
+// @Description Each SSE message is a JSON object with:
+// @Description - `event`: Event object containing `type` and `payload`
+// @Description - `timestamp`: Event timestamp in milliseconds
+// @Description - `id`: Unique event identifier
+// @Description
+// @Description ## Connection Behavior
+// @Description - Auto-reconnects on disconnection
+// @Description - Sends current state on initial connection
+// @Description - Heartbeat every 5 seconds
+// @Description - Rate limited to prevent spam
 // @Tags events
 // @Accept text/event-stream
 // @Produce text/event-stream
-// @Success 200 {string} string "SSE stream"
+// @Success 200 {object} SSEMessage "SSE stream of events"
 // @Router /v1/events [get]
 func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 	c.Set("Content-Type", "text/event-stream")
