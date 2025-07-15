@@ -378,6 +378,9 @@ export function WorktreeRow({
             <span className="text-xs">
               {worktree.commit_hash.slice(0, 8)}
             </span>
+            <span className="text-xs">
+              source branch: <span className="font-bold">{worktree.source_branch}</span>
+            </span>
             {worktree.commit_count > 0 && (
               <span>
                 {worktree.commit_count} commit{worktree.commit_count !== 1 ? 's' : ''}

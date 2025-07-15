@@ -245,14 +245,14 @@ export function DiffViewer({ worktreeId, isOpen, onClose }: DiffViewerProps) {
           </div>
         )}
         
-        {diffData && diffData.file_diffs.length === 0 && (
+        {diffData && !diffData.file_diffs?.length && (
           <div className="text-center py-8 text-muted-foreground">
             <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
             <p>No changes to show</p>
           </div>
         )}
         
-        {diffData && diffData.file_diffs.length > 0 && (
+        {diffData && diffData.file_diffs?.length > 0 && (
           <div className="space-y-3">
             {diffData.file_diffs.map((file) => {
               const isExpanded = expandedFiles.has(file.file_path);
