@@ -27,6 +27,7 @@ import {
   GitBranch,
   Copy,
   RefreshCw,
+  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { copyRemoteCommand, showPreviewToast, parseGitUrl } from "@/lib/git-utils";
@@ -41,16 +42,16 @@ function GitPage() {
     repositories,
     repoBranches,
     claudeSessions,
-    activeSessions,
     syncConflicts,
     mergeConflicts,
+    worktreeSummaries,
     loading,
     reposLoading,
     fetchGitStatus,
     fetchWorktrees,
     fetchRepositories,
-    fetchClaudeSessions,
     fetchActiveSessions,
+    generateWorktreeSummaryForId,
     refreshAll,
     setLoading,
   } = useGitState();
@@ -224,11 +225,18 @@ function GitPage() {
           description: "",
         });
       } else {
-        const errorData = await response.json();
+        let errorMessage = 'Unknown error';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error ?? 'Unknown error';
+        } catch {
+          // If JSON parsing fails, use status text or response text
+          errorMessage = response.statusText || `HTTP ${response.status}`;
+        }
         setErrorAlert({
           open: true,
           title: "Pull Request Failed",
-          description: `Failed to create pull request: ${errorData.error ?? 'Unknown error'}`
+          description: `Failed to create pull request: ${errorMessage}`
         });
       }
     } catch (error) {
@@ -270,15 +278,14 @@ function GitPage() {
                 <WorktreeRow
                   key={worktree.id}
                   worktree={worktree}
-                  activeSessions={activeSessions}
                   claudeSessions={claudeSessions}
                   syncConflicts={syncConflicts}
                   mergeConflicts={mergeConflicts}
+                  worktreeSummaries={worktreeSummaries}
                   openDiffWorktreeId={openDiffWorktreeId}
+                  setPrDialog={setPrDialog}
                   onToggleDiff={toggleDiff}
                   onSync={syncWorktree}
-                  prDialog={prDialog}
-                  setPrDialog={setPrDialog}
                   onMerge={(id, name) => {
                     setConfirmDialog({
                       open: true,
@@ -291,7 +298,6 @@ function GitPage() {
                     });
                   }}
                   onCreatePreview={createWorktreePreview}
-                  onDelete={deleteWorktree}
                   onConfirmDelete={(id, name, isDirty, commitCount) => {
                     const changesList = [];
                     if (isDirty) changesList.push("uncommitted changes");
@@ -305,6 +311,7 @@ function GitPage() {
                       variant: "destructive",
                     });
                   }}
+                  onRegenerateSummary={generateWorktreeSummaryForId}
                 />
               ))}
             </div>
@@ -488,16 +495,16 @@ function GitPage() {
 
       {/* Pull Request Dialog */}
       <Dialog open={prDialog.open} onOpenChange={(open) => setPrDialog(prev => ({ ...prev, open }))}>
-        <DialogContent>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create Pull Request</DialogTitle>
             <DialogDescription>
               Create a pull request for the worktree {prDialog.branchName}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="pr-title" className="text-right">
+          <div className="grid gap-6 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="pr-title" className="text-sm font-medium">
                 Title
               </Label>
               <Input
@@ -506,12 +513,13 @@ function GitPage() {
                 onChange={(e) =>
                   setPrDialog((prev) => ({ ...prev, title: e.target.value }))
                 }
-                className="col-span-3"
+                className="w-full"
+                placeholder="Enter a descriptive title for your pull request"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="pr-body" className="text-right">
-                Body
+            <div className="grid gap-2">
+              <Label htmlFor="pr-body" className="text-sm font-medium">
+                Description
               </Label>
               <textarea
                 id="pr-body"
@@ -519,12 +527,12 @@ function GitPage() {
                 onChange={(e) =>
                   setPrDialog((prev) => ({ ...prev, description: e.target.value }))
                 }
-                className="col-span-3 min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+                className="w-full min-h-[300px] rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm resize-vertical"
                 placeholder="Enter pull request description..."
               />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setPrDialog({ ...prDialog, open: false })}>
               Cancel
             </Button>

@@ -14,20 +14,35 @@ import {
   Eye, 
   FileText, 
   GitMerge, 
+  Loader2,
   MoreHorizontal, 
   RefreshCw, 
+  Sparkles,
   Terminal, 
   Trash2 
 } from "lucide-react";
 import { type Worktree } from "@/lib/git-api";
+import { type WorktreeSummary } from "@/lib/worktree-summary";
 import { getRelativeTime, getDuration } from "@/lib/git-utils";
+
+interface ClaudeSession {
+  sessionStartTime?: string | Date;
+  sessionEndTime?: string | Date;
+  isActive: boolean;
+  turnCount: number;
+  lastCost: number;
+}
+
+interface ConflictStatus {
+  has_conflicts: boolean;
+}
 
 interface WorktreeRowProps {
   worktree: Worktree;
-  activeSessions: Record<string, any>;
-  claudeSessions: Record<string, any>;
-  syncConflicts: Record<string, any>;
-  mergeConflicts: Record<string, any>;
+  claudeSessions: Record<string, ClaudeSession>;
+  syncConflicts: Record<string, ConflictStatus>;
+  mergeConflicts: Record<string, ConflictStatus>;
+  worktreeSummaries: Record<string, WorktreeSummary>;
   openDiffWorktreeId: string | null;
   setPrDialog: (dialog: {
     open: boolean;
@@ -40,259 +55,364 @@ interface WorktreeRowProps {
   onSync: (id: string) => void;
   onMerge: (id: string, name: string) => void;
   onCreatePreview: (id: string, branch: string) => void;
-  onDelete: (id: string) => void;
   onConfirmDelete: (id: string, name: string, isDirty: boolean, commitCount: number) => void;
+  onRegenerateSummary?: (worktreeId: string) => void;
+}
+
+interface WorktreeHeaderProps {
+  worktree: Worktree;
+  hasConflicts: boolean;
+  claudeSession?: ClaudeSession;
+}
+
+function WorktreeHeader({ worktree, hasConflicts, claudeSession }: WorktreeHeaderProps) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <Link
+          to="/terminal/$sessionId"
+          params={{ sessionId: encodeURIComponent(worktree.name) }}
+          className="text-lg font-medium hover:underline"
+        >
+          {worktree.name}
+        </Link>
+        <Badge variant="outline" className="text-xs">
+          {worktree.branch}
+        </Badge>
+      </div>
+      {hasConflicts && (
+        <Badge variant="destructive" className="text-xs">
+          <AlertTriangle size={12} className="mr-1" />
+          Conflicts
+        </Badge>
+      )}
+      {worktree.is_dirty ? (
+        <Badge variant="destructive" className="text-xs">
+          Dirty
+        </Badge>
+      ) : (
+        <Badge variant="secondary" className="text-xs bg-green-100 text-green-800 border-green-200">
+          Clean
+        </Badge>
+      )}
+      {claudeSession && (
+        <>
+          <Badge variant="secondary" className="text-xs">
+            {claudeSession.turnCount} turns
+          </Badge>
+          {claudeSession.lastCost > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              ${claudeSession.lastCost.toFixed(4)}
+            </Badge>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
+
+interface WorktreeClaudeStatusProps {
+  claudeSession?: ClaudeSession;
+}
+
+function WorktreeClaudeStatus({ claudeSession }: WorktreeClaudeStatusProps) {
+  if (!claudeSession) {
+    return <p className="text-xs text-muted-foreground">No Claude sessions</p>;
+  }
+
+  if (claudeSession.sessionStartTime && !claudeSession.isActive) {
+    // Finished session
+    return (
+      <p>
+        Finished: {getRelativeTime(claudeSession.sessionEndTime ?? claudeSession.sessionStartTime)} • 
+        Lasted: {getDuration(claudeSession.sessionStartTime, claudeSession.sessionEndTime ?? claudeSession.sessionStartTime)}
+      </p>
+    );
+  } else if (claudeSession.sessionStartTime && claudeSession.isActive) {
+    // Active session with timing
+    return (
+      <p>
+        Running: {getDuration(claudeSession.sessionStartTime, new Date())}
+      </p>
+    );
+  } else if (claudeSession.isActive) {
+    // Active session without timestamp
+    return <p>Running: recently started</p>;
+  } else {
+    // Completed session without timestamp
+    return <p>Completed session</p>;
+  }
+}
+
+interface WorktreeSummaryStatusProps {
+  worktree: Worktree;
+  summary?: WorktreeSummary;
+  onRegenerateSummary?: (worktreeId: string) => void;
+}
+
+function WorktreeSummaryStatus({ worktree, summary, onRegenerateSummary }: WorktreeSummaryStatusProps) {
+  // Only show summary for local repos with more than 1 commit
+  if (!worktree.repo_id.startsWith("local/") || worktree.commit_count <= 1) {
+    return null;
+  }
+
+  if (!summary) {
+    return null;
+  }
+
+  switch (summary.status) {
+    case 'pending':
+      return (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Sparkles className="h-3 w-3" />
+          <span>Summary pending...</span>
+        </div>
+      );
+    case 'generating':
+      return (
+        <div className="flex items-center gap-2 text-xs text-blue-600">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          <span>Generating summary...</span>
+        </div>
+      );
+    case 'completed':
+      return (
+        <div className="flex items-center gap-2 text-xs text-green-600">
+          <Sparkles className="h-3 w-3" />
+          <span>Summary ready for PR</span>
+        </div>
+      );
+    case 'error':
+      return (
+        <div className="flex items-center gap-2 text-xs text-red-600">
+          <AlertTriangle className="h-3 w-3" />
+          <span>Summary generation failed</span>
+          {onRegenerateSummary && (
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                onRegenerateSummary(worktree.id);
+              }}
+              className="ml-1 text-xs underline hover:no-underline"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+interface WorktreeActionsProps {
+  worktree: Worktree;
+  mergeConflicts: Record<string, ConflictStatus>;
+  openDiffWorktreeId: string | null;
+  onToggleDiff: (worktreeId: string) => void;
+  onSync: (id: string) => void;
+  onMerge: (id: string, name: string) => void;
+  onCreatePreview: (id: string, branch: string) => void;
+  onConfirmDelete: (id: string, name: string, isDirty: boolean, commitCount: number) => void;
+  onOpenPrDialog: (worktreeId: string, branchName: string) => void;
+}
+
+function WorktreeActions({ 
+  worktree, 
+  mergeConflicts, 
+  openDiffWorktreeId, 
+  onToggleDiff, 
+  onSync, 
+  onMerge, 
+  onCreatePreview, 
+  onConfirmDelete,
+  onOpenPrDialog 
+}: WorktreeActionsProps) {
+  const handleDeleteClick = () => {
+    onConfirmDelete(worktree.id, worktree.name, worktree.is_dirty, worktree.commit_count);
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => onToggleDiff(worktree.id)}
+        className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
+      >
+        <FileText size={16} />
+        View Diff
+      </Button>
+      
+      <Link
+        to="/terminal/$sessionId"
+        params={{ sessionId: worktree.name }}
+        search={{ agent: "claude" }}
+      >
+        <Button variant="outline" size="sm" asChild>
+          <span>Vibe</span>
+        </Button>
+      </Link>
+      
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm">
+            <MoreHorizontal size={16} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => onSync(worktree.id)}>
+            <RefreshCw size={16} />
+            Sync with {worktree.source_branch}
+          </DropdownMenuItem>
+          
+          <DropdownMenuSeparator />
+          
+          <DropdownMenuItem asChild>
+            <Link
+              to="/terminal/$sessionId"
+              params={{ sessionId: encodeURIComponent(worktree.name) }}
+              className="flex items-center gap-2"
+            >
+              <Terminal size={16} />
+              Open Terminal
+            </Link>
+          </DropdownMenuItem>
+          
+          {!worktree.repo_id.startsWith("local/") && (
+            <DropdownMenuItem
+              onClick={() => onCreatePreview(worktree.id, worktree.branch)}
+              className="text-blue-600"
+            >
+              <Eye size={16} />
+              Create Preview
+            </DropdownMenuItem>
+          )}
+
+          {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
+            <DropdownMenuItem
+              onClick={() => onOpenPrDialog(worktree.id, worktree.branch)}
+              className="text-green-600"
+            >
+              <GitMerge size={16} />
+              Create PR (GitHub)
+            </DropdownMenuItem>
+          )}
+          
+          {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
+            <DropdownMenuItem
+              onClick={() => onMerge(worktree.id, worktree.name)}
+              className={
+                mergeConflicts[worktree.id]?.has_conflicts
+                  ? "text-red-600"
+                  : "text-blue-600"
+              }
+            >
+              {mergeConflicts[worktree.id]?.has_conflicts ? (
+                <AlertTriangle size={16} />
+              ) : (
+                <GitMerge size={16} />
+              )}
+              {mergeConflicts[worktree.id]?.has_conflicts
+                ? `Merge ${worktree.commit_count} commits (conflicts)`
+                : `Merge ${worktree.commit_count} commits`
+              }
+            </DropdownMenuItem>
+          )}
+          
+          <DropdownMenuSeparator />
+          
+          <DropdownMenuItem onClick={handleDeleteClick} variant="destructive">
+            <Trash2 size={16} />
+            Delete Worktree
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 }
 
 export function WorktreeRow({
   worktree,
-  activeSessions,
   claudeSessions,
   syncConflicts,
   mergeConflicts,
+  worktreeSummaries,
   openDiffWorktreeId,
   setPrDialog,
   onToggleDiff,
   onSync,
   onMerge,
   onCreatePreview,
-  onDelete,
   onConfirmDelete,
+  onRegenerateSummary,
 }: WorktreeRowProps) {
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
-  const hasConflicts = syncConflicts[worktree.id]?.has_conflicts || mergeConflicts[worktree.id]?.has_conflicts;
+  const hasConflicts = Boolean(syncConflicts[worktree.id]?.has_conflicts ?? mergeConflicts[worktree.id]?.has_conflicts);
+  const summary = worktreeSummaries[worktree.id];
 
   const openPrDialog = (worktreeId: string, branchName: string) => {
+    // Use pre-generated summary if available
+    const defaultTitle = `Pull request from ${branchName}`;
+    const defaultDescription = `Automated pull request created from worktree ${branchName}`;
+    
     setPrDialog({
       open: true,
       worktreeId,
       branchName,
-      title: `Pull request from ${branchName}`,
-      description: `Automated pull request created from worktree ${branchName}`,
+      title: summary?.status === 'completed' ? summary.title : defaultTitle,
+      description: summary?.status === 'completed' ? summary.summary : defaultDescription,
     });
   };
 
-  const renderClaudeSessionStatus = () => {
-    if (!claudeSession) {
-      return <p className="text-xs text-muted-foreground">No Claude sessions</p>;
-    }
-
-    if (claudeSession.sessionStartTime && !claudeSession.isActive) {
-      // Finished session
-      return (
-        <p>
-          Finished: {getRelativeTime(claudeSession.sessionEndTime || claudeSession.sessionStartTime)} • 
-          Lasted: {getDuration(claudeSession.sessionStartTime, claudeSession.sessionEndTime || claudeSession.sessionStartTime)}
-        </p>
-      );
-    } else if (claudeSession.sessionStartTime && claudeSession.isActive) {
-      // Active session with timing
-      return (
-        <p>
-          Running: {getDuration(claudeSession.sessionStartTime, new Date())}
-        </p>
-      );
-    } else if (claudeSession.isActive) {
-      // Active session without timestamp
-      return <p>Running: recently started</p>;
-    } else {
-      // Completed session without timestamp
-      return <p>Session completed (timing data unavailable)</p>;
-    }
-  };
-
-  const handleDeleteClick = () => {
-    if (worktree.is_dirty || worktree.commit_count > 0) {
-      onConfirmDelete(worktree.id, worktree.name, worktree.is_dirty, worktree.commit_count);
-    } else {
-      onDelete(worktree.id);
-    }
-  };
-
   return (
-    <div className="space-y-0">
-      <div className="flex items-center justify-between p-3 border rounded-lg">
+    <div className="border rounded-lg p-4 mb-4 bg-card">
+      <div className="flex items-center justify-between">
         <div className="flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium">{worktree.name}</span>
-            {activeSessions[sessionPath] && (
-              <div
-                className="w-2 h-2 bg-green-500 rounded-full animate-pulse"
-                title="Active session running"
-              />
-            )}
-            <Badge variant="outline">
-              {worktree.repo_id}@{worktree.source_branch || "unknown"}
-            </Badge>
-            {worktree.is_dirty ? (
-              <Badge variant="destructive">Dirty</Badge>
-            ) : (
-              <Badge variant="secondary" className="text-xs bg-green-100 text-green-800 border-green-200">
-                Clean
-              </Badge>
-            )}
+          <WorktreeHeader worktree={worktree} hasConflicts={hasConflicts} claudeSession={claudeSession} />
+          
+          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+            <span className="text-xs">
+              {worktree.commit_hash.slice(0, 8)}
+            </span>
             {worktree.commit_count > 0 && (
-              <Badge variant="secondary">+{worktree.commit_count} commits</Badge>
+              <span>
+                {worktree.commit_count} commit{worktree.commit_count !== 1 ? 's' : ''}
+              </span>
             )}
             {worktree.commits_behind > 0 && (
-              <Badge variant="outline" className="border-orange-200 text-orange-800 bg-orange-50">
+              <span className="text-orange-600">
                 {worktree.commits_behind} behind
-                {syncConflicts[worktree.id]?.has_conflicts && " ⚠️"}
-              </Badge>
-            )}
-            {hasConflicts && (
-              <Badge variant="outline" className="border-red-200 text-red-800 bg-red-50">
-                Conflicts detected
-              </Badge>
-            )}
-            {claudeSession && (
-              <>
-                <Badge variant="secondary" className="text-xs">
-                  {claudeSession.turnCount} turns
-                </Badge>
-                {claudeSession.lastCost > 0 && (
-                  <Badge variant="secondary" className="text-xs">
-                    ${claudeSession.lastCost.toFixed(4)}
-                  </Badge>
-                )}
-              </>
+              </span>
             )}
           </div>
-          <div className="text-xs text-muted-foreground space-y-1">
-            <Link
-              to="/terminal/$sessionId"
-              params={{ sessionId: worktree.name }}
-              search={{ agent: undefined }}
-              className="cursor-pointer hover:text-primary underline-offset-4 hover:underline"
-            >
-              {worktree.path}
-            </Link>
-            <div className="space-y-1">
-              {renderClaudeSessionStatus()}
-            </div>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Link
-            to="/terminal/$sessionId"
-            params={{ sessionId: worktree.name }}
-            search={{ agent: "claude" }}
-          >
-            <Button variant="outline" size="sm" asChild>
-              <span>Vibe</span>
-            </Button>
-          </Link>
-          {(worktree.is_dirty || worktree.commit_count > 0) && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onToggleDiff(worktree.id)}
-              title="View diff against source branch"
-              className={
-                openDiffWorktreeId === worktree.id
-                  ? "text-blue-600 border-blue-200 bg-blue-50"
-                  : "text-gray-600 border-gray-200 hover:bg-gray-50"
-              }
-            >
-              <FileText size={16} />
-            </Button>
-          )}
-          
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="relative">
-                <MoreHorizontal size={16} />
-                {hasConflicts && (
-                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full" />
-                )}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link
-                  to="/terminal/$sessionId"
-                  params={{ sessionId: worktree.name }}
-                  className="cursor-pointer"
-                >
-                  <Terminal size={16} />
-                  Open Terminal
-                </Link>
-              </DropdownMenuItem>
-              
-              <DropdownMenuSeparator />
-              
-              {worktree.commits_behind > 0 && (
-                <DropdownMenuItem
-                  onClick={() => onSync(worktree.id)}
-                  className={
-                    syncConflicts[worktree.id]?.has_conflicts
-                      ? "text-red-600"
-                      : "text-orange-600"
-                  }
-                >
-                  {syncConflicts[worktree.id]?.has_conflicts ? (
-                    <AlertTriangle size={16} />
-                  ) : (
-                    <RefreshCw size={16} />
-                  )}
-                  {syncConflicts[worktree.id]?.has_conflicts
-                    ? `Sync (${worktree.commits_behind} commits, conflicts)`
-                    : `Sync ${worktree.commits_behind} commits`
-                  }
-                </DropdownMenuItem>
-              )}
-              
-              {worktree.repo_id.startsWith("local/") && (
-                <DropdownMenuItem
-                  onClick={() => onCreatePreview(worktree.id, worktree.branch)}
-                  className="text-purple-600"
-                >
-                  <Eye size={16} />
-                  Create Preview
-                </DropdownMenuItem>
-              )}
 
-              {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
-                <DropdownMenuItem
-                  onClick={() => openPrDialog(worktree.id, worktree.branch)}
-                  className="text-green-600"
-                >
-                  <GitMerge size={16} />
-                  Create PR (GitHub)
-                </DropdownMenuItem>
-              )}
-              
-              {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
-                <DropdownMenuItem
-                  onClick={() => onMerge(worktree.id, worktree.name)}
-                  className={
-                    mergeConflicts[worktree.id]?.has_conflicts
-                      ? "text-red-600"
-                      : "text-blue-600"
-                  }
-                >
-                  {mergeConflicts[worktree.id]?.has_conflicts ? (
-                    <AlertTriangle size={16} />
-                  ) : (
-                    <GitMerge size={16} />
-                  )}
-                  {mergeConflicts[worktree.id]?.has_conflicts
-                    ? `Merge ${worktree.commit_count} commits (conflicts)`
-                    : `Merge ${worktree.commit_count} commits`
-                  }
-                </DropdownMenuItem>
-              )}
-              
-              <DropdownMenuSeparator />
-              
-              <DropdownMenuItem onClick={handleDeleteClick} variant="destructive">
-                <Trash2 size={16} />
-                Delete Worktree
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="flex items-center gap-4 mt-1">
+            <div className="text-xs text-muted-foreground">
+              <WorktreeClaudeStatus claudeSession={claudeSession} />
+            </div>
+            <WorktreeSummaryStatus 
+              worktree={worktree} 
+              summary={summary} 
+              onRegenerateSummary={onRegenerateSummary} 
+            />
+          </div>
         </div>
+        
+        <WorktreeActions
+          worktree={worktree}
+          mergeConflicts={mergeConflicts}
+          openDiffWorktreeId={openDiffWorktreeId}
+          onToggleDiff={onToggleDiff}
+          onSync={onSync}
+          onMerge={onMerge}
+          onCreatePreview={onCreatePreview}
+          onConfirmDelete={onConfirmDelete}
+          onOpenPrDialog={openPrDialog}
+        />
       </div>
       <DiffViewer
         worktreeId={worktree.id}

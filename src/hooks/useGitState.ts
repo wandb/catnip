@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { gitApi, type GitStatus, type Worktree, type Repository } from "@/lib/git-api";
+import { generateWorktreeSummary, shouldGenerateSummary, type WorktreeSummary } from "@/lib/worktree-summary";
 
 export interface GitState {
   gitStatus: GitStatus;
@@ -10,6 +11,7 @@ export interface GitState {
   activeSessions: Record<string, any>;
   syncConflicts: Record<string, any>;
   mergeConflicts: Record<string, any>;
+  worktreeSummaries: Record<string, WorktreeSummary>;
   loading: boolean;
   reposLoading: boolean;
 }
@@ -24,6 +26,7 @@ export function useGitState() {
     activeSessions: {},
     syncConflicts: {},
     mergeConflicts: {},
+    worktreeSummaries: {},
     loading: false,
     reposLoading: false,
   });
@@ -79,6 +82,134 @@ export function useGitState() {
     setState(prev => ({ ...prev, syncConflicts, mergeConflicts }));
   };
 
+  // Generate summary for a specific worktree
+  const generateWorktreeSummaryForId = async (worktreeId: string) => {
+    // Set status to generating
+    setState(prev => ({
+      ...prev,
+      worktreeSummaries: {
+        ...prev.worktreeSummaries,
+        [worktreeId]: {
+          worktreeId,
+          title: '',
+          summary: '',
+          status: 'generating'
+        }
+      }
+    }));
+
+    try {
+      const summary = await generateWorktreeSummary(worktreeId);
+      setState(prev => ({
+        ...prev,
+        worktreeSummaries: {
+          ...prev.worktreeSummaries,
+          [worktreeId]: summary
+        }
+      }));
+    } catch (error) {
+      console.error(`Failed to generate summary for worktree ${worktreeId}:`, error);
+      setState(prev => ({
+        ...prev,
+        worktreeSummaries: {
+          ...prev.worktreeSummaries,
+          [worktreeId]: {
+            worktreeId,
+            title: 'Failed to generate summary',
+            summary: 'An error occurred while generating the summary',
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }
+        }
+      }));
+    }
+  };
+
+  // Generate summaries for all qualifying worktrees
+  const generateAllWorktreeSummaries = async () => {
+    const qualifyingWorktrees = state.worktrees.filter(shouldGenerateSummary);
+    
+    // Initialize pending summaries
+    const pendingSummaries: Record<string, WorktreeSummary> = {};
+    qualifyingWorktrees.forEach(worktree => {
+      if (!state.worktreeSummaries[worktree.id] || state.worktreeSummaries[worktree.id].status === 'error') {
+        pendingSummaries[worktree.id] = {
+          worktreeId: worktree.id,
+          title: '',
+          summary: '',
+          status: 'pending'
+        };
+      }
+    });
+
+    if (Object.keys(pendingSummaries).length > 0) {
+      setState(prev => ({
+        ...prev,
+        worktreeSummaries: {
+          ...prev.worktreeSummaries,
+          ...pendingSummaries
+        }
+      }));
+
+      // Generate summaries in parallel
+      const summaryPromises = Object.keys(pendingSummaries).map(async (worktreeId) => {
+        // Set to generating
+        setState(prev => ({
+          ...prev,
+          worktreeSummaries: {
+            ...prev.worktreeSummaries,
+            [worktreeId]: {
+              ...prev.worktreeSummaries[worktreeId],
+              status: 'generating'
+            }
+          }
+        }));
+
+        try {
+          const summary = await generateWorktreeSummary(worktreeId);
+          setState(prev => ({
+            ...prev,
+            worktreeSummaries: {
+              ...prev.worktreeSummaries,
+              [worktreeId]: summary
+            }
+          }));
+        } catch (error) {
+          console.error(`Failed to generate summary for worktree ${worktreeId}:`, error);
+          setState(prev => ({
+            ...prev,
+            worktreeSummaries: {
+              ...prev.worktreeSummaries,
+              [worktreeId]: {
+                worktreeId,
+                title: 'Failed to generate summary',
+                summary: 'An error occurred while generating the summary',
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }
+            }
+          }));
+        }
+      });
+
+      await Promise.all(summaryPromises);
+    }
+  };
+
+  // Clear summary for a specific worktree
+  const clearWorktreeSummary = (worktreeId: string) => {
+    setState(prev => {
+      const newSummaries = { ...prev.worktreeSummaries };
+      delete newSummaries[worktreeId];
+      return { ...prev, worktreeSummaries: newSummaries };
+    });
+  };
+
+  // Clear all summaries
+  const clearAllWorktreeSummaries = () => {
+    setState(prev => ({ ...prev, worktreeSummaries: {} }));
+  };
+
   const refreshAll = async () => {
     await Promise.all([
       fetchGitStatus(),
@@ -94,17 +225,24 @@ export function useGitState() {
 
   // Initial fetch
   useEffect(() => {
-    fetchGitStatus();
-    fetchWorktrees();
-    fetchRepositories();
-    fetchClaudeSessions();
-    fetchActiveSessions();
+    void fetchGitStatus();
+    void fetchWorktrees();
+    void fetchRepositories();
+    void fetchClaudeSessions();
+    void fetchActiveSessions();
   }, []);
 
   // Check for conflicts when worktrees change
   useEffect(() => {
     if (state.worktrees.length > 0) {
-      checkConflicts();
+      void checkConflicts();
+    }
+  }, [state.worktrees]);
+
+  // Generate summaries for qualifying worktrees when they change
+  useEffect(() => {
+    if (state.worktrees.length > 0) {
+      void generateAllWorktreeSummaries();
     }
   }, [state.worktrees]);
 
@@ -116,6 +254,10 @@ export function useGitState() {
     fetchClaudeSessions,
     fetchActiveSessions,
     checkConflicts,
+    generateWorktreeSummaryForId,
+    generateAllWorktreeSummaries,
+    clearWorktreeSummary,
+    clearAllWorktreeSummaries,
     refreshAll,
     setLoading,
   };
