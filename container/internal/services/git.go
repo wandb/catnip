@@ -1,10 +1,11 @@
 package services
 
 import (
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/rand"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,8 +33,10 @@ var nouns = []string{"otter", "kraken", "wombat", "quokka", "nebula", "photon", 
 	"badger", "pangolin", "goblin", "cyborg", "ninja", "gizmo", "raptor", "penguin"}
 
 func generateSessionName() string {
-	verb := verbs[rand.Intn(len(verbs))]
-	noun := nouns[rand.Intn(len(nouns))]
+	verbIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(verbs))))
+	nounIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(nouns))))
+	verb := verbs[verbIndex.Int64()]
+	noun := nouns[nounIndex.Int64()]
 	return fmt.Sprintf("%s-%s", verb, noun)
 }
 

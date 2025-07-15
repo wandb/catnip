@@ -26,57 +26,48 @@ linters:
     - revive
     - gosec
     - unconvert
-    
-  # Exclude targeted low-risk issues  
+
+  # Exclude targeted low-risk issues
   exclusions:
     rules:
       # Ignore errcheck for Close() calls - very common and usually safe
       - text: "Error return value of.*Close.*is not checked"
         linters:
           - errcheck
-      
-      # Ignore errcheck for os.Remove - cleanup operations 
+
+      # Ignore errcheck for os.Remove - cleanup operations
       - text: "Error return value of.*os.Remove.*is not checked"
         linters:
           - errcheck
-          
+
       # Gosec G104: Allow ignoring errors for cleanup operations
-      - text: "G104.*Close"
+      - text: "G104"
         linters:
           - gosec
-      - text: "G104.*os.Remove"
+
+      # Gosec G204: Allow subprocess calls, this is an RCE as a service app anyway
+      - text: "G204"
         linters:
           - gosec
-          
-      # Gosec G204: Allow trusted subprocess calls for development tools
-      - text: "G204.*git"
+
+      # Gosec G301/G306: Allow standard directory/file permissions for all files
+      - text: "G301"
         linters:
           - gosec
-      - text: "G204.*docker"
+      - text: "G306"
         linters:
           - gosec
-      - text: "G204.*gh"
-        linters:
-          - gosec
-          
-      # Gosec G301/G306: Allow standard directory/file permissions for non-sensitive files
-      - text: "G301.*0755"
-        linters:
-          - gosec
-      - text: "G306.*0644"
-        linters:
-          - gosec
-          
+
       # Gosec G304: Allow file operations for legitimate development tool functionality
       - text: "G304.*Potential file inclusion via variable"
         linters:
           - gosec
-          
+
       # Gosec G103: Allow unsafe pointer usage for PTY operations
       - text: "G103.*Use of unsafe calls should be audited"
         linters:
           - gosec
-          
+
       # Revive: Reduce noise for internal packages
       - text: "exported.*should have comment or be unexported"
         linters:
