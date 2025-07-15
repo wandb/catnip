@@ -178,7 +178,7 @@ function main(): void {
   // Confirm if not pushing
   if (!push) {
     console.log('\n⚠️  This will create a LOCAL tag only. Use --push to trigger the release.');
-    console.log('💡 Example: just release minor --push --message="Add awesome feature"');
+    console.log('💡 Example: just release --push --message="Add awesome feature"');
   }
   
   // Create the tag
