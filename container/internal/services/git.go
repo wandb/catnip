@@ -2149,11 +2149,12 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 	// Generate summary
 	var summary string
 	totalFiles := len(fileDiffs)
-	if totalFiles == 0 {
+	switch totalFiles {
+	case 0:
 		summary = "No changes"
-	} else if totalFiles == 1 {
+	case 1:
 		summary = "1 file changed"
-	} else {
+	default:
 		summary = fmt.Sprintf("%d files changed", totalFiles)
 	}
 	

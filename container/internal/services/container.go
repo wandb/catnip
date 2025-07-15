@@ -16,7 +16,9 @@ import (
 type ContainerRuntime string
 
 const (
+	// RuntimeDocker represents the Docker container runtime
 	RuntimeDocker ContainerRuntime = "docker"
+	// RuntimeApple represents the Apple container runtime (currently maps to Docker)
 	RuntimeApple  ContainerRuntime = "docker"
 )
 
