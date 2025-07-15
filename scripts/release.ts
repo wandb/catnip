@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
 import { execSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
 
 // Types
 type BumpType = 'major' | 'minor' | 'patch' | 'dev';
@@ -14,11 +12,6 @@ interface Version {
   dev: number | null;
 }
 
-interface ParsedArgs {
-  bump: BumpType;
-  push: boolean;
-  message?: string;
-}
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -182,7 +175,7 @@ function main(): void {
   }
   
   // Create the tag
-  let tag;
+  let tag: string | undefined;
   try {
     tag = createTag(newVersion, message);
     console.log(`✅ Tag ${tag} created successfully`);
@@ -199,7 +192,7 @@ function main(): void {
       console.log(`   git tag -d ${tag}`);
     }
     
-  } catch (error) {
+  } catch (error: any) {
     console.error(`❌ Failed to create tag: ${error.message}`);
     
     // Clean up if tag was created but push failed
@@ -207,7 +200,7 @@ function main(): void {
       try {
         run(`git tag -d ${tag}`);
         console.log(`🧹 Cleaned up local tag ${tag}`);
-      } catch (cleanupError) {
+      } catch (cleanupError: any) {
         console.error(`⚠️  Could not clean up tag: ${cleanupError.message}`);
       }
     }
