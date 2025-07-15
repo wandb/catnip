@@ -147,7 +147,7 @@ function WorktreeClaudeStatus({ claudeSession }: WorktreeClaudeStatusProps) {
       </p>
       {claudeSession.header && (
         <p className="text-xs font-medium text-foreground mt-2" title={claudeSession.header}>
-          {claudeSession.header}
+          Session prompt: "{claudeSession.header}"
         </p>
       )}
     </div>
