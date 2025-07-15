@@ -30,14 +30,26 @@ export interface FileDiff {
 
 // Function to get diff data for a worktree
 export async function getWorktreeDiff(worktreeId: string): Promise<WorktreeDiffResponse | null> {
+  // Create abort controller for request timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 30000); // 30 seconds timeout for diff requests
+  
   try {
-    const response = await fetch(`/v1/git/worktrees/${worktreeId}/diff`);
+    const response = await fetch(`/v1/git/worktrees/${worktreeId}/diff`, {
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
-      throw new Error(`Failed to fetch diff: ${response.status}`);
+      return null;
     }
+    
     return await response.json() as WorktreeDiffResponse;
-  } catch (error) {
-    console.error(`Failed to fetch diff for worktree ${worktreeId}:`, error);
+  } catch {
+    clearTimeout(timeoutId);
     return null;
   }
 }
@@ -60,7 +72,7 @@ export async function generateWorktreeSummary(worktreeId: string): Promise<Workt
     // Create a concise diff summary for the AI
     const diffSummary = createDiffSummary(diffData);
     
-    // Generate PR title
+    // Generate PR title with timeout and error handling
     const titleRequest = createCompletionRequest({
       message: `Generate a concise, descriptive pull request title for these changes. The title should be 10 words or less and clearly indicate what was changed or added. Focus on the main feature or fix.
 
@@ -72,7 +84,7 @@ Return only the title, no additional text or quotes.`,
       system: 'You are a helpful assistant that generates concise, professional pull request titles based on code changes.'
     });
 
-    // Generate PR body/summary
+    // Generate PR body/summary with timeout and error handling
     const summaryRequest = createCompletionRequest({
       message: `Generate a comprehensive pull request description for these changes. Include:
 1. A brief overview of what was changed
@@ -87,16 +99,28 @@ Format the response as a proper pull request description with clear sections.`,
       system: 'You are a helpful assistant that generates professional pull request descriptions based on code changes. Focus on being clear, concise, and informative.'
     });
 
-    // Generate both title and summary
-    const [titleResponse, summaryResponse] = await Promise.all([
+    // Generate both title and summary with Promise.allSettled for better error handling
+    const [titleResult, summaryResult] = await Promise.allSettled([
       getCompletion({ request: titleRequest, cacheKey: `title-${worktreeId}` }),
       getCompletion({ request: summaryRequest, cacheKey: `summary-${worktreeId}` })
     ]);
 
+    // Handle results with fallbacks
+    let title = diffData.worktree_name || 'Changes';
+    let summary = '';
+
+    if (titleResult.status === 'fulfilled' && titleResult.value?.response) {
+      title = titleResult.value.response.trim();
+    }
+
+    if (summaryResult.status === 'fulfilled' && summaryResult.value?.response) {
+      summary = summaryResult.value.response.trim();
+    }
+
     return {
       worktreeId,
-      title: titleResponse.response.trim(),
-      summary: summaryResponse.response.trim(),
+      title,
+      summary,
       status: 'completed',
       generatedAt: new Date()
     };

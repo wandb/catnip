@@ -132,29 +132,58 @@ export async function getCompletion(config: CompletionConfig): Promise<Completio
     }
   }
   
-  // Make API request
-  const response = await fetch('/v1/claude/completion', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  });
+  // Create abort controller for request timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, 10000); // 10 seconds
   
-  if (!response.ok) {
-    const errorData: CompletionError = await response.json() as CompletionError;
-    throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+  try {
+    // Make API request with timeout
+    const response = await fetch('/v1/claude/completion', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(request),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      try {
+        const errorData: CompletionError = await response.json() as CompletionError;
+        errorMessage = errorData.error || errorMessage;
+      } catch (parseError) {
+        // If we can't parse the error response, use the status message
+        console.warn('Failed to parse error response:', parseError);
+      }
+      throw new Error(errorMessage);
+    }
+    
+    const data: CompletionResponse = await response.json() as CompletionResponse;
+    
+    // Cache the response (unless cache is ignored)
+    if (!ignoreCache) {
+      const key = generateCacheKey(request, cacheKey);
+      setCachedResponse(key, data);
+    }
+    
+    return data;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout: The server did not respond within 10 seconds');
+      }
+      throw error;
+    }
+    
+    throw new Error('Unknown error occurred during completion request');
   }
-  
-  const data: CompletionResponse = await response.json() as CompletionResponse;
-  
-  // Cache the response (unless cache is ignored)
-  if (!ignoreCache) {
-    const key = generateCacheKey(request, cacheKey);
-    setCachedResponse(key, data);
-  }
-  
-  return data;
 }
 
 // React hook for completion

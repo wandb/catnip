@@ -660,6 +660,31 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	return worktree, nil
 }
 
+// getLocalRepoBranches returns the local branches for a local repository
+func (s *GitService) getLocalRepoBranches(repoPath string) ([]string, error) {
+	cmd := exec.Command("git", "-C", repoPath, "branch", "--format=%(refname:short)")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get local branches: %w", err)
+	}
+
+	var branches []string
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+
+	return branches, nil
+}
+
 // GetRepositoryBranches returns the remote branches for a repository
 func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	s.mu.RLock()
