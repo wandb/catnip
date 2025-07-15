@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -82,7 +80,7 @@ var debugEnabled bool
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			log.Fatalln("Failed to open debug log file:", err)
 		}
@@ -302,7 +300,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			debugLog("TUI Update() MAIN UI KEY DETECTED")
 			if m.appHealthy {
 				go func() {
-					openBrowser("http://localhost:8080")
+					if err := openBrowser("http://localhost:8080"); err != nil {
+						debugLog("Error opening browser: %v", err)
+					}
 				}()
 			} else {
 				// App is not ready, show bold feedback
@@ -320,7 +320,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					debugLog("TUI Update() opening port %s at %s", port, url)
 					go func() {
 						if isAppReady("http://localhost:8080") {
-							openBrowser(url)
+							if err := openBrowser(url); err != nil {
+								debugLog("Error opening browser: %v", err)
+							}
 						}
 					}()
 				}
@@ -749,25 +751,6 @@ func (m model) fetchRepositoryInfo() tea.Cmd {
 	}
 }
 
-func (m model) fetchContainerRepos() tea.Cmd {
-	return func() tea.Msg {
-		// Try to fetch repositories from the container's API
-		client := &http.Client{Timeout: 1 * time.Second}
-		resp, err := client.Get("http://localhost:8080/v1/git/status")
-		if err != nil {
-			// If we can't reach the API, return empty repos
-			return containerReposMsg(map[string]interface{}{"repositories": []interface{}{}})
-		}
-		defer resp.Body.Close()
-		
-		var repoData map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&repoData); err != nil {
-			return containerReposMsg(map[string]interface{}{"repositories": []interface{}{}})
-		}
-		
-		return containerReposMsg(repoData)
-	}
-}
 
 // loadLogo reads the ASCII logo from the public directory
 func loadLogo() []string {
@@ -867,28 +850,6 @@ func stripAnsi(s string) string {
 	return result.String()
 }
 
-// renderMarkdown renders markdown text using glamour for beautiful help messages
-func (m model) renderMarkdown(text string) string {
-	// Create a glamour renderer with terminal styling
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(m.width-10), // Leave some padding
-	)
-	if err != nil {
-		// Fallback to plain text if glamour fails
-		return text
-	}
-	
-	// Render the markdown
-	rendered, err := renderer.Render(text)
-	if err != nil {
-		// Fallback to plain text if rendering fails
-		return text
-	}
-	
-	// Remove trailing newlines that glamour adds
-	return strings.TrimRight(rendered, "\n")
-}
 
 // updateLogFilter applies the current search pattern to logs and updates the viewport
 func (m model) updateLogFilter() model {

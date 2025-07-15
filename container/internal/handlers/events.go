@@ -15,9 +15,10 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
-// Event types that match the frontend TypeScript definitions
+// EventType represents the type of event that can be sent via SSE
 type EventType string
 
+// Event type constants that match the frontend TypeScript definitions
 const (
 	PortOpenedEvent     EventType = "port:opened"
 	PortClosedEvent     EventType = "port:closed"
@@ -159,8 +160,14 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 		
 		data, err := json.Marshal(containerStatusMsg)
 		if err == nil {
-			fmt.Fprintf(w, "data: %s\n\n", string(data))
-			w.Flush()
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
+				log.Printf("Error writing container status message: %v", err)
+				return
+			}
+			if err := w.Flush(); err != nil {
+				log.Printf("Error flushing container status message: %v", err)
+				return
+			}
 		}
 		
 		// Send current port status
@@ -193,8 +200,14 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 			
 			data, err := json.Marshal(portMsg)
 			if err == nil {
-				fmt.Fprintf(w, "data: %s\n\n", string(data))
-				w.Flush()
+				if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
+					log.Printf("Error writing port message: %v", err)
+					return
+				}
+				if err := w.Flush(); err != nil {
+					log.Printf("Error flushing port message: %v", err)
+					return
+				}
 			}
 		}
 		
@@ -213,8 +226,14 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 		
 		data, err = json.Marshal(heartbeatMsg)
 		if err == nil {
-			fmt.Fprintf(w, "data: %s\n\n", string(data))
-			w.Flush()
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
+				log.Printf("Error writing heartbeat message: %v", err)
+				return
+			}
+			if err := w.Flush(); err != nil {
+				log.Printf("Error flushing heartbeat message: %v", err)
+				return
+			}
 		}
 		
 		log.Printf("Entering main streaming loop for client: %s", clientID)
@@ -383,7 +402,7 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 }
 
 
-// PublicAPI methods for other services to emit events
+// EmitGitDirty broadcasts a git dirty event to all connected clients
 func (h *EventsHandler) EmitGitDirty(workspace string, files []string) {
 	h.broadcastEvent(AppEvent{
 		Type: GitDirtyEvent,
@@ -394,6 +413,7 @@ func (h *EventsHandler) EmitGitDirty(workspace string, files []string) {
 	})
 }
 
+// EmitGitClean broadcasts a git clean event to all connected clients
 func (h *EventsHandler) EmitGitClean(workspace string) {
 	h.broadcastEvent(AppEvent{
 		Type: GitCleanEvent,
@@ -403,6 +423,7 @@ func (h *EventsHandler) EmitGitClean(workspace string) {
 	})
 }
 
+// EmitProcessStarted broadcasts a process started event to all connected clients
 func (h *EventsHandler) EmitProcessStarted(pid int, command string, workspace *string) {
 	h.broadcastEvent(AppEvent{
 		Type: ProcessStartedEvent,
@@ -414,6 +435,7 @@ func (h *EventsHandler) EmitProcessStarted(pid int, command string, workspace *s
 	})
 }
 
+// EmitProcessStopped broadcasts a process stopped event to all connected clients
 func (h *EventsHandler) EmitProcessStopped(pid int, exitCode int) {
 	h.broadcastEvent(AppEvent{
 		Type: ProcessStoppedEvent,
@@ -424,6 +446,7 @@ func (h *EventsHandler) EmitProcessStopped(pid int, exitCode int) {
 	})
 }
 
+// EmitContainerStatus broadcasts a container status event to all connected clients
 func (h *EventsHandler) EmitContainerStatus(status string, message *string) {
 	h.broadcastEvent(AppEvent{
 		Type: ContainerStatusEvent,
