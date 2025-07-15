@@ -466,3 +466,54 @@ func (h *GitHandler) CreatePullRequest(c *fiber.Ctx) error {
 
 	return c.JSON(pr)
 }
+
+// @Summary Update pull request for worktree
+// @Description Update an existing pull request for a worktree branch
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param request body CreatePullRequestRequest true "Pull request update data"
+// @Success 200 {object} models.PullRequestResponse
+// @Failure 400 {object} map[string]string
+// @Router /v1/git/worktrees/{id}/pr [put]
+func (h *GitHandler) UpdatePullRequest(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	var req CreatePullRequestRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	pr, err := h.gitService.UpdatePullRequest(worktreeID, req.Title, req.Body)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(pr)
+}
+
+// @Summary Check if pull request exists for worktree
+// @Description Check if a pull request exists for a worktree branch
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} models.PullRequestInfo
+// @Failure 400 {object} map[string]string
+// @Router /v1/git/worktrees/{id}/pr [get]
+func (h *GitHandler) CheckPullRequest(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	prInfo, err := h.gitService.CheckPullRequestExists(worktreeID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(prInfo)
+}

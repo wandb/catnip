@@ -56,11 +56,8 @@ export async function getWorktreeDiff(worktreeId: string): Promise<WorktreeDiffR
 
 // Function to generate a summary from diff data
 export async function generateWorktreeSummary(worktreeId: string): Promise<WorktreeSummary> {
-  console.log('generateWorktreeSummary called for worktree:', worktreeId);
   const diffData = await getWorktreeDiff(worktreeId);
 
-  console.log('diffData', diffData);
-  
   if (!diffData) {
     return {
       worktreeId,

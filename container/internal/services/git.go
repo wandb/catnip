@@ -32,6 +32,257 @@ var verbs = []string{"warp", "pixelate", "compile", "encrypt", "vectorize", "hyd
 var nouns = []string{"otter", "kraken", "wombat", "quokka", "nebula", "photon", "quasar",
 	"badger", "pangolin", "goblin", "cyborg", "ninja", "gizmo", "raptor", "penguin"}
 
+// Helper functions for common patterns
+
+// setupGitEnv returns the standard environment for git commands
+func setupGitEnv() []string {
+	return append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+}
+
+// execGitCommand runs a git command with standard environment setup
+func execGitCommand(workingDir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	if workingDir != "" {
+		cmd.Args = append([]string{"git", "-C", workingDir}, args...)
+	}
+	cmd.Env = setupGitEnv()
+	return cmd.Run()
+}
+
+// execGitCommandWithOutput runs a git command and returns its output
+func execGitCommandWithOutput(workingDir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	if workingDir != "" {
+		cmd.Args = append([]string{"git", "-C", workingDir}, args...)
+	}
+	cmd.Env = setupGitEnv()
+	return cmd.Output()
+}
+
+// execGitCommandWithCombinedOutput runs a git command and returns combined output
+func execGitCommandWithCombinedOutput(workingDir string, args ...string) ([]byte, error) {
+	cmd := exec.Command("git", args...)
+	if workingDir != "" {
+		cmd.Args = append([]string{"git", "-C", workingDir}, args...)
+	}
+	cmd.Env = setupGitEnv()
+	return cmd.CombinedOutput()
+}
+
+// execCommand runs a non-git command with standard environment setup
+func execCommand(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Env = setupGitEnv()
+	return cmd.Run()
+}
+
+// execCommandWithOutput runs a non-git command and returns its output
+func execCommandWithOutput(name string, args ...string) ([]byte, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Env = setupGitEnv()
+	return cmd.Output()
+}
+
+// execCommandWithCombinedOutput runs a non-git command and returns combined output
+func execCommandWithCombinedOutput(name string, args ...string) ([]byte, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Env = setupGitEnv()
+	return cmd.CombinedOutput()
+}
+
+// getCommitHash gets the commit hash from a repository path
+func getCommitHash(repoPath string) (string, error) {
+	output, err := execGitCommandWithOutput(repoPath, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get commit hash: %v", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// getCurrentBranchFromRepo gets the current branch name from a repository path
+func getCurrentBranchFromRepo(repoPath string) (string, error) {
+	output, err := execGitCommandWithOutput(repoPath, "branch", "--show-current")
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %v", err)
+	}
+	branch := strings.TrimSpace(string(output))
+	if branch == "" {
+		return "main", nil // fallback
+	}
+	return branch, nil
+}
+
+// branchExists checks if a branch exists in a repository
+func branchExists(repoPath, branch string) bool {
+	err := execGitCommand(repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
+	return err == nil
+}
+
+// remoteBranchExists checks if a remote branch exists
+func remoteBranchExists(repoPath, remote, branch string) bool {
+	err := execGitCommand(repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/remotes/%s/%s", remote, branch))
+	return err == nil
+}
+
+// getRemoteURL gets the remote URL for a repository
+func getRemoteURL(repoPath, remote string) (string, error) {
+	output, err := execGitCommandWithOutput(repoPath, "remote", "get-url", remote)
+	if err != nil {
+		return "", fmt.Errorf("failed to get remote URL: %v", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// convertSSHToHTTPS converts SSH GitHub URLs to HTTPS
+func convertSSHToHTTPS(url string) string {
+	if strings.HasPrefix(url, "git@github.com:") {
+		path := strings.TrimPrefix(url, "git@github.com:")
+		return "https://github.com/" + path
+	}
+	return url
+}
+
+// parseGitHubURL parses a GitHub URL and returns owner/repo
+func parseGitHubURL(url string) (string, error) {
+	if strings.HasPrefix(url, "git@github.com:") {
+		parts := strings.TrimPrefix(url, "git@github.com:")
+		parts = strings.TrimSuffix(parts, ".git")
+		return parts, nil
+	} else if strings.Contains(url, "github.com/") {
+		parts := strings.Split(url, "github.com/")
+		if len(parts) != 2 {
+			return "", fmt.Errorf("invalid GitHub URL format")
+		}
+		ownerRepo := strings.TrimSuffix(parts[1], ".git")
+		return ownerRepo, nil
+	}
+	return "", fmt.Errorf("URL does not appear to be a GitHub repository")
+}
+
+// parseRepoName extracts the repo name from a repo ID
+func parseRepoName(repoID string) string {
+	parts := strings.Split(repoID, "/")
+	return parts[len(parts)-1]
+}
+
+// buildWorktreePath constructs a worktree path
+func buildWorktreePath(repoID, name string) string {
+	repoName := parseRepoName(repoID)
+	return filepath.Join(workspaceDir, repoName, name)
+}
+
+// buildDisplayName constructs a display name for a worktree
+func buildDisplayName(repoID, name string) string {
+	repoName := parseRepoName(repoID)
+	return fmt.Sprintf("%s/%s", repoName, name)
+}
+
+// isGitRepository checks if a path is a git repository
+func isGitRepository(path string) bool {
+	gitPath := filepath.Join(path, ".git")
+	_, err := os.Stat(gitPath)
+	return err == nil
+}
+
+// isDirty checks if a worktree has uncommitted changes
+func isDirty(worktreePath string) bool {
+	output, err := execGitCommandWithOutput(worktreePath, "status", "--porcelain")
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(output))) > 0
+}
+
+// getDefaultBranch gets the default branch from a bare repository
+func getDefaultBranch(barePath string) (string, error) {
+	// First try to get the symbolic ref
+	output, err := execGitCommandWithOutput(barePath, "symbolic-ref", "refs/remotes/origin/HEAD")
+	if err == nil {
+		return strings.TrimSpace(strings.TrimPrefix(string(output), "refs/remotes/origin/")), nil
+	}
+
+	// If symbolic ref doesn't work, try to find the default branch from remote refs
+	output, err = execGitCommandWithOutput(barePath, "branch", "-r")
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, "origin/main") {
+				return "main", nil
+			} else if strings.Contains(line, "origin/master") {
+				return "master", nil
+			}
+		}
+	}
+
+	log.Printf("⚠️ Could not detect default branch, using fallback: main")
+	return "main", nil
+}
+
+// countCommitsAhead counts commits ahead of a reference
+func countCommitsAhead(repoPath, fromRef, toRef string) (int, error) {
+	output, err := execGitCommandWithOutput(repoPath, "rev-list", "--count", fmt.Sprintf("%s..%s", fromRef, toRef))
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(output)))
+}
+
+// tempRemoteURLManager manages temporary remote URL changes
+type tempRemoteURLManager struct {
+	repoPath    string
+	remote      string
+	originalURL string
+	changed     bool
+}
+
+// newTempRemoteURLManager creates a new temporary remote URL manager
+func newTempRemoteURLManager(repoPath, remote string) (*tempRemoteURLManager, error) {
+	originalURL, err := getRemoteURL(repoPath, remote)
+	if err != nil {
+		return &tempRemoteURLManager{repoPath: repoPath, remote: remote}, nil // Continue without URL conversion
+	}
+
+	return &tempRemoteURLManager{
+		repoPath:    repoPath,
+		remote:      remote,
+		originalURL: originalURL,
+	}, nil
+}
+
+// setHTTPS temporarily sets the remote URL to HTTPS if it's SSH
+func (m *tempRemoteURLManager) setHTTPS() error {
+	if m.originalURL == "" {
+		return nil
+	}
+
+	httpsURL := convertSSHToHTTPS(m.originalURL)
+	if httpsURL != m.originalURL {
+		err := execGitCommand(m.repoPath, "remote", "set-url", m.remote, httpsURL)
+		if err != nil {
+			return fmt.Errorf("failed to set HTTPS remote URL: %v", err)
+		}
+		m.changed = true
+	}
+	return nil
+}
+
+// restore restores the original remote URL if it was changed
+func (m *tempRemoteURLManager) restore() error {
+	if m.changed && m.originalURL != "" {
+		err := execGitCommand(m.repoPath, "remote", "set-url", m.remote, m.originalURL)
+		if err != nil {
+			return fmt.Errorf("failed to restore original remote URL %s: %v", m.originalURL, err)
+		}
+		m.changed = false
+	}
+	return nil
+}
+
+// generateSessionName generates a fun session name
 func generateSessionName() string {
 	verbIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(verbs))))
 	nounIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(nouns))))
@@ -124,7 +375,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 		repo = existingRepo
 	} else {
 		// Create repository object for existing bare repo
-		defaultBranch, err := s.getRepositoryDefaultBranch(barePath)
+		defaultBranch, err := getDefaultBranch(barePath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get default branch: %v", err)
 		}
@@ -171,26 +422,20 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 // cloneNewRepository clones a new bare repository
 func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string) (*models.Repository, *models.Worktree, error) {
 	// Clone as bare repository with shallow depth
-	cloneCmd := exec.Command("git", "clone", "--bare", "--depth", "1", "--single-branch")
+	cloneArgs := []string{"clone", "--bare", "--depth", "1", "--single-branch"}
 	if branch != "" {
-		cloneCmd.Args = append(cloneCmd.Args, "--branch", branch)
+		cloneArgs = append(cloneArgs, "--branch", branch)
 	}
-	cloneCmd.Args = append(cloneCmd.Args, repoURL, barePath)
+	cloneArgs = append(cloneArgs, repoURL, barePath)
 
-	// Set environment for the clone command
-	cloneCmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	output, err := cloneCmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput("", cloneArgs...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to clone repository: %v\n%s", err, output)
 	}
 
 	// Get default branch if not specified
 	if branch == "" {
-		branch, err = s.getRepositoryDefaultBranch(barePath)
+		branch, err = getDefaultBranch(barePath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get default branch: %v", err)
 		}
@@ -259,12 +504,7 @@ func (s *GitService) GetStatus() *models.GitStatus {
 
 // checkIfDirty checks if a worktree has uncommitted changes
 func (s *GitService) checkIfDirty(worktreePath string) bool {
-	cmd := exec.Command("git", "-C", worktreePath, "status", "--porcelain")
-	output, err := cmd.Output()
-	if err != nil {
-		return false
-	}
-	return len(strings.TrimSpace(string(output))) > 0
+	return isDirty(worktreePath)
 }
 
 // updateCurrentSymlink updates the /workspace/current symlink
@@ -359,13 +599,7 @@ func (s *GitService) GetDefaultWorktreePath() string {
 // configureGitCredentials sets up Git to use gh CLI for GitHub authentication
 func (s *GitService) configureGitCredentials() {
 	// Check if gh CLI is authenticated
-	cmd := exec.Command("gh", "auth", "status")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	if err := cmd.Run(); err != nil {
+	if err := execCommand("gh", "auth", "status"); err != nil {
 		log.Printf("ℹ️ GitHub CLI not authenticated, Git operations will only work with public repositories")
 		return
 	}
@@ -373,13 +607,7 @@ func (s *GitService) configureGitCredentials() {
 	log.Printf("🔐 Configuring Git to use GitHub CLI for authentication")
 
 	// Configure Git to use gh as credential helper for GitHub
-	configCmd := exec.Command("git", "config", "--global", "credential.https://github.com.helper", "!gh auth git-credential")
-	configCmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	if err := configCmd.Run(); err != nil {
+	if err := execCommand("git", "config", "--global", "credential.https://github.com.helper", "!gh auth git-credential"); err != nil {
 		log.Printf("❌ Failed to configure Git credential helper: %v", err)
 	} else {
 		log.Printf("✅ Git credential helper configured successfully")
@@ -510,23 +738,11 @@ func (s *GitService) detectLocalRepos() {
 
 // getLocalRepoDefaultBranch gets the current branch of a local repo
 func (s *GitService) getLocalRepoDefaultBranch(repoPath string) string {
-	cmd := exec.Command("git", "-C", repoPath, "branch", "--show-current")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	output, err := cmd.Output()
+	branch, err := getCurrentBranchFromRepo(repoPath)
 	if err != nil {
 		log.Printf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
 		return "main"
 	}
-
-	branch := strings.TrimSpace(string(output))
-	if branch == "" {
-		return "main"
-	}
-
 	return branch
 }
 
@@ -566,23 +782,13 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 
 // localRepoBranchExists checks if a branch exists in a local repo
 func (s *GitService) localRepoBranchExists(repoPath, branch string) bool {
-	cmd := exec.Command("git", "-C", repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	return cmd.Run() == nil
+	return branchExists(repoPath, branch)
 }
 
 // createLocalRepoWorktree creates a worktree for any local repo
 func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, name string) (*models.Worktree, error) {
 	id := uuid.New().String()
-
-	// Extract directory name from repo ID (e.g., "local/myproject" -> "myproject")
-	dirName := filepath.Base(repo.Path)
-
-	// Create worktree path with repo directory prefix
-	worktreePath := filepath.Join(workspaceDir, dirName, name)
+	worktreePath := buildWorktreePath(repo.ID, name)
 
 	// Create worktree directory first
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
@@ -590,29 +796,18 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	}
 
 	// Create worktree with new branch using the fun name
-	cmd := exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", name, worktreePath, branch)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(repo.Path, "worktree", "add", "-b", name, worktreePath, branch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
 	}
 
 	// Get current commit hash
-	cmd = exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	commitOutput, err := cmd.Output()
+	commitHash, err := getCommitHash(worktreePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit hash: %v", err)
 	}
 
 	// Clean up branch name to ensure it's a proper source branch
-	// Remove any git prefixes that might have been passed in
 	sourceBranch := strings.TrimSpace(branch)
 	sourceBranch = strings.TrimPrefix(sourceBranch, "*")
 	sourceBranch = strings.TrimPrefix(sourceBranch, "+")
@@ -622,30 +817,19 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	// Calculate commit count ahead of source
 	commitCount := 0
 	if sourceBranch != name { // Only count if different from current branch
-		cmd = exec.Command("git", "-C", worktreePath, "rev-list", "--count", fmt.Sprintf("%s..HEAD", sourceBranch))
-		cmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-		countOutput, err := cmd.Output()
-		if err == nil {
-			if count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOutput))); parseErr == nil {
-				commitCount = count
-			}
+		if count, err := countCommitsAhead(worktreePath, sourceBranch, "HEAD"); err == nil {
+			commitCount = count
 		}
 	}
-
-	// Create display name with repo directory prefix
-	displayName := fmt.Sprintf("%s/%s", dirName, name)
 
 	worktree := &models.Worktree{
 		ID:            id,
 		RepoID:        repo.ID,
-		Name:          displayName,
+		Name:          buildDisplayName(repo.ID, name),
 		Path:          worktreePath,
 		Branch:        name,
 		SourceBranch:  sourceBranch,
-		CommitHash:    strings.TrimSpace(string(commitOutput)),
+		CommitHash:    commitHash,
 		CommitCount:   commitCount,
 		CommitsBehind: 0, // Will be calculated later
 		IsDirty:       false,
@@ -665,13 +849,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 
 // getLocalRepoBranches returns the local branches for a local repository
 func (s *GitService) getLocalRepoBranches(repoPath string) ([]string, error) {
-	cmd := exec.Command("git", "-C", repoPath, "branch", "--format=%(refname:short)")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	output, err := cmd.Output()
+	output, err := execGitCommandWithOutput(repoPath, "branch", "--format=%(refname:short)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get local branches: %w", err)
 	}
@@ -707,13 +885,7 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	branches := []string{repo.DefaultBranch}
 	branchSet := map[string]bool{repo.DefaultBranch: true}
 
-	cmd := exec.Command("git", "-C", repo.Path, "branch", "-r")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	output, err := cmd.Output()
+	output, err := execGitCommandWithOutput(repo.Path, "branch", "-r")
 	if err != nil {
 		return branches, nil // Return at least the default branch
 	}
@@ -739,7 +911,6 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	return branches, nil
 }
 
-
 // DeleteWorktree removes a worktree
 func (s *GitService) DeleteWorktree(worktreeID string) error {
 	s.mu.Lock()
@@ -759,13 +930,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	log.Printf("🗑️ Starting comprehensive cleanup for worktree %s", worktree.Name)
 
 	// Step 1: Remove the worktree directory first (this also removes git worktree registration)
-	cmd := exec.Command("git", "-C", repo.Path, "worktree", "remove", "--force", worktree.Path)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	if err := cmd.Run(); err != nil {
+	if err := execGitCommand(repo.Path, "worktree", "remove", "--force", worktree.Path); err != nil {
 		log.Printf("⚠️ Failed to remove worktree directory (continuing with cleanup): %v", err)
 		// Continue with cleanup even if worktree removal fails
 	} else {
@@ -774,12 +939,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 
 	// Step 2: Remove the worktree branch from the repository
 	if worktree.Branch != "" && worktree.Branch != worktree.SourceBranch {
-		cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", worktree.Branch)
-		cmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-		if err := cmd.Run(); err != nil {
+		if err := execGitCommand(repo.Path, "branch", "-D", worktree.Branch); err != nil {
 			log.Printf("⚠️ Failed to remove branch %s (may not exist or be in use): %v", worktree.Branch, err)
 		} else {
 			log.Printf("✅ Removed branch: %s", worktree.Branch)
@@ -788,12 +948,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 
 	// Step 3: Remove preview branch if it exists
 	previewBranchName := fmt.Sprintf("preview/%s", worktree.Branch)
-	cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", previewBranchName)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	if err := cmd.Run(); err != nil {
+	if err := execGitCommand(repo.Path, "branch", "-D", previewBranchName); err != nil {
 		// Preview branch might not exist, don't log as warning
 		log.Printf("ℹ️ No preview branch to remove: %s", previewBranchName)
 	} else {
@@ -826,8 +981,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 func (s *GitService) cleanupActiveSessions(worktreePath string) {
 	// Kill any processes that might be running in the worktree directory
 	// This is a best-effort cleanup
-	cmd := exec.Command("pkill", "-f", worktreePath)
-	if err := cmd.Run(); err != nil {
+	if err := execCommand("pkill", "-f", worktreePath); err != nil {
 		// Don't log this as an error since it's common for no processes to be found
 		log.Printf("ℹ️ No active processes found for worktree path: %s", worktreePath)
 	} else {
@@ -864,21 +1018,11 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 			repo, exists := s.repositories[worktree.RepoID]
 			if exists {
 				// Fetch latest from local main repo
-				fetchCmd := exec.Command("git", "-C", worktree.Path, "fetch", repo.Path, fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
-				fetchCmd.Env = append(os.Environ(),
-					"HOME=/home/catnip",
-					"USER=catnip",
-				)
-				_ = fetchCmd.Run() // Ignore errors for now
+				_ = execGitCommand(worktree.Path, "fetch", repo.Path, fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
 			}
 		} else {
 			// Fetch latest from origin for regular repos
-			fetchCmd := exec.Command("git", "-C", worktree.Path, "fetch", "origin", worktree.SourceBranch)
-			fetchCmd.Env = append(os.Environ(),
-				"HOME=/home/catnip",
-				"USER=catnip",
-			)
-			_ = fetchCmd.Run() // Ignore errors for now
+			_ = execGitCommand(worktree.Path, "fetch", "origin", worktree.SourceBranch)
 		}
 
 		// Determine source reference based on repo type
@@ -890,29 +1034,13 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 		}
 
 		// Count commits ahead (our commits)
-		cmd := exec.Command("git", "-C", worktree.Path, "rev-list", "--count", fmt.Sprintf("%s..HEAD", sourceRef))
-		cmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-		countOutput, err := cmd.Output()
-		if err == nil {
-			if count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOutput))); parseErr == nil {
-				worktree.CommitCount = count
-			}
+		if count, err := countCommitsAhead(worktree.Path, sourceRef, "HEAD"); err == nil {
+			worktree.CommitCount = count
 		}
 
 		// Count commits behind (missing commits)
-		cmd = exec.Command("git", "-C", worktree.Path, "rev-list", "--count", fmt.Sprintf("HEAD..%s", sourceRef))
-		cmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-		behindOutput, err := cmd.Output()
-		if err == nil {
-			if count, parseErr := strconv.Atoi(strings.TrimSpace(string(behindOutput))); parseErr == nil {
-				worktree.CommitsBehind = count
-			}
+		if count, err := countCommitsAhead(worktree.Path, "HEAD", sourceRef); err == nil {
+			worktree.CommitsBehind = count
 		}
 	}
 }
@@ -967,31 +1095,23 @@ func (s *GitService) syncLocalWorktree(worktree *models.Worktree, strategy strin
 	log.Printf("🔄 Syncing local worktree %s from local main repo", worktree.Name)
 
 	// Fetch from the local main repo
-	cmd := exec.Command("git", "-C", worktree.Path, "fetch", repo.Path, fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(worktree.Path, "fetch", repo.Path, fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
 	if err != nil {
 		return fmt.Errorf("failed to fetch from main repo: %v\n%s", err, output)
 	}
 
 	// Apply the sync strategy
+	var syncArgs []string
 	switch strategy {
 	case "merge":
-		cmd = exec.Command("git", "-C", worktree.Path, "merge", fmt.Sprintf("live/%s", worktree.SourceBranch))
+		syncArgs = []string{"merge", fmt.Sprintf("live/%s", worktree.SourceBranch)}
 	case "rebase":
-		cmd = exec.Command("git", "-C", worktree.Path, "rebase", fmt.Sprintf("live/%s", worktree.SourceBranch))
+		syncArgs = []string{"rebase", fmt.Sprintf("live/%s", worktree.SourceBranch)}
 	default:
 		return fmt.Errorf("unknown sync strategy: %s", strategy)
 	}
 
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err = cmd.CombinedOutput()
+	output, err = execGitCommandWithCombinedOutput(worktree.Path, syncArgs...)
 	if err != nil {
 		// Check if this is a merge conflict
 		if s.isMergeConflict(worktree.Path, string(output)) {
@@ -1010,31 +1130,23 @@ func (s *GitService) syncLocalWorktree(worktree *models.Worktree, strategy strin
 // syncRegularWorktree syncs a regular repo worktree with origin
 func (s *GitService) syncRegularWorktree(worktree *models.Worktree, strategy string) error {
 	// Fetch from origin
-	cmd := exec.Command("git", "-C", worktree.Path, "fetch", "origin", worktree.SourceBranch)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(worktree.Path, "fetch", "origin", worktree.SourceBranch)
 	if err != nil {
 		return fmt.Errorf("failed to fetch from origin: %v\n%s", err, output)
 	}
 
 	// Apply the sync strategy
+	var syncArgs []string
 	switch strategy {
 	case "merge":
-		cmd = exec.Command("git", "-C", worktree.Path, "merge", fmt.Sprintf("origin/%s", worktree.SourceBranch))
+		syncArgs = []string{"merge", fmt.Sprintf("origin/%s", worktree.SourceBranch)}
 	case "rebase":
-		cmd = exec.Command("git", "-C", worktree.Path, "rebase", fmt.Sprintf("origin/%s", worktree.SourceBranch))
+		syncArgs = []string{"rebase", fmt.Sprintf("origin/%s", worktree.SourceBranch)}
 	default:
 		return fmt.Errorf("unknown sync strategy: %s", strategy)
 	}
 
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err = cmd.CombinedOutput()
+	output, err = execGitCommandWithCombinedOutput(worktree.Path, syncArgs...)
 	if err != nil {
 		return fmt.Errorf("failed to %s: %v\n%s", strategy, err, output)
 	}
@@ -1070,23 +1182,13 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 	log.Printf("🔄 Merging worktree %s back to main repository", worktree.Name)
 
 	// First, push the worktree branch to the main repo
-	cmd := exec.Command("git", "-C", worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, worktree.Branch))
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, worktree.Branch))
 	if err != nil {
 		return fmt.Errorf("failed to push worktree branch to main repo: %v\n%s", err, output)
 	}
 
 	// Switch to the source branch in main repo and merge
-	cmd = exec.Command("git", "-C", repo.Path, "checkout", worktree.SourceBranch)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err = cmd.CombinedOutput()
+	output, err = execGitCommandWithCombinedOutput(repo.Path, "checkout", worktree.SourceBranch)
 	if err != nil {
 		return fmt.Errorf("failed to checkout source branch in main repo: %v\n%s", err, output)
 	}
@@ -1094,16 +1196,11 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 	// Merge the worktree branch
 	var mergeArgs []string
 	if squash {
-		mergeArgs = []string{"-C", repo.Path, "merge", worktree.Branch, "--squash"}
+		mergeArgs = []string{"merge", worktree.Branch, "--squash"}
 	} else {
-		mergeArgs = []string{"-C", repo.Path, "merge", worktree.Branch, "--no-ff", "-m", fmt.Sprintf("Merge branch '%s' from worktree", worktree.Branch)}
+		mergeArgs = []string{"merge", worktree.Branch, "--no-ff", "-m", fmt.Sprintf("Merge branch '%s' from worktree", worktree.Branch)}
 	}
-	cmd = exec.Command("git", mergeArgs...)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err = cmd.CombinedOutput()
+	output, err = execGitCommandWithCombinedOutput(repo.Path, mergeArgs...)
 	if err != nil {
 		// Check if this is a merge conflict
 		if s.isMergeConflict(repo.Path, string(output)) {
@@ -1114,32 +1211,17 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 
 	// For squash merges, we need to commit the staged changes
 	if squash {
-		cmd = exec.Command("git", "-C", repo.Path, "commit", "-m", fmt.Sprintf("Squash merge branch '%s' from worktree", worktree.Branch))
-		cmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-		output, err = cmd.CombinedOutput()
+		output, err = execGitCommandWithCombinedOutput(repo.Path, "commit", "-m", fmt.Sprintf("Squash merge branch '%s' from worktree", worktree.Branch))
 		if err != nil {
 			return fmt.Errorf("failed to commit squash merge: %v\n%s", err, output)
 		}
 	}
 
 	// Delete the feature branch from main repo (cleanup)
-	cmd = exec.Command("git", "-C", repo.Path, "branch", "-d", worktree.Branch)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	_ = cmd.Run() // Ignore errors - branch might be in use
+	_ = execGitCommand(repo.Path, "branch", "-d", worktree.Branch) // Ignore errors - branch might be in use
 
 	// Get the new commit hash from the main branch after merge
-	cmd = exec.Command("git", "-C", repo.Path, "rev-parse", "HEAD")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err = cmd.CombinedOutput()
+	output, err = execGitCommandWithCombinedOutput(repo.Path, "rev-parse", "HEAD")
 	if err != nil {
 		log.Printf("⚠️  Failed to get new commit hash after merge: %v", err)
 	} else {
@@ -1242,17 +1324,13 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 // shouldForceUpdatePreviewBranch determines if we should force-update an existing preview branch
 func (s *GitService) shouldForceUpdatePreviewBranch(repoPath, previewBranchName string) (bool, error) {
 	// Check if the preview branch exists
-	cmd := exec.Command("git", "-C", repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", previewBranchName))
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if err := cmd.Run(); err != nil {
+	if err := execGitCommand(repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", previewBranchName)); err != nil {
 		// Branch doesn't exist, safe to create
 		return false, nil
 	}
 
 	// Branch exists, check if the last commit was made by us (preview commit)
-	cmd = exec.Command("git", "-C", repoPath, "log", "-1", "--pretty=format:%s", previewBranchName)
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	output, err := cmd.Output()
+	output, err := execGitCommandWithOutput(repoPath, "log", "-1", "--pretty=format:%s", previewBranchName)
 	if err != nil {
 		return false, fmt.Errorf("failed to get last commit message: %v", err)
 	}
@@ -1278,23 +1356,17 @@ func (s *GitService) shouldForceUpdatePreviewBranch(repoPath, previewBranchName 
 // hasUncommittedChanges checks if the worktree has any uncommitted changes
 func (s *GitService) hasUncommittedChanges(worktreePath string) (bool, error) {
 	// Check for staged changes
-	cmd := exec.Command("git", "-C", worktreePath, "diff", "--cached", "--quiet")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if cmd.Run() != nil {
+	if execGitCommand(worktreePath, "diff", "--cached", "--quiet") != nil {
 		return true, nil // Has staged changes
 	}
 
 	// Check for unstaged changes
-	cmd = exec.Command("git", "-C", worktreePath, "diff", "--quiet")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if cmd.Run() != nil {
+	if execGitCommand(worktreePath, "diff", "--quiet") != nil {
 		return true, nil // Has unstaged changes
 	}
 
 	// Check for untracked files
-	cmd = exec.Command("git", "-C", worktreePath, "ls-files", "--others", "--exclude-standard")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	output, err := cmd.Output()
+	output, err := execGitCommandWithOutput(worktreePath, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return false, fmt.Errorf("failed to check for untracked files: %v", err)
 	}
@@ -1305,23 +1377,17 @@ func (s *GitService) hasUncommittedChanges(worktreePath string) (bool, error) {
 // createTemporaryCommit creates a temporary commit with all uncommitted changes
 func (s *GitService) createTemporaryCommit(worktreePath string) (string, error) {
 	// Add all changes (staged, unstaged, and untracked)
-	cmd := exec.Command("git", "-C", worktreePath, "add", ".")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := execGitCommandWithCombinedOutput(worktreePath, "add", "."); err != nil {
 		return "", fmt.Errorf("failed to stage changes: %v\n%s", err, output)
 	}
 
 	// Create the commit
-	cmd = exec.Command("git", "-C", worktreePath, "commit", "-m", "Preview: Include all uncommitted changes")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := execGitCommandWithCombinedOutput(worktreePath, "commit", "-m", "Preview: Include all uncommitted changes"); err != nil {
 		return "", fmt.Errorf("failed to create temporary commit: %v\n%s", err, output)
 	}
 
 	// Get the commit hash
-	cmd = exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	output, err := cmd.Output()
+	output, err := execGitCommandWithOutput(worktreePath, "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit hash: %v", err)
 	}
@@ -1348,9 +1414,7 @@ func (s *GitService) isMergeConflict(repoPath, output string) bool {
 	}
 
 	// Also check git status for unmerged paths
-	cmd := exec.Command("git", "-C", repoPath, "status", "--porcelain")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	statusOutput, err := cmd.Output()
+	statusOutput, err := execGitCommandWithOutput(repoPath, "status", "--porcelain")
 	if err != nil {
 		return false
 	}
@@ -1387,9 +1451,7 @@ func (s *GitService) createMergeConflictError(operation string, worktree *models
 
 // getConflictedFiles returns a list of files with merge conflicts
 func (s *GitService) getConflictedFiles(repoPath string) []string {
-	cmd := exec.Command("git", "-C", repoPath, "diff", "--name-only", "--diff-filter=U")
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	output, err := cmd.Output()
+	output, err := execGitCommandWithOutput(repoPath, "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return []string{}
 	}
@@ -1433,18 +1495,12 @@ func (s *GitService) checkLocalSyncConflicts(worktree *models.Worktree) (*models
 	}
 
 	// Fetch from the local main repo to ensure we have latest changes
-	cmd := exec.Command("git", "-C", worktree.Path, "fetch", repo.Path, fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if err := cmd.Run(); err != nil {
+	if err := execGitCommand(worktree.Path, "fetch", repo.Path, fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch)); err != nil {
 		return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
 	}
 
 	// Try a dry-run merge to detect conflicts
-	cmd = exec.Command("git", "-C", worktree.Path, "merge-tree",
-		"HEAD",
-		fmt.Sprintf("live/%s", worktree.SourceBranch))
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(worktree.Path, "merge-tree", "HEAD", fmt.Sprintf("live/%s", worktree.SourceBranch))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for conflicts: %v", err)
@@ -1471,18 +1527,12 @@ func (s *GitService) checkLocalSyncConflicts(worktree *models.Worktree) (*models
 // checkRegularSyncConflicts checks for potential conflicts when syncing a regular worktree
 func (s *GitService) checkRegularSyncConflicts(worktree *models.Worktree) (*models.MergeConflictError, error) {
 	// Fetch from origin to ensure we have latest changes
-	cmd := exec.Command("git", "-C", worktree.Path, "fetch", "origin", worktree.SourceBranch)
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if err := cmd.Run(); err != nil {
+	if err := execGitCommand(worktree.Path, "fetch", "origin", worktree.SourceBranch); err != nil {
 		return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
 	}
 
 	// Try a dry-run merge to detect conflicts
-	cmd = exec.Command("git", "-C", worktree.Path, "merge-tree",
-		"HEAD",
-		fmt.Sprintf("origin/%s", worktree.SourceBranch))
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(worktree.Path, "merge-tree", "HEAD", fmt.Sprintf("origin/%s", worktree.SourceBranch))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to check for conflicts: %v", err)
@@ -1531,25 +1581,17 @@ func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConfli
 	tempBranch := fmt.Sprintf("temp-merge-check-%d", time.Now().Unix())
 
 	// Push the worktree branch to temp branch in main repo
-	cmd := exec.Command("git", "-C", worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, tempBranch))
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	if err := cmd.Run(); err != nil {
+	if err := execGitCommand(worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, tempBranch)); err != nil {
 		return nil, fmt.Errorf("failed to push temp branch for conflict check: %v", err)
 	}
 
 	// Clean up temp branch when done
 	defer func() {
-		cmd := exec.Command("git", "-C", repo.Path, "branch", "-D", tempBranch)
-		cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-		_ = cmd.Run() // Ignore errors
+		_ = execGitCommand(repo.Path, "branch", "-D", tempBranch) // Ignore errors
 	}()
 
 	// Try a dry-run merge to detect conflicts
-	cmd = exec.Command("git", "-C", repo.Path, "merge-tree",
-		worktree.SourceBranch,
-		tempBranch)
-	cmd.Env = append(os.Environ(), "HOME=/home/catnip", "USER=catnip")
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(repo.Path, "merge-tree", worktree.SourceBranch, tempBranch)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to check merge conflicts: %v", err)
@@ -1622,81 +1664,32 @@ func (s *GitService) Stop() {
 
 // getRepositoryDefaultBranch gets the default branch from a bare repository
 func (s *GitService) getRepositoryDefaultBranch(barePath string) (string, error) {
-	// First try to get the symbolic ref
-	cmd := exec.Command("git", "-C", barePath, "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err := cmd.Output()
-	if err == nil {
-		return strings.TrimSpace(strings.TrimPrefix(string(output), "refs/remotes/origin/")), nil
-	}
-
-	// If symbolic ref doesn't work, try to find the default branch from remote refs
-	cmd = exec.Command("git", "-C", barePath, "branch", "-r")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err = cmd.Output()
-	if err == nil {
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.Contains(line, "origin/main") {
-				return "main", nil
-			} else if strings.Contains(line, "origin/master") {
-				return "master", nil
-			}
-		}
-	}
-
-	// Final fallback
-	log.Printf("⚠️ Could not detect default branch, using fallback: main")
-	return "main", nil
+	return getDefaultBranch(barePath)
 }
 
 // branchExistsInBareRepo checks if a branch exists in the bare repository
 func (s *GitService) branchExistsInBareRepo(barePath, branch string) bool {
 	// Check for local branch first
-	cmd := exec.Command("git", "-C", barePath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	if cmd.Run() == nil {
+	if branchExists(barePath, branch) {
 		return true
 	}
 
 	// Check for remote branch
-	cmd = exec.Command("git", "-C", barePath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/remotes/origin/%s", branch))
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	return cmd.Run() == nil
+	return remoteBranchExists(barePath, "origin", branch)
 }
 
 // fetchBranchIntoBareRepo fetches a specific branch into the bare repository
 func (s *GitService) fetchBranchIntoBareRepo(barePath, branch string) error {
 	// First, try to fetch just the remote ref without updating local branch
 	// This avoids the "refusing to fetch into branch checked out" error
-	cmd := exec.Command("git", "-C", barePath, "fetch", "origin", fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch), "--depth", "1")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(barePath, "fetch", "origin", fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch), "--depth", "1")
 	if err != nil {
 		return fmt.Errorf("failed to fetch branch: %v\n%s", err, output)
 	}
 
 	// Now create/update the local branch ref from the remote ref
 	// Only do this if the branch isn't currently checked out in a worktree
-	updateCmd := exec.Command("git", "-C", barePath, "update-ref", fmt.Sprintf("refs/heads/%s", branch), fmt.Sprintf("refs/remotes/origin/%s", branch))
-	updateCmd.Env = cmd.Env
-	updateOutput, err := updateCmd.CombinedOutput()
+	updateOutput, err := execGitCommandWithCombinedOutput(barePath, "update-ref", fmt.Sprintf("refs/heads/%s", branch), fmt.Sprintf("refs/remotes/origin/%s", branch))
 	if err != nil {
 		// If update-ref fails because branch is checked out, that's okay
 		// The remote ref is still updated and worktrees can use it
@@ -1753,15 +1746,13 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	worktreePath := filepath.Join(workspaceDir, repoName, name)
 
 	// Create worktree with new branch using the fun name
-	cmd := exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", name, worktreePath, source)
-	output, err := cmd.CombinedOutput()
+	output, err := execGitCommandWithCombinedOutput(repo.Path, "worktree", "add", "-b", name, worktreePath, source)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
 	}
 
 	// Get current commit hash
-	cmd = exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
-	commitOutput, err := cmd.Output()
+	commitOutput, err := execGitCommandWithOutput(worktreePath, "rev-parse", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit hash: %v", err)
 	}
@@ -1770,8 +1761,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	sourceBranch := source
 	if len(source) == 40 { // Looks like a commit hash
 		// Try to find which branch contains this commit, excluding preview branches
-		cmd = exec.Command("git", "-C", repo.Path, "branch", "--contains", source)
-		branchOutput, err := cmd.Output()
+		branchOutput, err := execGitCommandWithOutput(repo.Path, "branch", "--contains", source)
 		if err == nil {
 			branches := strings.Split(strings.TrimSpace(string(branchOutput)), "\n")
 			// Filter out preview branches and find the best source branch
@@ -1810,12 +1800,8 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	// Calculate commit count ahead of source
 	commitCount := 0
 	if sourceBranch != name { // Only count if different from current branch
-		cmd = exec.Command("git", "-C", worktreePath, "rev-list", "--count", fmt.Sprintf("%s..HEAD", sourceBranch))
-		countOutput, err := cmd.Output()
-		if err == nil {
-			if count, parseErr := strconv.Atoi(strings.TrimSpace(string(countOutput))); parseErr == nil {
-				commitCount = count
-			}
+		if count, err := countCommitsAhead(worktreePath, sourceBranch, "HEAD"); err == nil {
+			commitCount = count
 		}
 	}
 
@@ -1858,13 +1844,7 @@ func (s *GitService) unshallowRepository(barePath, branch string) {
 	time.Sleep(5 * time.Second)
 
 	// Only fetch the specific branch to be more efficient
-	cmd := exec.Command("git", "-C", barePath, "fetch", "origin", "--unshallow", branch)
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := execGitCommandWithCombinedOutput(barePath, "fetch", "origin", "--unshallow", branch); err != nil {
 		// Silent failure - unshallow is optional optimization
 		_ = output // Avoid unused variable
 		_ = err
@@ -1923,13 +1903,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 	}
 
 	// Find the merge base (fork point) between this worktree and its source branch
-	mergeBaseCmd := exec.Command("git", "-C", worktree.Path, "merge-base", "HEAD", worktree.SourceBranch)
-	mergeBaseCmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	mergeBaseOutput, err := mergeBaseCmd.Output()
+	mergeBaseOutput, err := execGitCommandWithOutput(worktree.Path, "merge-base", "HEAD", worktree.SourceBranch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find merge base: %v", err)
 	}
@@ -1937,13 +1911,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 	forkCommit := strings.TrimSpace(string(mergeBaseOutput))
 
 	// Get the list of changed files from the fork point
-	cmd := exec.Command("git", "-C", worktree.Path, "diff", "--name-status", fmt.Sprintf("%s..HEAD", forkCommit))
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	output, err := cmd.Output()
+	output, err := execGitCommandWithOutput(worktree.Path, "diff", "--name-status", fmt.Sprintf("%s..HEAD", forkCommit))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get diff list: %v", err)
 	}
@@ -1986,35 +1954,17 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 		}
 
 		// Get the old content (from fork commit)
-		oldContentCmd := exec.Command("git", "-C", worktree.Path, "show", fmt.Sprintf("%s:%s", forkCommit, filePath))
-		oldContentCmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-
-		if oldOutput, err := oldContentCmd.Output(); err == nil {
+		if oldOutput, err := execGitCommandWithOutput(worktree.Path, "show", fmt.Sprintf("%s:%s", forkCommit, filePath)); err == nil {
 			fileDiff.OldContent = string(oldOutput)
 		}
 
 		// Get the new content (current HEAD)
-		newContentCmd := exec.Command("git", "-C", worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath))
-		newContentCmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-
-		if newOutput, err := newContentCmd.Output(); err == nil {
+		if newOutput, err := execGitCommandWithOutput(worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath)); err == nil {
 			fileDiff.NewContent = string(newOutput)
 		}
 
 		// Also keep the unified diff for fallback
-		diffCmd := exec.Command("git", "-C", worktree.Path, "diff", fmt.Sprintf("%s..HEAD", forkCommit), "--", filePath)
-		diffCmd.Env = append(os.Environ(),
-			"HOME=/home/catnip",
-			"USER=catnip",
-		)
-
-		if diffOutput, err := diffCmd.Output(); err == nil {
+		if diffOutput, err := execGitCommandWithOutput(worktree.Path, "diff", fmt.Sprintf("%s..HEAD", forkCommit), "--", filePath); err == nil {
 			fileDiff.DiffText = string(diffOutput)
 		}
 
@@ -2022,13 +1972,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 	}
 
 	// Also check for unstaged changes
-	unstagedCmd := exec.Command("git", "-C", worktree.Path, "diff", "--name-status")
-	unstagedCmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	if unstagedOutput, err := unstagedCmd.Output(); err == nil {
+	if unstagedOutput, err := execGitCommandWithOutput(worktree.Path, "diff", "--name-status"); err == nil {
 		unstagedLines := strings.Split(strings.TrimSpace(string(unstagedOutput)), "\n")
 		for _, line := range unstagedLines {
 			if line == "" {
@@ -2074,13 +2018,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 				}
 
 				// Get old content (HEAD version)
-				oldContentCmd := exec.Command("git", "-C", worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath))
-				oldContentCmd.Env = append(os.Environ(),
-					"HOME=/home/catnip",
-					"USER=catnip",
-				)
-
-				if oldOutput, err := oldContentCmd.Output(); err == nil {
+				if oldOutput, err := execGitCommandWithOutput(worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath)); err == nil {
 					fileDiff.OldContent = string(oldOutput)
 				}
 
@@ -2090,13 +2028,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 				}
 
 				// Get unstaged diff content as fallback
-				diffCmd := exec.Command("git", "-C", worktree.Path, "diff", "--", filePath)
-				diffCmd.Env = append(os.Environ(),
-					"HOME=/home/catnip",
-					"USER=catnip",
-				)
-
-				if diffOutput, err := diffCmd.Output(); err == nil {
+				if diffOutput, err := execGitCommandWithOutput(worktree.Path, "diff", "--", filePath); err == nil {
 					fileDiff.DiffText = string(diffOutput)
 				}
 
@@ -2106,13 +2038,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 	}
 
 	// Check for untracked files
-	untrackedCmd := exec.Command("git", "-C", worktree.Path, "ls-files", "--others", "--exclude-standard")
-	untrackedCmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	if untrackedOutput, err := untrackedCmd.Output(); err == nil {
+	if untrackedOutput, err := execGitCommandWithOutput(worktree.Path, "ls-files", "--others", "--exclude-standard"); err == nil {
 		untrackedFiles := strings.Split(strings.TrimSpace(string(untrackedOutput)), "\n")
 		for _, filePath := range untrackedFiles {
 			if filePath == "" {
@@ -2182,6 +2108,99 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string) (*models.
 
 	// Handle remote repositories
 	return s.createPullRequestForRemoteRepo(worktree, repo, title, body)
+}
+
+// UpdatePullRequest updates an existing pull request for a worktree branch
+func (s *GitService) UpdatePullRequest(worktreeID, title, body string) (*models.PullRequestResponse, error) {
+	s.mu.RLock()
+	worktree, exists := s.worktrees[worktreeID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("worktree %s not found", worktreeID)
+	}
+
+	// Get the repository
+	repo, exists := s.repositories[worktree.RepoID]
+	if !exists {
+		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
+	}
+
+	log.Printf("🔄 Updating pull request for worktree %s", worktree.Name)
+
+	// First, sync/push any new commits
+	if err := s.syncAndPushWorktree(worktree, repo); err != nil {
+		return nil, fmt.Errorf("failed to sync worktree before updating PR: %v", err)
+	}
+
+	// Get the owner/repo from the repository
+	var ownerRepo string
+	if strings.HasPrefix(worktree.RepoID, "local/") {
+		// Get remote URL from local repo
+		remoteURL, err := s.getRemoteURL(worktree.Path)
+		if err != nil {
+			remoteURL, err = s.getRemoteURL(repo.Path)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get remote URL: %v", err)
+			}
+		}
+		ownerRepo, err = s.parseGitHubURL(remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse remote URL: %v", err)
+		}
+	} else {
+		var err error
+		ownerRepo, err = s.parseGitHubURL(repo.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse repository URL: %v", err)
+		}
+	}
+
+	// Update the PR using GitHub CLI
+	return s.updatePullRequestWithGH(worktree, ownerRepo, title, body)
+}
+
+// CheckPullRequestExists checks if a pull request exists for a worktree branch
+func (s *GitService) CheckPullRequestExists(worktreeID string) (*models.PullRequestInfo, error) {
+	s.mu.RLock()
+	worktree, exists := s.worktrees[worktreeID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("worktree %s not found", worktreeID)
+	}
+
+	// Get the repository
+	repo, exists := s.repositories[worktree.RepoID]
+	if !exists {
+		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
+	}
+
+	// Get the owner/repo from the repository
+	var ownerRepo string
+	if strings.HasPrefix(worktree.RepoID, "local/") {
+		// Get remote URL from local repo
+		remoteURL, err := s.getRemoteURL(worktree.Path)
+		if err != nil {
+			remoteURL, err = s.getRemoteURL(repo.Path)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get remote URL: %v", err)
+			}
+		}
+		ownerRepo, err = s.parseGitHubURL(remoteURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse remote URL: %v", err)
+		}
+	} else {
+		var err error
+		ownerRepo, err = s.parseGitHubURL(repo.URL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse repository URL: %v", err)
+		}
+	}
+
+	// Check if PR exists using GitHub CLI
+	return s.checkPullRequestExistsWithGH(worktree, ownerRepo)
 }
 
 // createPullRequestForLocalRepo creates a PR for a local repository
@@ -2322,8 +2341,6 @@ func (s *GitService) pushBranchToRemote(worktree *models.Worktree, repo *models.
 		)
 		if err := restoreCmd.Run(); err != nil {
 			log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
-		} else {
-			log.Printf("✅ Restored original remote URL: %s", originalURL)
 		}
 	}
 
@@ -2381,8 +2398,6 @@ func (s *GitService) pushBranchToOrigin(worktree *models.Worktree) error {
 		)
 		if err := restoreCmd.Run(); err != nil {
 			log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
-		} else {
-			log.Printf("✅ Restored original remote URL: %s", originalURL)
 		}
 	}
 
@@ -2452,7 +2467,42 @@ func (s *GitService) createPullRequestWithGH(worktree *models.Worktree, ownerRep
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pull request: %v\n%s", err, output)
+		// Check if the error is due to missing base branch on remote
+		errorOutput := string(output)
+		if strings.Contains(errorOutput, "Base ref must be a branch") ||
+			strings.Contains(errorOutput, "Base sha can't be blank") ||
+			strings.Contains(errorOutput, "Not Found") {
+			log.Printf("⚠️ Base branch %s not found on remote, attempting to push it", worktree.SourceBranch)
+
+			// Try to push the base branch to remote
+			if pushErr := s.pushBaseBranchToRemote(worktree); pushErr != nil {
+				return nil, fmt.Errorf("failed to push base branch %s: %v", worktree.SourceBranch, pushErr)
+			}
+
+			// Retry PR creation
+			log.Printf("🔄 Retrying PR creation after pushing base branch")
+			retryCmd := exec.Command("gh", "pr", "create",
+				"--repo", ownerRepo,
+				"--title", title,
+				"--body", body,
+				"--head", worktree.Branch,
+				"--base", worktree.SourceBranch)
+
+			retryCmd.Env = append(os.Environ(),
+				"HOME=/home/catnip",
+				"USER=catnip",
+			)
+
+			retryOutput, retryErr := retryCmd.CombinedOutput()
+			if retryErr != nil {
+				// If still fails, try with main as fallback
+				log.Printf("⚠️ PR creation still failed, attempting with 'main' as base")
+				return s.retryPullRequestWithMain(worktree, ownerRepo, title, body)
+			}
+			output = retryOutput
+		} else {
+			return nil, fmt.Errorf("failed to create pull request: %v\n%s", err, output)
+		}
 	}
 
 	// Parse the PR URL from the output
@@ -2484,18 +2534,7 @@ func (s *GitService) createPullRequestWithGH(worktree *models.Worktree, ownerRep
 
 // getRemoteURL attempts to get the remote URL from the repository
 func (s *GitService) getRemoteURL(repoPath string) (string, error) {
-	cmd := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
-
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get remote URL: %v", err)
-	}
-
-	return strings.TrimSpace(string(output)), nil
+	return getRemoteURL(repoPath, "origin")
 }
 
 // convertToHTTPS converts SSH GitHub URLs to HTTPS for GitHub CLI authentication
@@ -2524,7 +2563,6 @@ func (s *GitService) inferRemoteURL(repoPath string) (string, error) {
 	if output, err := cmd.Output(); err == nil {
 		url := strings.TrimSpace(string(output))
 		if url != "" {
-			log.Printf("🔍 [DEBUG] Found remote.origin.url in config: %s", url)
 			return url, nil
 		}
 	}
@@ -2543,7 +2581,6 @@ func (s *GitService) inferRemoteURL(repoPath string) (string, error) {
 				parts := strings.Fields(line)
 				if len(parts) >= 2 {
 					url := parts[1]
-					log.Printf("🔍 [DEBUG] Found GitHub URL in config: %s", url)
 					return url, nil
 				}
 			}
@@ -2562,4 +2599,298 @@ func (s *GitService) inferRemoteURL(repoPath string) (string, error) {
 	}
 
 	return "", fmt.Errorf("could not infer remote URL from repository")
+}
+
+// pushBaseBranchToRemote pushes the base branch to remote if it doesn't exist
+func (s *GitService) pushBaseBranchToRemote(worktree *models.Worktree) error {
+	// Check if the base branch exists locally
+	cmd := exec.Command("git", "-C", worktree.Path, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", worktree.SourceBranch))
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("base branch %s does not exist locally", worktree.SourceBranch)
+	}
+
+	// Push the base branch to remote
+	cmd = exec.Command("git", "-C", worktree.Path, "push", "-u", "origin", worktree.SourceBranch)
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to push base branch %s: %v\n%s", worktree.SourceBranch, err, output)
+	}
+
+	log.Printf("✅ Successfully pushed base branch %s to remote", worktree.SourceBranch)
+	return nil
+}
+
+// retryPullRequestWithMain retries PR creation with 'main' as the base branch
+func (s *GitService) retryPullRequestWithMain(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
+	// Check if there are commits between main and HEAD
+	commitCheckCmd := exec.Command("git", "-C", worktree.Path, "rev-list", "--count", "origin/main..HEAD")
+	commitCheckCmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	commitOutput, err := commitCheckCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("retry failed: could not check commits between origin/main and HEAD: %v", err)
+	}
+
+	commitCount := strings.TrimSpace(string(commitOutput))
+	if commitCount == "0" {
+		return nil, fmt.Errorf("retry failed: no commits found between origin/main and HEAD")
+	}
+
+	log.Printf("📝 Retry: Found %s commits between origin/main and HEAD", commitCount)
+
+	// Create the PR using GitHub CLI with 'main' as base
+	cmd := exec.Command("gh", "pr", "create",
+		"--repo", ownerRepo,
+		"--title", title,
+		"--body", body,
+		"--head", worktree.Branch,
+		"--base", "main")
+
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("retry failed: %v\n%s", err, output)
+	}
+
+	// Parse the PR URL from the output
+	prURL := strings.TrimSpace(string(output))
+
+	// Extract PR number from URL
+	var prNumber int
+	if strings.Contains(prURL, "/pull/") {
+		parts := strings.Split(prURL, "/pull/")
+		if len(parts) == 2 {
+			if num, err := strconv.Atoi(parts[1]); err == nil {
+				prNumber = num
+			}
+		}
+	}
+
+	log.Printf("✅ Created pull request #%d (retry with main): %s", prNumber, prURL)
+
+	return &models.PullRequestResponse{
+		Number:     prNumber,
+		URL:        prURL,
+		Title:      title,
+		Body:       body,
+		HeadBranch: worktree.Branch,
+		BaseBranch: "main",
+		Repository: ownerRepo,
+	}, nil
+}
+
+// syncAndPushWorktree syncs the worktree and pushes any new commits to remote
+func (s *GitService) syncAndPushWorktree(worktree *models.Worktree, repo *models.Repository) error {
+	// For local repos, push to remote
+	if strings.HasPrefix(worktree.RepoID, "local/") {
+		// Get remote URL
+		remoteURL, err := s.getRemoteURL(worktree.Path)
+		if err != nil {
+			remoteURL, err = s.getRemoteURL(repo.Path)
+			if err != nil {
+				return fmt.Errorf("failed to get remote URL: %v", err)
+			}
+		}
+
+		// Push the branch to remote
+		return s.pushBranchToRemote(worktree, repo, remoteURL)
+	}
+
+	// For remote repos, push to origin
+	return s.pushBranchToOrigin(worktree)
+}
+
+// updatePullRequestWithGH updates an existing pull request using GitHub CLI
+func (s *GitService) updatePullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
+	// Update the PR using GitHub CLI
+	cmd := exec.Command("gh", "pr", "edit", worktree.Branch,
+		"--repo", ownerRepo,
+		"--title", title,
+		"--body", body)
+
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to update pull request: %v\n%s", err, output)
+	}
+
+	// Get the updated PR info
+	prInfo, err := s.getPullRequestInfo(worktree, ownerRepo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get updated PR info: %v", err)
+	}
+
+	log.Printf("✅ Updated pull request #%d: %s", prInfo.Number, prInfo.URL)
+
+	return &models.PullRequestResponse{
+		Number:     prInfo.Number,
+		URL:        prInfo.URL,
+		Title:      title,
+		Body:       body,
+		HeadBranch: worktree.Branch,
+		BaseBranch: worktree.SourceBranch,
+		Repository: ownerRepo,
+	}, nil
+}
+
+// checkPullRequestExistsWithGH checks if a pull request exists for a branch using GitHub CLI
+func (s *GitService) checkPullRequestExistsWithGH(worktree *models.Worktree, ownerRepo string) (*models.PullRequestInfo, error) {
+	// Get the current remote URL
+	originalURL, err := s.getRemoteURL(worktree.Path)
+	if err != nil {
+		log.Printf("⚠️ Failed to get remote URL for PR check: %v", err)
+		// Continue without URL conversion
+		originalURL = ""
+	}
+
+	// Convert SSH URL to HTTPS if needed to use GitHub CLI authentication
+	var urlWasChanged bool
+	if originalURL != "" {
+		httpsURL := s.convertToHTTPS(originalURL)
+		if httpsURL != originalURL {
+			// Temporarily set the remote URL to HTTPS
+			cmd := exec.Command("git", "-C", worktree.Path, "remote", "set-url", "origin", httpsURL)
+			cmd.Env = append(os.Environ(),
+				"HOME=/home/catnip",
+				"USER=catnip",
+			)
+
+			if err := cmd.Run(); err != nil {
+				log.Printf("⚠️ Failed to set HTTPS remote URL for PR check: %v", err)
+			} else {
+				urlWasChanged = true
+			}
+		}
+	}
+
+	// Check if there are commits ahead of remote
+	hasCommitsAhead, err := s.checkCommitsAheadOfRemote(worktree)
+	if err != nil {
+		log.Printf("⚠️ Failed to check commits ahead for worktree %s: %v", worktree.Name, err)
+		// Don't fail the entire operation, but use a sensible default
+		// If we have commits in the worktree, assume they're ahead
+		hasCommitsAhead = worktree.CommitCount > 0
+	}
+
+	// Check if PR exists using GitHub CLI
+	cmd := exec.Command("gh", "pr", "view", worktree.Branch,
+		"--repo", ownerRepo,
+		"--json", "number,url,title,body,headRefName,baseRefName")
+
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.CombinedOutput()
+	prCheckErr := err
+
+	// Always restore the original URL if we changed it
+	if urlWasChanged {
+		restoreCmd := exec.Command("git", "-C", worktree.Path, "remote", "set-url", "origin", originalURL)
+		restoreCmd.Env = append(os.Environ(),
+			"HOME=/home/catnip",
+			"USER=catnip",
+		)
+		if err := restoreCmd.Run(); err != nil {
+			log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
+		}
+	}
+
+	// Handle the PR check result
+	if prCheckErr != nil {
+		// If command fails, it likely means no PR exists
+		return &models.PullRequestInfo{
+			Exists:          false,
+			HasCommitsAhead: hasCommitsAhead,
+		}, nil
+	}
+
+	// Parse the JSON response
+	var prData struct {
+		Number      int    `json:"number"`
+		URL         string `json:"url"`
+		Title       string `json:"title"`
+		Body        string `json:"body"`
+		HeadRefName string `json:"headRefName"`
+		BaseRefName string `json:"baseRefName"`
+	}
+
+	if err := json.Unmarshal(output, &prData); err != nil {
+		return nil, fmt.Errorf("failed to parse PR data: %v", err)
+	}
+
+	return &models.PullRequestInfo{
+		Exists:          true,
+		Number:          prData.Number,
+		URL:             prData.URL,
+		Title:           prData.Title,
+		Body:            prData.Body,
+		HeadBranch:      prData.HeadRefName,
+		BaseBranch:      prData.BaseRefName,
+		Repository:      ownerRepo,
+		HasCommitsAhead: hasCommitsAhead,
+	}, nil
+}
+
+// getPullRequestInfo gets PR information for a branch
+func (s *GitService) getPullRequestInfo(worktree *models.Worktree, ownerRepo string) (*models.PullRequestInfo, error) {
+	return s.checkPullRequestExistsWithGH(worktree, ownerRepo)
+}
+
+// checkCommitsAheadOfRemote checks if there are commits ahead of the remote branch
+func (s *GitService) checkCommitsAheadOfRemote(worktree *models.Worktree) (bool, error) {
+	// For PR purposes, we need to check if the current branch has commits that haven't been pushed
+	// to the remote branch with the same name (origin/current_branch)
+	remoteBranchRef := fmt.Sprintf("origin/%s", worktree.Branch)
+
+	// First, try to fetch the specific branch from origin to ensure we have up-to-date refs
+	if _, fetchErr := execGitCommandWithCombinedOutput(worktree.Path, "fetch", "origin", worktree.Branch); fetchErr != nil {
+		// If fetch fails, the remote branch might not exist
+		// In this case, if we have any commits, they're ahead of remote
+		if worktree.CommitCount > 0 {
+			return true, nil
+		}
+		return false, nil
+	}
+
+	// Count commits ahead of the remote branch with the same name
+	count, err := countCommitsAhead(worktree.Path, remoteBranchRef, "HEAD")
+	if err == nil {
+		return count > 0, nil
+	}
+
+	log.Printf("🔍 [DEBUG] Rev-list error for %s: %v", remoteBranchRef, err)
+	// If the rev-list command fails, it might mean the remote branch doesn't exist locally
+	// Check if the remote branch exists
+	if checkErr := execGitCommand(worktree.Path, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/remotes/%s", remoteBranchRef)); checkErr != nil {
+		// Remote branch doesn't exist, so if we have commits, they're ahead
+		hasCommits := worktree.CommitCount > 0
+		log.Printf("🔍 [DEBUG] Remote branch %s doesn't exist locally, using commit count: %d", remoteBranchRef, worktree.CommitCount)
+		return hasCommits, nil
+	}
+
+	// Remote branch exists but rev-list failed - return error
+	return false, fmt.Errorf("failed to count commits ahead of %s: %v", remoteBranchRef, err)
 }

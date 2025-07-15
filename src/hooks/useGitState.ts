@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { gitApi, type GitStatus, type Worktree, type Repository, type WorktreeDiffStats } from "@/lib/git-api";
+import { gitApi, type GitStatus, type Worktree, type Repository, type WorktreeDiffStats, type PullRequestInfo } from "@/lib/git-api";
 import { generateWorktreeSummary, shouldGenerateSummary, type WorktreeSummary } from "@/lib/worktree-summary";
 
 export interface GitState {
@@ -13,6 +13,7 @@ export interface GitState {
   mergeConflicts: Record<string, any>;
   worktreeSummaries: Record<string, WorktreeSummary>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
+  prStatuses: Record<string, PullRequestInfo | undefined>;
   loading: boolean;
   reposLoading: boolean;
 }
@@ -29,6 +30,7 @@ export function useGitState() {
     mergeConflicts: {},
     worktreeSummaries: {},
     diffStats: {},
+    prStatuses: {},
     loading: false,
     reposLoading: false,
   });
@@ -223,12 +225,35 @@ export function useGitState() {
     setState(prev => ({ ...prev, worktreeSummaries: {} }));
   };
 
+  const fetchPRStatuses = async () => {
+    if (state.worktrees.length === 0) return;
+
+    try {
+      const prPromises = state.worktrees.map(async (worktree) => {
+        const prInfo = await gitApi.checkPullRequestExists(worktree.id);
+        return { worktreeId: worktree.id, prInfo };
+      });
+
+      const prResults = await Promise.all(prPromises);
+      const prStatuses: Record<string, PullRequestInfo | undefined> = {};
+
+      prResults.forEach(({ worktreeId, prInfo }) => {
+        prStatuses[worktreeId] = prInfo ?? undefined;
+      });
+
+      setState(prev => ({ ...prev, prStatuses }));
+    } catch (error) {
+      console.error("Failed to fetch PR statuses:", error);
+    }
+  };
+
   const refreshAll = async () => {
     await Promise.all([
       fetchGitStatus(),
       fetchWorktrees(),
       fetchClaudeSessions(),
       fetchActiveSessions(),
+      fetchPRStatuses(),
     ]);
   };
 
@@ -250,6 +275,7 @@ export function useGitState() {
     if (state.worktrees.length > 0) {
       void checkConflicts();
       void fetchDiffStats();
+      void fetchPRStatuses();
     }
   }, [state.worktrees]);
 
@@ -269,6 +295,7 @@ export function useGitState() {
     fetchActiveSessions,
     checkConflicts,
     fetchDiffStats,
+    fetchPRStatuses,
     generateWorktreeSummaryForId,
     generateAllWorktreeSummaries,
     clearWorktreeSummary,

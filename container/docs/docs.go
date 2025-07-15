@@ -456,6 +456,90 @@ const docTemplate = `{
             }
         },
         "/v1/git/worktrees/{id}/pr": {
+            "get": {
+                "description": "Check if a pull request exists for a worktree branch",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Check if pull request exists for worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Update an existing pull request for a worktree branch",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Update pull request for worktree",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pull request update data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
             "post": {
                 "description": "Creates a pull request for a worktree branch",
                 "consumes": [
@@ -1144,6 +1228,57 @@ const docTemplate = `{
                     "description": "Total number of worktrees across all repositories",
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.PullRequestInfo": {
+            "description": "Information about an existing pull request for a branch",
+            "type": "object",
+            "properties": {
+                "base_branch": {
+                    "description": "Base branch (target branch of the PR)",
+                    "type": "string",
+                    "example": "main"
+                },
+                "body": {
+                    "description": "Body/description of the pull request (if exists)",
+                    "type": "string",
+                    "example": "This PR adds new functionality to the system"
+                },
+                "exists": {
+                    "description": "Whether a pull request exists for this branch",
+                    "type": "boolean",
+                    "example": true
+                },
+                "has_commits_ahead": {
+                    "description": "Whether there are commits ahead of the remote that can be pushed",
+                    "type": "boolean",
+                    "example": true
+                },
+                "head_branch": {
+                    "description": "Head branch (source branch of the PR)",
+                    "type": "string",
+                    "example": "feature/new-feature"
+                },
+                "number": {
+                    "description": "Pull request number (if exists)",
+                    "type": "integer",
+                    "example": 123
+                },
+                "repository": {
+                    "description": "Repository in owner/repo format",
+                    "type": "string",
+                    "example": "owner/repo"
+                },
+                "title": {
+                    "description": "Title of the pull request (if exists)",
+                    "type": "string",
+                    "example": "Feature: Add new functionality"
+                },
+                "url": {
+                    "description": "URL to the pull request (if exists)",
+                    "type": "string",
+                    "example": "https://github.com/owner/repo/pull/123"
                 }
             }
         },

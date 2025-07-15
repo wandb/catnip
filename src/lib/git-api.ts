@@ -33,6 +33,28 @@ export interface WorktreeDiffStats {
   summary: string;
 }
 
+export interface PullRequestInfo {
+  exists: boolean;
+  number?: number;
+  url?: string;
+  title?: string;
+  body?: string;
+  head_branch?: string;
+  base_branch?: string;
+  repository?: string;
+  has_commits_ahead: boolean;
+}
+
+export interface PullRequestResponse {
+  number: number;
+  url: string;
+  title: string;
+  body: string;
+  head_branch: string;
+  base_branch: string;
+  repository: string;
+}
+
 export interface ErrorHandler {
   setErrorAlert: (alert: { open: boolean; title: string; description: string }) => void;
 }
@@ -356,5 +378,42 @@ export const gitApi = {
     });
 
     return diffStats;
+  },
+
+  async checkPullRequestExists(worktreeId: string): Promise<PullRequestInfo | null> {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to check PR existence:", error);
+      return null;
+    }
+  },
+
+  async updatePullRequest(worktreeId: string, title: string, body: string): Promise<PullRequestResponse | null> {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title, body }),
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to update PR:", error);
+      return null;
+    }
   }
 };

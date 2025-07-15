@@ -21,7 +21,7 @@ import {
   Terminal, 
   Trash2 
 } from "lucide-react";
-import { type Worktree, type WorktreeDiffStats } from "@/lib/git-api";
+import { type Worktree, type WorktreeDiffStats, type PullRequestInfo } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 import { getRelativeTime, getDuration } from "@/lib/git-utils";
 
@@ -51,6 +51,7 @@ interface WorktreeRowProps {
     branchName: string;
     title: string;
     description: string;
+    isUpdate: boolean;
   }) => void;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
@@ -213,6 +214,7 @@ interface WorktreeActionsProps {
   mergeConflicts: Record<string, ConflictStatus>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   openDiffWorktreeId: string | null;
+  prStatus?: PullRequestInfo;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
   onMerge: (id: string, name: string) => void;
@@ -226,6 +228,7 @@ function WorktreeActions({
   mergeConflicts, 
   diffStats,
   openDiffWorktreeId, 
+  prStatus,
   onToggleDiff, 
   onSync, 
   onMerge, 
@@ -238,7 +241,7 @@ function WorktreeActions({
   };
 
   const diffStat = diffStats[worktree.id];
-  const hasDiff = (diffStat && (diffStat.additions > 0 || diffStat.deletions > 0)) || worktree.commit_count > 0;
+  const hasDiff = worktree.commit_count > 0 || worktree.is_dirty || diffStat;
 
   return (
     <div className="flex items-center gap-2">
@@ -302,10 +305,15 @@ function WorktreeActions({
           {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
             <DropdownMenuItem
               onClick={() => onOpenPrDialog(worktree.id, worktree.branch)}
-              className="text-green-600"
+              className={prStatus?.has_commits_ahead === false ? "text-muted-foreground" : "text-green-600"}
+              disabled={prStatus?.has_commits_ahead === false}
             >
               <GitMerge size={16} />
-              Create PR (GitHub)
+              {prStatus?.has_commits_ahead === false 
+                ? "No new commits" 
+                : prStatus?.exists 
+                  ? "Update PR (GitHub)" 
+                  : "Create PR (GitHub)"}
             </DropdownMenuItem>
           )}
           
@@ -342,6 +350,10 @@ function WorktreeActions({
   );
 }
 
+interface WorktreeRowPropsWithPR extends WorktreeRowProps {
+  prStatuses: Record<string, PullRequestInfo | undefined>;
+}
+
 export function WorktreeRow({
   worktree,
   claudeSessions,
@@ -357,24 +369,39 @@ export function WorktreeRow({
   onCreatePreview,
   onConfirmDelete,
   onRegenerateSummary,
-}: WorktreeRowProps) {
+  prStatuses,
+}: WorktreeRowPropsWithPR) {
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = Boolean(syncConflicts[worktree.id]?.has_conflicts ?? mergeConflicts[worktree.id]?.has_conflicts);
   const summary = worktreeSummaries[worktree.id];
   const diffStat = diffStats[worktree.id];
+  const prStatus = prStatuses[worktree.id];
 
   const openPrDialog = (worktreeId: string, branchName: string) => {
-    // Use pre-generated summary if available
-    const defaultTitle = `Pull request from ${branchName}`;
-    const defaultDescription = `Automated pull request created from worktree ${branchName}`;
+    // Check if PR already exists
+    const isUpdate = prStatus?.exists ?? false;
+    
+    // Use pre-generated summary if available, or existing PR data if updating
+    const defaultTitle = isUpdate && prStatus?.title 
+      ? prStatus.title 
+      : summary?.status === 'completed' 
+        ? summary.title 
+        : `Pull request from ${branchName}`;
+    
+    const defaultDescription = isUpdate && prStatus?.body
+      ? prStatus.body
+      : summary?.status === 'completed' 
+        ? summary.summary 
+        : `Automated pull request created from worktree ${branchName}`;
     
     setPrDialog({
       open: true,
       worktreeId,
       branchName,
-      title: summary?.status === 'completed' ? summary.title : defaultTitle,
-      description: summary?.status === 'completed' ? summary.summary : defaultDescription,
+      title: defaultTitle,
+      description: defaultDescription,
+      isUpdate,
     });
   };
 
@@ -426,6 +453,7 @@ export function WorktreeRow({
           mergeConflicts={mergeConflicts}
           diffStats={diffStats}
           openDiffWorktreeId={openDiffWorktreeId}
+          prStatus={prStatus}
           onToggleDiff={onToggleDiff}
           onSync={onSync}
           onMerge={onMerge}

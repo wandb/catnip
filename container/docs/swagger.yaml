@@ -199,6 +199,46 @@ definitions:
         example: 3
         type: integer
     type: object
+  github_com_vanpelt_catnip_internal_models.PullRequestInfo:
+    description: Information about an existing pull request for a branch
+    properties:
+      base_branch:
+        description: Base branch (target branch of the PR)
+        example: main
+        type: string
+      body:
+        description: Body/description of the pull request (if exists)
+        example: This PR adds new functionality to the system
+        type: string
+      exists:
+        description: Whether a pull request exists for this branch
+        example: true
+        type: boolean
+      has_commits_ahead:
+        description: Whether there are commits ahead of the remote that can be pushed
+        example: true
+        type: boolean
+      head_branch:
+        description: Head branch (source branch of the PR)
+        example: feature/new-feature
+        type: string
+      number:
+        description: Pull request number (if exists)
+        example: 123
+        type: integer
+      repository:
+        description: Repository in owner/repo format
+        example: owner/repo
+        type: string
+      title:
+        description: Title of the pull request (if exists)
+        example: 'Feature: Add new functionality'
+        type: string
+      url:
+        description: URL to the pull request (if exists)
+        example: https://github.com/owner/repo/pull/123
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.PullRequestResponse:
     description: Response containing pull request information after creation
     properties:
@@ -860,6 +900,30 @@ paths:
       tags:
       - git
   /v1/git/worktrees/{id}/pr:
+    get:
+      description: Check if a pull request exists for a worktree branch
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Check if pull request exists for worktree
+      tags:
+      - git
     post:
       consumes:
       - application/json
@@ -884,6 +948,38 @@ paths:
           schema:
             $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse'
       summary: Create pull request
+      tags:
+      - git
+    put:
+      consumes:
+      - application/json
+      description: Update an existing pull request for a worktree branch
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request update data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreatePullRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update pull request for worktree
       tags:
       - git
   /v1/git/worktrees/{id}/preview:

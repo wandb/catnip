@@ -103,3 +103,26 @@ type PullRequestResponse struct {
 	// Repository in owner/repo format
 	Repository string `json:"repository" example:"owner/repo"`
 }
+
+// PullRequestInfo represents information about an existing pull request
+// @Description Information about an existing pull request for a branch
+type PullRequestInfo struct {
+	// Whether a pull request exists for this branch
+	Exists bool `json:"exists" example:"true"`
+	// Pull request number (if exists)
+	Number int `json:"number,omitempty" example:"123"`
+	// URL to the pull request (if exists)
+	URL string `json:"url,omitempty" example:"https://github.com/owner/repo/pull/123"`
+	// Title of the pull request (if exists)
+	Title string `json:"title,omitempty" example:"Feature: Add new functionality"`
+	// Body/description of the pull request (if exists)
+	Body string `json:"body,omitempty" example:"This PR adds new functionality to the system"`
+	// Head branch (source branch of the PR)
+	HeadBranch string `json:"head_branch,omitempty" example:"feature/new-feature"`
+	// Base branch (target branch of the PR)
+	BaseBranch string `json:"base_branch,omitempty" example:"main"`
+	// Repository in owner/repo format
+	Repository string `json:"repository,omitempty" example:"owner/repo"`
+	// Whether there are commits ahead of the remote that can be pushed
+	HasCommitsAhead bool `json:"has_commits_ahead,omitempty" example:"true"`
+}

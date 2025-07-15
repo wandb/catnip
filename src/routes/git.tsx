@@ -46,12 +46,14 @@ function GitPage() {
     mergeConflicts,
     worktreeSummaries,
     diffStats,
+    prStatuses,
     loading,
     reposLoading,
     fetchGitStatus,
     fetchWorktrees,
     fetchRepositories,
     fetchActiveSessions,
+    fetchPRStatuses,
     generateWorktreeSummaryForId,
     refreshAll,
     setLoading,
@@ -87,12 +89,14 @@ function GitPage() {
     branchName: string;
     title: string;
     description: string;
+    isUpdate: boolean;
   }>({
     open: false,
     worktreeId: "",
     branchName: "",
     title: "",
     description: "",
+    isUpdate: false,
   });
 
   const [prLoading, setPrLoading] = useState(false);
@@ -178,8 +182,10 @@ function GitPage() {
   const createPullRequest = async () => {
     setPrLoading(true);
     try {
+      const isUpdate = prDialog.isUpdate;
+      const method = isUpdate ? "PUT" : "POST";
       const response = await fetch(`/v1/git/worktrees/${prDialog.worktreeId}/pr`, {
-        method: "POST",
+        method,
         headers: {
           "Content-Type": "application/json",
         },
@@ -195,7 +201,7 @@ function GitPage() {
         toast.success(
           <div className="flex items-center gap-2 w-full">
             <div className="flex-1">
-              <div className="font-medium">Pull request created!</div>
+              <div className="font-medium">Pull request {isUpdate ? 'updated' : 'created'}!</div>
               <div className="text-sm text-muted-foreground mt-1">
                 PR #{prData.number}: {prData.title}
               </div>
@@ -217,13 +223,17 @@ function GitPage() {
           }
         );
         
-        // Close the dialog after successful creation
+        // Refresh PR statuses after successful operation
+        void fetchPRStatuses();
+        
+        // Close the dialog after successful creation/update
         setPrDialog({
           open: false,
           worktreeId: "",
           branchName: "",
           title: "",
           description: "",
+          isUpdate: false,
         });
       } else {
         let errorMessage = 'Unknown error';
@@ -237,15 +247,15 @@ function GitPage() {
         setErrorAlert({
           open: true,
           title: "Pull Request Failed",
-          description: `Failed to create pull request: ${errorMessage}`
+          description: `Failed to ${isUpdate ? 'update' : 'create'} pull request: ${errorMessage}`
         });
       }
     } catch (error) {
-      console.error("Failed to create pull request:", error);
+      console.error(`Failed to ${prDialog.isUpdate ? 'update' : 'create'} pull request:`, error);
       setErrorAlert({
         open: true,
         title: "Pull Request Failed",
-        description: `Failed to create pull request: ${error}`
+        description: `Failed to ${prDialog.isUpdate ? 'update' : 'create'} pull request: ${error}`
       });
     } finally {
       setPrLoading(false);
@@ -284,6 +294,7 @@ function GitPage() {
                   mergeConflicts={mergeConflicts}
                   worktreeSummaries={worktreeSummaries}
                   diffStats={diffStats}
+                  prStatuses={prStatuses}
                   openDiffWorktreeId={openDiffWorktreeId}
                   setPrDialog={setPrDialog}
                   onToggleDiff={toggleDiff}
@@ -499,9 +510,9 @@ function GitPage() {
       <Dialog open={prDialog.open} onOpenChange={(open) => setPrDialog(prev => ({ ...prev, open }))}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Create Pull Request</DialogTitle>
+            <DialogTitle>{prDialog.isUpdate ? 'Update Pull Request' : 'Create Pull Request'}</DialogTitle>
             <DialogDescription>
-              Create a pull request for the worktree {prDialog.branchName}
+              {prDialog.isUpdate ? 'Update the pull request' : 'Create a pull request'} for the worktree {prDialog.branchName}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 py-4">
@@ -542,10 +553,10 @@ function GitPage() {
               {prLoading ? (
                 <>
                   <RefreshCw className="animate-spin h-4 w-4 mr-2" />
-                  Creating PR...
+                  {prDialog.isUpdate ? 'Updating PR...' : 'Creating PR...'}
                 </>
               ) : (
-                "Create PR"
+                prDialog.isUpdate ? 'Update PR' : 'Create PR'
               )}
             </Button>
           </DialogFooter>
