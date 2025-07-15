@@ -62,25 +62,27 @@ function shouldRouteToContainer(pathname: string): boolean {
   return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
 }
 
+// Cache for GitHub App installation tokens
+interface TokenCache {
+  token: string;
+  expiresAt: number;
+}
+
+const tokenCache = new Map<string, TokenCache>();
+
 // Helper function to get GitHub App installation token with caching
-async function getGitHubAppToken(env: Env, ctx: ExecutionContext): Promise<string | null> {
+async function getGitHubAppToken(env: Env): Promise<string | null> {
   if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY) {
     return null;
   }
 
-  const cacheKey = `github-app-token-${env.GITHUB_APP_ID}-wandb`;
+  const cacheKey = `${env.GITHUB_APP_ID}-wandb`;
   const now = Date.now();
 
-  // Check Cloudflare cache first
-  const cache = caches.default;
-  const cacheRequest = new Request(`https://cache.internal/${cacheKey}`);
-  const cachedResponse = await cache.match(cacheRequest);
-  
-  if (cachedResponse) {
-    const cachedData = await cachedResponse.json() as { token: string; expiresAt: number };
-    if (now < cachedData.expiresAt) {
-      return cachedData.token;
-    }
+  // Check cache first
+  const cached = tokenCache.get(cacheKey);
+  if (cached && now < cached.expiresAt) {
+    return cached.token;
   }
 
   try {
@@ -107,20 +109,10 @@ async function getGitHubAppToken(env: Env, ctx: ExecutionContext): Promise<strin
 
     // Cache the token for 50 minutes (tokens expire after 1 hour)
     const expiresAt = now + (50 * 60 * 1000);
-    const tokenData = {
+    tokenCache.set(cacheKey, {
       token: installationToken.data.token,
       expiresAt,
-    };
-
-    // Store in Cloudflare cache
-    const cacheResponse = new Response(JSON.stringify(tokenData), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'max-age=3000', // 50 minutes
-      },
     });
-    
-    ctx.waitUntil(cache.put(cacheRequest, cacheResponse));
 
     return installationToken.data.token;
   } catch (error) {
@@ -439,7 +431,7 @@ export function createApp(env: Env) {
 
   // GitHub release proxy endpoints for install.sh
   app.get("/v1/github/releases/latest", async (c) => {
-    const token = await getGitHubAppToken(c.env, c.executionCtx);
+    const token = await getGitHubAppToken(c.env);
     if (!token) {
       return c.text("GitHub App authentication not configured", 500);
     }
@@ -466,7 +458,7 @@ export function createApp(env: Env) {
   });
 
   app.get("/v1/github/releases/download/:version/:filename", async (c) => {
-    const token = await getGitHubAppToken(c.env, c.executionCtx);
+    const token = await getGitHubAppToken(c.env);
     if (!token) {
       return c.text("GitHub App authentication not configured", 500);
     }
