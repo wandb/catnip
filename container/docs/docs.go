@@ -827,6 +827,47 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/sessions/workspace/{workspace}/status": {
+            "post": {
+                "description": "Updates session status with todo and branch information",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Update session status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace directory path",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Status update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateSessionStatusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateSessionStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/upload": {
             "post": {
                 "description": "Upload a file to /tmp/uploads directory with automatic conflict resolution",
@@ -1554,6 +1595,53 @@ const docTemplate = `{
             "type": "object",
             "additionalProperties": {
                 "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
+            }
+        },
+        "internal_handlers.UpdateSessionStatusRequest": {
+            "description": "Request to update session status with todo information",
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "description": "Git branch name",
+                    "type": "string",
+                    "example": "feature/new-feature"
+                },
+                "status": {
+                    "description": "Status of the todo",
+                    "type": "string",
+                    "example": "in_progress"
+                },
+                "todo": {
+                    "description": "Todo content",
+                    "type": "string",
+                    "example": "Implement user authentication"
+                }
+            }
+        },
+        "internal_handlers.UpdateSessionStatusResponse": {
+            "description": "Response confirming session status update",
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Confirmation message",
+                    "type": "string",
+                    "example": "Session status updated successfully"
+                },
+                "session_id": {
+                    "description": "Session ID",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "status": {
+                    "description": "Updated status",
+                    "type": "string",
+                    "example": "in_progress"
+                },
+                "workspace": {
+                    "description": "Workspace path",
+                    "type": "string",
+                    "example": "/workspace/my-project"
+                }
             }
         },
         "internal_handlers.UploadResponse": {

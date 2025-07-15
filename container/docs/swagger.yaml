@@ -508,6 +508,42 @@ definitions:
       $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
     description: Map of workspace paths to session information
     type: object
+  internal_handlers.UpdateSessionStatusRequest:
+    description: Request to update session status with todo information
+    properties:
+      branch:
+        description: Git branch name
+        example: feature/new-feature
+        type: string
+      status:
+        description: Status of the todo
+        example: in_progress
+        type: string
+      todo:
+        description: Todo content
+        example: Implement user authentication
+        type: string
+    type: object
+  internal_handlers.UpdateSessionStatusResponse:
+    description: Response confirming session status update
+    properties:
+      message:
+        description: Confirmation message
+        example: Session status updated successfully
+        type: string
+      session_id:
+        description: Session ID
+        example: abc123-def456-ghi789
+        type: string
+      status:
+        description: Updated status
+        example: in_progress
+        type: string
+      workspace:
+        description: Workspace path
+        example: /workspace/my-project
+        type: string
+    type: object
   internal_handlers.UploadResponse:
     description: Response containing upload status and file location
     properties:
@@ -1114,6 +1150,33 @@ paths:
           schema:
             $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData'
       summary: Get session by ID
+      tags:
+      - sessions
+  /v1/sessions/workspace/{workspace}/status:
+    post:
+      consumes:
+      - application/json
+      description: Updates session status with todo and branch information
+      parameters:
+      - description: Workspace directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      - description: Status update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.UpdateSessionStatusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.UpdateSessionStatusResponse'
+      summary: Update session status
       tags:
       - sessions
   /v1/upload:

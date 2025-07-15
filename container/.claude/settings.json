@@ -1,0 +1,24 @@
+{
+    "hooks": {
+      "PreToolUse": [
+        {
+          "matcher": "TodoWrite|TodoUpdate",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "echo '$CATNIP_TOOL_INPUT' | ${CATNIP_ROOT:-/opt/catnip}/hooks/todo-handler.sh"
+            }
+          ]
+        }
+      ],
+      "Stop": {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '$CATNIP_TOOL_INPUT' | ${CATNIP_ROOT:-/opt/catnip}/hooks/todo-handler.sh"
+          }
+        ]
+      }
+    }
+}
+  
