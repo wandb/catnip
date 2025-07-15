@@ -110,10 +110,28 @@ info:
     @echo "  just container::dev    - Run Go server locally with Air"
     @echo "  just container::test   - Run Go tests"
     @echo ""
+    @echo "Release Management:"
+    @echo "  just release           - Create minor release (local tag)"
+    @echo "  just release-patch     - Create patch release"
+    @echo "  just release-major     - Create major release"
+    @echo "  just release-dev       - Create dev release"
+    @echo "  Add --push --message=\"...\" to actually release"
+    @echo ""
     @echo "Cleanup:"
     @echo "  just clean-containers  - Remove container images"
     @echo "  just clean-dev-volumes - Remove development volumes"
     @echo "  just clean-all         - Clean everything"
+
+# Release management
+release BUMP="minor" *ARGS="":
+    @echo "🚀 Creating release with {{BUMP}} version bump..."
+    node scripts/release.js {{BUMP}} {{ARGS}}
+
+# Release shortcuts for common workflows
+release-patch *ARGS="": (release "patch" ARGS)
+release-minor *ARGS="": (release "minor" ARGS) 
+release-major *ARGS="": (release "major" ARGS)
+release-dev *ARGS="": (release "dev" ARGS)
 
 # Import container justfile with a namespace
 mod container
