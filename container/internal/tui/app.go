@@ -73,6 +73,7 @@ type errMsg error
 type quitMsg struct{}
 type healthStatusMsg bool
 type animationTickMsg time.Time
+type logsTickMsg time.Time
 
 var debugLogger *log.Logger
 var debugEnabled bool
@@ -166,6 +167,9 @@ func (m model) Init() tea.Cmd {
 		}),
 		tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
 			return animationTickMsg(t)
+		}),
+		tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+			return logsTickMsg(t)
 		}),
 	)
 	
@@ -356,6 +360,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
 			return animationTickMsg(t)
 		})
+	
+	case logsTickMsg:
+		debugLog("TUI Update() logsTickMsg - elapsed: %v", time.Since(start))
+		// Auto-refresh logs only when in logs view
+		if m.currentView == logsView {
+			return m, tea.Batch(
+				tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+					return logsTickMsg(t)
+				}),
+				m.fetchLogs(),
+			)
+		}
+		// If not in logs view, just schedule next tick
+		return m, tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+			return logsTickMsg(t)
+		})
 
 	case containerInfoMsg:
 		debugLog("TUI Update() containerInfoMsg - elapsed: %v", time.Since(start))
@@ -453,7 +473,7 @@ func (m model) View() string {
 			searchContent := searchPrompt + m.searchInput.View() + " (Enter to apply, Esc to cancel)"
 			footer = footerStyle.Render(searchContent)
 		} else {
-			footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit")
+			footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit • Auto-refresh: ON")
 		}
 	}
 
