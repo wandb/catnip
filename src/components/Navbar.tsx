@@ -95,6 +95,14 @@ export function Navbar() {
                 <span>Git</span>
               </Link>
               <Link
+                to="/projects"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <FolderOpen size={20} />
+                <span>Projects</span>
+              </Link>
+              <Link
                 to="/docs"
                 className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
                 onClick={() => setMobileMenuOpen(false)}
