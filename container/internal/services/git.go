@@ -64,11 +64,6 @@ func (s *GitService) execCommand(command string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// runCommand runs any command and returns output
-func (s *GitService) runCommand(command string, args ...string) ([]byte, error) {
-	cmd := s.execCommand(command, args...)
-	return cmd.CombinedOutput()
-}
 
 // execGitCommand executes a git command with standard environment
 func (s *GitService) execGitCommand(workingDir string, args ...string) *exec.Cmd {
@@ -158,14 +153,6 @@ func (m *RemoteURLManager) convertSSHToHTTPS(url string) string {
 	return url
 }
 
-// convertSSHToHTTPS converts SSH GitHub URLs to HTTPS (legacy method for backward compatibility)
-func (s *GitService) convertSSHToHTTPS(url string) string {
-	if strings.HasPrefix(url, "git@github.com:") {
-		path := strings.TrimPrefix(url, "git@github.com:")
-		return "https://github.com/" + path
-	}
-	return url
-}
 
 // PushStrategy defines the strategy for pushing branches
 type PushStrategy struct {
@@ -208,7 +195,12 @@ func (s *GitService) pushBranch(worktree *models.Worktree, repo *models.Reposito
 	}
 
 	// Ensure URL is restored on function exit
-	defer urlManager.RestoreOriginalURL()
+	defer func() {
+		if err := urlManager.RestoreOriginalURL(); err != nil {
+			// Log error but don't fail the operation - URL restoration is best-effort
+			log.Printf("⚠️ Failed to restore original URL: %v", err)
+		}
+	}()
 
 	// Build push command
 	args := []string{"push"}
@@ -2639,16 +2631,6 @@ func (s *GitService) inferRemoteURL(repoPath string) (string, error) {
 	return "", fmt.Errorf("could not infer remote URL from repository")
 }
 
-// pushBranchToRemote pushes a worktree branch to the remote repository (for local repos)
-func (s *GitService) pushBranchToRemote(worktree *models.Worktree, repo *models.Repository, remoteURL string) error {
-	strategy := PushStrategy{
-		RemoteURL:    remoteURL,
-		SetUpstream:  true,
-		ConvertHTTPS: true,
-	}
-
-	return s.pushBranch(worktree, repo, strategy)
-}
 
 // setupRemoteOrigin sets up or updates the remote origin URL
 func (s *GitService) setupRemoteOrigin(worktreePath, remoteURL string) error {
@@ -2669,15 +2651,6 @@ func (s *GitService) setupRemoteOrigin(worktreePath, remoteURL string) error {
 	return nil
 }
 
-// pushBranchToOrigin pushes a worktree branch to origin (for remote repos)
-func (s *GitService) pushBranchToOrigin(worktree *models.Worktree) error {
-	strategy := PushStrategy{
-		SetUpstream:  true,
-		ConvertHTTPS: true,
-	}
-
-	return s.pushBranch(worktree, nil, strategy)
-}
 
 // GetPullRequestInfo gets information about an existing pull request for a worktree
 func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestInfo, error) {

@@ -142,7 +142,7 @@ func WriteClaudeSettingsFile(homeDir string) error {
 func NewClaudeService() *ClaudeService {
 	// Use catnip user's home directory explicitly
 	homeDir := "/home/catnip"
-	WriteClaudeSettingsFile(homeDir)
+	_ = WriteClaudeSettingsFile(homeDir) // Error is already logged in WriteClaudeSettingsFile
 	return &ClaudeService{
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
