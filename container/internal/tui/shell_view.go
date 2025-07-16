@@ -75,12 +75,13 @@ func (sm *ShellManager) ConnectSession(sessionID string) error {
 	return fmt.Errorf("session not found: %s", sessionID)
 }
 
+
 func (sm *ShellManager) GetSession(sessionID string) *ShellSession {
 	return sm.sessions[sessionID]
 }
 
 // Helper function to create and connect a new shell session
-func createAndConnectShell(sessionID string) tea.Cmd {
+func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 	return func() tea.Msg {
 		if globalShellManager == nil {
 			return shellErrorMsg{
@@ -91,11 +92,21 @@ func createAndConnectShell(sessionID string) tea.Cmd {
 		
 		_ = globalShellManager.CreateSession(sessionID)
 		
-		// Connect in background
+		// Connect in background and send initial size
 		go func() {
 			err := globalShellManager.ConnectSession(sessionID)
 			if err != nil {
 				debugLog("Failed to connect shell session %s: %v", sessionID, err)
+				return
+			}
+			
+			// Send initial terminal size after connection with a small delay
+			time.Sleep(200 * time.Millisecond) // Give PTY time to initialize
+			if session := globalShellManager.GetSession(sessionID); session != nil && session.Client != nil {
+				debugLog("Sending initial PTY size: %dx%d", width, height)
+				if err := session.Client.Resize(width, height); err != nil {
+					debugLog("Failed to send initial PTY size: %v", err)
+				}
 			}
 		}()
 		
@@ -131,7 +142,7 @@ func (m model) createNewShellSessionWithCmd() (model, tea.Cmd) {
 	}
 	
 	// Return the command to create and connect the session
-	return m, createAndConnectShell(sessionID)
+	return m, createAndConnectShell(sessionID, m.shellViewport.Width, m.shellViewport.Height)
 }
 
 // Helper to format session list for display

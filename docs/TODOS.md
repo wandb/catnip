@@ -14,6 +14,7 @@
 [ ] - Polish conversation UI
 [ ] - Test multi-websocket connection state
 [ ] - Implement notifications
+[ ] - Refactor the TUI app update loop, don't print lines to the emulator
 [ ] - Add a way to start from a template repo
 [ ] - Cleanup and ensure terminal socket handling is robust
 [ ] - Wire up MCP Pupeteer clone

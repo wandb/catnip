@@ -2,18 +2,20 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 
 	"github.com/hinshun/vt10x"
 )
 
 // Attribute mode constants from vt10x internal
+// These match the mode bits used in vt10x
 const (
-	attrReverse = 1 << iota
-	attrUnderline
-	attrBold
-	attrItalic
-	attrBlink
+	attrBold      = 1 << 0
+	attrUnderline = 1 << 1
+	attrBlink     = 1 << 2
+	attrReverse   = 1 << 3
+	attrItalic    = 1 << 4
 )
 
 // TerminalEmulator wraps vt10x to provide terminal emulation for PTY output
@@ -25,6 +27,7 @@ type TerminalEmulator struct {
 
 // NewTerminalEmulator creates a new terminal emulator
 func NewTerminalEmulator(cols, rows int) *TerminalEmulator {
+	debugLog("Creating terminal emulator with size: %dx%d", cols, rows)
 	vt := vt10x.New(vt10x.WithSize(cols, rows))
 	return &TerminalEmulator{
 		terminal: vt,
@@ -35,8 +38,10 @@ func NewTerminalEmulator(cols, rows int) *TerminalEmulator {
 
 // Write processes PTY output through the terminal emulator
 func (te *TerminalEmulator) Write(data []byte) {
+	// Feed to terminal emulator for parsing
 	te.terminal.Write(data)
 }
+
 
 // Resize updates the terminal dimensions
 func (te *TerminalEmulator) Resize(cols, rows int) {
@@ -45,7 +50,8 @@ func (te *TerminalEmulator) Resize(cols, rows int) {
 	te.terminal.Resize(cols, rows)
 }
 
-// Render returns the current terminal view as a string
+
+// Render returns the current terminal view as a string with ANSI color codes
 func (te *TerminalEmulator) Render() string {
 	var buf bytes.Buffer
 	
@@ -53,7 +59,11 @@ func (te *TerminalEmulator) Render() string {
 	cursor := te.terminal.Cursor()
 	cursorVisible := te.terminal.CursorVisible()
 	
-	// Build the output without ANSI codes (viewport doesn't handle them well)
+	// Track current attributes to minimize ANSI codes
+	var lastFg, lastBg vt10x.Color
+	var lastMode int16
+	resetNeeded := false
+	
 	for row := 0; row < te.rows; row++ {
 		if row > 0 {
 			buf.WriteString("\n")
@@ -62,21 +72,97 @@ func (te *TerminalEmulator) Render() string {
 		for col := 0; col < te.cols; col++ {
 			cell := te.terminal.Cell(col, row)
 			
-			// Handle cursor position with simple highlighting
+			// Handle colors and attributes
+			if cell.FG != lastFg || cell.BG != lastBg || cell.Mode != lastMode {
+				// Reset if needed
+				if resetNeeded {
+					buf.WriteString("\033[0m")
+				}
+				
+				// Apply new attributes based on Mode
+				if cell.Mode&attrBold != 0 {
+					buf.WriteString("\033[1m")
+				}
+				if cell.Mode&attrUnderline != 0 {
+					buf.WriteString("\033[4m")
+				}
+				if cell.Mode&attrReverse != 0 {
+					buf.WriteString("\033[7m")
+				}
+				
+				// Apply foreground color
+				if cell.FG != vt10x.DefaultFG {
+					if cell.FG < 8 {
+						// Standard colors (30-37)
+						buf.WriteString(fmt.Sprintf("\033[%dm", 30+cell.FG))
+					} else if cell.FG < 16 {
+						// Bright colors (90-97)
+						buf.WriteString(fmt.Sprintf("\033[%dm", 90+(cell.FG-8)))
+					} else if cell.FG < 256 {
+						// 256 colors
+						buf.WriteString(fmt.Sprintf("\033[38;5;%dm", cell.FG))
+					} else {
+						// True color (24-bit RGB)
+						r := (cell.FG >> 16) & 0xFF
+						g := (cell.FG >> 8) & 0xFF
+						b := cell.FG & 0xFF
+						buf.WriteString(fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b))
+					}
+				}
+				
+				// Apply background color
+				if cell.BG != vt10x.DefaultBG {
+					if cell.BG < 8 {
+						// Standard colors (40-47)
+						buf.WriteString(fmt.Sprintf("\033[%dm", 40+cell.BG))
+					} else if cell.BG < 16 {
+						// Bright colors (100-107)
+						buf.WriteString(fmt.Sprintf("\033[%dm", 100+(cell.BG-8)))
+					} else if cell.BG < 256 {
+						// 256 colors
+						buf.WriteString(fmt.Sprintf("\033[48;5;%dm", cell.BG))
+					} else {
+						// True color (24-bit RGB)
+						r := (cell.BG >> 16) & 0xFF
+						g := (cell.BG >> 8) & 0xFF
+						b := cell.BG & 0xFF
+						buf.WriteString(fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b))
+					}
+				}
+				
+				lastFg = cell.FG
+				lastBg = cell.BG
+				lastMode = cell.Mode
+				resetNeeded = true
+			}
+			
+			// Handle cursor position
 			if cursorVisible && row == cursor.Y && col == cursor.X {
+				// Use reverse video for cursor
+				buf.WriteString("\033[7m")
 				if cell.Char == 0 || cell.Char == ' ' {
-					buf.WriteRune('█')
+					buf.WriteRune(' ')
 				} else {
-					// For now, just show the character with cursor
-					// TODO: Could use lipgloss styles for proper cursor rendering
 					buf.WriteRune(cell.Char)
 				}
+				buf.WriteString("\033[27m") // Reset reverse
 			} else if cell.Char == 0 {
 				buf.WriteRune(' ')
 			} else {
-				buf.WriteRune(cell.Char)
+				// Handle special characters properly
+				if cell.Char == '�' || cell.Char == '\uFFFD' {
+					// Skip replacement characters
+					buf.WriteRune(' ')
+				} else {
+					buf.WriteRune(cell.Char)
+				}
 			}
 		}
+	}
+	
+	// Final reset if needed
+	if resetNeeded {
+		buf.WriteString("\033[0m")
 	}
 	
 	// Trim trailing empty lines

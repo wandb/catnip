@@ -288,7 +288,6 @@ func (m model) forwardPty(msg tea.KeyMsg) {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	debugLog("Update called with message type: %T", msg)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -652,7 +651,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Process output through terminal emulator
 			m.terminalEmulator.Write(msg.data)
-			// Get rendered output from terminal emulator
+			// Always use the terminal emulator for proper handling
 			m.shellOutput = m.terminalEmulator.Render()
 			m.shellViewport.SetContent(m.shellOutput)
 			// Auto-scroll to bottom for new output
