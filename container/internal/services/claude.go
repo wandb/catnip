@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -67,10 +68,81 @@ func readJSONLines(filePath string, handler func([]byte) error) error {
 	return nil
 }
 
+func WriteClaudeSettingsFile(homeDir string) error {
+	log.Printf("✏️ Writing Claude settings for home directory: %s", homeDir)
+
+	claudeDir := filepath.Join(homeDir, ".claude")
+	settingsFile := filepath.Join(claudeDir, "settings.json")
+
+	// Create .claude directory if it doesn't exist
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .claude directory: %w", err)
+	}
+
+	// Git commit hook command that reads tool call data and creates meaningful commit messages
+	gitCommitCommand := `git add . && if git diff --cached --quiet; then 
+		echo 'No changes to commit'
+	else 
+		TOOL_DATA=$(cat)
+		TOOL_NAME=$(echo "$TOOL_DATA" | jq -r '.tool_name // "tool"')
+		FILE_PATH=$(echo "$TOOL_DATA" | jq -r '.tool_input.file_path // .tool_input.target_file // .tool_input.target_notebook // empty')
+		COMMAND=$(echo "$TOOL_DATA" | jq -r '.tool_input.command // empty' | head -c 50)
+		SUCCESS=$(echo "$TOOL_DATA" | jq -r '.tool_response.success // empty')
+
+		if [ -n "$FILE_PATH" ]; then
+			MSG="checkpoint: $TOOL_NAME $(basename "$FILE_PATH")"
+		elif [ -n "$COMMAND" ]; then
+			MSG="checkpoint: $TOOL_NAME '$COMMAND'"
+		else
+			MSG="checkpoint: $TOOL_NAME"
+		fi
+
+		if [ "$SUCCESS" = "true" ]; then
+			MSG="$MSG ✓"
+		elif [ "$SUCCESS" = "false" ]; then
+			MSG="$MSG ✗"
+		fi
+
+		git commit -m "$MSG - $(date +'%H:%M')"
+	fi`
+
+	// Default settings structure
+	defaultSettings := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"PostToolUse": []interface{}{
+				map[string]interface{}{
+					// git checkpoint after every tool use
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": gitCommitCommand,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Marshal settings to JSON
+	jsonData, err := json.MarshalIndent(defaultSettings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	// Write settings file
+	if err := os.WriteFile(settingsFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write settings file: %w", err)
+	}
+
+	return nil
+}
+
 // NewClaudeService creates a new Claude service
 func NewClaudeService() *ClaudeService {
 	// Use catnip user's home directory explicitly
 	homeDir := "/home/catnip"
+	WriteClaudeSettingsFile(homeDir)
 	return &ClaudeService{
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
