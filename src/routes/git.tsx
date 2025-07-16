@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { copyRemoteCommand, showPreviewToast, parseGitUrl } from "@/lib/git-utils";
-import { gitApi } from "@/lib/git-api";
+import { gitApi, type LocalRepository } from "@/lib/git-api";
 import { useGitState } from "@/hooks/useGitState";
 
 function GitPage() {
@@ -114,7 +114,7 @@ function GitPage() {
           : "Repository checked out successfully";
         toast.success(message);
       } else {
-        const errorData = await response.json();
+        const errorData = await response.json() as { error?: string };
         console.error("Failed to checkout repository:", errorData);
         setErrorAlert({
           open: true,
@@ -327,7 +327,7 @@ function GitPage() {
           {gitStatus.repositories &&
           Object.keys(gitStatus.repositories).length > 0 ? (
             <div className="space-y-4">
-              {Object.values(gitStatus.repositories).map((repo: any) => (
+              {Object.values(gitStatus.repositories).map((repo: LocalRepository) => (
                 <div key={repo.id} className="space-y-2">
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold text-base">{repo.id}</h3>
@@ -396,7 +396,7 @@ function GitPage() {
                 <p className="text-xs text-muted-foreground">
                   Total repositories:{" "}
                   {Object.keys(gitStatus.repositories).length} | Total
-                  worktrees: {gitStatus.worktree_count || 0}
+                  worktrees: {gitStatus.worktree_count ?? 0}
                 </p>
               </div>
             </div>
