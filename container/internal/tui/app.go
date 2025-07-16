@@ -489,11 +489,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if globalShellManager != nil && len(globalShellManager.sessions) > 0 {
 					m.showSessionList = true
 					m.currentView = shellView // Switch to shell view to show the list
-					return m, nil
+					return m, tea.ExitAltScreen
 				} else {
 					// Create new session
 					newModel, cmd := m.createNewShellSessionWithCmd()
-					return newModel, cmd
+					return newModel, tea.Batch(tea.ExitAltScreen, cmd)
 				}
 			} else if m.currentView == shellView {
 				// Already in shell view, do nothing
@@ -681,6 +681,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Switch back to overview screen
 					m.currentView = overviewView
 					debugLog("Connection error detected (%s), switching to overview", errStr)
+					return m, tea.EnterAltScreen
 				} else {
 					// Show error in terminal for other errors
 					// Initialize terminal emulator if needed
