@@ -67,6 +67,86 @@ func readJSONLines(filePath string, handler func([]byte) error) error {
 	return nil
 }
 
+func WriteClaudeSettingsFile(homeDir string) error {
+	claudeDir := filepath.Join(homeDir, ".claude")
+	settingsFile := filepath.Join(claudeDir, "settings.json")
+
+	// Create .claude directory if it doesn't exist
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .claude directory: %w", err)
+	}
+
+	// Create hooks directory
+	catnipRoot := os.Getenv("CATNIP_ROOT")
+	if catnipRoot == "" {
+		catnipRoot = "/opt/catnip"
+	}
+	hooksDir := filepath.Join(catnipRoot, "hooks")
+	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		return fmt.Errorf("failed to create hooks directory: %w", err)
+	}
+
+	// Write todo-handler.sh script
+	todoHandlerScript := `#!/bin/bash
+# Todo Handler Script for Claude Code integration
+# Processes todo-related tool input from Claude
+
+# Read input from stdin (passed via $CATNIP_TOOL_INPUT)
+input=$(cat)
+
+# Log the input for debugging
+echo "$(date): Todo handler received input: $input" >> /tmp/catnip-todo-handler.log
+
+# Parse and process todo items
+# This is a basic implementation - can be extended as needed
+if echo "$input" | grep -q "todo_write"; then
+    echo "Processing todo_write command..."
+    # Extract todo data and handle accordingly
+    # For now, just log it
+    echo "$(date): Todo write command processed" >> /tmp/catnip-todo-handler.log
+fi
+
+# Return success
+exit 0
+`
+
+	todoHandlerPath := filepath.Join(hooksDir, "todo-handler.sh")
+	if err := os.WriteFile(todoHandlerPath, []byte(todoHandlerScript), 0755); err != nil {
+		return fmt.Errorf("failed to write todo-handler.sh: %w", err)
+	}
+
+	// Default settings structure
+	defaultSettings := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"SubagentStop": []interface{}{
+				map[string]interface{}{
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type": "command",
+							// "command": "echo '$CATNIP_TOOL_INPUT' | ${CATNIP_ROOT:-/opt/catnip}/hooks/todo-handler.sh",
+							"command": "sed 's/^/[PRETOOL] /' >> ~/.claude/hooks.log",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Marshal settings to JSON
+	jsonData, err := json.MarshalIndent(defaultSettings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	// Write settings file
+	if err := os.WriteFile(settingsFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write settings file: %w", err)
+	}
+
+	return nil
+}
+
 // NewClaudeService creates a new Claude service
 func NewClaudeService() *ClaudeService {
 	// Use catnip user's home directory explicitly
