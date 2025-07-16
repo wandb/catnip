@@ -214,7 +214,7 @@ func (s *GitService) pushBranch(worktree *models.Worktree, repo *models.Reposito
 	pushErr := err
 
 	// Handle push failure with sync retry
-	if pushErr != nil && strategy.SyncOnFail && s.isPushRejectedDueToUpstream(pushErr) {
+	if pushErr != nil && strategy.SyncOnFail && s.isPushRejectedDueToUpstream(pushErr, string(output)) {
 		log.Printf("🔄 Push rejected due to upstream changes, syncing and retrying")
 
 		// Sync with upstream
@@ -2462,12 +2462,15 @@ func (s *GitService) pushBranchWithSync(worktree *models.Worktree, repo *models.
 }
 
 // isPushRejectedDueToUpstream checks if a push error is due to upstream being more recent
-func (s *GitService) isPushRejectedDueToUpstream(err error) bool {
+func (s *GitService) isPushRejectedDueToUpstream(err error, output string) bool {
 	if err == nil {
 		return false
 	}
 
+	// Check both the error message and the git output for rejection indicators
 	errorStr := err.Error()
+	combinedText := errorStr + " " + output
+
 	// Common indicators that push was rejected due to upstream changes
 	indicators := []string{
 		"failed to push some refs",
@@ -2478,7 +2481,7 @@ func (s *GitService) isPushRejectedDueToUpstream(err error) bool {
 	}
 
 	for _, indicator := range indicators {
-		if strings.Contains(errorStr, indicator) {
+		if strings.Contains(combinedText, indicator) {
 			return true
 		}
 	}
