@@ -148,6 +148,8 @@ func main() {
 	v1.Get("/sessions/workspace/:workspace", sessionHandler.GetSessionByWorkspace)
 	v1.Get("/sessions/workspace/:workspace/session/:sessionId", sessionHandler.GetSessionById)
 	v1.Delete("/sessions/workspace/:workspace", sessionHandler.DeleteSession)
+	v1.Post("/sessions/workspace/:workspace/status", sessionHandler.UpdateSessionStatus)
+	v1.Get("/sessions/workspace/:workspace/status", sessionHandler.GetSessionStatus)
 
 	// Port monitoring routes
 	v1.Get("/ports", portsHandler.GetPorts)

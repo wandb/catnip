@@ -543,6 +543,50 @@ definitions:
       $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
     description: Map of workspace paths to session information
     type: object
+  internal_handlers.StatusEntry:
+    properties:
+      branch:
+        description: Git branch at the time of status update
+        type: string
+      raw_input:
+        description: Raw input data as received
+        type: string
+      timestamp:
+        description: Timestamp when the status was received
+        type: string
+      tool_input:
+        description: Tool input data from Claude
+        items:
+          type: integer
+        type: array
+      workspace:
+        description: Workspace name
+        type: string
+    type: object
+  internal_handlers.StatusHistoryResponse:
+    properties:
+      count:
+        type: integer
+      statuses:
+        items:
+          $ref: '#/definitions/internal_handlers.StatusEntry'
+        type: array
+      workspace:
+        type: string
+    type: object
+  internal_handlers.StatusUpdateRequest:
+    properties:
+      branch:
+        type: string
+      timestamp:
+        type: string
+      tool_input:
+        items:
+          type: integer
+        type: array
+      workspace:
+        type: string
+    type: object
   internal_handlers.UploadResponse:
     description: Response containing upload status and file location
     properties:
@@ -1214,6 +1258,58 @@ paths:
           schema:
             $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData'
       summary: Get session by ID
+      tags:
+      - sessions
+  /v1/sessions/workspace/{workspace}/status:
+    get:
+      description: Returns status history for a workspace with optional count parameter
+      parameters:
+      - description: Workspace directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      - description: 'Number of recent statuses to return (default: all)'
+        in: query
+        name: count
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.StatusHistoryResponse'
+      summary: Get session status history
+      tags:
+      - sessions
+    post:
+      consumes:
+      - application/json
+      description: Receives status updates from Claude hooks and stores them for the
+        workspace
+      parameters:
+      - description: Workspace directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      - description: Status update data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.StatusUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update session status
       tags:
       - sessions
   /v1/upload:

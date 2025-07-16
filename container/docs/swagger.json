@@ -847,6 +847,83 @@
                 }
             }
         },
+        "/v1/sessions/workspace/{workspace}/status": {
+            "get": {
+                "description": "Returns status history for a workspace with optional count parameter",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Get session status history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace directory path",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of recent statuses to return (default: all)",
+                        "name": "count",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.StatusHistoryResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Receives status updates from Claude hooks and stores them for the workspace",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sessions"
+                ],
+                "summary": "Update session status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Workspace directory path",
+                        "name": "workspace",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Status update data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.StatusUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/upload": {
             "post": {
                 "description": "Upload a file to /tmp/uploads directory with automatic conflict resolution",
@@ -1620,6 +1697,71 @@
             "type": "object",
             "additionalProperties": {
                 "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
+            }
+        },
+        "internal_handlers.StatusEntry": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "description": "Git branch at the time of status update",
+                    "type": "string"
+                },
+                "raw_input": {
+                    "description": "Raw input data as received",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "description": "Timestamp when the status was received",
+                    "type": "string"
+                },
+                "tool_input": {
+                    "description": "Tool input data from Claude",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "workspace": {
+                    "description": "Workspace name",
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.StatusHistoryResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "statuses": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handlers.StatusEntry"
+                    }
+                },
+                "workspace": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.StatusUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "tool_input": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "workspace": {
+                    "type": "string"
+                }
             }
         },
         "internal_handlers.UploadResponse": {

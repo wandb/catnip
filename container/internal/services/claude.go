@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -68,64 +69,74 @@ func readJSONLines(filePath string, handler func([]byte) error) error {
 }
 
 func WriteClaudeSettingsFile(homeDir string) error {
+	log.Printf("Starting Claude settings setup for home directory: %s", homeDir)
+
 	claudeDir := filepath.Join(homeDir, ".claude")
 	settingsFile := filepath.Join(claudeDir, "settings.json")
 
 	// Create .claude directory if it doesn't exist
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		log.Printf("Error creating .claude directory: %v", err)
 		return fmt.Errorf("failed to create .claude directory: %w", err)
 	}
+	log.Printf("Created .claude directory: %s", claudeDir)
 
 	// Create hooks directory
-	catnipRoot := os.Getenv("CATNIP_ROOT")
-	if catnipRoot == "" {
-		catnipRoot = "/opt/catnip"
-	}
-	hooksDir := filepath.Join(catnipRoot, "hooks")
+	hooksDir := filepath.Join(homeDir, ".claude", "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
+		log.Printf("Error creating hooks directory: %v", err)
 		return fmt.Errorf("failed to create hooks directory: %w", err)
 	}
+	log.Printf("Created hooks directory: %s", hooksDir)
 
 	// Write todo-handler.sh script
 	todoHandlerScript := `#!/bin/bash
-# Todo Handler Script for Claude Code integration
-# Processes todo-related tool input from Claude
 
-# Read input from stdin (passed via $CATNIP_TOOL_INPUT)
-input=$(cat)
+# status-handler.sh - Simple hook to send Claude tool usage to status endpoint
+# Called before every tool use
 
-# Log the input for debugging
-echo "$(date): Todo handler received input: $input" >> /tmp/catnip-todo-handler.log
+# Read the input from stdin
+INPUT_DATA=$(cat)
 
-# Parse and process todo items
-# This is a basic implementation - can be extended as needed
-if echo "$input" | grep -q "todo_write"; then
-    echo "Processing todo_write command..."
-    # Extract todo data and handle accordingly
-    # For now, just log it
-    echo "$(date): Todo write command processed" >> /tmp/catnip-todo-handler.log
-fi
+# Get current workspace info
+WORKSPACE=$(pwd)
+WORKSPACE_NAME=$(basename "$WORKSPACE")
+CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "unknown")
 
-# Return success
+# Send to status endpoint
+curl -s -X POST "http://localhost:8080/v1/sessions/workspace/${WORKSPACE_NAME}/status" \
+    -H "Content-Type: application/json" \
+    -d "{
+        \"branch\": \"$CURRENT_BRANCH\",
+        \"workspace\": \"$WORKSPACE_NAME\",
+        \"tool_input\": $(echo "$INPUT_DATA" | jq -R .),
+        \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+    }" > /dev/null 2>&1
+
+# Log for debugging
+echo "$(date): Sent tool input to status endpoint for workspace: $WORKSPACE_NAME" >> ~/.claude/todo-handler.log
+
 exit 0
 `
 
-	todoHandlerPath := filepath.Join(hooksDir, "todo-handler.sh")
+	todoHandlerPath := filepath.Join(hooksDir, "status-handler.sh")
 	if err := os.WriteFile(todoHandlerPath, []byte(todoHandlerScript), 0755); err != nil {
-		return fmt.Errorf("failed to write todo-handler.sh: %w", err)
+		log.Printf("Error writing status-handler.sh script: %v", err)
+		return fmt.Errorf("failed to write status-handler.sh: %w", err)
 	}
+	log.Printf("Created status-handler.sh script: %s", todoHandlerPath)
 
 	// Default settings structure
 	defaultSettings := map[string]interface{}{
 		"hooks": map[string]interface{}{
-			"SubagentStop": []interface{}{
+			"PreToolUse": []interface{}{
 				map[string]interface{}{
-					"matcher": "",
+					"matcher": "Write|Edit|MultiEdit",
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type": "command",
-							// "command": "echo '$CATNIP_TOOL_INPUT' | ${CATNIP_ROOT:-/opt/catnip}/hooks/todo-handler.sh",
-							"command": "sed 's/^/[PRETOOL] /' >> ~/.claude/hooks.log",
+							// "command": "echo '$CATNIP_TOOL_INPUT' | ${CATNIP_ROOT:hooksDir}/hooks/status-handler.sh",
+							"command": fmt.Sprintf("sed 's/^/[PRETOOL] /' >> %s/.claude/hooks.log", homeDir),
 						},
 					},
 				},
@@ -136,14 +147,17 @@ exit 0
 	// Marshal settings to JSON
 	jsonData, err := json.MarshalIndent(defaultSettings, "", "  ")
 	if err != nil {
+		log.Printf("Error marshaling settings to JSON: %v", err)
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
 	// Write settings file
 	if err := os.WriteFile(settingsFile, jsonData, 0644); err != nil {
+		log.Printf("Error writing settings file: %v", err)
 		return fmt.Errorf("failed to write settings file: %w", err)
 	}
 
+	log.Printf("Claude settings file written to %s", settingsFile)
 	return nil
 }
 
@@ -151,6 +165,7 @@ exit 0
 func NewClaudeService() *ClaudeService {
 	// Use catnip user's home directory explicitly
 	homeDir := "/home/catnip"
+	WriteClaudeSettingsFile(homeDir)
 	return &ClaudeService{
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
