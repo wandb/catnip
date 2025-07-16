@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -67,10 +68,65 @@ func readJSONLines(filePath string, handler func([]byte) error) error {
 	return nil
 }
 
+func WriteClaudeSettingsFile(homeDir string) error {
+	log.Printf("✏️ Writing Claude settings for home directory: %s", homeDir)
+
+	claudeDir := filepath.Join(homeDir, ".claude")
+	settingsFile := filepath.Join(claudeDir, "settings.json")
+
+	// Create .claude directory if it doesn't exist
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .claude directory: %w", err)
+	}
+
+	// Git commit hook command that reads tool call data and creates meaningful commit messages
+	gitCommitCommand := `git add . && if git diff --cached --quiet; then 
+		echo 'No changes to commit'
+	else 
+		TOOL_DATA=$(cat)
+		TOOL_NAME=$(echo "$TOOL_DATA" | jq -r '.inputs.tool_name // .tool_name // "tool"')
+		FILES=$(echo "$TOOL_DATA" | jq -r '.inputs.target_file // .inputs.file_path // .inputs.target_notebook // empty' | head -3 | paste -sd ',' -)
+		git commit -m "checkpoint: ${TOOL_NAME}${FILES:+ on $FILES} - $(date +'%H:%M')"
+	fi`
+
+	// Default settings structure
+	defaultSettings := map[string]interface{}{
+		"hooks": map[string]interface{}{
+			"PostToolUse": []interface{}{
+				map[string]interface{}{
+					// "matcher": "Write|Edit|MultiEdit|Task",
+					// git checkpoint after every tool use
+					"matcher": "",
+					"hooks": []interface{}{
+						map[string]interface{}{
+							"type":    "command",
+							"command": gitCommitCommand,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Marshal settings to JSON
+	jsonData, err := json.MarshalIndent(defaultSettings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	// Write settings file
+	if err := os.WriteFile(settingsFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("failed to write settings file: %w", err)
+	}
+
+	return nil
+}
+
 // NewClaudeService creates a new Claude service
 func NewClaudeService() *ClaudeService {
 	// Use catnip user's home directory explicitly
 	homeDir := "/home/catnip"
+	WriteClaudeSettingsFile(homeDir)
 	return &ClaudeService{
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
