@@ -1,0 +1,10 @@
+542e21b checkpoint: Write - 15:48
+dcfabe7 checkpoint: Write - 15:48
+16ad221 Merge branch 'main' into griffin/hooks
+295793a manualhook
+de4aca8 Merge pull request #21 from wandb/feature/shell
+754bd6a Add golangci-lint ignore comments for remaining style warnings
+26183f2 Fix lint errors in TUI code
+997ead9 Revert altscreen toggling - always stay in altscreen mode
+9dbb349 Fix altscreen transitions between all views
+a15a09e Exit altscreen mode when entering shell view
