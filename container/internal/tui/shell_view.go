@@ -107,6 +107,21 @@ func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 				if err := session.Client.Resize(width, height); err != nil {
 					debugLog("Failed to send initial PTY size: %v", err)
 				}
+				
+				// Disable mouse reporting in the terminal to prevent scroll events
+				// from being interpreted as arrow keys
+				// These are the ANSI escape sequences to disable various mouse modes
+				disableMouseCmds := []string{
+					"\x1b[?1000l", // Disable X10 mouse reporting
+					"\x1b[?1002l", // Disable cell motion mouse tracking
+					"\x1b[?1003l", // Disable all motion mouse tracking
+					"\x1b[?1006l", // Disable SGR mouse mode
+				}
+				for _, cmd := range disableMouseCmds {
+					if err := session.Client.Send([]byte(cmd)); err != nil {
+						debugLog("Failed to disable mouse mode: %v", err)
+					}
+				}
 			}
 		}()
 		
