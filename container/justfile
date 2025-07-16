@@ -70,12 +70,12 @@ format-go:
 format-go-changed:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Get changed and untracked Go files
-    files=$({ git diff --name-only; git ls-files --others --exclude-standard; } | grep -E '\.go$' || true)
+    # Get changed and untracked Go files (from repo root, filter for container/)
+    files=$({ git diff --name-only; git ls-files --others --exclude-standard; } | grep -E '^container/.*\.go$' | sed 's|^container/||' || true)
     if [ -n "$files" ]; then
         echo "$files" | xargs gofmt -w -s
     else
-        echo "No changed Go files to format"
+        echo "No changed Go files to format in container/"
     fi
 
 # Lint code
