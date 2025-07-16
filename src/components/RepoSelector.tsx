@@ -19,14 +19,14 @@ import {
   ChevronsUpDown,
   RefreshCw,
 } from "lucide-react";
-import type { Repository } from "@/lib/git-api";
+import type { LocalRepository, Repository } from "@/lib/git-api";
 
 
 interface RepoSelectorProps {
   value: string;
   onValueChange: (value: string) => void;
   repositories: Repository[];
-  currentRepositories: Record<string, Repository>;
+  currentRepositories: Record<string, LocalRepository>;
   loading: boolean;
   placeholder?: string;
 }
@@ -107,7 +107,7 @@ export function RepoSelector({
               <CommandGroup heading="Your GitHub Repositories">
                 {repositories.map((repo) => (
                   <CommandItem
-                    key={repo.id}
+                    key={repo.name}
                     value={repo.url}
                     onSelect={handleSelect}
                   >
@@ -119,8 +119,13 @@ export function RepoSelector({
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">
-                          {repo.id}
+                          {repo.fullName ?? repo.name}
                         </span>
+                        {repo.private && (
+                          <Badge variant="secondary" className="text-xs">
+                            Private
+                          </Badge>
+                        )}
                       </div>
                       {repo.description ? (
                         <div className="text-sm text-muted-foreground">

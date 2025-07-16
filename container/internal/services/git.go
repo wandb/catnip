@@ -49,6 +49,11 @@ type GitService struct {
 
 // Helper functions for standardized command execution
 
+// Repository type detection helpers
+func (s *GitService) isLocalRepo(repoID string) bool {
+	return strings.HasPrefix(repoID, "local/")
+}
+
 // execCommand executes any command with standard environment
 func (s *GitService) execCommand(command string, args ...string) *exec.Cmd {
 	cmd := exec.Command(command, args...)
@@ -84,13 +89,159 @@ func (s *GitService) runGitCommand(workingDir string, args ...string) ([]byte, e
 	return cmd.CombinedOutput()
 }
 
+// RemoteURLManager handles remote URL operations with conversion and restoration
+type RemoteURLManager struct {
+	service      *GitService
+	worktreePath string
+	remoteName   string
+	originalURL  string
+	wasChanged   bool
+}
+
+// NewRemoteURLManager creates a new remote URL manager
+func (s *GitService) NewRemoteURLManager(worktreePath, remoteName string) *RemoteURLManager {
+	if remoteName == "" {
+		remoteName = "origin"
+	}
+	return &RemoteURLManager{
+		service:      s,
+		worktreePath: worktreePath,
+		remoteName:   remoteName,
+	}
+}
+
+// SetupRemoteURL sets up or updates the remote URL, optionally converting SSH to HTTPS
+func (m *RemoteURLManager) SetupRemoteURL(targetURL string, convertHTTPS bool) error {
+	// Store original URL for restoration
+	originalURL, err := m.service.getRemoteURL(m.worktreePath)
+	if err != nil {
+		m.originalURL = ""
+	} else {
+		m.originalURL = originalURL
+	}
+
+	// Convert SSH to HTTPS if requested
+	if convertHTTPS {
+		targetURL = m.convertSSHToHTTPS(targetURL)
+	}
+
+	// Check if URL needs to be changed
+	if m.originalURL != targetURL {
+		if err := m.service.setupRemoteOrigin(m.worktreePath, targetURL); err != nil {
+			return fmt.Errorf("failed to setup remote: %v", err)
+		}
+		m.wasChanged = true
+	}
+
+	return nil
+}
+
+// RestoreOriginalURL restores the original remote URL if it was changed
+func (m *RemoteURLManager) RestoreOriginalURL() error {
+	if m.wasChanged && m.originalURL != "" {
+		if err := m.service.execGitCommand(m.worktreePath, "remote", "set-url", m.remoteName, m.originalURL).Run(); err != nil {
+			log.Printf("⚠️ Failed to restore original remote URL %s: %v", m.originalURL, err)
+			return err
+		}
+		log.Printf("✅ Restored original remote URL: %s", m.originalURL)
+		m.wasChanged = false
+	}
+	return nil
+}
+
 // convertSSHToHTTPS converts SSH GitHub URLs to HTTPS
+func (m *RemoteURLManager) convertSSHToHTTPS(url string) string {
+	if strings.HasPrefix(url, "git@github.com:") {
+		path := strings.TrimPrefix(url, "git@github.com:")
+		return "https://github.com/" + path
+	}
+	return url
+}
+
+// convertSSHToHTTPS converts SSH GitHub URLs to HTTPS (legacy method for backward compatibility)
 func (s *GitService) convertSSHToHTTPS(url string) string {
 	if strings.HasPrefix(url, "git@github.com:") {
 		path := strings.TrimPrefix(url, "git@github.com:")
 		return "https://github.com/" + path
 	}
 	return url
+}
+
+// PushStrategy defines the strategy for pushing branches
+type PushStrategy struct {
+	Branch       string // Branch to push (defaults to worktree.Branch)
+	Remote       string // Remote name (defaults to "origin")
+	RemoteURL    string // Remote URL (optional, for local repos)
+	SyncOnFail   bool   // Whether to sync with upstream on push failure
+	SetUpstream  bool   // Whether to set upstream (-u flag)
+	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS
+}
+
+// pushBranch unified push method with strategy pattern
+func (s *GitService) pushBranch(worktree *models.Worktree, repo *models.Repository, strategy PushStrategy) error {
+	// Set defaults
+	if strategy.Branch == "" {
+		strategy.Branch = worktree.Branch
+	}
+	if strategy.Remote == "" {
+		strategy.Remote = "origin"
+	}
+
+	// Create URL manager for this operation
+	urlManager := s.NewRemoteURLManager(worktree.Path, strategy.Remote)
+
+	// Handle remote URL setup
+	if strategy.RemoteURL != "" {
+		// For local repos with specific remote URL
+		if err := urlManager.SetupRemoteURL(strategy.RemoteURL, strategy.ConvertHTTPS); err != nil {
+			return err
+		}
+	} else if strategy.ConvertHTTPS {
+		// For remote repos, temporarily convert existing URL
+		originalURL, err := s.getRemoteURL(worktree.Path)
+		if err != nil {
+			return fmt.Errorf("failed to get remote URL: %v", err)
+		}
+		if err := urlManager.SetupRemoteURL(originalURL, true); err != nil {
+			return err
+		}
+	}
+
+	// Ensure URL is restored on function exit
+	defer urlManager.RestoreOriginalURL()
+
+	// Build push command
+	args := []string{"push"}
+	if strategy.SetUpstream {
+		args = append(args, "-u")
+	}
+	args = append(args, strategy.Remote, strategy.Branch)
+
+	// Execute push
+	output, err := s.runGitCommand(worktree.Path, args...)
+	pushErr := err
+
+	// Handle push failure with sync retry
+	if pushErr != nil && strategy.SyncOnFail && s.isPushRejectedDueToUpstream(pushErr) {
+		log.Printf("🔄 Push rejected due to upstream changes, syncing and retrying")
+
+		// Sync with upstream
+		if err := s.syncBranchWithUpstream(worktree); err != nil {
+			return fmt.Errorf("failed to sync with upstream: %v", err)
+		}
+
+		// Retry the push (without sync this time to avoid infinite loop)
+		retryStrategy := strategy
+		retryStrategy.SyncOnFail = false
+		return s.pushBranch(worktree, repo, retryStrategy)
+	}
+
+	if pushErr != nil {
+		return fmt.Errorf("failed to push branch %s to %s: %v\n%s", strategy.Branch, strategy.Remote, pushErr, output)
+	}
+
+	log.Printf("✅ Pushed branch %s to %s", strategy.Branch, strategy.Remote)
+	return nil
 }
 
 // parseGitHubURL parses a GitHub URL and returns owner/repo
@@ -109,11 +260,29 @@ func (s *GitService) parseGitHubURL(url string) (string, error) {
 	return "", fmt.Errorf("URL does not appear to be a GitHub repository")
 }
 
-// branchExists checks if a branch exists in a repository
+// BranchExistsOptions configures branch existence checking
+type BranchExistsOptions struct {
+	IsRemote   bool
+	RemoteName string // defaults to "origin"
+}
+
+// branchExists checks if a branch exists in a repository with configurable options
 func (s *GitService) branchExists(repoPath, branch string, isRemote bool) bool {
+	return s.branchExistsWithOptions(repoPath, branch, BranchExistsOptions{
+		IsRemote:   isRemote,
+		RemoteName: "origin",
+	})
+}
+
+// branchExistsWithOptions checks if a branch exists in a repository with full options
+func (s *GitService) branchExistsWithOptions(repoPath, branch string, opts BranchExistsOptions) bool {
 	var ref string
-	if isRemote {
-		ref = fmt.Sprintf("refs/remotes/origin/%s", branch)
+	if opts.IsRemote {
+		remoteName := opts.RemoteName
+		if remoteName == "" {
+			remoteName = "origin"
+		}
+		ref = fmt.Sprintf("refs/remotes/%s/%s", remoteName, branch)
 	} else {
 		ref = fmt.Sprintf("refs/heads/%s", branch)
 	}
@@ -167,25 +336,70 @@ func (s *GitService) getDefaultBranch(repoPath string) (string, error) {
 	return "main", nil
 }
 
-// fetchBranch fetches a branch from remote
-func (s *GitService) fetchBranch(repoPath, branch string, isLocal bool) error {
-	if isLocal {
-		// For local repos, this is handled differently
+// FetchStrategy defines the strategy for fetching branches
+type FetchStrategy struct {
+	Branch         string // Branch to fetch
+	Remote         string // Remote name or path
+	RemoteName     string // Remote name for refs (defaults to remote name)
+	IsLocalRepo    bool   // Whether this is a local repo fetch
+	Depth          int    // Fetch depth (0 = no depth limit)
+	UpdateLocalRef bool   // Whether to update local refs after fetch
+	RefSpec        string // Custom refspec (optional)
+}
+
+// fetchBranch unified fetch method with strategy pattern
+func (s *GitService) fetchBranch(repoPath string, strategy FetchStrategy) error {
+	// Set defaults
+	if strategy.Remote == "" {
+		strategy.Remote = "origin"
+	}
+	if strategy.RemoteName == "" {
+		strategy.RemoteName = strategy.Remote
+	}
+
+	// Skip fetch for local repos if no remote specified
+	if strategy.IsLocalRepo && strategy.Remote == "origin" {
 		return nil
 	}
 
-	// Fetch remote branch
-	_, err := s.runGitCommand(repoPath, "fetch", "origin",
-		fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch), "--depth", "1")
-	if err != nil {
-		return fmt.Errorf("failed to fetch branch: %v", err)
+	// Build fetch command
+	args := []string{"fetch"}
+
+	// Add remote
+	args = append(args, strategy.Remote)
+
+	// Add refspec
+	if strategy.RefSpec != "" {
+		args = append(args, strategy.RefSpec)
+	} else if strategy.Branch != "" {
+		if strategy.IsLocalRepo {
+			// For local repos, use custom refspec format
+			args = append(args, fmt.Sprintf("%s:refs/remotes/%s/%s", strategy.Branch, strategy.RemoteName, strategy.Branch))
+		} else {
+			// For remote repos, use standard refspec
+			args = append(args, fmt.Sprintf("+refs/heads/%s:refs/remotes/%s/%s", strategy.Branch, strategy.RemoteName, strategy.Branch))
+		}
 	}
 
-	// Update local branch ref
-	_, err = s.runGitCommand(repoPath, "update-ref",
-		fmt.Sprintf("refs/heads/%s", branch), fmt.Sprintf("refs/remotes/origin/%s", branch))
+	// Add depth if specified
+	if strategy.Depth > 0 {
+		args = append(args, "--depth", fmt.Sprintf("%d", strategy.Depth))
+	}
+
+	// Execute fetch
+	output, err := s.runGitCommand(repoPath, args...)
 	if err != nil {
-		log.Printf("⚠️ Could not update local branch ref: %v", err)
+		return fmt.Errorf("failed to fetch branch: %v\n%s", err, output)
+	}
+
+	// Update local branch ref if requested
+	if strategy.UpdateLocalRef && strategy.Branch != "" && !strategy.IsLocalRepo {
+		_, err = s.runGitCommand(repoPath, "update-ref",
+			fmt.Sprintf("refs/heads/%s", strategy.Branch),
+			fmt.Sprintf("refs/remotes/%s/%s", strategy.RemoteName, strategy.Branch))
+		if err != nil {
+			log.Printf("⚠️ Could not update local branch ref: %v", err)
+		}
 	}
 
 	return nil
@@ -231,7 +445,7 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 	repoID := fmt.Sprintf("%s/%s", org, repo)
 
 	// Handle local repo specially
-	if strings.HasPrefix(repoID, "local/") {
+	if s.isLocalRepo(repoID) {
 		return s.handleLocalRepoWorktree(repoID, branch)
 	}
 
@@ -306,7 +520,11 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 	// Check if the requested branch exists in the bare repo
 	if !s.branchExists(barePath, branch, true) {
 		log.Printf("🔄 Branch %s not found, fetching from remote", branch)
-		if err := s.fetchBranch(barePath, branch, false); err != nil {
+		if err := s.fetchBranch(barePath, FetchStrategy{
+			Branch:         branch,
+			Depth:          1,
+			UpdateLocalRef: true,
+		}); err != nil {
 			return nil, nil, fmt.Errorf("failed to fetch branch %s: %v", branch, err)
 		}
 	}
@@ -525,7 +743,7 @@ func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) 
 	// Add all local repositories
 	s.mu.RLock()
 	for repoID := range s.repositories {
-		if strings.HasPrefix(repoID, "local/") {
+		if s.isLocalRepo(repoID) {
 			// Extract the directory name from the repo ID
 			dirName := strings.TrimPrefix(repoID, "local/")
 			repos = append(repos, map[string]interface{}{
@@ -663,7 +881,7 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 	}
 
 	// Check if branch exists in the local repo
-	if !s.localRepoBranchExists(localRepo.Path, branch) {
+	if !s.branchExists(localRepo.Path, branch, false) {
 		return nil, nil, fmt.Errorf("branch %s does not exist in repository %s", branch, repoID)
 	}
 
@@ -681,12 +899,6 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 
 	log.Printf("✅ Local repo worktree created: %s from branch %s", worktree.Name, worktree.SourceBranch)
 	return localRepo, worktree, nil
-}
-
-// localRepoBranchExists checks if a branch exists in a local repo
-func (s *GitService) localRepoBranchExists(repoPath, branch string) bool {
-	cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", branch))
-	return cmd.Run() == nil
 }
 
 // createLocalRepoWorktree creates a worktree for any local repo
@@ -798,7 +1010,7 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	}
 
 	// Handle local repos specially
-	if strings.HasPrefix(repoID, "local/") {
+	if s.isLocalRepo(repoID) {
 		return s.getLocalRepoBranches(repo.Path)
 	}
 
@@ -947,7 +1159,7 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 
 	// Determine source reference based on repo type
 	var sourceRef string
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	if s.isLocalRepo(worktree.RepoID) {
 		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
 	} else {
 		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
@@ -966,17 +1178,23 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 
 // fetchLatestReference fetches the latest reference for a worktree
 func (s *GitService) fetchLatestReference(worktree *models.Worktree) {
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	if s.isLocalRepo(worktree.RepoID) {
 		// Get the local repo path
 		repo, exists := s.repositories[worktree.RepoID]
 		if exists {
 			// Fetch latest from local main repo
-			_ = s.execGitCommand(worktree.Path, "fetch", repo.Path,
-				fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch)).Run()
+			_ = s.fetchBranch(worktree.Path, FetchStrategy{
+				Branch:      worktree.SourceBranch,
+				Remote:      repo.Path,
+				RemoteName:  "live",
+				IsLocalRepo: true,
+			})
 		}
 	} else {
 		// Fetch latest from origin for regular repos
-		_ = s.execGitCommand(worktree.Path, "fetch", "origin", worktree.SourceBranch).Run()
+		_ = s.fetchBranch(worktree.Path, FetchStrategy{
+			Branch: worktree.SourceBranch,
+		})
 	}
 }
 
@@ -1015,8 +1233,7 @@ func (s *GitService) SyncWorktree(worktreeID string, strategy string) error {
 // syncWorktreeInternal consolidated sync logic for both local and regular repos
 func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy string) error {
 	// Determine sync parameters based on repo type
-	isLocal := strings.HasPrefix(worktree.RepoID, "local/")
-	var fetchCmd *exec.Cmd
+	isLocal := s.isLocalRepo(worktree.RepoID)
 	var sourceRef string
 
 	if isLocal {
@@ -1029,22 +1246,23 @@ func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy st
 		log.Printf("🔄 Syncing local worktree %s from local main repo", worktree.Name)
 
 		// Fetch from the local main repo
-		fetchCmd = s.execGitCommand(worktree.Path, "fetch", repo.Path,
-			fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
+		if err := s.fetchBranch(worktree.Path, FetchStrategy{
+			Branch:      worktree.SourceBranch,
+			Remote:      repo.Path,
+			RemoteName:  "live",
+			IsLocalRepo: true,
+		}); err != nil {
+			return fmt.Errorf("failed to fetch from main repo: %v", err)
+		}
 		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
 	} else {
 		// Fetch from origin
-		fetchCmd = s.execGitCommand(worktree.Path, "fetch", "origin", worktree.SourceBranch)
-		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
-	}
-
-	// Execute fetch
-	if output, err := fetchCmd.CombinedOutput(); err != nil {
-		fetchType := "origin"
-		if isLocal {
-			fetchType = "main repo"
+		if err := s.fetchBranch(worktree.Path, FetchStrategy{
+			Branch: worktree.SourceBranch,
+		}); err != nil {
+			return fmt.Errorf("failed to fetch from origin: %v", err)
 		}
-		return fmt.Errorf("failed to fetch from %s: %v\n%s", fetchType, err, output)
+		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
 	}
 
 	// Apply the sync strategy
@@ -1095,7 +1313,7 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 	}
 
 	// Only works for local repos
-	if !strings.HasPrefix(worktree.RepoID, "local/") {
+	if !s.isLocalRepo(worktree.RepoID) {
 		return fmt.Errorf("merge to main only supported for local repositories")
 	}
 
@@ -1180,7 +1398,7 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 	}
 
 	// Only works for local repos
-	if !strings.HasPrefix(worktree.RepoID, "local/") {
+	if !s.isLocalRepo(worktree.RepoID) {
 		return fmt.Errorf("preview only supported for local repositories")
 	}
 
@@ -1419,11 +1637,10 @@ func (s *GitService) CheckSyncConflicts(worktreeID string) (*models.MergeConflic
 
 // checkConflictsInternal consolidated conflict checking logic
 func (s *GitService) checkConflictsInternal(worktree *models.Worktree, operation string) (*models.MergeConflictError, error) {
-	// Determine source reference and fetch command based on repo type
+	// Determine source reference based on repo type and fetch latest changes
 	var sourceRef string
-	var fetchCmd *exec.Cmd
 
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	if s.isLocalRepo(worktree.RepoID) {
 		// Get the local repo path
 		repo, exists := s.repositories[worktree.RepoID]
 		if !exists {
@@ -1431,17 +1648,23 @@ func (s *GitService) checkConflictsInternal(worktree *models.Worktree, operation
 		}
 
 		// Fetch from the local main repo to ensure we have latest changes
-		fetchCmd = s.execGitCommand(worktree.Path, "fetch", repo.Path,
-			fmt.Sprintf("%s:refs/remotes/live/%s", worktree.SourceBranch, worktree.SourceBranch))
+		if err := s.fetchBranch(worktree.Path, FetchStrategy{
+			Branch:      worktree.SourceBranch,
+			Remote:      repo.Path,
+			RemoteName:  "live",
+			IsLocalRepo: true,
+		}); err != nil {
+			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
+		}
 		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
 	} else {
 		// Fetch from origin to ensure we have latest changes
-		fetchCmd = s.execGitCommand(worktree.Path, "fetch", "origin", worktree.SourceBranch)
+		if err := s.fetchBranch(worktree.Path, FetchStrategy{
+			Branch: worktree.SourceBranch,
+		}); err != nil {
+			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
+		}
 		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
-	}
-
-	if err := fetchCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
 	}
 
 	// Try a dry-run merge to detect conflicts
@@ -1486,7 +1709,7 @@ func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConfli
 	}
 
 	// Only works for local repos
-	if !strings.HasPrefix(worktree.RepoID, "local/") {
+	if !s.isLocalRepo(worktree.RepoID) {
 		return nil, fmt.Errorf("merge conflict check only supported for local repositories")
 	}
 
@@ -1594,14 +1817,18 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 	}
 
 	// Handle local repos specially (they don't have a bare repo)
-	if strings.HasPrefix(repo.ID, "local/") {
+	if s.isLocalRepo(repo.ID) {
 		return s.handleLocalRepoWorktree(repo.ID, branch)
 	}
 
 	// Check if the requested branch exists in the bare repo
 	if !s.branchExists(repo.Path, branch, true) {
 		log.Printf("🔄 Branch %s not found, fetching from remote", branch)
-		if err := s.fetchBranch(repo.Path, branch, false); err != nil {
+		if err := s.fetchBranch(repo.Path, FetchStrategy{
+			Branch:         branch,
+			Depth:          1,
+			UpdateLocalRef: true,
+		}); err != nil {
 			return nil, nil, fmt.Errorf("failed to fetch branch %s: %v", branch, err)
 		}
 	}
@@ -2071,7 +2298,7 @@ func (s *GitService) createPullRequestInternal(worktree *models.Worktree, repo *
 
 // getRepoInfo gets the owner/repo and push target for a repository
 func (s *GitService) getRepoInfo(worktree *models.Worktree, repo *models.Repository) (string, string, error) {
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	if s.isLocalRepo(worktree.RepoID) {
 		// Get the remote URL
 		remoteURL, err := s.getRemoteURL(worktree.Path)
 		if err != nil {
@@ -2109,7 +2336,7 @@ func (s *GitService) getRepoInfo(worktree *models.Worktree, repo *models.Reposit
 // ensureBaseBranchOnRemote checks if the base branch exists on remote and pushes it if needed
 func (s *GitService) ensureBaseBranchOnRemote(worktree *models.Worktree, repo *models.Repository) error {
 	// For local repositories, check if base branch exists on remote
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	if s.isLocalRepo(worktree.RepoID) {
 		// Get the remote URL
 		remoteURL, err := s.getRemoteURL(worktree.Path)
 		if err != nil {
@@ -2160,54 +2387,20 @@ func (s *GitService) checkBaseBranchOnRemote(worktree *models.Worktree, remoteUR
 
 // pushBaseBranchToRemote pushes the base branch to the remote repository
 func (s *GitService) pushBaseBranchToRemote(worktree *models.Worktree, repo *models.Repository, remoteURL string) error {
-	// Convert SSH URL to HTTPS if needed
-	httpsURL := s.convertSSHToHTTPS(remoteURL)
-
-	// Check if we need to update the remote URL temporarily
-	originalURL, err := s.getRemoteURL(worktree.Path)
-	urlWasChanged := false
-
-	if err == nil && httpsURL != originalURL {
-		// Temporarily set the remote URL to HTTPS
-		cmd := s.execGitCommand(worktree.Path, "remote", "set-url", "origin", httpsURL)
-
-		if err := cmd.Run(); err == nil {
-			urlWasChanged = true
-		}
+	strategy := PushStrategy{
+		Branch:       worktree.SourceBranch,
+		RemoteURL:    remoteURL,
+		ConvertHTTPS: true,
 	}
 
-	// Push the base branch to remote
-	cmd := s.execGitCommand(worktree.Path, "push", "origin", worktree.SourceBranch)
-
-	output, err := cmd.CombinedOutput()
-	pushErr := err
-
-	// Restore the original URL if we changed it
-	if urlWasChanged {
-		restoreCmd := s.execGitCommand(worktree.Path, "remote", "set-url", "origin", originalURL)
-		if err := restoreCmd.Run(); err != nil {
-			log.Printf("⚠️ Failed to restore original remote URL: %v", err)
-		}
-	}
-
-	if pushErr != nil {
-		return fmt.Errorf("failed to push base branch to remote: %v\n%s", pushErr, output)
-	}
-
-	log.Printf("✅ Pushed base branch %s to remote", worktree.SourceBranch)
-	return nil
+	return s.pushBranch(worktree, repo, strategy)
 }
 
 // fetchBaseBranchFromOrigin fetches the latest base branch from origin
 func (s *GitService) fetchBaseBranchFromOrigin(worktree *models.Worktree) error {
-	cmd := s.execGitCommand(worktree.Path, "fetch", "origin", worktree.SourceBranch)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to fetch base branch from origin: %v\n%s", err, output)
-	}
-
-	return nil
+	return s.fetchBranch(worktree.Path, FetchStrategy{
+		Branch: worktree.SourceBranch,
+	})
 }
 
 // syncBranchWithUpstream syncs the current branch with upstream when push fails due to being behind
@@ -2215,16 +2408,16 @@ func (s *GitService) syncBranchWithUpstream(worktree *models.Worktree) error {
 	log.Printf("🔄 Syncing branch %s with upstream due to push failure", worktree.Branch)
 
 	// First, fetch the latest changes from remote
-	cmd := s.execGitCommand(worktree.Path, "fetch", "origin", worktree.Branch)
-
-	if err := cmd.Run(); err != nil {
+	if err := s.fetchBranch(worktree.Path, FetchStrategy{
+		Branch: worktree.Branch,
+	}); err != nil {
 		// If fetch fails, the branch might not exist on remote yet - that's OK
 		log.Printf("⚠️ Could not fetch remote branch %s (might not exist yet): %v", worktree.Branch, err)
 		return nil
 	}
 
 	// Check if we're behind the remote branch
-	cmd = s.execGitCommand(worktree.Path, "rev-list", "--count", fmt.Sprintf("HEAD..origin/%s", worktree.Branch))
+	cmd := s.execGitCommand(worktree.Path, "rev-list", "--count", fmt.Sprintf("HEAD..origin/%s", worktree.Branch))
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -2258,51 +2451,22 @@ func (s *GitService) syncBranchWithUpstream(worktree *models.Worktree) error {
 
 // pushBranchWithSync pushes a branch to remote, syncing with upstream if needed
 func (s *GitService) pushBranchWithSync(worktree *models.Worktree, repo *models.Repository, remote string) error {
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	strategy := PushStrategy{
+		SetUpstream:  true,
+		SyncOnFail:   true,
+		ConvertHTTPS: true,
+	}
+
+	if s.isLocalRepo(worktree.RepoID) {
 		// For local repos, we need to handle the remote URL
 		remoteURL, err := s.getRemoteURL(worktree.Path)
 		if err != nil {
 			return fmt.Errorf("failed to get remote URL: %v", err)
 		}
-
-		// Use the pushBranchToRemote function which handles URL conversion
-		if err := s.pushBranchToRemote(worktree, repo, remoteURL); err == nil {
-			return nil // Success on first try
-		} else {
-			// Check if the error is due to being behind
-			if s.isPushRejectedDueToUpstream(err) {
-				log.Printf("🔄 Push rejected due to upstream changes, syncing and retrying")
-
-				// Sync with upstream
-				if err := s.syncBranchWithUpstream(worktree); err != nil {
-					return fmt.Errorf("failed to sync with upstream: %v", err)
-				}
-
-				// Retry the push
-				return s.pushBranchToRemote(worktree, repo, remoteURL)
-			}
-			return err
-		}
-	} else {
-		// For remote repos, use the pushBranchToOrigin function
-		if err := s.pushBranchToOrigin(worktree); err == nil {
-			return nil // Success on first try
-		} else {
-			// Check if the error is due to being behind
-			if s.isPushRejectedDueToUpstream(err) {
-				log.Printf("🔄 Push rejected due to upstream changes, syncing and retrying")
-
-				// Sync with upstream
-				if err := s.syncBranchWithUpstream(worktree); err != nil {
-					return fmt.Errorf("failed to sync with upstream: %v", err)
-				}
-
-				// Retry the push
-				return s.pushBranchToOrigin(worktree)
-			}
-			return err
-		}
+		strategy.RemoteURL = remoteURL
 	}
+
+	return s.pushBranch(worktree, repo, strategy)
 }
 
 // isPushRejectedDueToUpstream checks if a push error is due to upstream being more recent
@@ -2477,40 +2641,13 @@ func (s *GitService) inferRemoteURL(repoPath string) (string, error) {
 
 // pushBranchToRemote pushes a worktree branch to the remote repository (for local repos)
 func (s *GitService) pushBranchToRemote(worktree *models.Worktree, repo *models.Repository, remoteURL string) error {
-	// Store the original remote URL for restoration
-	originalURL := remoteURL
-
-	// Convert SSH URL to HTTPS if needed
-	httpsURL := s.convertSSHToHTTPS(remoteURL)
-	needsRestore := httpsURL != remoteURL
-
-	if needsRestore {
-		remoteURL = httpsURL
+	strategy := PushStrategy{
+		RemoteURL:    remoteURL,
+		SetUpstream:  true,
+		ConvertHTTPS: true,
 	}
 
-	// Setup remote
-	if err := s.setupRemoteOrigin(worktree.Path, remoteURL); err != nil {
-		return fmt.Errorf("failed to setup remote: %v", err)
-	}
-
-	// Push the branch to the remote
-	pushErr := s.pushBranchToOriginDirect(worktree)
-
-	// Always restore the original URL if we changed it
-	if needsRestore {
-		if err := s.execGitCommand(worktree.Path, "remote", "set-url", "origin", originalURL).Run(); err != nil {
-			log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
-		} else {
-			log.Printf("✅ Restored original remote URL: %s", originalURL)
-		}
-	}
-
-	if pushErr != nil {
-		return pushErr
-	}
-
-	log.Printf("✅ Pushed branch %s to remote", worktree.Branch)
-	return nil
+	return s.pushBranch(worktree, repo, strategy)
 }
 
 // setupRemoteOrigin sets up or updates the remote origin URL
@@ -2534,57 +2671,12 @@ func (s *GitService) setupRemoteOrigin(worktreePath, remoteURL string) error {
 
 // pushBranchToOrigin pushes a worktree branch to origin (for remote repos)
 func (s *GitService) pushBranchToOrigin(worktree *models.Worktree) error {
-	originalURL, err := s.getRemoteURL(worktree.Path)
-	if err != nil {
-		return fmt.Errorf("failed to get remote URL: %v", err)
+	strategy := PushStrategy{
+		SetUpstream:  true,
+		ConvertHTTPS: true,
 	}
 
-	return s.pushBranchWithURLConversion(worktree, originalURL, true)
-}
-
-// pushBranchToOriginDirect pushes a worktree branch to origin without URL conversion (used by pushBranchToRemote)
-func (s *GitService) pushBranchToOriginDirect(worktree *models.Worktree) error {
-	if _, err := s.runGitCommand(worktree.Path, "push", "-u", "origin", worktree.Branch); err != nil {
-		return fmt.Errorf("failed to push branch %s to origin: %v", worktree.Branch, err)
-	}
-	return nil
-}
-
-// pushBranchWithURLConversion consolidated push logic with URL conversion
-func (s *GitService) pushBranchWithURLConversion(worktree *models.Worktree, originalURL string, shouldRestore bool) error {
-	// Convert SSH URL to HTTPS if needed to use GitHub CLI authentication
-	httpsURL := s.convertSSHToHTTPS(originalURL)
-	urlWasChanged := false
-
-	if httpsURL != originalURL {
-		// Temporarily set the remote URL to HTTPS
-		if err := s.execGitCommand(worktree.Path, "remote", "set-url", "origin", httpsURL).Run(); err != nil {
-			log.Printf("⚠️ Failed to set HTTPS remote URL: %v", err)
-		} else {
-			urlWasChanged = true
-		}
-	}
-
-	// Execute the push
-	output, err := s.runGitCommand(worktree.Path, "push", "-u", "origin", worktree.Branch)
-	pushErr := err
-
-	// Always restore the original URL if we changed it
-	if urlWasChanged && shouldRestore {
-		if err := s.execGitCommand(worktree.Path, "remote", "set-url", "origin", originalURL).Run(); err != nil {
-			log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
-		} else {
-			log.Printf("✅ Restored original remote URL: %s", originalURL)
-		}
-	}
-
-	// Return the push error if there was one
-	if pushErr != nil {
-		return fmt.Errorf("failed to push branch %s to origin: %v\n%s", worktree.Branch, pushErr, output)
-	}
-
-	log.Printf("✅ Pushed branch %s to origin", worktree.Branch)
-	return nil
+	return s.pushBranch(worktree, nil, strategy)
 }
 
 // GetPullRequestInfo gets information about an existing pull request for a worktree
@@ -2618,7 +2710,7 @@ func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestI
 
 	// Check if a PR exists for this branch
 	var ownerRepo string
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	if s.isLocalRepo(worktree.RepoID) {
 		// For local repos, get the remote URL
 		remoteURL, err := s.getRemoteURL(worktree.Path)
 		if err != nil {
@@ -2660,7 +2752,7 @@ func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestI
 func (s *GitService) checkHasCommitsAhead(worktree *models.Worktree) (bool, error) {
 	// Ensure we have the latest base branch reference
 	var baseRef string
-	if strings.HasPrefix(worktree.RepoID, "local/") {
+	if s.isLocalRepo(worktree.RepoID) {
 		// For local repos, use the local base branch reference
 		baseRef = worktree.SourceBranch
 	} else {

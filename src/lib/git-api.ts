@@ -21,14 +21,29 @@ export interface Worktree {
   last_accessed: string;
 }
 
-export interface Repository {
+interface Owner {
   id: string;
+  name: string;
+}
+
+export interface Repository {
   url: string;
-  path: string;
-  default_branch: string;
-  created_at: string;
-  last_accessed: string;
   description?: string;
+  fullName?: string;
+  name?: string;
+  private?: boolean;
+  owner: Owner;
+}
+
+export interface LocalRepository {
+  created_at: string;
+  default_branch: string;
+  description: string;
+  id: string;
+  last_accessed: string;
+  name: string;
+  path: string;
+  url: string;
 }
 
 interface FileDiff {

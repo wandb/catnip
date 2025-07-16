@@ -19,6 +19,7 @@ import {
   GitBranch,
   Copy,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { copyRemoteCommand, showPreviewToast, parseGitUrl } from "@/lib/git-utils";
@@ -205,7 +206,6 @@ function GitPage() {
     });
   }
 
-
   return (
     <div className="container mx-auto px-4 py-6 space-y-6">
       <div className="flex items-center gap-2 mb-6">
@@ -222,6 +222,9 @@ function GitPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {loading ? (<div className="flex justify-center items-center h-full">
+            <Loader2 className="animate-spin" />
+          </div>) : (<>
           {worktrees.length > 0 ? (
             <div className="space-y-2">
               {worktrees.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((worktree) => (
@@ -246,7 +249,7 @@ function GitPage() {
             </div>
           ) : (
             <p className="text-muted-foreground">No worktrees found</p>
-          )}
+          )}</>)}
         </CardContent>
       </Card>
 

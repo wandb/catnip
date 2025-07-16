@@ -69,11 +69,14 @@ export function useGitState() {
   };
 
   const fetchWorktrees = async () => {
+    setState(prev => ({ ...prev, worktreesLoading: true }));
     try {
       const data = await gitApi.fetchWorktrees();
       setState(prev => ({ ...prev, worktrees: data }));
     } catch (error) {
       console.error("Failed to fetch worktrees:", error);
+    } finally {
+      setState(prev => ({ ...prev, worktreesLoading: false }));
     }
   };
 
@@ -90,18 +93,30 @@ export function useGitState() {
   };
 
   const fetchClaudeSessions = async () => {
-    const data = await gitApi.fetchClaudeSessions();
-    setState(prev => ({ ...prev, claudeSessions: data }));
+    try {
+      const data = await gitApi.fetchClaudeSessions();
+      setState(prev => ({ ...prev, claudeSessions: data }));
+    } catch (error) {
+      console.error("Failed to fetch claude sessions:", error);
+    }
   };
 
   const fetchActiveSessions = async () => {
-    const data = await gitApi.fetchActiveSessions();
-    setState(prev => ({ ...prev, activeSessions: data }));
+    try {
+      const data = await gitApi.fetchActiveSessions();
+      setState(prev => ({ ...prev, activeSessions: data }));
+    } catch (error) {
+      console.error("Failed to fetch active sessions:", error);
+    }
   };
 
   const checkConflicts = async () => {
-    const { syncConflicts, mergeConflicts } = await gitApi.checkAllConflicts(state.worktrees);
-    setState(prev => ({ ...prev, syncConflicts, mergeConflicts }));
+    try {
+      const { syncConflicts, mergeConflicts } = await gitApi.checkAllConflicts(state.worktrees);
+      setState(prev => ({ ...prev, syncConflicts, mergeConflicts }));
+    } catch (error) {
+      console.error("Failed to check conflicts:", error);
+    }
   };
 
   const fetchDiffStats = async () => {
@@ -115,12 +130,12 @@ export function useGitState() {
 
   // Fetch PR statuses for all worktrees
   const fetchPrStatuses = async () => {
-    if (state.worktrees.length === 0) {
-      setState(prev => ({ ...prev, prStatuses: {} }));
-      return;
-    }
-
     try {
+      if (state.worktrees.length === 0) {
+        setState(prev => ({ ...prev, prStatuses: {} }));
+        return;
+      }
+
       const prPromises = state.worktrees.map(async (worktree) => {
         const prInfo = await gitApi.getPullRequestInfo(worktree.id);
         return { worktreeId: worktree.id, prInfo };
@@ -282,6 +297,9 @@ export function useGitState() {
     setState(prev => ({ ...prev, loading }));
   };
 
+  // Compute overall loading state
+  const computedLoading = state.loading || state.worktreesLoading;
+
   // Initial fetch
   useEffect(() => {
     void fetchGitStatus();
@@ -309,6 +327,7 @@ export function useGitState() {
 
   return {
     ...state,
+    loading: computedLoading,
     fetchGitStatus,
     fetchWorktrees,
     fetchRepositories,
