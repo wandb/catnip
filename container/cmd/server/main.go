@@ -133,6 +133,8 @@ func main() {
 	v1.Get("/git/worktrees/:id/diff", gitHandler.GetWorktreeDiff)
 	v1.Post("/git/worktrees/:id/preview", gitHandler.CreateWorktreePreview)
 	v1.Post("/git/worktrees/:id/pr", gitHandler.CreatePullRequest)
+	v1.Put("/git/worktrees/:id/pr", gitHandler.UpdatePullRequest)
+	v1.Get("/git/worktrees/:id/pr", gitHandler.GetPullRequestInfo)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
 

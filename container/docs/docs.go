@@ -479,6 +479,72 @@ const docTemplate = `{
             }
         },
         "/v1/git/worktrees/{id}/pr": {
+            "get": {
+                "description": "Gets information about an existing pull request for a worktree branch",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Get pull request info",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Updates an existing pull request for a worktree branch",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Update pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pull request details",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
+                        }
+                    }
+                }
+            },
             "post": {
                 "description": "Creates a pull request for a worktree branch",
                 "consumes": [
@@ -1175,6 +1241,42 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_vanpelt_catnip_internal_models.PullRequestInfo": {
+            "description": "Information about an existing pull request for a worktree",
+            "type": "object",
+            "properties": {
+                "body": {
+                    "description": "Body/description of the existing pull request (if exists)",
+                    "type": "string",
+                    "example": "This PR adds new functionality"
+                },
+                "exists": {
+                    "description": "Whether a pull request exists for this branch",
+                    "type": "boolean",
+                    "example": true
+                },
+                "has_commits_ahead": {
+                    "description": "Whether the branch has commits ahead of the base branch",
+                    "type": "boolean",
+                    "example": true
+                },
+                "number": {
+                    "description": "Pull request number (if exists)",
+                    "type": "integer",
+                    "example": 123
+                },
+                "title": {
+                    "description": "Title of the existing pull request (if exists)",
+                    "type": "string",
+                    "example": "Feature: Add new functionality"
+                },
+                "url": {
+                    "description": "URL to the pull request (if exists)",
+                    "type": "string",
+                    "example": "https://github.com/owner/repo/pull/123"
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_models.PullRequestResponse": {
             "description": "Response containing pull request information after creation",
             "type": "object",
@@ -1229,6 +1331,11 @@ const docTemplate = `{
                     "description": "Default branch name for this repository",
                     "type": "string",
                     "example": "main"
+                },
+                "description": {
+                    "description": "Repository description",
+                    "type": "string",
+                    "example": "AI coding assistant"
                 },
                 "id": {
                     "description": "Repository identifier in owner/repo format",

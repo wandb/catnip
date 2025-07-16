@@ -10,30 +10,20 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { RepoSelector } from "@/components/RepoSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { WorktreeRow } from "@/components/WorktreeRow";
+import { PullRequestDialog } from "@/components/PullRequestDialog";
 import {
   GitBranch,
   Copy,
   RefreshCw,
-  Eye,
 } from "lucide-react";
 import { toast } from "sonner";
 import { copyRemoteCommand, showPreviewToast, parseGitUrl } from "@/lib/git-utils";
 import { gitApi } from "@/lib/git-api";
 import { useGitState } from "@/hooks/useGitState";
-
 
 function GitPage() {
   const {
@@ -46,12 +36,14 @@ function GitPage() {
     mergeConflicts,
     worktreeSummaries,
     diffStats,
+    prStatuses,
     loading,
     reposLoading,
     fetchGitStatus,
     fetchWorktrees,
     fetchRepositories,
     fetchActiveSessions,
+    fetchPrStatuses,
     refreshAll,
     setLoading,
   } = useGitState();
@@ -68,7 +60,7 @@ function GitPage() {
     open: false,
     title: "",
     description: "",
-    onConfirm: () => {},
+    onConfirm: () => undefined,
   });
   const [errorAlert, setErrorAlert] = useState<{
     open: boolean;
@@ -86,15 +78,16 @@ function GitPage() {
     branchName: string;
     title: string;
     description: string;
+    isUpdate: boolean;
   }>({
     open: false,
     worktreeId: "",
     branchName: "",
     title: "",
     description: "",
+    isUpdate: false,
   });
 
-  const [prLoading, setPrLoading] = useState(false);
   const handleCheckout = async (url: string) => {
     setLoading(true);
     try {
@@ -114,7 +107,7 @@ function GitPage() {
       });
       
       if (response.ok) {
-        refreshAll();
+        await refreshAll();
         const message = parsedUrl.type === "local" 
           ? "Local repository checked out successfully"
           : "Repository checked out successfully";
@@ -125,7 +118,7 @@ function GitPage() {
         setErrorAlert({
           open: true,
           title: "Checkout Failed",
-          description: `Failed to checkout repository: ${errorData.error || 'Unknown error'}`
+          description: `Failed to checkout repository: ${errorData.error ?? 'Unknown error'}`
         });
       }
     } catch (error) {
@@ -133,7 +126,7 @@ function GitPage() {
       setErrorAlert({
         open: true,
         title: "Checkout Failed",
-        description: `Failed to checkout repository: ${error}`
+        description: `Failed to checkout repository: ${String(error)}`
       });
     } finally {
       setLoading(false);
@@ -143,27 +136,28 @@ function GitPage() {
   const deleteWorktree = async (id: string) => {
     try {
       await gitApi.deleteWorktree(id);
-      fetchWorktrees();
-      fetchActiveSessions();
+      await fetchWorktrees();
+      await fetchActiveSessions();
+      await fetchPrStatuses();
     } catch (error) {
       console.error("Failed to delete worktree:", error);
     }
   };
 
-
-
   const syncWorktree = async (id: string) => {
     const success = await gitApi.syncWorktree(id, { setErrorAlert });
     if (success) {
-      fetchWorktrees();
+      await fetchWorktrees();
+      await fetchPrStatuses();
     }
   };
 
-  const mergeWorktreeToMain = async (id: string, worktreeName: string, squash: boolean = true) => {
+  const mergeWorktreeToMain = async (id: string, worktreeName: string, squash = true) => {
     const success = await gitApi.mergeWorktree(id, worktreeName, squash, { setErrorAlert });
     if (success) {
-      fetchWorktrees();
-      fetchGitStatus();
+      await fetchWorktrees();
+      await fetchGitStatus();
+      await fetchPrStatuses();
     }
   };
 
@@ -174,86 +168,42 @@ function GitPage() {
     }
   };
 
-  const createPullRequest = async () => {
-    setPrLoading(true);
-    try {
-      const response = await fetch(`/v1/git/worktrees/${prDialog.worktreeId}/pr`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: prDialog.title,
-          body: prDialog.description,
-        }),
-      });
-      if (response.ok) {
-        const prData = await response.json();
-        
-        // Success toast with PR link
-        toast.success(
-          <div className="flex items-center gap-2 w-full">
-            <div className="flex-1">
-              <div className="font-medium">Pull request created!</div>
-              <div className="text-sm text-muted-foreground mt-1">
-                PR #{prData.number}: {prData.title}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                window.open(prData.url, "_blank");
-              }}
-              className="p-1 hover:bg-muted rounded transition-colors"
-              title="Open pull request"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
-          </div>,
-          {
-            duration: 10000,
-          }
-        );
-        
-        // Close the dialog after successful creation
-        setPrDialog({
-          open: false,
-          worktreeId: "",
-          branchName: "",
-          title: "",
-          description: "",
-        });
-      } else {
-        let errorMessage = 'Unknown error';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error ?? 'Unknown error';
-        } catch {
-          // If JSON parsing fails, use status text or response text
-          errorMessage = response.statusText || `HTTP ${response.status}`;
-        }
-        setErrorAlert({
-          open: true,
-          title: "Pull Request Failed",
-          description: `Failed to create pull request: ${errorMessage}`
-        });
-      }
-    } catch (error) {
-      console.error("Failed to create pull request:", error);
-      setErrorAlert({
-        open: true,
-        title: "Pull Request Failed",
-        description: `Failed to create pull request: ${error}`
-      });
-    } finally {
-      setPrLoading(false);
-    }
-  };
-
   const toggleDiff = (worktreeId: string) => {
     setOpenDiffWorktreeId(prev => prev === worktreeId ? null : worktreeId);
   };
+
+  const onMerge = (id: string, name: string) => {
+    const hasConflicts = mergeConflicts[id]?.has_conflicts ?? false;
+    const conflictFilesString = mergeConflicts[id]?.conflict_files?.join(", ") ?? `${mergeConflicts[id]?.conflict_files?.length} files`;
+    const worktree = worktrees.find(wt => wt.id === id);
+    const commitCount = worktree?.commit_count ?? 0;
+    const sourceBranch = worktree?.source_branch ?? "";
+    const description = `
+      Merge ${commitCount} commits from "${name}" back to the ${sourceBranch} branch? This will make your changes available outside the container.
+      ${hasConflicts ? `⚠️ Warning: This merge will cause conflicts in ${conflictFilesString}. Merge ${commitCount} commits from "${name}" back to the ${sourceBranch} branch anyway?` : ""}
+    `
+    setConfirmDialog({
+      open: true,
+      title: "Merge to Main",
+      description: description,
+      onConfirm: () => void mergeWorktreeToMain(id, name),
+      variant: hasConflicts ? "destructive" : "default",
+    });
+  }
+
+  const onConfirmDelete = (id: string, name: string, isDirty: boolean, commitCount: number) => {
+    const changesList = [];
+    if (isDirty) changesList.push("uncommitted changes");
+    if (commitCount > 0) changesList.push(`${commitCount} commits`);
+    
+    setConfirmDialog({
+      open: true,
+      title: "Delete Worktree",
+      description: `Delete worktree "${name}"? This worktree has ${changesList.join(" and ")}. This action cannot be undone.`,
+      onConfirm: () => void deleteWorktree(id),
+      variant: "destructive",
+    });
+  }
 
 
   return (
@@ -274,7 +224,7 @@ function GitPage() {
         <CardContent>
           {worktrees.length > 0 ? (
             <div className="space-y-2">
-              {worktrees.map((worktree) => (
+              {worktrees.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).map((worktree) => (
                 <WorktreeRow
                   key={worktree.id}
                   worktree={worktree}
@@ -286,32 +236,11 @@ function GitPage() {
                   openDiffWorktreeId={openDiffWorktreeId}
                   setPrDialog={setPrDialog}
                   onToggleDiff={toggleDiff}
-                  onSync={syncWorktree}
-                  onMerge={(id, name) => {
-                    setConfirmDialog({
-                      open: true,
-                      title: "Merge to Main",
-                      description: mergeConflicts[id]?.has_conflicts
-                        ? `⚠️ Warning: This merge will cause conflicts in ${mergeConflicts[id]?.conflict_files?.join(", ") || "multiple files"}. Merge ${worktree.commit_count} commits from "${name}" back to the ${worktree.source_branch} branch anyway?`
-                        : `Merge ${worktree.commit_count} commits from "${name}" back to the ${worktree.source_branch} branch? This will make your changes available outside the container.`,
-                      onConfirm: () => mergeWorktreeToMain(id, name),
-                      variant: mergeConflicts[id]?.has_conflicts ? "destructive" : "default",
-                    });
-                  }}
-                  onCreatePreview={createWorktreePreview}
-                  onConfirmDelete={(id, name, isDirty, commitCount) => {
-                    const changesList = [];
-                    if (isDirty) changesList.push("uncommitted changes");
-                    if (commitCount > 0) changesList.push(`${commitCount} commits`);
-                    
-                    setConfirmDialog({
-                      open: true,
-                      title: "Delete Worktree",
-                      description: `Delete worktree "${name}"? This worktree has ${changesList.join(" and ")}. This action cannot be undone.`,
-                      onConfirm: () => deleteWorktree(id),
-                      variant: "destructive",
-                    });
-                  }}
+                  onSync={() => void syncWorktree(worktree.id)}
+                  onMerge={onMerge}
+                  onCreatePreview={() => void createWorktreePreview(worktree.id, worktree.branch)}
+                  prStatuses={prStatuses}
+                  onConfirmDelete={onConfirmDelete}
                 />
               ))}
             </div>
@@ -334,7 +263,7 @@ function GitPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={fetchRepositories}
+              onClick={void fetchRepositories}
               disabled={reposLoading}
               title="Refresh GitHub repositories"
             >
@@ -349,16 +278,16 @@ function GitPage() {
             <div className="flex-1 space-y-2">
               <Label htmlFor="github-url">GitHub Repository URL</Label>
               <RepoSelector
-                value={githubUrl}
+                value={githubUrl} 
                 onValueChange={setGithubUrl}
                 repositories={repositories}
-                currentRepositories={gitStatus.repositories || {}}
+                currentRepositories={gitStatus.repositories ?? {}}
                 loading={reposLoading}
                 placeholder="Select repository or enter URL..."
               />
             </div>
             <Button
-              onClick={() => handleCheckout(githubUrl)}
+              onClick={() => void handleCheckout(githubUrl)}
               disabled={!githubUrl || loading}
               className="mt-6"
             >
@@ -385,7 +314,7 @@ function GitPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={refreshAll}
+              onClick={() => void refreshAll()}
             >
               <RefreshCw className="h-4 w-4" />
             </Button>
@@ -494,61 +423,18 @@ function GitPage() {
       />
 
       {/* Pull Request Dialog */}
-      <Dialog open={prDialog.open} onOpenChange={(open) => setPrDialog(prev => ({ ...prev, open }))}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create Pull Request</DialogTitle>
-            <DialogDescription>
-              Create a pull request for the worktree {prDialog.branchName}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-6 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="pr-title" className="text-sm font-medium">
-                Title
-              </Label>
-              <Input
-                id="pr-title"
-                value={prDialog.title}
-                onChange={(e) =>
-                  setPrDialog((prev) => ({ ...prev, title: e.target.value }))
-                }
-                className="w-full"
-                placeholder="Enter a descriptive title for your pull request"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="pr-body" className="text-sm font-medium">
-                Description
-              </Label>
-              <textarea
-                id="pr-body"
-                value={prDialog.description}
-                onChange={(e) =>
-                  setPrDialog((prev) => ({ ...prev, description: e.target.value }))
-                }
-                className="w-full min-h-[300px] rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm resize-vertical"
-                placeholder="Enter pull request description..."
-              />
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setPrDialog({ ...prDialog, open: false })}>
-              Cancel
-            </Button>
-            <Button onClick={createPullRequest} disabled={prLoading}>
-              {prLoading ? (
-                <>
-                  <RefreshCw className="animate-spin h-4 w-4 mr-2" />
-                  Creating PR...
-                </>
-              ) : (
-                "Create PR"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PullRequestDialog
+        open={prDialog.open}
+        onOpenChange={(open) => setPrDialog(prev => ({ ...prev, open }))}
+        worktreeId={prDialog.worktreeId}
+        branchName={prDialog.branchName}
+        title={prDialog.title}
+        description={prDialog.description}
+        isUpdate={prDialog.isUpdate}
+        onTitleChange={(title) => setPrDialog(prev => ({ ...prev, title }))}
+        onDescriptionChange={(description) => setPrDialog(prev => ({ ...prev, description }))}
+        onRefreshPrStatuses={fetchPrStatuses}
+      />
     </div>
   );
 }

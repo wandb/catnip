@@ -32,6 +32,8 @@ type Repository struct {
 	CreatedAt time.Time `json:"created_at" example:"2024-01-15T10:30:00Z"`
 	// When this repository was last accessed
 	LastAccessed time.Time `json:"last_accessed" example:"2024-01-15T16:45:30Z"`
+	// Repository description
+	Description string `json:"description" example:"AI coding assistant"`
 }
 
 // Worktree represents a Git worktree

@@ -14,16 +14,15 @@ import {
   Eye, 
   FileText, 
   GitMerge, 
-  Loader2,
   MoreHorizontal, 
   RefreshCw, 
-  Sparkles,
   Terminal, 
   Trash2 
 } from "lucide-react";
 import { type Worktree, type WorktreeDiffStats, type PullRequestInfo } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 import { getRelativeTime, getDuration } from "@/lib/git-utils";
+import type { ConflictStatus } from "@/hooks/useGitState";
 
 interface ClaudeSession {
   sessionStartTime?: string | Date;
@@ -34,15 +33,11 @@ interface ClaudeSession {
   header?: string;
 }
 
-interface ConflictStatus {
-  has_conflicts: boolean;
-}
-
 interface WorktreeRowProps {
   worktree: Worktree;
   claudeSessions: Record<string, ClaudeSession>;
-  syncConflicts: Record<string, ConflictStatus>;
-  mergeConflicts: Record<string, ConflictStatus>;
+  syncConflicts: Record<string, any>;
+  mergeConflicts: Record<string, any>;
   worktreeSummaries: Record<string, WorktreeSummary>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   openDiffWorktreeId: string | null;
@@ -154,51 +149,6 @@ function WorktreeClaudeStatus({ claudeSession }: WorktreeClaudeStatusProps) {
   );
 }
 
-interface WorktreeSummaryStatusProps {
-  worktree: Worktree;
-  summary?: WorktreeSummary;
-}
-
-function WorktreeSummaryStatus({ worktree, summary }: WorktreeSummaryStatusProps) {
-  // Only show summary for local repos with more than 1 commit
-  if (!worktree.repo_id.startsWith("local/") || worktree.commit_count <= 1) {
-    return null;
-  }
-
-  if (!summary) {
-    return null;
-  }
-
-  switch (summary.status) {
-    case 'pending':
-      return (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Sparkles className="h-3 w-3" />
-          <span>Summary pending...</span>
-        </div>
-      );
-    case 'generating':
-      return (
-        <div className="flex items-center gap-2 text-xs text-blue-600">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          <span>Generating summary...</span>
-        </div>
-      );
-    case 'completed':
-      return (
-        <div className="flex items-center gap-2 text-xs text-green-600">
-          <Sparkles className="h-3 w-3" />
-          <span>Summary ready for PR</span>
-        </div>
-      );
-    case 'error':
-      return (
-        <div></div>
-      );
-    default:
-      return null;
-  }
-}
 
 interface WorktreeActionsProps {
   worktree: Worktree;
@@ -282,30 +232,35 @@ function WorktreeActions({
             </Link>
           </DropdownMenuItem>
           
-          {!worktree.repo_id.startsWith("local/") && (
+          {worktree.repo_id.startsWith("local/") && (
             <DropdownMenuItem
               onClick={() => onCreatePreview(worktree.id, worktree.branch)}
-              className="text-blue-600"
+              className="text-purple-600"
             >
               <Eye size={16} />
               Create Preview
             </DropdownMenuItem>
           )}
 
-          {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
-            <DropdownMenuItem
-              onClick={() => onOpenPrDialog(worktree.id, worktree.branch)}
-              className={prStatus?.has_commits_ahead === false ? "text-muted-foreground" : "text-green-600"}
-              disabled={prStatus?.has_commits_ahead === false}
-            >
-              <GitMerge size={16} />
-              {prStatus?.has_commits_ahead === false 
-                ? "No new commits" 
-                : prStatus?.exists 
-                  ? "Update PR (GitHub)" 
-                  : "Create PR (GitHub)"}
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem
+            onClick={() => onOpenPrDialog(worktree.id, worktree.branch)}
+            className={prStatus?.has_commits_ahead === false ? "text-muted-foreground" : "text-green-600"}
+            disabled={prStatus?.has_commits_ahead === false || worktree.commit_count === 0}
+            title={
+              prStatus?.has_commits_ahead === false 
+                ? "No new commits to push to GitHub" 
+                : worktree.commit_count === 0 
+                  ? "No commits in this worktree" 
+                  : prStatus?.exists 
+                    ? "Update existing pull request on GitHub" 
+                    : "Create new pull request on GitHub"
+            }
+          >
+            <GitMerge size={16} />
+            {prStatus?.exists 
+                ? "Update PR (GitHub)" 
+                : "Create PR (GitHub)"}
+          </DropdownMenuItem>
           
           {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
             <DropdownMenuItem
@@ -433,10 +388,6 @@ export function WorktreeRow({
             <div className="text-xs text-muted-foreground">
               <WorktreeClaudeStatus claudeSession={claudeSession} />
             </div>
-            <WorktreeSummaryStatus 
-              worktree={worktree} 
-              summary={summary} 
-            />
           </div>
         </div>
         

@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { createMergeConflictPrompt } from "./git-utils";
 
 export interface GitStatus {
-  repositories?: Record<string, any>;
+  repositories?: Record<string, Repository>;
   worktree_count?: number;
 }
 
@@ -17,14 +17,18 @@ export interface Worktree {
   commit_count: number;
   commits_behind: number;
   is_dirty: boolean;
+  created_at: string;
+  last_accessed: string;
 }
 
 export interface Repository {
-  name: string;
+  id: string;
   url: string;
-  private: boolean;
+  path: string;
+  default_branch: string;
+  created_at: string;
+  last_accessed: string;
   description?: string;
-  fullName?: string;
 }
 
 interface FileDiff {
