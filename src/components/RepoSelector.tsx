@@ -19,25 +19,14 @@ import {
   ChevronsUpDown,
   RefreshCw,
 } from "lucide-react";
+import type { LocalRepository, Repository } from "@/lib/git-api";
 
-interface Repository {
-  name: string;
-  url: string;
-  private: boolean;
-  description?: string;
-  fullName?: string;
-}
-
-interface CurrentRepository {
-  id: string;
-  url: string;
-}
 
 interface RepoSelectorProps {
   value: string;
   onValueChange: (value: string) => void;
   repositories: Repository[];
-  currentRepositories: Record<string, CurrentRepository>;
+  currentRepositories: Record<string, LocalRepository>;
   loading: boolean;
   placeholder?: string;
 }
@@ -130,7 +119,7 @@ export function RepoSelector({
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">
-                          {repo.fullName || repo.name}
+                          {repo.fullName ?? repo.name}
                         </span>
                         {repo.private && (
                           <Badge variant="secondary" className="text-xs">
