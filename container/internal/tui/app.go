@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,7 +15,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -63,6 +61,7 @@ type model struct {
 	searchMode       bool
 	searchPattern    string
 	compiledRegex    *regexp.Regexp
+	lastLogCount     int
 }
 
 type tickMsg time.Time
@@ -75,6 +74,7 @@ type errMsg error
 type quitMsg struct{}
 type healthStatusMsg bool
 type animationTickMsg time.Time
+type logsTickMsg time.Time
 
 var debugLogger *log.Logger
 var debugEnabled bool
@@ -82,7 +82,7 @@ var debugEnabled bool
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			log.Fatalln("Failed to open debug log file:", err)
 		}
@@ -144,6 +144,7 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		searchInput:      searchInput,
 		searchMode:       false,
 		searchPattern:    "",
+		lastLogCount:     0,
 	}
 
 	debugLog("TUI Run() creating tea program - elapsed: %v", time.Since(start))
@@ -168,6 +169,9 @@ func (m model) Init() tea.Cmd {
 		}),
 		tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
 			return animationTickMsg(t)
+		}),
+		tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+			return logsTickMsg(t)
 		}),
 	)
 	
@@ -302,7 +306,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			debugLog("TUI Update() MAIN UI KEY DETECTED")
 			if m.appHealthy {
 				go func() {
-					openBrowser("http://localhost:8080")
+					if err := openBrowser("http://localhost:8080"); err != nil {
+						debugLog("Error opening browser: %v", err)
+					}
 				}()
 			} else {
 				// App is not ready, show bold feedback
@@ -320,7 +326,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					debugLog("TUI Update() opening port %s at %s", port, url)
 					go func() {
 						if isAppReady("http://localhost:8080") {
-							openBrowser(url)
+							if err := openBrowser(url); err != nil {
+								debugLog("Error opening browser: %v", err)
+							}
 						}
 					}()
 				}
@@ -354,6 +362,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Tick(time.Millisecond*500, func(t time.Time) tea.Msg {
 			return animationTickMsg(t)
 		})
+	
+	case logsTickMsg:
+		debugLog("TUI Update() logsTickMsg - elapsed: %v", time.Since(start))
+		// Auto-refresh logs only when in logs view
+		if m.currentView == logsView {
+			return m, tea.Batch(
+				tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+					return logsTickMsg(t)
+				}),
+				m.fetchLogs(),
+			)
+		}
+		// If not in logs view, just schedule next tick
+		return m, tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
+			return logsTickMsg(t)
+		})
 
 	case containerInfoMsg:
 		debugLog("TUI Update() containerInfoMsg - elapsed: %v", time.Since(start))
@@ -369,8 +393,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case logsMsg:
 		debugLog("TUI Update() logsMsg - elapsed: %v", time.Since(start))
-		m.logs = []string(msg)
-		m = m.updateLogFilter()
+		newLogs := []string(msg)
+		
+		// Check if this is new logs or a full refresh
+		if len(newLogs) > m.lastLogCount {
+			// We have new logs to stream
+			m = m.streamNewLogs(newLogs)
+		} else {
+			// Full refresh (manual refresh or first load)
+			m.logs = newLogs
+			m = m.updateLogFilter()
+		}
+		
+		m.lastLogCount = len(newLogs)
 
 	case portsMsg:
 		debugLog("TUI Update() portsMsg - elapsed: %v", time.Since(start))
@@ -451,7 +486,11 @@ func (m model) View() string {
 			searchContent := searchPrompt + m.searchInput.View() + " (Enter to apply, Esc to cancel)"
 			footer = footerStyle.Render(searchContent)
 		} else {
-			footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit")
+			if m.searchPattern != "" {
+				footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit • Streaming filtered logs")
+			} else {
+				footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit • Auto-refresh: ON")
+			}
 		}
 	}
 
@@ -749,25 +788,6 @@ func (m model) fetchRepositoryInfo() tea.Cmd {
 	}
 }
 
-func (m model) fetchContainerRepos() tea.Cmd {
-	return func() tea.Msg {
-		// Try to fetch repositories from the container's API
-		client := &http.Client{Timeout: 1 * time.Second}
-		resp, err := client.Get("http://localhost:8080/v1/git/status")
-		if err != nil {
-			// If we can't reach the API, return empty repos
-			return containerReposMsg(map[string]interface{}{"repositories": []interface{}{}})
-		}
-		defer resp.Body.Close()
-		
-		var repoData map[string]interface{}
-		if err := json.NewDecoder(resp.Body).Decode(&repoData); err != nil {
-			return containerReposMsg(map[string]interface{}{"repositories": []interface{}{}})
-		}
-		
-		return containerReposMsg(repoData)
-	}
-}
 
 // loadLogo reads the ASCII logo from the public directory
 func loadLogo() []string {
@@ -867,27 +887,63 @@ func stripAnsi(s string) string {
 	return result.String()
 }
 
-// renderMarkdown renders markdown text using glamour for beautiful help messages
-func (m model) renderMarkdown(text string) string {
-	// Create a glamour renderer with terminal styling
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(m.width-10), // Leave some padding
-	)
-	if err != nil {
-		// Fallback to plain text if glamour fails
-		return text
+
+// streamNewLogs handles streaming new log entries with filtering
+func (m model) streamNewLogs(newLogs []string) model {
+	// Get only the new entries
+	newEntries := newLogs[m.lastLogCount:]
+	
+	// Update the complete logs
+	m.logs = newLogs
+	
+	// If no filter is active, just append new entries and scroll to bottom
+	if m.searchPattern == "" {
+		m.filteredLogs = m.logs
+		m.logsViewport.SetContent(strings.Join(m.filteredLogs, "\n"))
+		m.logsViewport.GotoBottom()
+		return m
 	}
 	
-	// Render the markdown
-	rendered, err := renderer.Render(text)
-	if err != nil {
-		// Fallback to plain text if rendering fails
-		return text
+	// Filter is active - preserve viewport position and only filter new entries
+	currentY := m.logsViewport.YOffset
+	
+	// Filter new entries
+	var newFilteredEntries []string
+	for _, line := range newEntries {
+		if m.compiledRegex != nil {
+			if m.compiledRegex.MatchString(line) {
+				highlighted := m.compiledRegex.ReplaceAllStringFunc(line, func(match string) string {
+					return lipgloss.NewStyle().Background(lipgloss.Color("11")).Foreground(lipgloss.Color("0")).Render(match)
+				})
+				newFilteredEntries = append(newFilteredEntries, highlighted)
+			}
+		} else {
+			// Simple string search fallback
+			searchLower := strings.ToLower(m.searchPattern)
+			if strings.Contains(strings.ToLower(line), searchLower) {
+				highlighted := strings.ReplaceAll(line, m.searchPattern, 
+					lipgloss.NewStyle().Background(lipgloss.Color("11")).Foreground(lipgloss.Color("0")).Render(m.searchPattern))
+				newFilteredEntries = append(newFilteredEntries, highlighted)
+			}
+		}
 	}
 	
-	// Remove trailing newlines that glamour adds
-	return strings.TrimRight(rendered, "\n")
+	// Append new filtered entries to existing filtered logs
+	m.filteredLogs = append(m.filteredLogs, newFilteredEntries...)
+	
+	// Update viewport content
+	m.logsViewport.SetContent(strings.Join(m.filteredLogs, "\n"))
+	
+	// Preserve viewport position unless user is at the bottom
+	if currentY >= m.logsViewport.TotalLineCount()-m.logsViewport.Height {
+		// User was at the bottom, keep following
+		m.logsViewport.GotoBottom()
+	} else {
+		// User was not at the bottom, preserve position
+		m.logsViewport.SetYOffset(currentY)
+	}
+	
+	return m
 }
 
 // updateLogFilter applies the current search pattern to logs and updates the viewport

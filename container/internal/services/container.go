@@ -19,8 +19,8 @@ type ContainerRuntime string
 const (
 	// RuntimeDocker represents the Docker container runtime
 	RuntimeDocker ContainerRuntime = "docker"
-	// RuntimeApple represents the Apple container runtime (currently maps to Docker)
-	RuntimeApple  ContainerRuntime = "docker"
+	// RuntimeApple represents the Apple container runtime
+	RuntimeApple  ContainerRuntime = "container"
 )
 
 type ContainerService struct {
@@ -94,9 +94,16 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 		args = append(args, "-v", fmt.Sprintf("%s:%s", gitRoot, mountPath))
 	}
 	// If not a git repo, don't mount any directory
-	
+	var hasVite = false
 	for _, port := range ports {
 		args = append(args, "-p", port)
+		if strings.HasPrefix(port, "5173") {
+			hasVite = true
+		}
+	}
+	// Forward 5137 for HMR / live reload in dev mode...
+	if !hasVite && isDevMode {
+		args = append(args, "-p", "5173:5173")
 	}
 	
 	args = append(args, image)
@@ -264,7 +271,7 @@ var containerDebugEnabled bool
 func init() {
 	containerDebugEnabled = os.Getenv("DEBUG") == "true"
 	if containerDebugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			log.Fatalln("Failed to open debug log file:", err)
 		}

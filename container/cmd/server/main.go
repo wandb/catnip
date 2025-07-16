@@ -108,6 +108,8 @@ func main() {
 	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService)
 	portsHandler := handlers.NewPortsHandler(portMonitor)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
+	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
+	defer eventsHandler.Stop()
 
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
@@ -150,6 +152,9 @@ func main() {
 	// Port monitoring routes
 	v1.Get("/ports", portsHandler.GetPorts)
 	v1.Get("/ports/:port", portsHandler.GetPortInfo)
+
+	// Events routes
+	v1.Get("/events", eventsHandler.HandleSSE)
 
 	// Proxy routes for detected services (must be before dev middleware)
 	// Will validate port numbers in handler and call Next() if invalid

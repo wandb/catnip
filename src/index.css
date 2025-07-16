@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 /* Fira Code Nerd Font Mono from https://github.com/ryanoasis/nerd-fonts/tree/master/patched-fonts/FiraCode */
 @font-face {

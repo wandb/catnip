@@ -115,7 +115,9 @@ func runWithLogging(args []string) error {
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Println(line)                    // Print to console
-			fmt.Fprintln(file, line)            // Write to log file
+			if _, err := fmt.Fprintln(file, line); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing to log file: %v\n", err)
+			}
 		}
 	}()
 
@@ -124,7 +126,9 @@ func runWithLogging(args []string) error {
 		for scanner.Scan() {
 			line := scanner.Text()
 			fmt.Fprintln(os.Stderr, line)       // Print to console stderr
-			fmt.Fprintln(file, line)            // Write to log file
+			if _, err := fmt.Fprintln(file, line); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing to log file: %v\n", err)
+			}
 		}
 	}()
 

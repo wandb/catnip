@@ -15,6 +15,7 @@ import {
   ExternalLink,
   Copy,
 } from "lucide-react";
+import { TextContent } from "@/components/TextContent";
 import "prismjs/themes/prism-tomorrow.css";
 
 interface OpenAPISpec {
@@ -420,9 +421,9 @@ function APIExplorer() {
               <h1 className="text-2xl font-bold">
                 {spec?.info.title || "API Explorer"}
               </h1>
-              <p className="text-muted-foreground mt-1">
-                {spec?.info.description || "Explore and test the API endpoints"}
-              </p>
+              <div className="text-muted-foreground mt-1">
+                <TextContent content={spec?.info.description || "Explore and test the API endpoints"} />
+              </div>
               {spec && (
                 <div className="flex items-center gap-2 mt-2">
                   <Badge variant="outline">v{spec.info.version}</Badge>
@@ -556,9 +557,9 @@ function APIExplorer() {
                           <h4 className="text-sm font-medium mb-2">
                             Description
                           </h4>
-                          <p className="text-sm text-muted-foreground">
-                            {endpoint.description}
-                          </p>
+                          <div className="text-sm text-muted-foreground">
+                            <TextContent content={endpoint.description} />
+                          </div>
                         </div>
                       )}
 
@@ -594,9 +595,9 @@ function APIExplorer() {
                                     )}
                                   </div>
                                   {param.description && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      {param.description}
-                                    </p>
+                                    <div className="text-xs text-muted-foreground mt-1">
+                                      <TextContent content={param.description} />
+                                    </div>
                                   )}
                                 </div>
                               ))}
@@ -627,9 +628,9 @@ function APIExplorer() {
                                     >
                                       {code}
                                     </Badge>
-                                    <span className="text-sm">
-                                      {response.description}
-                                    </span>
+                                    <div className="text-sm">
+                                      <TextContent content={response.description} />
+                                    </div>
                                   </div>
                                   {response.schema && (
                                     <div className="mt-2 pl-4 border-l-2 border-muted-foreground/20">
@@ -818,9 +819,9 @@ function APIExplorer() {
                       </div>
                     </div>
                     {model.description && (
-                      <p className="text-sm text-muted-foreground mt-2">
-                        {model.description}
-                      </p>
+                      <div className="text-sm text-muted-foreground mt-2">
+                        <TextContent content={model.description} />
+                      </div>
                     )}
                   </CardHeader>
 
@@ -860,9 +861,9 @@ function APIExplorer() {
                                 )}
                               </div>
                               {prop.description && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {prop.description}
-                                </p>
+                                <div className="text-xs text-muted-foreground mt-1">
+                                  <TextContent content={prop.description} />
+                                </div>
                               )}
                               {prop.$ref && (
                                 <div className="mt-1 flex items-center gap-2">

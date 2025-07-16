@@ -179,6 +179,29 @@
                 }
             }
         },
+        "/v1/events": {
+            "get": {
+                "description": "Streams real-time events in Server-Sent Events format. Events include port changes, git status, processes, and container status updates.\n\n## Event Types\n\n### Port Events\n- **port:opened**: Fired when a new port is detected\n- `port` (int): Port number\n- `service` (string): Service type (http, tcp)\n- `protocol` (string): Protocol used\n- `title` (string): Service title/name if detected\n- **port:closed**: Fired when a port is no longer available\n- `port` (int): Port number that was closed\n\n### Git Events\n- **git:dirty**: Fired when git workspace has uncommitted changes\n- `workspace` (string): Workspace path\n- `files` ([]string): List of modified files\n- **git:clean**: Fired when git workspace becomes clean\n- `workspace` (string): Workspace path\n\n### Process Events\n- **process:started**: Fired when a new process starts\n- `pid` (int): Process ID\n- `command` (string): Command that was executed\n- `workspace` (string): Workspace where process started\n- **process:stopped**: Fired when a process terminates\n- `pid` (int): Process ID that stopped\n- `exitCode` (int): Exit code of the process\n\n### Container Events\n- **container:status**: Fired when container status changes\n- `status` (string): Container status (running, stopped, error)\n- `message` (string): Optional status message\n\n### System Events\n- **heartbeat**: Sent every 5 seconds to keep connection alive\n- `timestamp` (int64): Current timestamp in milliseconds\n- `uptime` (int64): Server uptime in milliseconds\n\n## Message Format\nEach SSE message is a JSON object with:\n- `event`: Event object containing `type` and `payload`\n- `timestamp`: Event timestamp in milliseconds\n- `id`: Unique event identifier\n\n## Connection Behavior\n- Auto-reconnects on disconnection\n- Sends current state on initial connection\n- Heartbeat every 5 seconds\n- Rate limited to prevent spam",
+                "consumes": [
+                    "text/event-stream"
+                ],
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Server-Sent Events endpoint for real-time container events",
+                "responses": {
+                    "200": {
+                        "description": "SSE stream of events",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SSEMessage"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/branches/{repo_id}": {
             "get": {
                 "description": "Returns a list of remote branches for a specific repository",
@@ -1372,6 +1395,15 @@
                 }
             }
         },
+        "internal_handlers.AppEvent": {
+            "type": "object",
+            "properties": {
+                "payload": {},
+                "type": {
+                    "$ref": "#/definitions/internal_handlers.EventType"
+                }
+            }
+        },
         "internal_handlers.AuthStartResponse": {
             "description": "Response when starting GitHub device flow authentication",
             "type": "object",
@@ -1500,6 +1532,29 @@
                 }
             }
         },
+        "internal_handlers.EventType": {
+            "type": "string",
+            "enum": [
+                "port:opened",
+                "port:closed",
+                "git:dirty",
+                "git:clean",
+                "process:started",
+                "process:stopped",
+                "container:status",
+                "heartbeat"
+            ],
+            "x-enum-varnames": [
+                "PortOpenedEvent",
+                "PortClosedEvent",
+                "GitDirtyEvent",
+                "GitCleanEvent",
+                "ProcessStartedEvent",
+                "ProcessStoppedEvent",
+                "ContainerStatusEvent",
+                "HeartbeatEvent"
+            ]
+        },
         "internal_handlers.GitHubRepository": {
             "description": "GitHub repository information from the GitHub API",
             "type": "object",
@@ -1538,6 +1593,20 @@
                     "description": "Whether the repository is private",
                     "type": "boolean",
                     "example": false
+                }
+            }
+        },
+        "internal_handlers.SSEMessage": {
+            "type": "object",
+            "properties": {
+                "event": {
+                    "$ref": "#/definitions/internal_handlers.AppEvent"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "integer"
                 }
             }
         },

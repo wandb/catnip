@@ -631,10 +631,7 @@ func (s *ClaudeService) GetCompletion(req *models.CompletionRequest) (*models.Co
 
 	// Add context messages if provided
 	for _, msg := range req.Context {
-		messages = append(messages, models.AnthropicAPIMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		})
+		messages = append(messages, models.AnthropicAPIMessage(msg))
 	}
 
 	// Add the main message
