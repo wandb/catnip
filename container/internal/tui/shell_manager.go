@@ -117,34 +117,3 @@ func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 	}
 }
 
-// Updated createNewShellSession to use the shell manager
-func (m Model) createNewShellSessionWithCmd() (Model, tea.Cmd) {
-	sessionID := fmt.Sprintf("shell-%d", time.Now().Unix())
-	m.currentSessionID = sessionID
-	m.SwitchToView(ShellView)
-	m.shellOutput = ""
-	m.shellConnecting = true      // Set connecting state
-	m.shellLastInput = time.Now() // Initialize cursor timer
-
-	// Initialize shell viewport
-	if m.height > 0 {
-		headerHeight := 3
-		m.shellViewport.Width = m.width - 2
-		m.shellViewport.Height = m.height - headerHeight
-		// Initialize or resize terminal emulator to match viewport
-		// Account for viewport padding/borders
-		terminalWidth := m.shellViewport.Width - 2 // Subtract 2 for viewport borders
-		if m.terminalEmulator == nil {
-			debugLog("Creating terminal emulator with size: %dx%d", terminalWidth, m.shellViewport.Height)
-			m.terminalEmulator = NewTerminalEmulator(terminalWidth, m.shellViewport.Height)
-		} else {
-			m.terminalEmulator.Clear()
-			m.terminalEmulator.Resize(terminalWidth, m.shellViewport.Height)
-		}
-	}
-
-	// Return the command to create and connect the session
-	// Use terminal width (viewport width - 2 for borders)
-	terminalWidth := m.shellViewport.Width - 2
-	return m, createAndConnectShell(sessionID, terminalWidth, m.shellViewport.Height)
-}
