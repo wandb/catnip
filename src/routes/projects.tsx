@@ -38,7 +38,6 @@ import {
   Play,
 } from "lucide-react";
 import { toast } from "sonner";
-import { gitApi, type LocalRepository } from "@/lib/git-api";
 import { useGitState } from "@/hooks/useGitState";
 
 // Project types
@@ -90,7 +89,7 @@ const projectApi = {
     console.log(`Deleting project ${id}`);
   },
 
-  async getBranches(repository: string): Promise<string[]> {
+  async getBranches(_repository: string): Promise<string[]> {
     // TODO: Implement actual API call
     return ["main", "develop", "feature/new-feature", "release/v1.0"];
   },
@@ -185,7 +184,6 @@ function ProjectsPage() {
   const {
     repositories,
     gitStatus,
-    loading: gitLoading,
     fetchRepositories,
     reposLoading,
   } = useGitState();
