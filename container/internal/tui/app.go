@@ -470,7 +470,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = overviewView
 				return m, nil
 			} else {
-				prevView := m.currentView
 				m.currentView = logsView
 				// Update viewport size and content
 				if m.height > 0 {
@@ -479,19 +478,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.logsViewport.Height = m.height - headerHeight
 				}
 				m = m.updateLogFilter()
-				// Enter altscreen if coming from shell view
-				if prevView == shellView {
-					return m, tea.Batch(tea.EnterAltScreen, m.fetchLogs())
-				}
 				return m, m.fetchLogs()
 			}
 		case "o":
-			prevView := m.currentView
 			m.currentView = overviewView
-			// Enter altscreen if coming from shell view
-			if prevView == shellView {
-				return m, tea.EnterAltScreen
-			}
 			return m, nil
 		case "s":
 			if m.currentView == overviewView {
@@ -499,11 +489,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if globalShellManager != nil && len(globalShellManager.sessions) > 0 {
 					m.showSessionList = true
 					m.currentView = shellView // Switch to shell view to show the list
-					return m, tea.ExitAltScreen
+					return m, nil
 				} else {
 					// Create new session
 					newModel, cmd := m.createNewShellSessionWithCmd()
-					return newModel, tea.Batch(tea.ExitAltScreen, cmd)
+					return newModel, cmd
 				}
 			} else if m.currentView == shellView {
 				// Already in shell view, do nothing
@@ -691,7 +681,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Switch back to overview screen
 					m.currentView = overviewView
 					debugLog("Connection error detected (%s), switching to overview", errStr)
-					return m, tea.EnterAltScreen
 				} else {
 					// Show error in terminal for other errors
 					// Initialize terminal emulator if needed

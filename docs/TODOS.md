@@ -4,6 +4,7 @@
 [~] - Add todo interface for task management
 [~] - Setup CloudFlare hosting
 [ ] - Wire up PTY Session.Title to the ActiveSessionInfo endpoint...
+[ ] - Make terminal scrollback work in CLI
 [ ] - Figure out auto merge / conflict resolution
 [ ] - Wire up multiple trials
 [ ] - Support forking from existing worktrees
