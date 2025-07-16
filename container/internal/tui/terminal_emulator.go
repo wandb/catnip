@@ -39,7 +39,7 @@ func NewTerminalEmulator(cols, rows int) *TerminalEmulator {
 // Write processes PTY output through the terminal emulator
 func (te *TerminalEmulator) Write(data []byte) {
 	// Feed to terminal emulator for parsing
-	te.terminal.Write(data)
+	_, _ = te.terminal.Write(data)
 }
 
 
@@ -194,5 +194,5 @@ func (te *TerminalEmulator) GetCursorPosition() (row, col int) {
 
 // Clear clears the terminal
 func (te *TerminalEmulator) Clear() {
-	te.terminal.Write([]byte("\033[2J\033[H"))
+	_, _ = te.terminal.Write([]byte("\033[2J\033[H"))
 }

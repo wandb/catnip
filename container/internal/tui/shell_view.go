@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -151,21 +150,3 @@ func (m model) createNewShellSessionWithCmd() (model, tea.Cmd) {
 	return m, createAndConnectShell(sessionID, terminalWidth, m.shellViewport.Height)
 }
 
-// Helper to format session list for display
-func formatSessionList(sessions map[string]*ShellSession) string {
-	if len(sessions) == 0 {
-		return "No active sessions"
-	}
-	
-	var sb strings.Builder
-	i := 1
-	for id, session := range sessions {
-		status := "disconnected"
-		if session.Connected {
-			status = "connected"
-		}
-		sb.WriteString(fmt.Sprintf("%d. %s (%s)\n", i, id, status))
-		i++
-	}
-	return sb.String()
-}

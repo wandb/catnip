@@ -18,7 +18,7 @@ type SSEClient struct {
 	stopChan chan struct{}
 }
 
-// SSE message types matching the server
+// SSEMessage represents Server-Sent Events message types matching the server
 type SSEMessage struct {
 	Event     AppEvent `json:"event"`
 	Timestamp int64    `json:"timestamp"`

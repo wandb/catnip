@@ -88,7 +88,6 @@ type model struct {
 	lastLogCount     int
 	
 	// Shell view
-	ptyClient        *PTYClient
 	shellViewport    viewport.Model
 	shellOutput      string
 	shellSessions    map[string]*PTYClient
@@ -96,13 +95,8 @@ type model struct {
 	currentSessionID string
 	shellConnecting  bool
 	shellSpinner     spinner.Model
-	shellCursorVisible bool
 	shellLastInput   time.Time
 	terminalEmulator *TerminalEmulator
-	
-	// Logs view scroll preservation
-	logsScrollLocked bool
-	logsLockedPosition int
 	
 	// SSE connection state
 	sseConnected bool
@@ -269,7 +263,7 @@ func (m model) forwardPty(msg tea.KeyMsg) {
 				}
 			}
 			if len(data) > 0 {
-				m.shellLastInput = time.Now() // Update last input time for cursor
+				// Update last input time for cursor
 				go func(d []byte, sessionID string) {
 					if err := session.Client.Send(d); err != nil {
 						debugLog("Failed to send data to PTY: %v", err)
@@ -293,13 +287,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		
-		// Update viewport size for logs view
-		if m.currentView == logsView {
+		// Update viewport size for current view
+		switch m.currentView {
+		case logsView:
 			headerHeight := 4 // Height for header and search bar
 			m.logsViewport.Width = msg.Width - 4
 			m.logsViewport.Height = msg.Height - headerHeight
 			m.searchInput.Width = msg.Width - 20
-		} else if m.currentView == shellView {
+		case shellView:
 			// Update shell viewport size
 			headerHeight := 3
 			m.shellViewport.Width = msg.Width - 2
@@ -503,9 +498,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "0":
 			if m.appHealthy {
 				go func() {
-					if err := openBrowser("http://localhost:8080"); err != nil {
-						// Error opening browser
-					}
+					_ = openBrowser("http://localhost:8080")
 				}()
 			} else {
 				// App is not ready, show bold feedback
@@ -521,9 +514,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					url := fmt.Sprintf("http://localhost:8080/%s", port)
 					go func() {
 						if isAppReady("http://localhost:8080") {
-							if err := openBrowser(url); err != nil {
-								// Error opening browser
-							}
+							_ = openBrowser(url)
 						}
 					}()
 				}
@@ -719,8 +710,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Full refresh (manual refresh or first load)
 			m.logs = newLogs
 			m = m.updateLogFilter()
-		} else {
-			// Same number of logs, no update needed
 		}
 		
 		m.lastLogCount = len(newLogs)
