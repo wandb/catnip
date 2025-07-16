@@ -73,12 +73,12 @@ func (p *PTYClient) readLoop() {
 			if p.onError != nil {
 				p.onError(err)
 			} else {
-				fmt.Printf("WebSocket error: %v\n", err)
+				// Silently ignore - don't print to stdout in TUI mode
 			}
 
 			// Handle unexpected close errors specifically
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				fmt.Printf("Unexpected WebSocket close error: %v\n", err)
+				// Silently ignore - don't print to stdout in TUI mode
 			}
 			return
 		}

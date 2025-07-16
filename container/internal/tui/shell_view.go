@@ -121,6 +121,13 @@ func (m model) createNewShellSessionWithCmd() (model, tea.Cmd) {
 		headerHeight := 3
 		m.shellViewport.Width = m.width - 2
 		m.shellViewport.Height = m.height - headerHeight
+		// Initialize or resize terminal emulator to match viewport
+		if m.terminalEmulator == nil {
+			m.terminalEmulator = NewTerminalEmulator(m.shellViewport.Width, m.shellViewport.Height)
+		} else {
+			m.terminalEmulator.Clear()
+			m.terminalEmulator.Resize(m.shellViewport.Width, m.shellViewport.Height)
+		}
 	}
 	
 	// Return the command to create and connect the session

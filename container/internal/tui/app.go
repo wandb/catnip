@@ -98,6 +98,7 @@ type model struct {
 	shellSpinner     spinner.Model
 	shellCursorVisible bool
 	shellLastInput   time.Time
+	terminalEmulator *TerminalEmulator
 	
 	// Logs view scroll preservation
 	logsScrollLocked bool
@@ -181,6 +182,7 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		currentSessionID: "",
 		shellConnecting:  false,
 		shellSpinner:     spinner.New(),
+		terminalEmulator: nil, // Will be initialized with proper size
 		sseClient:        sseClient,
 	}
 
@@ -227,7 +229,66 @@ func (m model) Init() tea.Cmd {
 	)
 }
 
+func (m model) forwardPty(msg tea.KeyMsg) {
+	// Send input to PTY
+	debugLog("Shell view default case for key: %s", msg.String())
+	if globalShellManager != nil {
+		if session := globalShellManager.GetSession(m.currentSessionID); session != nil && session.Client != nil {
+			var data []byte
+			if len(msg.Runes) > 0 {
+				data = []byte(string(msg.Runes))
+			} else {
+				// Handle special keys
+				switch msg.Type {
+				case tea.KeyEnter:
+					data = []byte("\r")
+				case tea.KeyBackspace:
+					data = []byte{127}
+				case tea.KeyTab:
+					data = []byte("\t")
+				case tea.KeyEsc:
+					data = []byte{27}
+				case tea.KeyUp:
+					data = []byte("\x1b[A")
+				case tea.KeyDown:
+					data = []byte("\x1b[B")
+				case tea.KeyRight:
+					data = []byte("\x1b[C")
+				case tea.KeyLeft:
+					data = []byte("\x1b[D")
+				default:
+					// Handle Ctrl+C, Ctrl+D, etc.
+					switch msg.String() {
+					case "ctrl+c":
+						data = []byte{3}
+					case "ctrl+d":
+						data = []byte{4}
+					case "ctrl+z":
+						data = []byte{26}
+					}
+				}
+			}
+			if len(data) > 0 {
+				m.shellLastInput = time.Now() // Update last input time for cursor
+				go func(d []byte, sessionID string) {
+					if err := session.Client.Send(d); err != nil {
+						debugLog("Failed to send data to PTY: %v", err)
+						// Send error message to handle broken pipe
+						if globalShellManager != nil && globalShellManager.program != nil {
+							globalShellManager.program.Send(shellErrorMsg{
+								sessionID: sessionID,
+								err:       err,
+							})
+						}
+					}
+				}(data, m.currentSessionID)
+			}
+		}
+	}
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	debugLog("Update called with message type: %T", msg)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -244,6 +305,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			headerHeight := 3
 			m.shellViewport.Width = msg.Width - 2
 			m.shellViewport.Height = msg.Height - headerHeight
+			// Resize terminal emulator
+			if m.terminalEmulator != nil {
+				m.terminalEmulator.Resize(msg.Width-2, msg.Height-headerHeight)
+			}
 			// Send resize to PTY
 			if globalShellManager != nil {
 				if session := globalShellManager.GetSession(m.currentSessionID); session != nil && session.Client != nil {
@@ -255,11 +320,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		
 		return m, nil
 
-
 	case tea.KeyMsg:
+		debugLog("KeyMsg received: %s", msg.String())
 		
 		// Handle search mode keys first
 		if m.currentView == logsView && m.searchMode {
@@ -281,8 +345,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		
+		// Check for quit keys in overview mode only
+		if m.currentView == overviewView {
+			switch msg.String() {
+			case "q", "ctrl+c":
+				debugLog("Quit key detected in overview mode, sending tea.Quit")
+				return m, tea.Quit
+			}
+		}
+		
 		// Handle shell view input
+		debugLog("Current view: %v, showSessionList: %v", m.currentView, m.showSessionList)
+		debugLog("About to check if currentView (%v) == shellView (%v)", m.currentView, shellView)
 		if m.currentView == shellView {
+			debugLog("In shell view handling section")
 			if m.showSessionList {
 				// Handle session list navigation
 				switch msg.String() {
@@ -306,6 +382,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m = m.switchToShellSession(sessionIDs[i])
 						}
 					}
+					return m, nil
+				default:
+					// For any other key in session list mode, just ignore
 					return m, nil
 				}
 			} else {
@@ -337,60 +416,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.shellViewport.ScrollDown(1)
 					return m, nil
 				default:
-					// Send input to PTY
-					if globalShellManager != nil {
-						if session := globalShellManager.GetSession(m.currentSessionID); session != nil && session.Client != nil {
-						var data []byte
-						if len(msg.Runes) > 0 {
-							data = []byte(string(msg.Runes))
-						} else {
-							// Handle special keys
-							switch msg.Type {
-							case tea.KeyEnter:
-								data = []byte("\r")
-							case tea.KeyBackspace:
-								data = []byte{127}
-							case tea.KeyTab:
-								data = []byte("\t")
-							case tea.KeyEsc:
-								data = []byte{27}
-							case tea.KeyUp:
-								data = []byte("\x1b[A")
-							case tea.KeyDown:
-								data = []byte("\x1b[B")
-							case tea.KeyRight:
-								data = []byte("\x1b[C")
-							case tea.KeyLeft:
-								data = []byte("\x1b[D")
-							default:
-								// Handle Ctrl+C, Ctrl+D, etc.
-								switch msg.String() {
-								case "ctrl+c":
-									data = []byte{3}
-								case "ctrl+d":
-									data = []byte{4}
-								case "ctrl+z":
-									data = []byte{26}
-								}
-							}
-						}
-						if len(data) > 0 {
-							m.shellLastInput = time.Now() // Update last input time for cursor
-							go func(d []byte) {
-								if err := session.Client.Send(d); err != nil {
-									log.Printf("Failed to send data to PTY: %v", err)
-								}
-							}(data)
-						}
-					}
-					}
+					m.forwardPty(msg)
 					return m, nil
 				}
 			}
 		}
+
+		debugLog("Exited shell view block, continuing...")
 		
 		// Handle logs view navigation
+		debugLog("After shell view, before logs view check, currentView=%v", m.currentView)
 		if m.currentView == logsView && !m.searchMode {
+			debugLog("In logs view handling section")
 			switch msg.String() {
 			case "/":
 				m.searchMode = true
@@ -420,12 +457,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logsViewport.GotoBottom()
 				return m, nil
 			}
+		} else {
+			debugLog("Not in logs view (currentView=%v, searchMode=%v)", m.currentView, m.searchMode)
 		}
 		
-		// Global key handlers
+		// Global key handlers (moved to correct location)
+		debugLog("About to check global key handlers for: %s, currentView=%v", msg.String(), m.currentView)
 		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
 		case "l":
 			if m.currentView == logsView {
 				m.currentView = overviewView
@@ -460,6 +498,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Already in shell view, do nothing
 				return m, nil
 			}
+			return m, nil
 		case "0":
 			if m.appHealthy {
 				go func() {
@@ -490,8 +529,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		
-		return m, nil
 
 	case spinner.TickMsg:
 		if m.currentView == shellView && m.shellConnecting {
@@ -606,9 +643,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.shellConnecting {
 				m.shellConnecting = false
 				m.shellOutput = "" // Clear the "Connecting..." message
+				m.terminalEmulator.Clear()
 			}
-			m.shellOutput += string(msg.data)
+			// Initialize terminal emulator if needed
+			if m.terminalEmulator == nil {
+				// Use current viewport dimensions
+				m.terminalEmulator = NewTerminalEmulator(m.shellViewport.Width, m.shellViewport.Height)
+			}
+			// Process output through terminal emulator
+			m.terminalEmulator.Write(msg.data)
+			// Get rendered output from terminal emulator
+			m.shellOutput = m.terminalEmulator.Render()
 			m.shellViewport.SetContent(m.shellOutput)
+			// Auto-scroll to bottom for new output
 			m.shellViewport.GotoBottom()
 		}
 		return m, nil
@@ -616,9 +663,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case shellErrorMsg:
 		if msg.sessionID == m.currentSessionID {
 			m.shellConnecting = false
-			m.shellOutput += fmt.Sprintf("\n\r[Error: %v]\n\r", msg.err)
-			m.shellViewport.SetContent(m.shellOutput)
-			m.shellViewport.GotoBottom()
+			debugLog("Shell error for session %s: %v", msg.sessionID, msg.err)
+			
+			// Check if it's a connection error (broken pipe, EOF, closed connection, etc.)
+			if msg.err != nil {
+				errStr := msg.err.Error()
+				isConnectionError := strings.Contains(errStr, "broken pipe") ||
+					strings.Contains(errStr, "connection refused") ||
+					strings.Contains(errStr, "EOF") ||
+					strings.Contains(errStr, "use of closed network connection") ||
+					strings.Contains(errStr, "connection reset")
+				
+				if isConnectionError {
+					// Switch back to overview screen
+					m.currentView = overviewView
+					debugLog("Connection error detected (%s), switching to overview", errStr)
+				} else {
+					// Show error in terminal for other errors
+					// Initialize terminal emulator if needed
+					if m.terminalEmulator == nil {
+						m.terminalEmulator = NewTerminalEmulator(m.shellViewport.Width, m.shellViewport.Height)
+					}
+					// Write error to terminal emulator
+					errorMsg := fmt.Sprintf("\n\r[Error: %v]\n\r", msg.err)
+					m.terminalEmulator.Write([]byte(errorMsg))
+					m.shellOutput = m.terminalEmulator.Render()
+					m.shellViewport.SetContent(m.shellOutput)
+				}
+			}
 		}
 		return m, nil
 
@@ -1131,17 +1203,8 @@ func (m model) renderShell() string {
 		return fmt.Sprintf("%s\n%s", header, connectingStyle.Render(connectingContent))
 	}
 	
-	// Shell output in viewport with cursor
-	output := m.shellOutput
-	
-	// Add blinking cursor at the end
-	if time.Since(m.shellLastInput).Milliseconds()%1000 < 500 {
-		output += "█"
-	} else {
-		output += " "
-	}
-	
-	m.shellViewport.SetContent(output)
+	// Shell output is already rendered with cursor by terminal emulator
+	m.shellViewport.SetContent(m.shellOutput)
 	
 	return fmt.Sprintf("%s\n%s", header, m.shellViewport.View())
 }
@@ -1407,7 +1470,15 @@ func (m model) switchToShellSession(sessionID string) model {
 			m.currentSessionID = sessionID
 			m.currentView = shellView
 			m.showSessionList = false
-			m.shellOutput = string(session.Output)
+			// Initialize terminal emulator if needed
+			if m.terminalEmulator == nil {
+				m.terminalEmulator = NewTerminalEmulator(m.shellViewport.Width, m.shellViewport.Height)
+			} else {
+				m.terminalEmulator.Clear()
+			}
+			// Replay output through terminal emulator
+			m.terminalEmulator.Write(session.Output)
+			m.shellOutput = m.terminalEmulator.Render()
 			m.shellViewport.SetContent(m.shellOutput)
 		}
 	}

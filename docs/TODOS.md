@@ -25,3 +25,5 @@
 [ ] - Write a few tests
 [~] - Make an epic README.md
 [ ] - Create a cli to interact with the container.
+[ ] - Fix TUI shell cursor positioning (currently just appends to end of output)
+[ ] - Implement proper ANSI escape sequence parsing for TUI shell
