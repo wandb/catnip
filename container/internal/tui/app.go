@@ -470,6 +470,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentView = overviewView
 				return m, nil
 			} else {
+				prevView := m.currentView
 				m.currentView = logsView
 				// Update viewport size and content
 				if m.height > 0 {
@@ -478,10 +479,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.logsViewport.Height = m.height - headerHeight
 				}
 				m = m.updateLogFilter()
+				// Enter altscreen if coming from shell view
+				if prevView == shellView {
+					return m, tea.Batch(tea.EnterAltScreen, m.fetchLogs())
+				}
 				return m, m.fetchLogs()
 			}
 		case "o":
+			prevView := m.currentView
 			m.currentView = overviewView
+			// Enter altscreen if coming from shell view
+			if prevView == shellView {
+				return m, tea.EnterAltScreen
+			}
 			return m, nil
 		case "s":
 			if m.currentView == overviewView {
