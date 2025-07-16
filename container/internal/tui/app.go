@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,11 +20,33 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
+var debugLogger *log.Logger
+var debugEnabled bool
+
+func init() {
+	debugEnabled = os.Getenv("DEBUG") == "true"
+	if debugEnabled {
+		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			log.Fatalln("Failed to open debug log file:", err)
+		}
+		debugLogger = log.New(logFile, "", log.LstdFlags|log.Lmicroseconds)
+		debugLogger.Println("=== TUI DEBUG LOG STARTED ===")
+	}
+}
+
+func debugLog(format string, args ...interface{}) {
+	if debugEnabled && debugLogger != nil {
+		debugLogger.Printf(format, args...)
+	}
+}
+
 type view int
 
 const (
 	overviewView view = iota
 	logsView
+	shellView
 )
 
 type App struct {
@@ -62,6 +85,22 @@ type model struct {
 	searchPattern    string
 	compiledRegex    *regexp.Regexp
 	lastLogCount     int
+	
+	// Shell view
+	ptyClient        *PTYClient
+	shellViewport    viewport.Model
+	shellOutput      string
+	shellSessions    map[string]*PTYClient
+	showSessionList  bool
+	currentSessionID string
+	shellConnecting  bool
+	shellSpinner     spinner.Model
+	shellCursorVisible bool
+	shellLastInput   time.Time
+	
+	// Logs view scroll preservation
+	logsScrollLocked bool
+	logsLockedPosition int
 }
 
 type tickMsg time.Time
@@ -75,27 +114,15 @@ type quitMsg struct{}
 type healthStatusMsg bool
 type animationTickMsg time.Time
 type logsTickMsg time.Time
-
-var debugLogger *log.Logger
-var debugEnabled bool
-
-func init() {
-	debugEnabled = os.Getenv("DEBUG") == "true"
-	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			log.Fatalln("Failed to open debug log file:", err)
-		}
-		debugLogger = log.New(logFile, "", log.LstdFlags|log.Lmicroseconds)
-		debugLogger.Println("=== TUI DEBUG LOG STARTED ===")
-	}
+type shellOutputMsg struct {
+	sessionID string
+	data      []byte
+}
+type shellErrorMsg struct {
+	sessionID string
+	err       error
 }
 
-func debugLog(format string, args ...interface{}) {
-	if debugEnabled && debugLogger != nil {
-		debugLogger.Printf(format, args...)
-	}
-}
 
 func NewApp(containerService *services.ContainerService, containerName, workDir string) *App {
 	return &App{
@@ -105,11 +132,7 @@ func NewApp(containerService *services.ContainerService, containerName, workDir 
 }
 
 func (a *App) Run(ctx context.Context, workDir string) error {
-	start := time.Now()
-	debugLog("TUI Run() starting - workDir: %s", workDir)
-	
 	// Initialize search input
-	debugLog("TUI Run() initializing search input - elapsed: %v", time.Since(start))
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Enter search pattern (regex supported)..."
 	searchInput.CharLimit = 100
@@ -120,12 +143,9 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 	searchInput.Cursor.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true)
 	
 	// Initialize viewport (will be sized in Update)
-	debugLog("TUI Run() initializing viewport - elapsed: %v", time.Since(start))
 	logsViewport := viewport.New(80, 20)
 	
-	debugLog("TUI Run() loading logo - elapsed: %v", time.Since(start))
 	logo := loadLogo()
-	debugLog("TUI Run() logo loaded - elapsed: %v", time.Since(start))
 	
 	m := model{
 		containerService: a.containerService,
@@ -145,25 +165,34 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		searchMode:       false,
 		searchPattern:    "",
 		lastLogCount:     0,
+		shellSessions:    make(map[string]*PTYClient),
+		shellViewport:    viewport.New(80, 24),
+		shellOutput:      "",
+		showSessionList:  false,
+		currentSessionID: "",
+		shellConnecting:  false,
+		shellSpinner:     spinner.New(),
 	}
 
-	debugLog("TUI Run() creating tea program - elapsed: %v", time.Since(start))
-	a.program = tea.NewProgram(m, tea.WithAltScreen())
+	a.program = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
+	
+	// Initialize the shell manager with the program
+	InitShellManager(a.program)
 
-	debugLog("TUI Run() starting tea program - elapsed: %v", time.Since(start))
 	_, err := a.program.Run()
-	debugLog("TUI Run() tea program finished - elapsed: %v, err: %v", time.Since(start), err)
 	return err
 }
 
 func (m model) Init() tea.Cmd {
-	start := time.Now()
-	debugLog("TUI Init() starting")
+	// Initialize spinner
+	m.shellSpinner.Spinner = spinner.Dot
+	m.shellSpinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	
 	// Start background data fetching
-	result := tea.Batch(
+	return tea.Batch(
 		m.fetchRepositoryInfo(),
 		m.fetchHealthStatus(),
+		m.shellSpinner.Tick,
 		tea.Tick(time.Second*5, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		}),
@@ -174,17 +203,11 @@ func (m model) Init() tea.Cmd {
 			return logsTickMsg(t)
 		}),
 	)
-	
-	debugLog("TUI Init() finished - elapsed: %v", time.Since(start))
-	return result
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	start := time.Now()
-	
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		debugLog("TUI Update() WindowSizeMsg: %dx%d", msg.Width, msg.Height)
 		m.width = msg.Width
 		m.height = msg.Height
 		
@@ -194,34 +217,168 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.logsViewport.Width = msg.Width - 4
 			m.logsViewport.Height = msg.Height - headerHeight
 			m.searchInput.Width = msg.Width - 20
+		} else if m.currentView == shellView {
+			// Update shell viewport size
+			headerHeight := 3
+			m.shellViewport.Width = msg.Width - 2
+			m.shellViewport.Height = msg.Height - headerHeight
+			// Send resize to PTY
+			if globalShellManager != nil {
+				if session := globalShellManager.GetSession(m.currentSessionID); session != nil && session.Client != nil {
+					go session.Client.Resize(m.shellViewport.Width, m.shellViewport.Height)
+				}
+			}
 		}
 		
-		debugLog("TUI Update() WindowSizeMsg processed - elapsed: %v", time.Since(start))
+		return m, nil
+
+	case tea.MouseMsg:
+		// Handle mouse wheel scrolling in different views
+		// Check for wheel events (they may have action=0 or action=1 depending on terminal)
+		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				if m.currentView == shellView && !m.showSessionList {
+					m.shellViewport.ScrollUp(3)
+				} else if m.currentView == logsView && !m.searchMode {
+					m.logsViewport.ScrollUp(3)
+				}
+				return m, nil
+			case tea.MouseButtonWheelDown:
+				if m.currentView == shellView && !m.showSessionList {
+					m.shellViewport.ScrollDown(3)
+				} else if m.currentView == logsView && !m.searchMode {
+					m.logsViewport.ScrollDown(3)
+				}
+				return m, nil
+			}
+		}
+		// Ignore other mouse events
 		return m, nil
 
 	case tea.KeyMsg:
-		debugLog("TUI Update() KeyMsg: %s (type: %T, runes: %v)", msg.String(), msg, msg.Runes)
 		
 		// Handle search mode keys first
 		if m.currentView == logsView && m.searchMode {
 			switch msg.String() {
 			case "esc":
-				debugLog("TUI Update() SEARCH MODE ESC")
 				m.searchMode = false
 				m.searchInput.Blur()
 				return m, nil
 			case "enter":
-				debugLog("TUI Update() SEARCH MODE ENTER")
 				m.searchMode = false
 				m.searchInput.Blur()
 				m.searchPattern = m.searchInput.Value()
 				m = m.updateLogFilter()
 				return m, nil
 			default:
-				debugLog("TUI Update() SEARCH MODE INPUT")
 				var cmd tea.Cmd
 				m.searchInput, cmd = m.searchInput.Update(msg)
 				return m, cmd
+			}
+		}
+		
+		// Handle shell view input
+		if m.currentView == shellView {
+			if m.showSessionList {
+				// Handle session list navigation
+				switch msg.String() {
+				case "esc":
+					m.showSessionList = false
+					m.currentView = overviewView
+					return m, nil
+				case "n":
+					m.showSessionList = false
+					newModel, cmd := m.createNewShellSessionWithCmd()
+					return newModel, cmd
+				case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+					i := int(msg.String()[0] - '1')
+					if globalShellManager != nil {
+						sessionIDs := make([]string, 0, len(globalShellManager.sessions))
+						for id := range globalShellManager.sessions {
+							sessionIDs = append(sessionIDs, id)
+						}
+						if i < len(sessionIDs) {
+							m.showSessionList = false
+							m = m.switchToShellSession(sessionIDs[i])
+						}
+					}
+					return m, nil
+				}
+			} else {
+				// Forward all input to PTY except special keys
+				switch msg.String() {
+				case "ctrl+o":
+					m.currentView = overviewView
+					return m, nil
+				case "ctrl+q":
+					return m, tea.Quit
+				// Handle viewport scrolling
+				case "pgup", "ctrl+b":
+					m.shellViewport.PageUp()
+					return m, nil
+				case "pgdown", "ctrl+f":
+					m.shellViewport.PageDown()
+					return m, nil
+				case "home", "ctrl+home":
+					m.shellViewport.GotoTop()
+					return m, nil
+				case "end", "ctrl+end":
+					m.shellViewport.GotoBottom()
+					return m, nil
+				// Alt/Option key combinations (for Mac)
+				case "alt+up":
+					m.shellViewport.ScrollUp(1)
+					return m, nil
+				case "alt+down":
+					m.shellViewport.ScrollDown(1)
+					return m, nil
+				default:
+					// Send input to PTY
+					if globalShellManager != nil {
+						if session := globalShellManager.GetSession(m.currentSessionID); session != nil && session.Client != nil {
+						var data []byte
+						if len(msg.Runes) > 0 {
+							data = []byte(string(msg.Runes))
+						} else {
+							// Handle special keys
+							switch msg.Type {
+							case tea.KeyEnter:
+								data = []byte("\r")
+							case tea.KeyBackspace:
+								data = []byte{127}
+							case tea.KeyTab:
+								data = []byte("\t")
+							case tea.KeyEsc:
+								data = []byte{27}
+							case tea.KeyUp:
+								data = []byte("\x1b[A")
+							case tea.KeyDown:
+								data = []byte("\x1b[B")
+							case tea.KeyRight:
+								data = []byte("\x1b[C")
+							case tea.KeyLeft:
+								data = []byte("\x1b[D")
+							default:
+								// Handle Ctrl+C, Ctrl+D, etc.
+								switch msg.String() {
+								case "ctrl+c":
+									data = []byte{3}
+								case "ctrl+d":
+									data = []byte{4}
+								case "ctrl+z":
+									data = []byte{26}
+								}
+							}
+						}
+						if len(data) > 0 {
+							m.shellLastInput = time.Now() // Update last input time for cursor
+							go session.Client.Send(data)
+						}
+					}
+					}
+					return m, nil
+				}
 			}
 		}
 		
@@ -229,38 +386,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.currentView == logsView && !m.searchMode {
 			switch msg.String() {
 			case "/":
-				debugLog("TUI Update() LOGS SEARCH KEY")
 				m.searchMode = true
 				cmd := m.searchInput.Focus()
 				return m, cmd
 			case "c":
-				debugLog("TUI Update() LOGS CLEAR FILTER")
 				m.searchPattern = ""
 				m.searchInput.SetValue("")
 				m = m.updateLogFilter()
 				return m, nil
 			case "up", "k":
-				debugLog("TUI Update() LOGS SCROLL UP")
 				m.logsViewport.ScrollUp(1)
 				return m, nil
 			case "down", "j":
-				debugLog("TUI Update() LOGS SCROLL DOWN")
 				m.logsViewport.ScrollDown(1)
 				return m, nil
 			case "pgup", "b":
-				debugLog("TUI Update() LOGS PAGE UP")
 				m.logsViewport.PageUp()
 				return m, nil
 			case "pgdown", "f":
-				debugLog("TUI Update() LOGS PAGE DOWN")
 				m.logsViewport.PageDown()
 				return m, nil
 			case "home", "g":
-				debugLog("TUI Update() LOGS GOTO TOP")
 				m.logsViewport.GotoTop()
 				return m, nil
 			case "end", "G":
-				debugLog("TUI Update() LOGS GOTO BOTTOM")
 				m.logsViewport.GotoBottom()
 				return m, nil
 			}
@@ -269,17 +418,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global key handlers
 		switch msg.String() {
 		case "q", "ctrl+c":
-			debugLog("TUI Update() QUIT KEY DETECTED: %s", msg.String())
 			return m, tea.Quit
 		case "l":
-			debugLog("TUI Update() LOGS KEY DETECTED")
 			if m.currentView == logsView {
 				m.currentView = overviewView
-				debugLog("TUI Update() switched to overview view")
 				return m, nil
 			} else {
 				m.currentView = logsView
-				debugLog("TUI Update() switched to logs view")
 				// Update viewport size and content
 				if m.height > 0 {
 					headerHeight := 4
@@ -290,24 +435,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.fetchLogs()
 			}
 		case "o":
-			debugLog("TUI Update() OVERVIEW KEY DETECTED")
 			m.currentView = overviewView
 			return m, nil
-		case "r":
-			debugLog("TUI Update() REFRESH KEY DETECTED")
-			if m.currentView == logsView {
-				return m, m.fetchLogs()
+		case "s":
+			if m.currentView == overviewView {
+				// Check if we have existing sessions
+				if globalShellManager != nil && len(globalShellManager.sessions) > 0 {
+					m.showSessionList = true
+					m.currentView = shellView // Switch to shell view to show the list
+					return m, nil
+				} else {
+					// Create new session
+					newModel, cmd := m.createNewShellSessionWithCmd()
+					return newModel, cmd
+				}
+			} else if m.currentView == shellView {
+				// Already in shell view, do nothing
+				return m, nil
 			}
-			return m, tea.Batch(
-				m.fetchContainerInfo(),
-				m.fetchPorts(),
-			)
 		case "0":
-			debugLog("TUI Update() MAIN UI KEY DETECTED")
 			if m.appHealthy {
 				go func() {
 					if err := openBrowser("http://localhost:8080"); err != nil {
-						debugLog("Error opening browser: %v", err)
+						// Error opening browser
 					}
 				}()
 			} else {
@@ -317,17 +467,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-			debugLog("TUI Update() PORT KEY DETECTED: %s", msg.String())
 			if m.currentView == overviewView {
 				portIndex := int(msg.String()[0] - '1') // Convert '1'-'9' to 0-8
 				if portIndex < len(m.ports) {
 					port := m.ports[portIndex]
 					url := fmt.Sprintf("http://localhost:8080/%s", port)
-					debugLog("TUI Update() opening port %s at %s", port, url)
 					go func() {
 						if isAppReady("http://localhost:8080") {
 							if err := openBrowser(url); err != nil {
-								debugLog("Error opening browser: %v", err)
+								// Error opening browser
 							}
 						}
 					}()
@@ -336,11 +484,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		
-		debugLog("TUI Update() KeyMsg not handled - elapsed: %v", time.Since(start))
 		return m, nil
 
+	case spinner.TickMsg:
+		if m.currentView == shellView && m.shellConnecting {
+			var cmd tea.Cmd
+			m.shellSpinner, cmd = m.shellSpinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	
 	case tickMsg:
-		debugLog("TUI Update() tickMsg - elapsed: %v", time.Since(start))
 		m.lastUpdate = time.Time(msg)
 		return m, tea.Batch(
 			tick(),
@@ -350,7 +504,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 	
 	case animationTickMsg:
-		debugLog("TUI Update() animationTickMsg - elapsed: %v", time.Since(start))
 		// Update animation state
 		m.bootingAnimDots = (m.bootingAnimDots + 1) % 4
 		
@@ -364,7 +517,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 	
 	case logsTickMsg:
-		debugLog("TUI Update() logsTickMsg - elapsed: %v", time.Since(start))
 		// Auto-refresh logs only when in logs view
 		if m.currentView == logsView {
 			return m, tea.Batch(
@@ -373,68 +525,84 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}),
 				m.fetchLogs(),
 			)
+		} else if m.currentView == shellView {
+			// Schedule next tick for cursor blinking
+			return m, tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
+				return logsTickMsg(t)
+			})
 		}
-		// If not in logs view, just schedule next tick
+		// If not in logs or shell view, just schedule next tick
 		return m, tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
 			return logsTickMsg(t)
 		})
+	
+	case shellOutputMsg:
+		if msg.sessionID == m.currentSessionID {
+			// First output means we're connected
+			if m.shellConnecting {
+				m.shellConnecting = false
+				m.shellOutput = "" // Clear the "Connecting..." message
+			}
+			m.shellOutput += string(msg.data)
+			m.shellViewport.SetContent(m.shellOutput)
+			m.shellViewport.GotoBottom()
+		}
+		return m, nil
+	
+	case shellErrorMsg:
+		if msg.sessionID == m.currentSessionID {
+			m.shellConnecting = false
+			m.shellOutput += fmt.Sprintf("\n\r[Error: %v]\n\r", msg.err)
+			m.shellViewport.SetContent(m.shellOutput)
+			m.shellViewport.GotoBottom()
+		}
+		return m, nil
 
 	case containerInfoMsg:
-		debugLog("TUI Update() containerInfoMsg - elapsed: %v", time.Since(start))
 		m.containerInfo = map[string]interface{}(msg)
 
 	case repositoryInfoMsg:
-		debugLog("TUI Update() repositoryInfoMsg - elapsed: %v", time.Since(start))
 		m.repositoryInfo = map[string]interface{}(msg)
 
 	case containerReposMsg:
-		debugLog("TUI Update() containerReposMsg - elapsed: %v", time.Since(start))
 		m.containerRepos = map[string]interface{}(msg)
 
 	case logsMsg:
-		debugLog("TUI Update() logsMsg - elapsed: %v", time.Since(start))
 		newLogs := []string(msg)
 		
 		// Check if this is new logs or a full refresh
 		if len(newLogs) > m.lastLogCount {
 			// We have new logs to stream
 			m = m.streamNewLogs(newLogs)
-		} else {
+		} else if len(newLogs) < m.lastLogCount || m.lastLogCount == 0 {
 			// Full refresh (manual refresh or first load)
 			m.logs = newLogs
 			m = m.updateLogFilter()
+		} else {
+			// Same number of logs, no update needed
 		}
 		
 		m.lastLogCount = len(newLogs)
 
 	case portsMsg:
-		debugLog("TUI Update() portsMsg - elapsed: %v", time.Since(start))
 		m.ports = []string(msg)
 
 	case healthStatusMsg:
-		debugLog("TUI Update() healthStatusMsg: %t - elapsed: %v", bool(msg), time.Since(start))
 		m.appHealthy = bool(msg)
 
 	case errMsg:
-		debugLog("TUI Update() errMsg: %v - elapsed: %v", error(msg), time.Since(start))
 		m.err = error(msg)
 		
 	case quitMsg:
-		debugLog("TUI Update() quitMsg - elapsed: %v", time.Since(start))
 		return m, tea.Quit
 	}
 
-	debugLog("TUI Update() finished - elapsed: %v", time.Since(start))
 	return m, nil
 }
 
 
 func (m model) View() string {
-	start := time.Now()
-	debugLog("TUI View() starting - currentView: %d, width: %d", m.currentView, m.width)
-	
 	if m.width == 0 {
-		debugLog("TUI View() returning empty - no width")
 		return ""
 	}
 
@@ -442,17 +610,14 @@ func (m model) View() string {
 	
 	switch m.currentView {
 	case overviewView:
-		debugLog("TUI View() calling renderOverview() - elapsed: %v", time.Since(start))
 		content = m.renderOverview()
-		debugLog("TUI View() renderOverview() finished - elapsed: %v", time.Since(start))
 	case logsView:
-		debugLog("TUI View() calling renderLogs() - elapsed: %v", time.Since(start))
 		content = m.renderLogs()
-		debugLog("TUI View() renderLogs() finished - elapsed: %v", time.Since(start))
+	case shellView:
+		content = m.renderShell()
 	}
 
 	// Header
-	debugLog("TUI View() creating header style - elapsed: %v", time.Since(start))
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("6")).
@@ -461,12 +626,9 @@ func (m model) View() string {
 		Width(m.width - 2).
 		Padding(0, 1)
 
-	debugLog("TUI View() rendering header - elapsed: %v", time.Since(start))
 	header := headerStyle.Render(fmt.Sprintf("🐱 Catnip - %s", m.containerName))
-	debugLog("TUI View() header rendered - elapsed: %v", time.Since(start))
 
 	// Footer
-	debugLog("TUI View() creating footer - elapsed: %v", time.Since(start))
 	footerStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("8")).
 		BorderStyle(lipgloss.NormalBorder()).
@@ -476,9 +638,13 @@ func (m model) View() string {
 
 	var footer string
 	if m.currentView == overviewView {
-		debugLog("TUI View() rendering overview footer - elapsed: %v", time.Since(start))
-		footer = footerStyle.Render("Press l for logs, 0 to open UI, 1-9 to open ports, r to refresh, q to quit")
-		debugLog("TUI View() overview footer rendered - elapsed: %v", time.Since(start))
+		footer = footerStyle.Render("Press l for logs, s for shell, 0 to open UI, 1-9 to open ports, q to quit")
+	} else if m.currentView == shellView {
+		scrollKey := "Alt"
+		if runtime.GOOS == "darwin" {
+			scrollKey = "Option"
+		}
+		footer = footerStyle.Render(fmt.Sprintf("Ctrl+O: overview | Ctrl+Q: quit | %s+↑↓/PgUp/PgDn: scroll", scrollKey))
 	} else {
 		if m.searchMode {
 			// Replace footer with search input
@@ -487,38 +653,29 @@ func (m model) View() string {
 			footer = footerStyle.Render(searchContent)
 		} else {
 			if m.searchPattern != "" {
-				footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit • Streaming filtered logs")
+				footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, q quit • Streaming filtered logs")
 			} else {
-				footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, r refresh, q quit • Auto-refresh: ON")
+				footer = footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, q quit • Auto-refresh: ON")
 			}
 		}
 	}
 
 	// Main content area
-	debugLog("TUI View() creating main content area - elapsed: %v", time.Since(start))
 	mainHeight := m.height - 4 // Account for header and footer
 	mainStyle := lipgloss.NewStyle().
 		Width(m.width - 2).
 		Height(mainHeight).
 		Padding(1)
 
-	debugLog("TUI View() rendering main content - elapsed: %v", time.Since(start))
 	mainContent := mainStyle.Render(content)
-	debugLog("TUI View() main content rendered - elapsed: %v", time.Since(start))
 
-	debugLog("TUI View() joining vertical layout - elapsed: %v", time.Since(start))
 	result := lipgloss.JoinVertical(lipgloss.Left, header, mainContent, footer)
-	debugLog("TUI View() finished - elapsed: %v", time.Since(start))
 	return result
 }
 
 func (m model) renderOverview() string {
-	start := time.Now()
-	debugLog("renderOverview() starting")
-	
 	// Check if we have enough width for the logo (70 cols + 70 for content = 140+ total)
 	showLogo := m.width >= 150 && len(m.logo) > 0
-	debugLog("renderOverview() showLogo: %t - elapsed: %v", showLogo, time.Since(start))
 	
 	var sections []string
 
@@ -528,16 +685,13 @@ func (m model) renderOverview() string {
 		Foreground(lipgloss.Color("2"))
 	
 	sections = append(sections, statusStyle.Render("📦 Container Status"))
-	debugLog("renderOverview() added container status header - elapsed: %v", time.Since(start))
 	
 	if m.containerInfo["name"] != nil {
 		sections = append(sections, fmt.Sprintf("  Name: %v", m.containerInfo["name"]))
 		sections = append(sections, fmt.Sprintf("  Runtime: %v", m.containerInfo["runtime"]))
 		sections = append(sections, fmt.Sprintf("  Last updated: %s", m.lastUpdate.Format("15:04:05")))
-		debugLog("renderOverview() added container info - elapsed: %v", time.Since(start))
 	} else {
 		sections = append(sections, "  Status: Starting...")
-		debugLog("renderOverview() added starting status - elapsed: %v", time.Since(start))
 	}
 
 	sections = append(sections, "")
@@ -713,7 +867,13 @@ func (m model) renderLogs() string {
 	header := strings.Join(sections, "\n")
 	
 	// Viewport shows the scrollable content
+	currentOffset := m.logsViewport.YOffset
 	viewportContent := m.logsViewport.View()
+	afterOffset := m.logsViewport.YOffset
+	
+	if currentOffset != afterOffset {
+		debugLog("renderLogs: viewport offset changed during View()! before=%d, after=%d", currentOffset, afterOffset)
+	}
 	
 	return header + "\n" + viewportContent
 }
@@ -864,6 +1024,73 @@ func (m model) renderWithLogo(content string) string {
 	return strings.Join(result, "\n")
 }
 
+func (m model) renderShell() string {
+	if m.showSessionList {
+		return m.renderSessionList()
+	}
+	
+	// Header with session info
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("15")).
+		Background(lipgloss.Color("8")).
+		Padding(0, 1).
+		Width(m.width - 2)
+	
+	header := headerStyle.Render(fmt.Sprintf("Shell Session: %s | Press Ctrl+O to return to overview", m.currentSessionID))
+	
+	// If connecting, show spinner
+	if m.shellConnecting {
+		connectingStyle := lipgloss.NewStyle().
+			Padding(2, 0).
+			Align(lipgloss.Center).
+			Width(m.width - 2).
+			Height(m.height - 6)
+		
+		connectingContent := fmt.Sprintf("%s Connecting to shell...\n\nPlease wait while we establish a connection to the container.", m.shellSpinner.View())
+		return fmt.Sprintf("%s\n%s", header, connectingStyle.Render(connectingContent))
+	}
+	
+	// Shell output in viewport with cursor
+	output := m.shellOutput
+	
+	// Add blinking cursor at the end
+	if time.Since(m.shellLastInput).Milliseconds()%1000 < 500 {
+		output += "█"
+	} else {
+		output += " "
+	}
+	
+	m.shellViewport.SetContent(output)
+	
+	return fmt.Sprintf("%s\n%s", header, m.shellViewport.View())
+}
+
+func (m model) renderSessionList() string {
+	listStyle := lipgloss.NewStyle().
+		Padding(1, 2).
+		Width(m.width - 4)
+	
+	var content strings.Builder
+	content.WriteString("Active Shell Sessions:\n\n")
+	
+	i := 1
+	if globalShellManager != nil {
+		for sessionID, session := range globalShellManager.sessions {
+			status := "disconnected"
+			if session.Connected {
+				status = "connected"
+			}
+			content.WriteString(fmt.Sprintf("  %d. %s (%s)\n", i, sessionID, status))
+			i++
+		}
+	}
+	
+	content.WriteString("\n  n. Create new session")
+	content.WriteString("\n  ESC. Cancel\n")
+	
+	return listStyle.Render(content.String())
+}
+
 // stripAnsi removes ANSI escape sequences for width calculation
 func stripAnsi(s string) string {
 	// Simple regex-like approach to remove ANSI sequences
@@ -896,16 +1123,59 @@ func (m model) streamNewLogs(newLogs []string) model {
 	// Update the complete logs
 	m.logs = newLogs
 	
-	// If no filter is active, just append new entries and scroll to bottom
+	// If no filter is active, update logs but preserve scroll position
 	if m.searchPattern == "" {
+		// Calculate if we're at the bottom more precisely
+		// We're at bottom if the current view can see the last line
+		currentY := m.logsViewport.YOffset
+		totalLines := m.logsViewport.TotalLineCount()
+		viewHeight := m.logsViewport.Height
+		
+		// Check if viewport thinks it's at bottom
+		viewportAtBottom := m.logsViewport.AtBottom()
+		
+		// Consider "at bottom" if we can see the last line (with 2 line tolerance for edge cases)
+		atBottomThreshold := totalLines - viewHeight - 2
+		calculatedAtBottom := currentY >= atBottomThreshold && totalLines > viewHeight
+		
+		debugLog("streamNewLogs: currentY=%d, totalLines=%d, viewHeight=%d, threshold=%d, calculatedAtBottom=%v, viewportAtBottom=%v, newEntries=%d", 
+			currentY, totalLines, viewHeight, atBottomThreshold, calculatedAtBottom, viewportAtBottom, len(newEntries))
+		
+		// Update the filtered logs
 		m.filteredLogs = m.logs
+		
+		// Update viewport content
 		m.logsViewport.SetContent(strings.Join(m.filteredLogs, "\n"))
-		m.logsViewport.GotoBottom()
+		
+		// Decide whether to scroll or preserve position
+		if viewportAtBottom || calculatedAtBottom {
+			debugLog("streamNewLogs: was at bottom, calling GotoBottom()")
+			m.logsViewport.GotoBottom()
+		} else {
+			// User has scrolled up - preserve their position
+			debugLog("streamNewLogs: NOT at bottom, setting position back to Y=%d", currentY)
+			// The SetContent call might have reset the position, so force it back
+			m.logsViewport.YOffset = currentY
+			
+			// Log what actually happened
+			actualY := m.logsViewport.YOffset
+			debugLog("streamNewLogs: After direct assignment - wanted Y=%d, got Y=%d", currentY, actualY)
+		}
+		
 		return m
 	}
 	
 	// Filter is active - preserve viewport position and only filter new entries
+	// Calculate if we're at the bottom more precisely
 	currentY := m.logsViewport.YOffset
+	totalLines := m.logsViewport.TotalLineCount()
+	viewHeight := m.logsViewport.Height
+	
+	// Consider "at bottom" if we can see the last line (with 2 line tolerance for edge cases)
+	wasAtBottom := currentY >= (totalLines - viewHeight - 2)
+	
+	debugLog("streamNewLogs (filtered): currentY=%d, totalLines=%d, viewHeight=%d, wasAtBottom=%v, newEntries=%d", 
+		currentY, totalLines, viewHeight, wasAtBottom, len(newEntries))
 	
 	// Filter new entries
 	var newFilteredEntries []string
@@ -934,13 +1204,26 @@ func (m model) streamNewLogs(newLogs []string) model {
 	// Update viewport content
 	m.logsViewport.SetContent(strings.Join(m.filteredLogs, "\n"))
 	
-	// Preserve viewport position unless user is at the bottom
-	if currentY >= m.logsViewport.TotalLineCount()-m.logsViewport.Height {
-		// User was at the bottom, keep following
+	newTotalLines := m.logsViewport.TotalLineCount()
+	debugLog("streamNewLogs (filtered): after SetContent - newTotalLines=%d, YOffset=%d", 
+		newTotalLines, m.logsViewport.YOffset)
+	
+	// Only auto-scroll if user was already at the bottom
+	if wasAtBottom {
+		debugLog("streamNewLogs (filtered): was at bottom, calling GotoBottom()")
 		m.logsViewport.GotoBottom()
 	} else {
-		// User was not at the bottom, preserve position
+		// Preserve the Y offset
+		debugLog("streamNewLogs (filtered): was NOT at bottom, preserving position at Y=%d", currentY)
+		// SetContent seems to reset the viewport, so directly set the offset
 		m.logsViewport.SetYOffset(currentY)
+		
+		// Force a viewport update to ensure the view matches the offset
+		m.logsViewport, _ = m.logsViewport.Update(nil)
+		
+		// Verify position was set correctly
+		actualY := m.logsViewport.YOffset
+		debugLog("streamNewLogs (filtered): After SetYOffset - wanted Y=%d, actual Y=%d", currentY, actualY)
 	}
 	
 	return m
@@ -948,6 +1231,10 @@ func (m model) streamNewLogs(newLogs []string) model {
 
 // updateLogFilter applies the current search pattern to logs and updates the viewport
 func (m model) updateLogFilter() model {
+	// Check if we should preserve scroll position
+	preserveScroll := m.logsViewport.YOffset > 0 && !m.logsViewport.AtBottom()
+	currentY := m.logsViewport.YOffset
+	
 	if m.searchPattern == "" {
 		m.filteredLogs = m.logs
 		m.compiledRegex = nil
@@ -983,8 +1270,15 @@ func (m model) updateLogFilter() model {
 	
 	// Update viewport content
 	m.logsViewport.SetContent(strings.Join(m.filteredLogs, "\n"))
-	// Scroll to bottom to show most recent logs
-	m.logsViewport.GotoBottom()
+	
+	// Only scroll to bottom if this is initial load or user was already at bottom
+	if preserveScroll {
+		debugLog("updateLogFilter: preserving scroll position at Y=%d", currentY)
+		m.logsViewport.SetYOffset(currentY)
+	} else {
+		debugLog("updateLogFilter: calling GotoBottom() (was at bottom or Y=0)")
+		m.logsViewport.GotoBottom()
+	}
 	return m
 }
 
@@ -1024,4 +1318,18 @@ func (m model) fetchHealthStatus() tea.Cmd {
 		healthy := isAppReady("http://localhost:8080")
 		return healthStatusMsg(healthy)
 	}
+}
+
+// Shell-related methods
+func (m model) switchToShellSession(sessionID string) model {
+	if globalShellManager != nil {
+		if session := globalShellManager.GetSession(sessionID); session != nil {
+			m.currentSessionID = sessionID
+			m.currentView = shellView
+			m.showSessionList = false
+			m.shellOutput = string(session.Output)
+			m.shellViewport.SetContent(m.shellOutput)
+		}
+	}
+	return m
 }

@@ -3,6 +3,7 @@
 [x] - Implement the dynamic port detection and reverse proxy.
 [~] - Add todo interface for task management
 [~] - Setup CloudFlare hosting
+[ ] - Wire up PTY Session.Title to the ActiveSessionInfo endpoint...
 [ ] - Figure out auto merge / conflict resolution
 [ ] - Wire up multiple trials
 [ ] - Support forking from existing worktrees

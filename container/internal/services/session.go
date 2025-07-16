@@ -32,6 +32,7 @@ type SessionService struct {
 // ActiveSessionInfo represents information about an active session in a workspace
 type ActiveSessionInfo struct {
 	ClaudeSessionUUID string     `json:"claude_session_uuid"`
+	Title             string     `json:"title" example:"Updating README.md"`
 	StartedAt         time.Time  `json:"started_at"`
 	ResumedAt         *time.Time `json:"resumed_at,omitempty"`
 	EndedAt           *time.Time `json:"ended_at,omitempty"`
