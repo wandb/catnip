@@ -1,12 +1,30 @@
 # Catnip Go Server Development
 
 # Build the server binary
-build: swagger
+build: swagger build-cli
     go build -o bin/catnip cmd/server/main.go
 
 # Build the CLI binary
 build-cli:
-    go build -o bin/catctrl cmd/cli/main.go
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Get the latest git tag (version)
+    LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+    VERSION="${LATEST_TAG}-dev"
+    
+    # Get git commit info
+    COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    echo "Building catctrl ${VERSION} (commit: ${COMMIT})"
+    
+    go build -ldflags "\
+        -X main.version=${VERSION} \
+        -X main.commit=${COMMIT} \
+        -X main.date=${DATE} \
+        -X main.builtBy=just" \
+        -o bin/catctrl cmd/cli/main.go
 
 # Run the server
 run: build

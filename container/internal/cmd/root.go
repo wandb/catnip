@@ -9,12 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Version information
+// Version information - set by main package
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
-	builtBy = "unknown"
+	version string
+	commit  string
+	date    string
+	builtBy string
 )
 
 // SetVersionInfo sets the version information from the main package
@@ -23,6 +23,8 @@ func SetVersionInfo(v, c, d, b string) {
 	commit = c
 	date = d
 	builtBy = b
+	// Update the cobra command's Version field
+	rootCmd.Version = v
 }
 
 var rootCmd = &cobra.Command{
@@ -45,7 +47,6 @@ var rootCmd = &cobra.Command{
 Run **catctrl run** to start a new container with an interactive TUI.
 
 Use **catctrl run --help** for detailed options and examples.`,
-	Version: version,
 }
 
 func Execute() {
