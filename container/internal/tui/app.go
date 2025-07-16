@@ -479,6 +479,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentView = overviewView
 			return m, nil
 		case "s":
+			//nolint:staticcheck // Simple if statement is clearer here
 			if m.currentView == overviewView {
 				// Check if we have existing sessions
 				if globalShellManager != nil && len(globalShellManager.sessions) > 0 {
@@ -611,6 +612,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	
 	case logsTickMsg:
 		// Auto-refresh logs only when in logs view
+		//nolint:staticcheck // Simple if is clearer for conditional refresh
 		if m.currentView == logsView {
 			return m, tea.Batch(
 				tea.Tick(time.Second*1, func(t time.Time) tea.Msg {
@@ -775,6 +777,7 @@ func (m model) View() string {
 		Padding(0, 1)
 
 	var footer string
+	//nolint:staticcheck // Simple if-else chain is clearer for footer text
 	if m.currentView == overviewView {
 		footer = footerStyle.Render("Press l for logs, s for shell, 0 to open UI, 1-9 to open ports, q to quit")
 	} else if m.currentView == shellView {

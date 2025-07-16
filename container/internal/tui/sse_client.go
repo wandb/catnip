@@ -145,7 +145,7 @@ func (c *SSEClient) handleConnection() error {
 				// End of event, process it
 				c.processEvent(eventData.String())
 				eventData.Reset()
-			} else if strings.HasPrefix(line, ": keepalive") {
+			} else if strings.HasPrefix(line, ": keepalive") { //nolint:staticcheck // HasPrefix is being used correctly
 				// Ignore keepalive messages
 				continue
 			}

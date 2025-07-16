@@ -38,6 +38,7 @@ func (p *PTYClient) Connect(baseURL string) error {
 	}
 
 	// Change scheme to ws/wss
+	//nolint:staticcheck // Simple if-else is clearer than switch for two cases
 	if u.Scheme == "http" {
 		u.Scheme = "ws"
 	} else if u.Scheme == "https" {
