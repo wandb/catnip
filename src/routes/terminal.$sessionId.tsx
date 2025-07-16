@@ -195,12 +195,6 @@ function TerminalPage() {
         buffer.length = 0;
       }
       if (data) {
-        console.log(
-          "🔍 Writing data",
-          data.length,
-          instance.cols,
-          instance.rows,
-        );
         instance.write(data);
       }
     };

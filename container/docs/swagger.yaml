@@ -319,6 +319,13 @@ definitions:
         example: "2024-01-15T14:30:00Z"
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_models.TitleEntry:
+    properties:
+      timestamp:
+        type: string
+      title:
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.Worktree:
     description: Git worktree with branch and status information
     properties:
@@ -368,6 +375,15 @@ definitions:
         description: Repository this worktree belongs to
         example: anthropics/claude-code
         type: string
+      session_title:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry'
+        description: Current session title (from terminal title escape sequences)
+      session_title_history:
+        description: History of session titles
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry'
+        type: array
       source_branch:
         description: Branch this worktree was originally created from
         example: main

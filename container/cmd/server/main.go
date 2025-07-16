@@ -103,7 +103,7 @@ func main() {
 	ptyHandler := handlers.NewPTYHandler(gitService)
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
-	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService)
+	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, ptyHandler.GetSessionService())
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
 	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService)
 	portsHandler := handlers.NewPortsHandler(portMonitor)

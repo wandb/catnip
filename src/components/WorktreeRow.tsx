@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { 
   AlertTriangle, 
+  ChevronDown,
   Eye, 
   FileText, 
   GitMerge, 
@@ -19,7 +20,7 @@ import {
   Terminal, 
   Trash2 
 } from "lucide-react";
-import { type Worktree, type WorktreeDiffStats, type PullRequestInfo } from "@/lib/git-api";
+import { type Worktree, type WorktreeDiffStats, type PullRequestInfo, type LocalRepository } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 import { getRelativeTime, getDuration } from "@/lib/git-utils";
 import type { ConflictStatus } from "@/hooks/useGitState";
@@ -60,9 +61,15 @@ interface WorktreeHeaderProps {
   worktree: Worktree;
   hasConflicts: boolean;
   claudeSession?: ClaudeSession;
+  repositoryUrl?: string;
 }
 
-function WorktreeHeader({ worktree, hasConflicts, claudeSession }: WorktreeHeaderProps) {
+function WorktreeHeader({ worktree, hasConflicts, claudeSession, repositoryUrl }: WorktreeHeaderProps) {
+  let repoUrl = repositoryUrl
+  if (repoUrl && repoUrl.startsWith('file:///live/')) {
+    repoUrl = repoUrl.slice(13)
+  }
+  
   return (
     <div className="flex items-center gap-3">
       <div className="flex items-center gap-2">
@@ -74,7 +81,7 @@ function WorktreeHeader({ worktree, hasConflicts, claudeSession }: WorktreeHeade
           {worktree.name}
         </Link>
         <Badge variant="outline" className="text-xs">
-          {worktree.branch}
+          {repoUrl}::{worktree.branch}
         </Badge>
       </div>
       {hasConflicts && (
@@ -111,12 +118,97 @@ function WorktreeHeader({ worktree, hasConflicts, claudeSession }: WorktreeHeade
 
 
 interface WorktreeClaudeStatusProps {
+  worktree: Worktree;
   claudeSession?: ClaudeSession;
 }
 
-function WorktreeClaudeStatus({ claudeSession }: WorktreeClaudeStatusProps) {
+interface SessionTitleProps {
+  worktree: Worktree;
+  isActive: boolean;
+}
+
+function SessionTitle({ worktree, isActive }: SessionTitleProps) {
+  const { session_title, session_title_history = [] } = worktree;
+  
+  if (!session_title && (!session_title_history || session_title_history.length === 0)) {
+    return null;
+  }
+
+  const displayTitle = session_title?.title || session_title_history[session_title_history.length - 1]?.title
+  if (!displayTitle) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2">
+      {session_title_history && session_title_history.length > 1 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-auto p-1 justify-start hover:bg-muted">
+              <div className="flex items-center gap-2">
+                {isActive && (
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                )}
+                <span className="text-sm font-medium text-foreground" title={displayTitle}>
+                  {displayTitle}
+                </span>
+                <ChevronDown size={12} className="text-muted-foreground" />
+              </div>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="right" align="start" className="w-80">
+            <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+              Session history
+            </div>
+            <DropdownMenuSeparator />
+            {session_title_history.slice().reverse().map((historyEntry, index) => (
+              <div key={index} className="px-2 py-1.5 text-sm">
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex flex-col min-w-0">
+                    <span className="truncate font-medium">{historyEntry.title}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(historyEntry.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  {index === 0 && (
+                    <Badge variant="secondary" className="ml-2 text-xs shrink-0">
+                      Current
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <div className="flex items-center gap-2 p-1">
+          {isActive && (
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          )}
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-foreground" title={displayTitle}>
+              {displayTitle}
+            </span>
+            {session_title && (
+              <span className="text-xs text-muted-foreground">
+                {new Date(session_title.timestamp).toLocaleString()}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorktreeClaudeStatus({ worktree, claudeSession }: WorktreeClaudeStatusProps) {
   if (!claudeSession) {
-    return <p className="text-xs text-muted-foreground">No Claude sessions</p>;
+    return (
+      <div>
+        <p className="text-xs text-muted-foreground">No Claude sessions</p>
+        <SessionTitle worktree={worktree} isActive={false} />
+      </div>
+    );
   }
 
   const sessionStatusText = (() => {
@@ -137,14 +229,10 @@ function WorktreeClaudeStatus({ claudeSession }: WorktreeClaudeStatusProps) {
 
   return (
     <div>
-      <p className="text-xs text-muted-foreground">
+      <SessionTitle worktree={worktree} isActive={claudeSession.isActive} />
+      <p className="text-xs text-muted-foreground mt-2">
         {sessionStatusText}
       </p>
-      {claudeSession.header && (
-        <p className="text-xs font-medium text-foreground mt-2" title={claudeSession.header}>
-          Session prompt: "{claudeSession.header}"
-        </p>
-      )}
     </div>
   );
 }
@@ -297,6 +385,7 @@ function WorktreeActions({
 
 interface WorktreeRowPropsWithPR extends WorktreeRowProps {
   prStatuses?: Record<string, PullRequestInfo | undefined>;
+  repositories?: Record<string, LocalRepository>;
 }
 
 export function WorktreeRow({
@@ -314,6 +403,7 @@ export function WorktreeRow({
   onCreatePreview,
   onConfirmDelete,
   prStatuses,
+  repositories,
 }: WorktreeRowPropsWithPR) {
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
@@ -321,6 +411,7 @@ export function WorktreeRow({
   const summary = worktreeSummaries[worktree.id];
   // const diffStat = diffStats[worktree.id];
   const prStatus = prStatuses?.[worktree.id];
+  const repositoryUrl = repositories?.[worktree.repo_id]?.url;
 
   const openPrDialog = (worktreeId: string, branchName: string) => {
     // Check if PR already exists
@@ -356,7 +447,7 @@ export function WorktreeRow({
     <div className="border rounded-lg p-4 mb-4 bg-card">
       <div className="flex items-center justify-between">
         <div className="flex-1">
-          <WorktreeHeader worktree={worktree} hasConflicts={hasConflicts} claudeSession={claudeSession} />
+          <WorktreeHeader worktree={worktree} hasConflicts={hasConflicts} claudeSession={claudeSession} repositoryUrl={repositoryUrl} />
           
           <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
             <span className="text-xs">
@@ -384,9 +475,9 @@ export function WorktreeRow({
             )}
           </div>
 
-          <div className="flex items-center gap-4 mt-1">
+          <div className="flex items-center gap-4">
             <div className="text-xs text-muted-foreground">
-              <WorktreeClaudeStatus claudeSession={claudeSession} />
+              <WorktreeClaudeStatus worktree={worktree} claudeSession={claudeSession} />
             </div>
           </div>
         </div>

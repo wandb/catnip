@@ -1390,6 +1390,17 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_vanpelt_catnip_internal_models.TitleEntry": {
+            "type": "object",
+            "properties": {
+                "timestamp": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_models.Worktree": {
             "description": "Git worktree with branch and status information",
             "type": "object",
@@ -1448,6 +1459,21 @@ const docTemplate = `{
                     "description": "Repository this worktree belongs to",
                     "type": "string",
                     "example": "anthropics/claude-code"
+                },
+                "session_title": {
+                    "description": "Current session title (from terminal title escape sequences)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry"
+                        }
+                    ]
+                },
+                "session_title_history": {
+                    "description": "History of session titles",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry"
+                    }
                 },
                 "source_branch": {
                     "description": "Branch this worktree was originally created from",

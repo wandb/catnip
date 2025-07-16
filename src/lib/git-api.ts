@@ -6,6 +6,11 @@ export interface GitStatus {
   worktree_count?: number;
 }
 
+export interface TitleEntry {
+  title: string;
+  timestamp: string;
+}
+
 export interface Worktree {
   id: string;
   repo_id: string;
@@ -19,6 +24,8 @@ export interface Worktree {
   is_dirty: boolean;
   created_at: string;
   last_accessed: string;
+  session_title?: TitleEntry;
+  session_title_history?: TitleEntry[];
 }
 
 interface Owner {

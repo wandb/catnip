@@ -14,6 +14,7 @@ import (
 type GitHandler struct {
 	gitService     *services.GitService
 	gitHTTPService *services.GitHTTPService
+	sessionService *services.SessionService
 }
 
 // CheckoutResponse represents the response when checking out a repository
@@ -88,10 +89,11 @@ type WorktreeDiffResponse struct {
 }
 
 // NewGitHandler creates a new Git handler
-func NewGitHandler(gitService *services.GitService, gitHTTPService *services.GitHTTPService) *GitHandler {
+func NewGitHandler(gitService *services.GitService, gitHTTPService *services.GitHTTPService, sessionService *services.SessionService) *GitHandler {
 	return &GitHandler{
 		gitService:     gitService,
 		gitHTTPService: gitHTTPService,
+		sessionService: sessionService,
 	}
 }
 
@@ -149,6 +151,32 @@ func (h *GitHandler) GetStatus(c *fiber.Ctx) error {
 // @Router /v1/git/worktrees [get]
 func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 	worktrees := h.gitService.ListWorktrees()
+
+	// Enhance worktrees with session information
+	for _, worktree := range worktrees {
+		if sessionInfo, exists := h.sessionService.GetActiveSession(worktree.Path); exists {
+			// Convert services.TitleEntry to models.TitleEntry
+			if sessionInfo.Title != nil {
+				worktree.SessionTitle = &models.TitleEntry{
+					Title:     sessionInfo.Title.Title,
+					Timestamp: sessionInfo.Title.Timestamp,
+				}
+			}
+
+			// Convert []services.TitleEntry to []models.TitleEntry
+			if len(sessionInfo.TitleHistory) > 0 {
+				history := make([]models.TitleEntry, len(sessionInfo.TitleHistory))
+				for i, entry := range sessionInfo.TitleHistory {
+					history[i] = models.TitleEntry{
+						Title:     entry.Title,
+						Timestamp: entry.Timestamp,
+					}
+				}
+				worktree.SessionTitleHistory = history
+			}
+		}
+	}
+
 	return c.JSON(worktrees)
 }
 

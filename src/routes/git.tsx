@@ -244,6 +244,7 @@ function GitPage() {
                   onCreatePreview={() => void createWorktreePreview(worktree.id, worktree.branch)}
                   prStatuses={prStatuses}
                   onConfirmDelete={onConfirmDelete}
+                  repositories={gitStatus.repositories}
                 />
               ))}
             </div>
