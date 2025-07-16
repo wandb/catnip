@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -91,7 +90,7 @@ func (c *SSEClient) connect() {
 			return
 		default:
 			if err := c.handleConnection(); err != nil {
-				log.Printf("SSE connection error: %v", err)
+				debugLog("SSE connection error: %v", err)
 				if c.program != nil {
 					c.program.Send(sseErrorMsg{err: err})
 				}
@@ -168,7 +167,7 @@ func (c *SSEClient) handleConnection() error {
 func (c *SSEClient) processEvent(data string) {
 	var msg SSEMessage
 	if err := json.Unmarshal([]byte(data), &msg); err != nil {
-		log.Printf("Failed to parse SSE message: %v", err)
+		debugLog("Failed to parse SSE message: %v", err)
 		return
 	}
 

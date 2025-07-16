@@ -105,6 +105,8 @@ type model struct {
 	
 	// SSE connection state
 	sseConnected bool
+	sseClient    *SSEClient
+	sseStarted   bool
 }
 
 type tickMsg time.Time
@@ -151,6 +153,9 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 	
 	logo := loadLogo()
 	
+	// Initialize SSE client but don't start it yet - wait for health check
+	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
+	
 	m := model{
 		containerService: a.containerService,
 		containerName:    a.containerName,
@@ -176,6 +181,7 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		currentSessionID: "",
 		shellConnecting:  false,
 		shellSpinner:     spinner.New(),
+		sseClient:        sseClient,
 	}
 
 	a.program = tea.NewProgram(m, tea.WithAltScreen())
@@ -183,12 +189,17 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 	// Initialize the shell manager with the program
 	InitShellManager(a.program)
 	
-	// Initialize and start SSE client
-	a.sseClient = NewSSEClient("http://localhost:8080/v1/events", a.program)
-	a.sseClient.Start()
-	defer a.sseClient.Stop()
+	// Update SSE client with the program reference
+	sseClient.program = a.program
+	a.sseClient = sseClient
 
 	_, err := a.program.Run()
+	
+	// Clean up SSE client if it was started
+	if a.sseClient != nil {
+		a.sseClient.Stop()
+	}
+	
 	return err
 }
 
@@ -492,17 +503,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	
 	case tickMsg:
 		m.lastUpdate = time.Time(msg)
-		// Only fetch container info and health status now
-		// Ports will come from SSE events
-		return m, tea.Batch(
-			tick(),
-			m.fetchContainerInfo(),
-			m.fetchHealthStatus(),
-		)
+		
+		// Build batch of commands based on connection state
+		cmds := []tea.Cmd{tick(), m.fetchContainerInfo()}
+		
+		// Only fetch health status if SSE is not connected
+		// Once SSE is connected, we use that as our health indicator
+		if !m.sseConnected {
+			cmds = append(cmds, m.fetchHealthStatus())
+		}
+		
+		return m, tea.Batch(cmds...)
 	
 	// SSE event messages
 	case sseConnectedMsg:
 		m.sseConnected = true
+		m.appHealthy = true  // SSE connection indicates app is healthy
 		debugLog("SSE connected")
 		return m, nil
 	
@@ -510,7 +526,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sseConnected = false
 		debugLog("SSE disconnected")
 		// Fall back to polling when disconnected
-		return m, m.fetchPorts()
+		return m, tea.Batch(m.fetchPorts(), m.fetchHealthStatus())
 	
 	case ssePortOpenedMsg:
 		// Add port to our list
@@ -636,7 +652,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ports = []string(msg)
 
 	case healthStatusMsg:
+		wasHealthy := m.appHealthy
 		m.appHealthy = bool(msg)
+		
+		// Start SSE client when app becomes healthy for the first time
+		if m.appHealthy && !wasHealthy && !m.sseStarted && m.sseClient != nil {
+			m.sseClient.Start()
+			m.sseStarted = true
+			debugLog("Started SSE client after health check passed")
+		}
 
 	case errMsg:
 		m.err = error(msg)
