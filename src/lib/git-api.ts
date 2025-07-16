@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { createMergeConflictPrompt } from "./git-utils";
 
 export interface GitStatus {
-  repositories?: Record<string, Repository>;
+  repositories?: Record<string, LocalRepository>;
   worktree_count?: number;
 }
 

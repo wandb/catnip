@@ -34,6 +34,7 @@ export interface GitState {
   prStatuses: Record<string, PullRequestInfo | undefined>;
   loading: boolean;
   reposLoading: boolean;
+  worktreesLoading: boolean;
 }
 
 export function useGitState() {
@@ -51,6 +52,7 @@ export function useGitState() {
     prStatuses: {},
     loading: false,
     reposLoading: false,
+    worktreesLoading: false,
   });
 
   const fetchGitStatus = async () => {
