@@ -84,15 +84,6 @@ func WriteClaudeSettingsFile(homeDir string) error {
 		echo 'No changes to commit'
 	else 
 		TOOL_DATA=$(cat)
-		# Test if jq can parse the JSON
-		echo "Testing jq parsing..." >> /tmp/claude-hook-debug.log
-		echo "$TOOL_DATA" | jq . > /dev/null 2>&1
-		if [ $? -eq 0 ]; then
-			echo "jq parsing: SUCCESS" >> /tmp/claude-hook-debug.log
-		else
-			echo "jq parsing: FAILED" >> /tmp/claude-hook-debug.log
-		fi
-		
 		TOOL_NAME=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_name // "tool"')
 		FILE_PATH=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_input.file_path // .tool_input.target_file // .tool_input.target_notebook // .tool_response.filePath // empty')
 		COMMAND=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_input.command // empty' | head -c 50)
