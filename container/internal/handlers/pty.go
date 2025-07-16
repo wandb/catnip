@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,6 +38,7 @@ type Session struct {
 	LastAccess  time.Time
 	WorkDir     string
 	Agent       string
+	Title       string
 	ClaudeSessionID string // Track Claude session UUID for resume functionality
 	connections map[*websocket.Conn]bool
 	connMutex   sync.RWMutex
@@ -64,6 +66,42 @@ type ResizeMsg struct {
 type ControlMsg struct {
 	Type string `json:"type"`
 	Data string `json:"data,omitempty"`
+}
+
+// sanitizeTitle ensures the extracted title is safe and conforms to expected formats
+func sanitizeTitle(title string) string {
+	// Allow only alphanumeric characters, spaces, and basic punctuation
+	safeTitle := strings.Map(func(r rune) rune {
+		if strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,-_", r) {
+			return r
+		}
+		return -1
+	}, title)
+
+	// Limit the length of the title to prevent abuse
+	if len(safeTitle) > 100 {
+		safeTitle = safeTitle[:100]
+	}
+
+	return safeTitle
+}
+
+// extractTitleFromEscapeSequence extracts the fancy Claude terminal title from escape sequences
+func extractTitleFromEscapeSequence(data []byte) (string, bool) {
+	startSeq := []byte("\x1b]0;")
+	endChar := byte('\x07')
+
+	start := bytes.Index(data, startSeq)
+	if start == -1 {
+		return "", false
+	}
+	end := bytes.IndexByte(data[start+len(startSeq):], endChar)
+	if end == -1 {
+		return "", false
+	}
+
+	title := data[start+len(startSeq) : start+len(startSeq)+end]
+	return sanitizeTitle(string(title)), true
 }
 
 // NewPTYHandler creates a new PTY handler
@@ -180,6 +218,10 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			
 			// Add to buffer (unlimited growth for TUI compatibility)
 			session.bufferMutex.Lock()
+			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
+				session.Title = title
+				log.Printf("🪧 Updated terminal title: %q", title)
+			}
 			session.outputBuffer = append(session.outputBuffer, buf[:n]...)
 			// Update buffered dimensions to current terminal size
 			session.bufferedCols = session.cols

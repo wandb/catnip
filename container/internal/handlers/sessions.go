@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -21,6 +22,8 @@ type SessionsResponse map[string]ActiveSessionInfo
 type ActiveSessionInfo struct {
 	// Unique identifier for the Claude session
 	ClaudeSessionUUID string     `json:"claude_session_uuid" example:"abc123-def456-ghi789"`
+	// Title of the session
+	Title             string     `json:"title" example:"Updating README.md"`
 	// When the session was initially started
 	StartedAt         time.Time  `json:"started_at" example:"2024-01-15T14:30:00Z"`
 	// When the session was resumed (if applicable)

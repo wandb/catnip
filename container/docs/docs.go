@@ -1395,6 +1395,11 @@ const docTemplate = `{
                     "description": "When the session was initially started",
                     "type": "string",
                     "example": "2024-01-15T14:30:00Z"
+                },
+                "title": {
+                    "description": "Title of the session",
+                    "type": "string",
+                    "example": "Updating README.md"
                 }
             }
         },
