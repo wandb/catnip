@@ -133,19 +133,21 @@ func (m Model) handleAnimationTick(msg animationTickMsg) (tea.Model, tea.Cmd) {
 // Logs tick handler
 func (m Model) handleLogsTick(msg logsTickMsg) (tea.Model, tea.Cmd) {
 	// Auto-refresh logs only when in logs view
-	if m.currentView == LogsView {
+	switch m.currentView {
+	case LogsView:
 		return m, tea.Batch(
 			logsTick(),
 			m.fetchLogs(),
 		)
-	} else if m.currentView == ShellView {
+	case ShellView:
 		// Schedule next tick for cursor blinking
 		return m, tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
 			return logsTickMsg(t)
 		})
+	default:
+		// If not in logs or shell view, just schedule next tick
+		return m, logsTick()
 	}
-	// If not in logs or shell view, just schedule next tick
-	return m, logsTick()
 }
 
 // Data message handlers
@@ -170,15 +172,17 @@ func (m Model) handleLogs(msg logsMsg) (tea.Model, tea.Cmd) {
 	// Check if this is new logs or a full refresh
 	if len(newLogs) > m.lastLogCount {
 		// We have new logs to stream
-		if m.currentView == LogsView {
-			logsView := m.views[LogsView].(*logsView)
+		switch m.currentView {
+		case LogsView:
+			logsView := m.views[LogsView].(*LogsViewImpl)
 			m = *logsView.streamNewLogs(&m, newLogs)
 		}
 	} else if len(newLogs) < m.lastLogCount || m.lastLogCount == 0 {
 		// Full refresh (manual refresh or first load)
 		m.logs = newLogs
-		if m.currentView == LogsView {
-			logsView := m.views[LogsView].(*logsView)
+		switch m.currentView {
+		case LogsView:
+			logsView := m.views[LogsView].(*LogsViewImpl)
 			m = *logsView.updateLogFilter(&m)
 		}
 	}
@@ -272,7 +276,7 @@ func (m Model) handleSSEError(msg sseErrorMsg) (tea.Model, tea.Cmd) {
 // Shell message handlers
 func (m Model) handleShellOutput(msg shellOutputMsg) (tea.Model, tea.Cmd) {
 	if m.currentView == ShellView {
-		shellView := m.views[ShellView].(*shellView)
+		shellView := m.views[ShellView].(*ShellViewImpl)
 		newModel, cmd := shellView.handleShellOutput(&m, msg)
 		return *newModel, cmd
 	}
@@ -281,7 +285,7 @@ func (m Model) handleShellOutput(msg shellOutputMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleShellError(msg shellErrorMsg) (tea.Model, tea.Cmd) {
 	if m.currentView == ShellView {
-		shellView := m.views[ShellView].(*shellView)
+		shellView := m.views[ShellView].(*ShellViewImpl)
 		newModel, cmd := shellView.handleShellError(&m, msg)
 		return *newModel, cmd
 	}

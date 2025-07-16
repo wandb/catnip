@@ -15,8 +15,11 @@ import (
 type ViewType int
 
 const (
+	// OverviewView represents the main dashboard view
 	OverviewView ViewType = iota
+	// LogsView represents the logs viewing interface
 	LogsView
+	// ShellView represents the shell terminal interface
 	ShellView
 )
 
@@ -44,7 +47,6 @@ type Model struct {
 	containerService *services.ContainerService
 	containerName    string
 	workDir          string
-	program          *tea.Program
 	sseClient        *SSEClient
 
 	// Current state

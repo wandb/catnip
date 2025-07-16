@@ -9,21 +9,21 @@ import (
 	"github.com/vanpelt/catnip/internal/tui/components"
 )
 
-// shellView handles the shell view functionality
-type shellView struct{}
+// ShellViewImpl handles the shell view functionality
+type ShellViewImpl struct{}
 
 // NewShellView creates a new shell view instance
-func NewShellView() *shellView {
-	return &shellView{}
+func NewShellView() *ShellViewImpl {
+	return &ShellViewImpl{}
 }
 
 // GetViewType returns the view type identifier
-func (v *shellView) GetViewType() ViewType {
+func (v *ShellViewImpl) GetViewType() ViewType {
 	return ShellView
 }
 
 // Update handles shell-specific message processing
-func (v *shellView) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
+func (v *ShellViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 	// Handle shell output and error messages
 	switch msg := msg.(type) {
 	case shellOutputMsg:
@@ -43,7 +43,7 @@ func (v *shellView) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 // HandleKey processes key messages for the shell view
-func (v *shellView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
+func (v *ShellViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 	// Handle session list navigation
 	if m.showSessionList {
 		switch msg.String() {
@@ -118,7 +118,7 @@ func (v *shellView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 }
 
 // HandleResize processes window resize for the shell view
-func (v *shellView) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
+func (v *ShellViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
 	// Update shell viewport size
 	headerHeight := 3
 	m.shellViewport.Width = msg.Width - 2
@@ -145,7 +145,7 @@ func (v *shellView) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.C
 }
 
 // Render generates the shell view content
-func (v *shellView) Render(m *Model) string {
+func (v *ShellViewImpl) Render(m *Model) string {
 	if m.showSessionList {
 		return v.renderSessionList(m)
 	}
@@ -173,7 +173,7 @@ func (v *shellView) Render(m *Model) string {
 
 // Helper methods
 
-func (v *shellView) renderSessionList(m *Model) string {
+func (v *ShellViewImpl) renderSessionList(m *Model) string {
 	listStyle := lipgloss.NewStyle().
 		Padding(1, 2).
 		Width(m.width - 4)
@@ -199,7 +199,7 @@ func (v *shellView) renderSessionList(m *Model) string {
 	return listStyle.Render(content.String())
 }
 
-func (v *shellView) handleShellOutput(m *Model, msg shellOutputMsg) (*Model, tea.Cmd) {
+func (v *ShellViewImpl) handleShellOutput(m *Model, msg shellOutputMsg) (*Model, tea.Cmd) {
 	// First output means we're connected
 	if m.shellConnecting {
 		m.shellConnecting = false
@@ -227,7 +227,7 @@ func (v *shellView) handleShellOutput(m *Model, msg shellOutputMsg) (*Model, tea
 	return m, nil
 }
 
-func (v *shellView) handleShellError(m *Model, msg shellErrorMsg) (*Model, tea.Cmd) {
+func (v *ShellViewImpl) handleShellError(m *Model, msg shellErrorMsg) (*Model, tea.Cmd) {
 	m.shellConnecting = false
 	debugLog("Shell error for session %s: %v", msg.sessionID, msg.err)
 
@@ -261,7 +261,7 @@ func (v *shellView) handleShellError(m *Model, msg shellErrorMsg) (*Model, tea.C
 	return m, nil
 }
 
-func (v *shellView) forwardPty(m *Model, msg tea.KeyMsg) {
+func (v *ShellViewImpl) forwardPty(m *Model, msg tea.KeyMsg) {
 	// Send input to PTY
 	debugLog("Shell view default case for key: %s", msg.String())
 	if globalShellManager != nil {
@@ -318,7 +318,7 @@ func (v *shellView) forwardPty(m *Model, msg tea.KeyMsg) {
 	}
 }
 
-func (v *shellView) switchToShellSession(m *Model, sessionID string) *Model {
+func (v *ShellViewImpl) switchToShellSession(m *Model, sessionID string) *Model {
 	if globalShellManager != nil {
 		if session := globalShellManager.GetSession(sessionID); session != nil {
 			m.currentSessionID = sessionID
@@ -340,7 +340,7 @@ func (v *shellView) switchToShellSession(m *Model, sessionID string) *Model {
 	return m
 }
 
-func (v *shellView) createNewShellSessionWithCmd(m *Model) (*Model, tea.Cmd) {
+func (v *ShellViewImpl) createNewShellSessionWithCmd(m *Model) (*Model, tea.Cmd) {
 	// This is the same logic as in overview view - could be extracted to shared function
-	return (&overviewView{}).createNewShellSessionWithCmd(m)
+	return (&OverviewViewImpl{}).createNewShellSessionWithCmd(m)
 }

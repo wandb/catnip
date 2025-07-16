@@ -13,27 +13,27 @@ import (
 	"github.com/vanpelt/catnip/internal/tui/components"
 )
 
-// overviewView handles the main dashboard view
-type overviewView struct{}
+// OverviewViewImpl handles the main dashboard view
+type OverviewViewImpl struct{}
 
 // NewOverviewView creates a new overview view instance
-func NewOverviewView() *overviewView {
-	return &overviewView{}
+func NewOverviewView() *OverviewViewImpl {
+	return &OverviewViewImpl{}
 }
 
 // GetViewType returns the view type identifier
-func (v *overviewView) GetViewType() ViewType {
+func (v *OverviewViewImpl) GetViewType() ViewType {
 	return OverviewView
 }
 
 // Update handles overview-specific message processing
-func (v *overviewView) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
+func (v *OverviewViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 	// Override in main update loop - overview view doesn't handle updates directly
 	return m, nil
 }
 
 // HandleKey processes key messages for the overview view
-func (v *overviewView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
+func (v *OverviewViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 	switch msg.String() {
 	case components.KeyQuit, components.KeyQuitAlt:
 		return m, tea.Quit
@@ -57,7 +57,8 @@ func (v *overviewView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 		m.SwitchToView(OverviewView)
 
 	case components.KeyShell:
-		if m.currentView == OverviewView {
+		switch m.currentView {
+		case OverviewView:
 			// Check if we have existing sessions
 			if globalShellManager != nil && len(globalShellManager.sessions) > 0 {
 				m.showSessionList = true
@@ -66,7 +67,7 @@ func (v *overviewView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 				// Create new session
 				return v.createNewShellSessionWithCmd(m)
 			}
-		} else if m.currentView == ShellView {
+		case ShellView:
 			// Already in shell view, do nothing
 			return m, nil
 		}
@@ -102,13 +103,13 @@ func (v *overviewView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 }
 
 // HandleResize processes window resize for the overview view
-func (v *overviewView) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
+func (v *OverviewViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
 	// Overview view doesn't need special resize handling
 	return m, nil
 }
 
 // Render generates the overview view content
-func (v *overviewView) Render(m *Model) string {
+func (v *OverviewViewImpl) Render(m *Model) string {
 	// Check if we have enough width for the logo (70 cols + 70 for content = 140+ total)
 	showLogo := m.width >= 150 && len(m.logo) > 0
 
@@ -243,7 +244,7 @@ func (v *overviewView) Render(m *Model) string {
 
 // Helper methods
 
-func (v *overviewView) updateLogFilter(m *Model) *Model {
+func (v *OverviewViewImpl) updateLogFilter(m *Model) *Model {
 	// Simplified log filter update for overview
 	if m.searchPattern == "" {
 		m.filteredLogs = m.logs
@@ -254,14 +255,14 @@ func (v *overviewView) updateLogFilter(m *Model) *Model {
 	return m
 }
 
-func (v *overviewView) fetchLogs(m *Model) tea.Cmd {
+func (v *OverviewViewImpl) fetchLogs(m *Model) tea.Cmd {
 	return func() tea.Msg {
 		// This will be moved to commands.go
 		return nil
 	}
 }
 
-func (v *overviewView) createNewShellSessionWithCmd(m *Model) (*Model, tea.Cmd) {
+func (v *OverviewViewImpl) createNewShellSessionWithCmd(m *Model) (*Model, tea.Cmd) {
 	sessionID := fmt.Sprintf("shell-%d", time.Now().Unix())
 	m.currentSessionID = sessionID
 	m.SwitchToView(ShellView)
@@ -287,7 +288,7 @@ func (v *overviewView) createNewShellSessionWithCmd(m *Model) (*Model, tea.Cmd) 
 	return m, createAndConnectShell(sessionID, terminalWidth, m.shellViewport.Height)
 }
 
-func (v *overviewView) renderWithLogo(m *Model, content string) string {
+func (v *OverviewViewImpl) renderWithLogo(m *Model, content string) string {
 	contentLines := strings.Split(content, "\n")
 	logoLines := m.logo
 
@@ -336,7 +337,7 @@ func (v *overviewView) renderWithLogo(m *Model, content string) string {
 	return strings.Join(result, "\n")
 }
 
-func (v *overviewView) stripAnsi(s string) string {
+func (v *OverviewViewImpl) stripAnsi(s string) string {
 	// Simple regex-like approach to remove ANSI sequences
 	var result strings.Builder
 	inEscape := false
@@ -358,7 +359,7 @@ func (v *overviewView) stripAnsi(s string) string {
 	return result.String()
 }
 
-func (v *overviewView) openBrowser(url string) error {
+func (v *OverviewViewImpl) openBrowser(url string) error {
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
@@ -375,7 +376,7 @@ func (v *overviewView) openBrowser(url string) error {
 	return cmd.Start()
 }
 
-func (v *overviewView) isAppReady(baseURL string) bool {
+func (v *OverviewViewImpl) isAppReady(baseURL string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(baseURL + "/health")
 	if err != nil {

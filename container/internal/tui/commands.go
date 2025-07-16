@@ -91,14 +91,6 @@ func (m *Model) fetchRepositoryInfo() tea.Cmd {
 	}
 }
 
-func (m *Model) fetchContainerRepos() tea.Cmd {
-	return func() tea.Msg {
-		// This would need to be implemented in the container service
-		// For now, return empty
-		return containerReposMsg(make(map[string]interface{}))
-	}
-}
-
 // fetchHealthStatus checks the health of the main application
 func (m *Model) fetchHealthStatus() tea.Cmd {
 	return func() tea.Msg {

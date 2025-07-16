@@ -8,21 +8,21 @@ import (
 	"github.com/vanpelt/catnip/internal/tui/components"
 )
 
-// logsView handles the logs view functionality
-type logsView struct{}
+// LogsViewImpl handles the logs view functionality
+type LogsViewImpl struct{}
 
 // NewLogsView creates a new logs view instance
-func NewLogsView() *logsView {
-	return &logsView{}
+func NewLogsView() *LogsViewImpl {
+	return &LogsViewImpl{}
 }
 
 // GetViewType returns the view type identifier
-func (v *logsView) GetViewType() ViewType {
+func (v *LogsViewImpl) GetViewType() ViewType {
 	return LogsView
 }
 
 // Update handles logs-specific message processing
-func (v *logsView) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
+func (v *LogsViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	// Update search input if in search mode
@@ -37,7 +37,7 @@ func (v *logsView) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 // HandleKey processes key messages for the logs view
-func (v *logsView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
+func (v *LogsViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 	// Handle search mode keys first
 	if m.searchMode {
 		switch msg.String() {
@@ -111,7 +111,7 @@ func (v *logsView) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 }
 
 // HandleResize processes window resize for the logs view
-func (v *logsView) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
+func (v *LogsViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
 	headerHeight := 4 // Height for header and search bar
 	m.logsViewport.Width = msg.Width - 4
 	m.logsViewport.Height = msg.Height - headerHeight
@@ -120,7 +120,7 @@ func (v *logsView) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cm
 }
 
 // Render generates the logs view content
-func (v *logsView) Render(m *Model) string {
+func (v *LogsViewImpl) Render(m *Model) string {
 	var sections []string
 
 	// Header with log count info
@@ -166,7 +166,7 @@ func (v *logsView) Render(m *Model) string {
 }
 
 // updateLogFilter applies the current search pattern to logs and updates the viewport
-func (v *logsView) updateLogFilter(m *Model) *Model {
+func (v *LogsViewImpl) updateLogFilter(m *Model) *Model {
 	// Check if we should preserve scroll position
 	preserveScroll := m.logsViewport.YOffset > 0 && !m.logsViewport.AtBottom()
 	currentY := m.logsViewport.YOffset
@@ -219,7 +219,7 @@ func (v *logsView) updateLogFilter(m *Model) *Model {
 }
 
 // streamNewLogs handles streaming new log entries with filtering
-func (v *logsView) streamNewLogs(m *Model, newLogs []string) *Model {
+func (v *LogsViewImpl) streamNewLogs(m *Model, newLogs []string) *Model {
 	// Get only the new entries
 	newEntries := newLogs[m.lastLogCount:]
 
