@@ -1,8 +1,6 @@
 name: Test
 
-on:
-  push:
-    branches: [main, develop, cvp]
+on: push
 
 jobs:
   test:
