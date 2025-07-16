@@ -69,10 +69,16 @@ func (p *PTYClient) readLoop() {
 	for {
 		messageType, message, err := p.conn.ReadMessage()
 		if err != nil {
+			// Log all errors for better debugging
+			if p.onError != nil {
+				p.onError(err)
+			} else {
+				fmt.Printf("WebSocket error: %v\n", err)
+			}
+
+			// Handle unexpected close errors specifically
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				if p.onError != nil {
-					p.onError(err)
-				}
+				fmt.Printf("Unexpected WebSocket close error: %v\n", err)
 			}
 			return
 		}

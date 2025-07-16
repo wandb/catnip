@@ -68,6 +68,24 @@ type ControlMsg struct {
 	Data string `json:"data,omitempty"`
 }
 
+// sanitizeTitle ensures the extracted title is safe and conforms to expected formats
+func sanitizeTitle(title string) string {
+	// Allow only alphanumeric characters, spaces, and basic punctuation
+	safeTitle := strings.Map(func(r rune) rune {
+		if strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,-_", r) {
+			return r
+		}
+		return -1
+	}, title)
+
+	// Limit the length of the title to prevent abuse
+	if len(safeTitle) > 100 {
+		safeTitle = safeTitle[:100]
+	}
+
+	return safeTitle
+}
+
 // extractTitleFromEscapeSequence extracts the fancy Claude terminal title from escape sequences
 func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 	startSeq := []byte("\x1b]0;")
@@ -83,7 +101,7 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 	}
 
 	title := data[start+len(startSeq) : start+len(startSeq)+end]
-	return string(title), true
+	return sanitizeTitle(string(title)), true
 }
 
 // NewPTYHandler creates a new PTY handler

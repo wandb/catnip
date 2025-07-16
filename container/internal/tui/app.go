@@ -225,7 +225,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Send resize to PTY
 			if globalShellManager != nil {
 				if session := globalShellManager.GetSession(m.currentSessionID); session != nil && session.Client != nil {
-					go session.Client.Resize(m.shellViewport.Width, m.shellViewport.Height)
+					go func(width, height int) {
+						if err := session.Client.Resize(width, height); err != nil {
+							log.Printf("Failed to resize PTY: %v", err)
+						}
+					}(m.shellViewport.Width, m.shellViewport.Height)
 				}
 			}
 		}
@@ -373,7 +377,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						if len(data) > 0 {
 							m.shellLastInput = time.Now() // Update last input time for cursor
-							go session.Client.Send(data)
+							go func(d []byte) {
+								if err := session.Client.Send(d); err != nil {
+									log.Printf("Failed to send data to PTY: %v", err)
+								}
+							}(data)
 						}
 					}
 					}
@@ -1154,12 +1162,11 @@ func (m model) streamNewLogs(newLogs []string) model {
 		} else {
 			// User has scrolled up - preserve their position
 			debugLog("streamNewLogs: NOT at bottom, setting position back to Y=%d", currentY)
-			// The SetContent call might have reset the position, so force it back
-			m.logsViewport.YOffset = currentY
+			m.logsViewport.SetYOffset(currentY)
 			
 			// Log what actually happened
 			actualY := m.logsViewport.YOffset
-			debugLog("streamNewLogs: After direct assignment - wanted Y=%d, got Y=%d", currentY, actualY)
+			debugLog("streamNewLogs: After SetYOffset call - wanted Y=%d, got Y=%d", currentY, actualY)
 		}
 		
 		return m
