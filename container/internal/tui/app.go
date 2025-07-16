@@ -53,6 +53,7 @@ type App struct {
 	containerService *services.ContainerService
 	containerName    string
 	program          *tea.Program
+	sseClient        *SSEClient
 }
 
 type model struct {
@@ -101,6 +102,9 @@ type model struct {
 	// Logs view scroll preservation
 	logsScrollLocked bool
 	logsLockedPosition int
+	
+	// SSE connection state
+	sseConnected bool
 }
 
 type tickMsg time.Time
@@ -178,6 +182,11 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 	
 	// Initialize the shell manager with the program
 	InitShellManager(a.program)
+	
+	// Initialize and start SSE client
+	a.sseClient = NewSSEClient("http://localhost:8080/v1/events", a.program)
+	a.sseClient.Start()
+	defer a.sseClient.Stop()
 
 	_, err := a.program.Run()
 	return err
@@ -192,6 +201,8 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		m.fetchRepositoryInfo(),
 		m.fetchHealthStatus(),
+		m.fetchPorts(), // Fetch ports once at startup
+		m.fetchContainerInfo(),
 		m.shellSpinner.Tick,
 		tea.Tick(time.Second*5, func(t time.Time) tea.Msg {
 			return tickMsg(t)
@@ -481,12 +492,64 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	
 	case tickMsg:
 		m.lastUpdate = time.Time(msg)
+		// Only fetch container info and health status now
+		// Ports will come from SSE events
 		return m, tea.Batch(
 			tick(),
 			m.fetchContainerInfo(),
-			m.fetchPorts(),
 			m.fetchHealthStatus(),
 		)
+	
+	// SSE event messages
+	case sseConnectedMsg:
+		m.sseConnected = true
+		debugLog("SSE connected")
+		return m, nil
+	
+	case sseDisconnectedMsg:
+		m.sseConnected = false
+		debugLog("SSE disconnected")
+		// Fall back to polling when disconnected
+		return m, m.fetchPorts()
+	
+	case ssePortOpenedMsg:
+		// Add port to our list
+		portStr := fmt.Sprintf("%d", msg.port)
+		found := false
+		for _, p := range m.ports {
+			if p == portStr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.ports = append(m.ports, portStr)
+			debugLog("SSE: Port opened: %d", msg.port)
+		}
+		return m, nil
+	
+	case ssePortClosedMsg:
+		// Remove port from our list
+		portStr := fmt.Sprintf("%d", msg.port)
+		newPorts := []string{}
+		for _, p := range m.ports {
+			if p != portStr {
+				newPorts = append(newPorts, p)
+			}
+		}
+		m.ports = newPorts
+		debugLog("SSE: Port closed: %d", msg.port)
+		return m, nil
+	
+	case sseContainerStatusMsg:
+		// Update container status if needed
+		debugLog("SSE: Container status: %s", msg.status)
+		return m, nil
+	
+	case sseErrorMsg:
+		debugLog("SSE error: %v", msg.err)
+		// Fall back to polling on error
+		return m, m.fetchPorts()
 	
 	case animationTickMsg:
 		// Update animation state
@@ -675,6 +738,15 @@ func (m model) renderOverview() string {
 		sections = append(sections, fmt.Sprintf("  Name: %v", m.containerInfo["name"]))
 		sections = append(sections, fmt.Sprintf("  Runtime: %v", m.containerInfo["runtime"]))
 		sections = append(sections, fmt.Sprintf("  Last updated: %s", m.lastUpdate.Format("15:04:05")))
+		
+		// SSE connection status
+		if m.sseConnected {
+			sseStatus := lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render("● Connected")
+			sections = append(sections, fmt.Sprintf("  Events: %s", sseStatus))
+		} else {
+			sseStatus := lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("● Disconnected")
+			sections = append(sections, fmt.Sprintf("  Events: %s (using polling)", sseStatus))
+		}
 	} else {
 		sections = append(sections, "  Status: Starting...")
 	}
