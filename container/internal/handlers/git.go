@@ -466,3 +466,54 @@ func (h *GitHandler) CreatePullRequest(c *fiber.Ctx) error {
 
 	return c.JSON(pr)
 }
+
+// UpdatePullRequest updates an existing pull request for a worktree
+// @Summary Update pull request
+// @Description Updates an existing pull request for a worktree branch
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param request body CreatePullRequestRequest true "Pull request details"
+// @Success 200 {object} models.PullRequestResponse
+// @Router /v1/git/worktrees/{id}/pr [put]
+func (h *GitHandler) UpdatePullRequest(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	var req CreatePullRequestRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	pr, err := h.gitService.UpdatePullRequest(worktreeID, req.Title, req.Body)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(pr)
+}
+
+// GetPullRequestInfo gets information about an existing pull request for a worktree
+// @Summary Get pull request info
+// @Description Gets information about an existing pull request for a worktree branch
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} models.PullRequestInfo
+// @Router /v1/git/worktrees/{id}/pr [get]
+func (h *GitHandler) GetPullRequestInfo(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	prInfo, err := h.gitService.GetPullRequestInfo(worktreeID)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(prInfo)
+}

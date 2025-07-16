@@ -380,5 +380,87 @@ export const gitApi = {
     });
 
     return diffStats;
+  },
+
+  // Enhanced PR management functions
+  async createPullRequest(worktreeId: string, title: string, body: string, errorHandler: ErrorHandler): Promise<boolean> {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body }),
+      });
+      
+      if (response.ok) {
+        const prData = await response.json();
+        toast.success(
+          `Pull request created! PR #${prData.number}: ${prData.title}`
+        );
+        return true;
+      } else {
+        const errorData = await response.json();
+        errorHandler.setErrorAlert({
+          open: true,
+          title: "Pull Request Failed",
+          description: `Failed to create pull request: ${errorData.error || 'Unknown error'}`
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error("Failed to create pull request:", error);
+      errorHandler.setErrorAlert({
+        open: true,
+        title: "Pull Request Failed",
+        description: `Failed to create pull request: ${error}`
+      });
+      return false;
+    }
+  },
+
+  async updatePullRequest(worktreeId: string, title: string, body: string, errorHandler: ErrorHandler): Promise<boolean> {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body }),
+      });
+      
+      if (response.ok) {
+        const prData = await response.json();
+        toast.success(
+          `Pull request updated! PR #${prData.number}: ${prData.title}`
+        );
+        return true;
+      } else {
+        const errorData = await response.json();
+        errorHandler.setErrorAlert({
+          open: true,
+          title: "Pull Request Update Failed",
+          description: `Failed to update pull request: ${errorData.error || 'Unknown error'}`
+        });
+        return false;
+      }
+    } catch (error) {
+      console.error("Failed to update pull request:", error);
+      errorHandler.setErrorAlert({
+        open: true,
+        title: "Pull Request Update Failed",
+        description: `Failed to update pull request: ${error}`
+      });
+      return false;
+    }
+  },
+
+  async getPullRequestInfo(worktreeId: string): Promise<PullRequestInfo | null> {
+    try {
+      const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`);
+      if (response.ok) {
+        return await response.json();
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to get pull request info:", error);
+      return null;
+    }
   }
 };
