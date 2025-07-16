@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Globe,
   MessageSquare,
+  FolderOpen,
 } from "lucide-react";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import {
