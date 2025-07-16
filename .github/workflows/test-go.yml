@@ -1,6 +1,10 @@
-name: Test
+name: Test Go
 
-on: push
+on:
+  push:
+    paths:
+      - "container/**"
+      - ".github/workflows/test-go.yml"
 
 jobs:
   test:

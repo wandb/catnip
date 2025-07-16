@@ -1,6 +1,14 @@
 name: Build Container
 
-on: push
+on:
+  push:
+    paths:
+      - "src/**"
+      - "public/**"
+      - "container/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/build-container.yml"
 
 jobs:
   build:
