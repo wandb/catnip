@@ -84,9 +84,26 @@ func WriteClaudeSettingsFile(homeDir string) error {
 		echo 'No changes to commit'
 	else 
 		TOOL_DATA=$(cat)
-		TOOL_NAME=$(echo "$TOOL_DATA" | jq -r '.inputs.tool_name // .tool_name // "tool"')
-		FILES=$(echo "$TOOL_DATA" | jq -r '.inputs.target_file // .inputs.file_path // .inputs.target_notebook // empty' | head -3 | paste -sd ',' -)
-		git commit -m "checkpoint: ${TOOL_NAME}${FILES:+ on $FILES} - $(date +'%H:%M')"
+		TOOL_NAME=$(echo "$TOOL_DATA" | jq -r '.tool_name // "tool"')
+		FILE_PATH=$(echo "$TOOL_DATA" | jq -r '.tool_input.file_path // .tool_input.target_file // .tool_input.target_notebook // empty')
+		COMMAND=$(echo "$TOOL_DATA" | jq -r '.tool_input.command // empty' | head -c 50)
+		SUCCESS=$(echo "$TOOL_DATA" | jq -r '.tool_response.success // empty')
+
+		if [ -n "$FILE_PATH" ]; then
+			MSG="checkpoint: $TOOL_NAME $(basename "$FILE_PATH")"
+		elif [ -n "$COMMAND" ]; then
+			MSG="checkpoint: $TOOL_NAME '$COMMAND'"
+		else
+			MSG="checkpoint: $TOOL_NAME"
+		fi
+
+		if [ "$SUCCESS" = "true" ]; then
+			MSG="$MSG ✓"
+		elif [ "$SUCCESS" = "false" ]; then
+			MSG="$MSG ✗"
+		fi
+
+		git commit -m "$MSG - $(date +'%H:%M')"
 	fi`
 
 	// Default settings structure
@@ -94,7 +111,6 @@ func WriteClaudeSettingsFile(homeDir string) error {
 		"hooks": map[string]interface{}{
 			"PostToolUse": []interface{}{
 				map[string]interface{}{
-					// "matcher": "Write|Edit|MultiEdit|Task",
 					// git checkpoint after every tool use
 					"matcher": "",
 					"hooks": []interface{}{
