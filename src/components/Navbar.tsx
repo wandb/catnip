@@ -226,6 +226,13 @@ export function Navbar() {
                 <GitBranch size={20} />
               </Link>
               <Link
+                to="/projects"
+                className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
+                title="Projects"
+              >
+                <FolderOpen size={20} />
+              </Link>
+              <Link
                 to="/transcript"
                 className="flex items-center justify-center h-12 w-12 text-muted-foreground hover:text-primary-foreground transition-colors rounded mx-2"
                 title="Transcripts"
