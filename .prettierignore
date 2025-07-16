@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+.wrangler/
+container/bin/
+container/build/
+
+# Generated files
+*.min.js
+*.min.css
+worker-configuration.d.ts
+
+# Documentation
+reference/
+
+# Package files
+pnpm-lock.yaml
+package-lock.json
+
+# Misc
+.DS_Store
+*.log
+coverage/
+.env*

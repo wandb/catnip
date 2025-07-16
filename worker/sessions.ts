@@ -1,4 +1,4 @@
-import { DurableObject } from 'cloudflare:workers';
+import { DurableObject } from "cloudflare:workers";
 
 interface SessionData {
   userId: string;
@@ -27,7 +27,7 @@ export class SessionStore extends DurableObject<Record<string, any>> {
   constructor(ctx: DurableObjectState, env: Record<string, any>) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    
+
     // Initialize database schema
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
@@ -47,11 +47,15 @@ export class SessionStore extends DurableObject<Record<string, any>> {
       CREATE INDEX IF NOT EXISTS idx_expires_at ON sessions(expires_at);
       CREATE INDEX IF NOT EXISTS idx_refresh_token_expires_at ON sessions(refresh_token_expires_at);
     `);
-    
+
     // Migrate existing sessions table if needed
     try {
-      this.sql.exec(`ALTER TABLE sessions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`);
-      this.sql.exec(`ALTER TABLE sessions ADD COLUMN refresh_token_expires_at INTEGER`);
+      this.sql.exec(
+        `ALTER TABLE sessions ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`,
+      );
+      this.sql.exec(
+        `ALTER TABLE sessions ADD COLUMN refresh_token_expires_at INTEGER`,
+      );
     } catch {
       // Columns already exist, ignore error
     }
@@ -59,12 +63,12 @@ export class SessionStore extends DurableObject<Record<string, any>> {
 
   private async initKeys() {
     if (this.initialized) return;
-    
+
     // Import encryption keys from environment
     // Support multiple key versions for rotation
     const keyConfigs = [
-      { id: 2, env: 'CATNIP_ENCRYPTION_KEY_V2' },
-      { id: 1, env: 'CATNIP_ENCRYPTION_KEY_V1' },
+      { id: 2, env: "CATNIP_ENCRYPTION_KEY_V2" },
+      { id: 1, env: "CATNIP_ENCRYPTION_KEY_V1" },
     ];
 
     for (const config of keyConfigs) {
@@ -89,36 +93,39 @@ export class SessionStore extends DurableObject<Record<string, any>> {
   private async importKey(keyString: string): Promise<CryptoKey> {
     // Handle base64url encoded keys (convert to standard base64)
     const base64 = keyString
-      .replace(/-/g, '+')
-      .replace(/_/g, '/')
-      .padEnd(keyString.length + (4 - keyString.length % 4) % 4, '=');
-    
-    const keyData = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(keyString.length + ((4 - (keyString.length % 4)) % 4), "=");
+
+    const keyData = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
     return await crypto.subtle.importKey(
-      'raw',
+      "raw",
       keyData,
-      { name: 'AES-GCM' },
+      { name: "AES-GCM" },
       false,
-      ['encrypt', 'decrypt']
+      ["encrypt", "decrypt"],
     );
   }
 
-  private async encrypt(data: SessionData, keyId: number): Promise<{ salt: string; iv: string; encrypted: string }> {
+  private async encrypt(
+    data: SessionData,
+    keyId: number,
+  ): Promise<{ salt: string; iv: string; encrypted: string }> {
     const key = this.keys.get(keyId);
     if (!key) throw new Error(`Key ${keyId} not found`);
 
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoder = new TextEncoder();
-    
+
     const encrypted = await crypto.subtle.encrypt(
       {
-        name: 'AES-GCM',
+        name: "AES-GCM",
         iv: iv,
         additionalData: salt,
       },
       key,
-      encoder.encode(JSON.stringify(data))
+      encoder.encode(JSON.stringify(data)),
     );
 
     return {
@@ -132,18 +139,20 @@ export class SessionStore extends DurableObject<Record<string, any>> {
     const key = this.keys.get(stored.keyId);
     if (!key) throw new Error(`Key ${stored.keyId} not found`);
 
-    const salt = Uint8Array.from(atob(stored.salt), c => c.charCodeAt(0));
-    const iv = Uint8Array.from(atob(stored.iv), c => c.charCodeAt(0));
-    const encrypted = Uint8Array.from(atob(stored.encryptedData), c => c.charCodeAt(0));
+    const salt = Uint8Array.from(atob(stored.salt), (c) => c.charCodeAt(0));
+    const iv = Uint8Array.from(atob(stored.iv), (c) => c.charCodeAt(0));
+    const encrypted = Uint8Array.from(atob(stored.encryptedData), (c) =>
+      c.charCodeAt(0),
+    );
 
     const decrypted = await crypto.subtle.decrypt(
       {
-        name: 'AES-GCM',
+        name: "AES-GCM",
         iv: iv,
         additionalData: salt,
       },
       key,
-      encrypted
+      encrypted,
     );
 
     const decoder = new TextDecoder();
@@ -153,77 +162,88 @@ export class SessionStore extends DurableObject<Record<string, any>> {
   async fetch(request: Request): Promise<Response> {
     await this.initKeys();
     const url = new URL(request.url);
-    const sessionId = url.pathname.split('/').pop();
+    const sessionId = url.pathname.split("/").pop();
 
-    if (request.method === 'GET' && sessionId) {
+    if (request.method === "GET" && sessionId) {
       // Get session by ID
-      const rows = this.sql.exec(
-        'SELECT * FROM sessions WHERE session_id = ? LIMIT 1',
-        sessionId
-      ).toArray();
-      
+      const rows = this.sql
+        .exec("SELECT * FROM sessions WHERE session_id = ? LIMIT 1", sessionId)
+        .toArray();
+
       if (rows.length === 0) {
-        return new Response('Not found', { status: 404 });
+        return new Response("Not found", { status: 404 });
       }
-      
+
       const row = rows[0];
-      
+
       const result = {
         keyId: row.key_id as number,
         salt: row.salt as string,
         iv: row.iv as string,
         encryptedData: row.encrypted_data as string,
         createdAt: row.created_at as number,
-        refreshedAt: row.refreshed_at as number
+        refreshedAt: row.refreshed_at as number,
       } as StoredSession;
 
       try {
         const sessionData = await this.decrypt(result);
-        
+
         // Check if expired
         if (Date.now() > sessionData.expiresAt) {
           // Clean up expired session
-          this.sql.exec('DELETE FROM sessions WHERE session_id = ?', sessionId);
-          return new Response('Session expired', { status: 404 });
+          this.sql.exec("DELETE FROM sessions WHERE session_id = ?", sessionId);
+          return new Response("Session expired", { status: 404 });
         }
 
         // Update refreshed_at on every read
         const now = Date.now();
-        
+
         // Re-encrypt with current key if needed
         if (result.keyId !== this.currentKeyId) {
-          const { salt, iv, encrypted } = await this.encrypt(sessionData, this.currentKeyId);
+          const { salt, iv, encrypted } = await this.encrypt(
+            sessionData,
+            this.currentKeyId,
+          );
           this.sql.exec(
             `UPDATE sessions SET 
               key_id = ?, salt = ?, iv = ?, encrypted_data = ?, refreshed_at = ?
             WHERE session_id = ?`,
-            this.currentKeyId, salt, iv, encrypted, now, sessionId
+            this.currentKeyId,
+            salt,
+            iv,
+            encrypted,
+            now,
+            sessionId,
           );
         } else {
           // Just update refreshed_at
           this.sql.exec(
-            'UPDATE sessions SET refreshed_at = ? WHERE session_id = ?',
-            now, sessionId
+            "UPDATE sessions SET refreshed_at = ? WHERE session_id = ?",
+            now,
+            sessionId,
           );
         }
 
         return Response.json(sessionData);
       } catch (error) {
-        console.error('Decryption error:', error);
-        return new Response('Invalid session', { status: 500 });
+        console.error("Decryption error:", error);
+        return new Response("Invalid session", { status: 500 });
       }
     }
 
-    if (request.method === 'PUT' && sessionId) {
+    if (request.method === "PUT" && sessionId) {
       // Store new session
       const sessionData: SessionData = await request.json();
-      const { salt, iv, encrypted } = await this.encrypt(sessionData, this.currentKeyId);
+      const { salt, iv, encrypted } = await this.encrypt(
+        sessionData,
+        this.currentKeyId,
+      );
       const now = Date.now();
 
       // Check if this is an update or new session
       const existingResult = this.sql.exec(
-        'SELECT created_at FROM sessions WHERE session_id = ? LIMIT 1',
-        sessionId
+        "SELECT created_at FROM sessions WHERE session_id = ? LIMIT 1",
+        sessionId,
       );
       const existing = existingResult.toArray()[0];
 
@@ -233,7 +253,15 @@ export class SessionStore extends DurableObject<Record<string, any>> {
           `UPDATE sessions SET 
             user_id = ?, key_id = ?, salt = ?, iv = ?, encrypted_data = ?, refreshed_at = ?, expires_at = ?, refresh_token_expires_at = ?
           WHERE session_id = ?`,
-          sessionData.userId, this.currentKeyId, salt, iv, encrypted, now, sessionData.expiresAt, sessionData.refreshTokenExpiresAt || null, sessionId
+          sessionData.userId,
+          this.currentKeyId,
+          salt,
+          iv,
+          encrypted,
+          now,
+          sessionData.expiresAt,
+          sessionData.refreshTokenExpiresAt || null,
+          sessionId,
         );
       } else {
         // Insert new session
@@ -241,67 +269,80 @@ export class SessionStore extends DurableObject<Record<string, any>> {
           `INSERT INTO sessions 
             (session_id, user_id, key_id, salt, iv, encrypted_data, created_at, refreshed_at, expires_at, refresh_token_expires_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          sessionId, sessionData.userId, this.currentKeyId, salt, iv, encrypted, now, now, sessionData.expiresAt, sessionData.refreshTokenExpiresAt || null
+          sessionId,
+          sessionData.userId,
+          this.currentKeyId,
+          salt,
+          iv,
+          encrypted,
+          now,
+          now,
+          sessionData.expiresAt,
+          sessionData.refreshTokenExpiresAt || null,
         );
       }
 
-      return new Response('OK');
+      return new Response("OK");
     }
 
-    if (request.method === 'DELETE' && sessionId) {
+    if (request.method === "DELETE" && sessionId) {
       // Delete session
-      this.sql.exec('DELETE FROM sessions WHERE session_id = ?', sessionId);
-      return new Response('OK');
+      this.sql.exec("DELETE FROM sessions WHERE session_id = ?", sessionId);
+      return new Response("OK");
     }
 
-    if (request.method === 'POST' && url.pathname.endsWith('/refresh')) {
+    if (request.method === "POST" && url.pathname.endsWith("/refresh")) {
       // Refresh token endpoint
-      const { sessionId: sid, refreshToken } = await request.json() as { sessionId: string; refreshToken: string };
-      
-      const rows = this.sql.exec(
-        'SELECT * FROM sessions WHERE session_id = ? LIMIT 1',
-        sid
-      ).toArray();
+      const { sessionId: sid, refreshToken: _refreshToken } =
+        (await request.json()) as { sessionId: string; refreshToken: string };
+
+      const rows = this.sql
+        .exec("SELECT * FROM sessions WHERE session_id = ? LIMIT 1", sid)
+        .toArray();
 
       if (rows.length === 0) {
-        return new Response('Not found', { status: 404 });
+        return new Response("Not found", { status: 404 });
       }
-      
+
       const row = rows[0];
-      
+
       const result = {
         keyId: row.key_id as number,
         salt: row.salt as string,
         iv: row.iv as string,
         encryptedData: row.encrypted_data as string,
         createdAt: row.created_at as number,
-        refreshedAt: row.refreshed_at as number
+        refreshedAt: row.refreshed_at as number,
       } as StoredSession;
 
       try {
-        const sessionData = await this.decrypt(result);
-        
+        const _sessionData = await this.decrypt(result);
+
         // TODO: Use refreshToken to get new accessToken from GitHub
         // For now, just update the refreshedAt timestamp
-        
+
         this.sql.exec(
-          'UPDATE sessions SET refreshed_at = ? WHERE session_id = ?',
-          Date.now(), sid
+          "UPDATE sessions SET refreshed_at = ? WHERE session_id = ?",
+          Date.now(),
+          sid,
         );
 
         return Response.json({ success: true });
-      } catch (error) {
-        return new Response('Refresh failed', { status: 500 });
+      } catch (_error) {
+        return new Response("Refresh failed", { status: 500 });
       }
     }
 
     // Cleanup old sessions (older than 30 days)
-    if (request.method === 'POST' && url.pathname.endsWith('/cleanup')) {
-      const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-      this.sql.exec('DELETE FROM sessions WHERE refreshed_at < ?', thirtyDaysAgo);
-      return new Response('OK');
+    if (request.method === "POST" && url.pathname.endsWith("/cleanup")) {
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      this.sql.exec(
+        "DELETE FROM sessions WHERE refreshed_at < ?",
+        thirtyDaysAgo,
+      );
+      return new Response("OK");
     }
 
-    return new Response('Method not allowed', { status: 405 });
+    return new Response("Method not allowed", { status: 405 });
   }
 }

@@ -1,11 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,7 +55,13 @@ interface APIModel {
 }
 
 // Syntax highlighted code block component
-function CodeBlock({ code, language = "json" }: { code: string; language?: string }) {
+function CodeBlock({
+  code,
+  language = "json",
+}: {
+  code: string;
+  language?: string;
+}) {
   const [copied, setCopied] = useState(false);
   const codeRef = useRef<HTMLElement>(null);
 
@@ -68,13 +69,13 @@ function CodeBlock({ code, language = "json" }: { code: string; language?: strin
     const loadPrism = async () => {
       if (codeRef.current) {
         const Prism = (await import("prismjs")).default;
-        // @ts-ignore - prismjs components don't have type declarations
+        // @ts-expect-error - prismjs components don't have type declarations
         await import("prismjs/components/prism-json");
         Prism.highlightElement(codeRef.current);
       }
     };
-    
-    loadPrism();
+
+    void loadPrism();
   }, [code]);
 
   const copyToClipboard = async () => {
@@ -83,14 +84,16 @@ function CodeBlock({ code, language = "json" }: { code: string; language?: strin
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy code:', err);
+      console.error("Failed to copy code:", err);
     }
   };
 
   return (
     <div className="relative">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-muted-foreground">Example Response</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          Example Response
+        </span>
         <Button
           variant="ghost"
           size="sm"
@@ -98,7 +101,7 @@ function CodeBlock({ code, language = "json" }: { code: string; language?: strin
           onClick={copyToClipboard}
         >
           <Copy className="w-3 h-3 mr-1" />
-          {copied ? 'Copied!' : 'Copy'}
+          {copied ? "Copied!" : "Copy"}
         </Button>
       </div>
       <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm border">
@@ -111,12 +114,16 @@ function CodeBlock({ code, language = "json" }: { code: string; language?: strin
 }
 
 // Generate example response from schema
-function generateExampleFromSchema(schema: any, definitions: Record<string, any> = {}, visited = new Set()): any {
+function generateExampleFromSchema(
+  schema: any,
+  definitions: Record<string, any> = {},
+  visited = new Set(),
+): any {
   if (!schema) return null;
 
   // Handle $ref references
   if (schema.$ref) {
-    const refKey = schema.$ref.replace('#/definitions/', '');
+    const refKey = schema.$ref.replace("#/definitions/", "");
     if (visited.has(refKey)) {
       return `[Circular reference to ${refKey}]`;
     }
@@ -131,36 +138,50 @@ function generateExampleFromSchema(schema: any, definitions: Record<string, any>
   }
 
   // Handle arrays
-  if (schema.type === 'array') {
+  if (schema.type === "array") {
     if (schema.items) {
-      const itemExample = generateExampleFromSchema(schema.items, definitions, visited);
+      const itemExample = generateExampleFromSchema(
+        schema.items,
+        definitions,
+        visited,
+      );
       return [itemExample];
     }
     return [];
   }
 
   // Handle objects
-  if (schema.type === 'object' || schema.properties) {
+  if (schema.type === "object" || schema.properties) {
     const obj: any = {};
-    
+
     // Handle additionalProperties (like maps)
     if (schema.additionalProperties && !schema.properties) {
       if (schema.additionalProperties.$ref) {
-        const example = generateExampleFromSchema(schema.additionalProperties, definitions, visited);
+        const example = generateExampleFromSchema(
+          schema.additionalProperties,
+          definitions,
+          visited,
+        );
         return {
-          "example-key": example
+          "example-key": example,
         };
       }
       return {};
     }
-    
+
     // Handle regular properties
     if (schema.properties) {
-      Object.entries(schema.properties).forEach(([key, propSchema]: [string, any]) => {
-        obj[key] = generateExampleFromSchema(propSchema, definitions, visited);
-      });
+      Object.entries(schema.properties).forEach(
+        ([key, propSchema]: [string, any]) => {
+          obj[key] = generateExampleFromSchema(
+            propSchema,
+            definitions,
+            visited,
+          );
+        },
+      );
     }
-    
+
     return obj;
   }
 
@@ -171,16 +192,16 @@ function generateExampleFromSchema(schema: any, definitions: Record<string, any>
 
   // Handle primitives by type
   switch (schema.type) {
-    case 'string':
-      if (schema.format === 'date-time') return '2024-01-15T14:30:00Z';
-      if (schema.format === 'date') return '2024-01-15';
-      if (schema.format === 'email') return 'user@example.com';
-      if (schema.format === 'uri') return 'https://example.com';
-      return 'string';
-    case 'integer':
-    case 'number':
+    case "string":
+      if (schema.format === "date-time") return "2024-01-15T14:30:00Z";
+      if (schema.format === "date") return "2024-01-15";
+      if (schema.format === "email") return "user@example.com";
+      if (schema.format === "uri") return "https://example.com";
+      return "string";
+    case "integer":
+    case "number":
       return 42;
-    case 'boolean':
+    case "boolean":
       return true;
     default:
       return null;
@@ -194,16 +215,16 @@ function APIExplorer() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedEndpoints, setExpandedEndpoints] = useState<Set<string>>(
-    new Set()
+    new Set(),
   );
   const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"endpoints" | "models">(
-    "endpoints"
+    "endpoints",
   );
 
   useEffect(() => {
-    fetchOpenAPISpec();
+    void fetchOpenAPISpec();
   }, []);
 
   useEffect(() => {
@@ -335,7 +356,7 @@ function APIExplorer() {
 
   const navigateToModelInternal = (
     modelName: string,
-    updateUrl: boolean = true
+    updateUrl: boolean = true,
   ) => {
     setActiveTab("models");
     setSelectedTag(null);
@@ -422,7 +443,12 @@ function APIExplorer() {
                 {spec?.info.title || "API Explorer"}
               </h1>
               <div className="text-muted-foreground mt-1">
-                <TextContent content={spec?.info.description || "Explore and test the API endpoints"} />
+                <TextContent
+                  content={
+                    spec?.info.description ||
+                    "Explore and test the API endpoints"
+                  }
+                />
               </div>
               {spec && (
                 <div className="flex items-center gap-2 mt-2">
@@ -596,7 +622,9 @@ function APIExplorer() {
                                   </div>
                                   {param.description && (
                                     <div className="text-xs text-muted-foreground mt-1">
-                                      <TextContent content={param.description} />
+                                      <TextContent
+                                        content={param.description}
+                                      />
                                     </div>
                                   )}
                                 </div>
@@ -629,7 +657,9 @@ function APIExplorer() {
                                       {code}
                                     </Badge>
                                     <div className="text-sm">
-                                      <TextContent content={response.description} />
+                                      <TextContent
+                                        content={response.description}
+                                      />
                                     </div>
                                   </div>
                                   {response.schema && (
@@ -648,12 +678,12 @@ function APIExplorer() {
                                                   .replace("#/definitions/", "")
                                                   .replace(
                                                     /^github_com_vanpelt_catnip_internal_models\./,
-                                                    ""
+                                                    "",
                                                   )
                                                   .replace(
                                                     /^internal_handlers\./,
-                                                    ""
-                                                  )
+                                                    "",
+                                                  ),
                                               )
                                             }
                                           >
@@ -662,11 +692,11 @@ function APIExplorer() {
                                               .replace("#/definitions/", "")
                                               .replace(
                                                 /^github_com_vanpelt_catnip_internal_models\./,
-                                                ""
+                                                "",
                                               )
                                               .replace(
                                                 /^internal_handlers\./,
-                                                ""
+                                                "",
                                               )}
                                           </Badge>
                                         </div>
@@ -685,12 +715,12 @@ function APIExplorer() {
                                                   .replace("#/definitions/", "")
                                                   .replace(
                                                     /^github_com_vanpelt_catnip_internal_models\./,
-                                                    ""
+                                                    "",
                                                   )
                                                   .replace(
                                                     /^internal_handlers\./,
-                                                    ""
-                                                  )
+                                                    "",
+                                                  ),
                                               )
                                             }
                                           >
@@ -699,11 +729,11 @@ function APIExplorer() {
                                               .replace("#/definitions/", "")
                                               .replace(
                                                 /^github_com_vanpelt_catnip_internal_models\./,
-                                                ""
+                                                "",
                                               )
                                               .replace(
                                                 /^internal_handlers\./,
-                                                ""
+                                                "",
                                               )}
                                           </Badge>
                                         </div>
@@ -723,12 +753,12 @@ function APIExplorer() {
                                                   .replace("#/definitions/", "")
                                                   .replace(
                                                     /^github_com_vanpelt_catnip_internal_models\./,
-                                                    ""
+                                                    "",
                                                   )
                                                   .replace(
                                                     /^internal_handlers\./,
-                                                    ""
-                                                  )
+                                                    "",
+                                                  ),
                                               )
                                             }
                                           >
@@ -737,11 +767,11 @@ function APIExplorer() {
                                               .replace("#/definitions/", "")
                                               .replace(
                                                 /^github_com_vanpelt_catnip_internal_models\./,
-                                                ""
+                                                "",
                                               )
                                               .replace(
                                                 /^internal_handlers\./,
-                                                ""
+                                                "",
                                               )}
                                           </Badge>
                                         </div>
@@ -755,25 +785,35 @@ function APIExplorer() {
                                           </Badge>
                                         </div>
                                       )}
-                                      
+
                                       {/* Generate and display example response */}
-                                      {code.startsWith("2") && spec?.definitions && (() => {
-                                        const exampleData = generateExampleFromSchema(response.schema, spec.definitions);
-                                        if (exampleData) {
-                                          return (
-                                            <div className="mt-3">
-                                              <CodeBlock 
-                                                code={JSON.stringify(exampleData, null, 2)}
-                                              />
-                                            </div>
-                                          );
-                                        }
-                                        return null;
-                                      })()}
+                                      {code.startsWith("2") &&
+                                        spec?.definitions &&
+                                        (() => {
+                                          const exampleData =
+                                            generateExampleFromSchema(
+                                              response.schema,
+                                              spec.definitions,
+                                            );
+                                          if (exampleData) {
+                                            return (
+                                              <div className="mt-3">
+                                                <CodeBlock
+                                                  code={JSON.stringify(
+                                                    exampleData,
+                                                    null,
+                                                    2,
+                                                  )}
+                                                />
+                                              </div>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
                                     </div>
                                   )}
                                 </div>
-                              )
+                              ),
                             )}
                           </div>
                         </div>
@@ -850,7 +890,7 @@ function APIExplorer() {
                                       .replace("#/definitions/", "")
                                       .replace(
                                         /^github_com_vanpelt_catnip_internal_models\./,
-                                        ""
+                                        "",
                                       )
                                       .replace(/^internal_handlers\./, "")}`}
                                 </Badge>
@@ -881,9 +921,12 @@ function APIExplorer() {
                                             .replace("#/definitions/", "")
                                             .replace(
                                               /^github_com_vanpelt_catnip_internal_models\./,
-                                              ""
+                                              "",
                                             )
-                                            .replace(/^internal_handlers\./, "")
+                                            .replace(
+                                              /^internal_handlers\./,
+                                              "",
+                                            ),
                                         );
                                       }
                                     }}
@@ -893,14 +936,14 @@ function APIExplorer() {
                                       ?.replace("#/definitions/", "")
                                       ?.replace(
                                         /^github_com_vanpelt_catnip_internal_models\./,
-                                        ""
+                                        "",
                                       )
                                       ?.replace(/^internal_handlers\./, "")}
                                   </Badge>
                                 </div>
                               )}
                             </div>
-                          )
+                          ),
                         )}
                       </div>
                     </CardContent>

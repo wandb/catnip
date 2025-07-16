@@ -4,16 +4,17 @@ import { WebSocketProvider } from "@/lib/websocket-context";
 import { Navbar } from "@/components/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { Link } from "@tanstack/react-router";
-import { useWebSocket } from "@/lib/websocket-context";
+import { useWebSocket } from "@/lib/hooks";
 import { Suspense } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { AuthProvider } from "@/lib/auth-context";
+import { useAuth } from "@/lib/hooks";
 import { LoginModal } from "@/components/LoginModal";
 
 function RootLayout() {
   const { isConnected } = useWebSocket();
   const { isAuthenticated, isLoading, authRequired } = useAuth();
-  
+
   // Show login modal if auth is required and user is not authenticated
   const showLoginModal = !isLoading && authRequired && !isAuthenticated;
 
@@ -47,27 +48,29 @@ function RootLayout() {
         <main className="pt-14 sm:pt-0 sm:pl-16">
           <div className="h-[calc(100vh-4rem)] sm:h-screen">
             <ErrorBoundary>
-              <Suspense fallback={
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center space-y-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                    <p className="text-muted-foreground">Loading...</p>
+              <Suspense
+                fallback={
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center space-y-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+                      <p className="text-muted-foreground">Loading...</p>
+                    </div>
                   </div>
-                </div>
-              }>
+                }
+              >
                 <Outlet />
               </Suspense>
             </ErrorBoundary>
           </div>
         </main>
       </div>
-      
+
       {/* Toast notifications */}
       <Toaster />
-      
+
       {/* Login Modal */}
       <LoginModal open={showLoginModal} />
-      
+
       <TanStackRouterDevtools position="bottom-right" />
     </>
   );

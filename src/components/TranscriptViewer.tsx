@@ -22,51 +22,61 @@ interface ProcessedMessage extends TranscriptMessageType {
 // Function to extract text content from a message
 function getTextContent(message: TranscriptMessageType): string {
   if (!message.message?.content) return "";
-  
+
   if (typeof message.message.content === "string") {
     return message.message.content;
   }
-  
+
   if (Array.isArray(message.message.content)) {
     return message.message.content
-      .filter(item => item.type === "text")
-      .map(item => item.text || "")
+      .filter((item) => item.type === "text")
+      .map((item) => item.text || "")
       .join("\n");
   }
-  
+
   return "";
 }
 
 // Function to check if message contains only tool calls
 function hasOnlyToolCalls(message: TranscriptMessageType): boolean {
-  if (message.type !== "assistant" || !message.message?.content || !Array.isArray(message.message.content)) {
+  if (
+    message.type !== "assistant" ||
+    !message.message?.content ||
+    !Array.isArray(message.message.content)
+  ) {
     return false;
   }
-  
-  const hasText = message.message.content.some(item => item.type === "text" && item.text?.trim());
-  const hasTools = message.message.content.some(item => item.type === "tool_use");
-  
+
+  const hasText = message.message.content.some(
+    (item) => item.type === "text" && item.text?.trim(),
+  );
+  const hasTools = message.message.content.some(
+    (item) => item.type === "tool_use",
+  );
+
   return !hasText && hasTools;
 }
 
 // Preprocess messages to group tool-only messages with their summaries
-function preprocessMessages(messages: TranscriptMessageType[]): ProcessedMessage[] {
+function preprocessMessages(
+  messages: TranscriptMessageType[],
+): ProcessedMessage[] {
   const processed: ProcessedMessage[] = [];
   const toolOnlyMessages: TranscriptMessageType[] = [];
-  
+
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
-    
+
     // Skip user messages that only contain tool results
     if (
       message.type === "user" &&
       message.message?.content &&
       Array.isArray(message.message.content) &&
-      message.message.content.every(item => item.type === "tool_result")
+      message.message.content.every((item) => item.type === "tool_result")
     ) {
       continue;
     }
-    
+
     if (message.type === "assistant") {
       if (hasOnlyToolCalls(message)) {
         // This is a tool-only message, collect it
@@ -78,7 +88,7 @@ function preprocessMessages(messages: TranscriptMessageType[]): ProcessedMessage
           // This is a summary message following tool calls
           processed.push({
             ...message,
-            aggregatedToolMessages: [...toolOnlyMessages]
+            aggregatedToolMessages: [...toolOnlyMessages],
           });
           toolOnlyMessages.length = 0; // Clear the array
         } else {
@@ -96,12 +106,12 @@ function preprocessMessages(messages: TranscriptMessageType[]): ProcessedMessage
       processed.push(message);
     }
   }
-  
+
   // Add any remaining tool-only messages
   if (toolOnlyMessages.length > 0) {
     processed.push(...toolOnlyMessages);
   }
-  
+
   return processed;
 }
 
@@ -110,7 +120,7 @@ export function TranscriptViewer({
   transcriptData,
 }: TranscriptViewerProps) {
   const [data, setData] = useState<TranscriptSession | null>(
-    transcriptData || null
+    transcriptData || null,
   );
   const [parsedTranscript, setParsedTranscript] =
     useState<ParsedTranscript | null>(null);
@@ -119,7 +129,7 @@ export function TranscriptViewer({
 
   useEffect(() => {
     if (sessionId && !transcriptData) {
-      fetchTranscriptData(sessionId);
+      void fetchTranscriptData(sessionId);
     } else if (transcriptData) {
       setData(transcriptData);
     }
@@ -146,7 +156,7 @@ export function TranscriptViewer({
       setData(sessionData);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to fetch transcript"
+        err instanceof Error ? err.message : "Failed to fetch transcript",
       );
     } finally {
       setLoading(false);
@@ -168,7 +178,7 @@ export function TranscriptViewer({
 
   const handleRetry = () => {
     if (sessionId) {
-      fetchTranscriptData(sessionId);
+      void fetchTranscriptData(sessionId);
     }
   };
 
@@ -197,9 +207,11 @@ export function TranscriptViewer({
 
   const { messages, messageTree } = parsedTranscript;
   const processedMessages = preprocessMessages(messages);
-  
+
   // Find the model from the first assistant message
-  const model = messages.find(msg => msg.type === 'assistant' && msg.message?.model)?.message?.model;
+  const model = messages.find(
+    (msg) => msg.type === "assistant" && msg.message?.model,
+  )?.message?.model;
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-4">

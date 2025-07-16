@@ -78,6 +78,30 @@ run-cmd CMD:
     @echo "🚀 Running command in catnip container: {{CMD}}"
     docker run -it --rm catnip-dev {{CMD}}
 
+# Format all TypeScript/JavaScript files
+format-ts:
+    pnpm format
+
+# Format only changed TypeScript/JavaScript files
+format-ts-changed:
+    pnpm format:changed
+
+# Format all Go files in container
+format-go:
+    cd container && just format-go
+
+# Format only changed Go files in container
+format-go-changed:
+    cd container && just format-go-changed
+
+# Format all code (TypeScript and Go)
+format-all: format-ts format-go
+    @echo "✅ All code formatted!"
+
+# Format only changed files (TypeScript and Go)
+format-changed: format-ts-changed format-go-changed
+    @echo "✅ Changed files formatted!"
+
 # Clean up container images
 clean-containers:
     @echo "🧹 Cleaning up catnip container images..."
@@ -111,6 +135,14 @@ info:
     @echo "  just container::build  - Build Go server binary"
     @echo "  just container::dev    - Run Go server locally with Air"
     @echo "  just container::test   - Run Go tests"
+    @echo ""
+    @echo "Code Formatting:"
+    @echo "  just format-all        - Format all TypeScript and Go files"
+    @echo "  just format-changed    - Format only changed files"
+    @echo "  just format-ts         - Format all TypeScript/JavaScript files"
+    @echo "  just format-ts-changed - Format only changed TS/JS files"
+    @echo "  just format-go         - Format all Go files"
+    @echo "  just format-go-changed - Format only changed Go files"
     @echo ""
     @echo "Release Management:"
     @echo "  just release           - Create minor release (local tag)"
