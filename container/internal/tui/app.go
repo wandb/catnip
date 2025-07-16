@@ -174,7 +174,7 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		shellSpinner:     spinner.New(),
 	}
 
-	a.program = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
+	a.program = tea.NewProgram(m, tea.WithAltScreen())
 	
 	// Initialize the shell manager with the program
 	InitShellManager(a.program)
@@ -236,29 +236,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		
 		return m, nil
 
-	case tea.MouseMsg:
-		// Handle mouse wheel scrolling in different views
-		// Check for wheel events (they may have action=0 or action=1 depending on terminal)
-		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			switch msg.Button {
-			case tea.MouseButtonWheelUp:
-				if m.currentView == shellView && !m.showSessionList {
-					m.shellViewport.ScrollUp(3)
-				} else if m.currentView == logsView && !m.searchMode {
-					m.logsViewport.ScrollUp(3)
-				}
-				return m, nil
-			case tea.MouseButtonWheelDown:
-				if m.currentView == shellView && !m.showSessionList {
-					m.shellViewport.ScrollDown(3)
-				} else if m.currentView == logsView && !m.searchMode {
-					m.logsViewport.ScrollDown(3)
-				}
-				return m, nil
-			}
-		}
-		// Ignore other mouse events
-		return m, nil
 
 	case tea.KeyMsg:
 		
