@@ -186,7 +186,7 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 		sseClient:        sseClient,
 	}
 
-	a.program = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	a.program = tea.NewProgram(m, tea.WithAltScreen())
 	
 	// Initialize the shell manager with the program
 	InitShellManager(a.program)
@@ -318,33 +318,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							debugLog("Failed to resize PTY: %v", err)
 						}
 					}(terminalWidth, m.shellViewport.Height)
-				}
-			}
-		}
-		return m, nil
-
-	case tea.MouseMsg:
-		// Handle mouse wheel events for scrolling
-		if m.currentView == shellView && !m.showSessionList {
-			if msg.Action == tea.MouseActionPress {
-				switch msg.Button {
-				case tea.MouseButtonWheelUp:
-					m.shellViewport.ScrollUp(3)
-					return m, nil
-				case tea.MouseButtonWheelDown:
-					m.shellViewport.ScrollDown(3)
-					return m, nil
-				}
-			}
-		} else if m.currentView == logsView && !m.searchMode {
-			if msg.Action == tea.MouseActionPress {
-				switch msg.Button {
-				case tea.MouseButtonWheelUp:
-					m.logsViewport.ScrollUp(3)
-					return m, nil
-				case tea.MouseButtonWheelDown:
-					m.logsViewport.ScrollDown(3)
-					return m, nil
 				}
 			}
 		}
