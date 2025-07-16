@@ -62,9 +62,6 @@ function shouldRouteToContainer(pathname: string): boolean {
   return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
 }
 
-
-
-
 // Factory function to create app with environment bindings
 export function createApp(env: Env) {
   const app = new Hono<HonoEnv>();
@@ -77,7 +74,7 @@ export function createApp(env: Env) {
     // Skip session loading if no encryption key
     if (!c.env.CATNIP_ENCRYPTION_KEY) {
       console.warn(
-        "CATNIP_ENCRYPTION_KEY not set, skipping session middleware"
+        "CATNIP_ENCRYPTION_KEY not set, skipping session middleware",
       );
       return next();
     }
@@ -86,16 +83,16 @@ export function createApp(env: Env) {
       const sessionId = await getSignedCookie(
         c,
         c.env.CATNIP_ENCRYPTION_KEY,
-        "catnip-session"
+        "catnip-session",
       );
       if (sessionId) {
         try {
           // Get session from Durable Object
           const sessionDO = c.env.SESSIONS.get(
-            c.env.SESSIONS.idFromName("global")
+            c.env.SESSIONS.idFromName("global"),
           );
           const response = await sessionDO.fetch(
-            `https://internal/session/${sessionId}`
+            `https://internal/session/${sessionId}`,
           );
 
           if (response.ok) {
@@ -125,7 +122,7 @@ export function createApp(env: Env) {
       client_secret: env.GITHUB_CLIENT_SECRET,
       scope: ["read:user", "user:email", "repo"],
       oauthApp: !env.GITHUB_APP_ID, // Use OAuth App mode if no GitHub App ID is set
-    })
+    }),
   );
 
   // After OAuth completes
@@ -214,7 +211,7 @@ export function createApp(env: Env) {
     // Set signed cookie with just session ID
     if (!c.env.CATNIP_ENCRYPTION_KEY) {
       console.error(
-        "Cannot set signed cookie: CATNIP_ENCRYPTION_KEY not configured"
+        "Cannot set signed cookie: CATNIP_ENCRYPTION_KEY not configured",
       );
       return c.text("Server configuration error", 500);
     }
@@ -230,7 +227,7 @@ export function createApp(env: Env) {
         sameSite: "Lax",
         maxAge: 30 * 24 * 60 * 60, // 30 days - longer than token expiry to support refresh
         path: "/",
-      }
+      },
     );
 
     // Check for return URL
@@ -305,7 +302,6 @@ export function createApp(env: Env) {
     });
   });
 
-
   // GitHub App webhook endpoint
   app.post("/v1/github/webhooks", async (c) => {
     const signature = c.req.header("x-hub-signature-256");
@@ -378,8 +374,10 @@ export function createApp(env: Env) {
   // Release metadata endpoint - serves release info from R2
   app.get("/v1/github/releases/latest", async (c) => {
     try {
-      const releaseObject = await c.env.CATNIP_ASSETS.get("releases/latest.json");
-      
+      const releaseObject = await c.env.CATNIP_ASSETS.get(
+        "releases/latest.json",
+      );
+
       if (!releaseObject) {
         return c.text("Latest release not found", 404);
       }
@@ -408,7 +406,7 @@ export function createApp(env: Env) {
       // Get the asset from R2
       const assetKey = `releases/${version}/${filename}`;
       const assetObject = await c.env.CATNIP_ASSETS.get(assetKey);
-      
+
       if (!assetObject) {
         console.error(`Asset not found in R2: ${assetKey}`);
         return c.text("Asset not found", 404);
@@ -430,7 +428,7 @@ export function createApp(env: Env) {
           "Content-Type": contentType,
           "Cache-Control": "public, max-age=3600, s-maxage=3600", // Cache for 1 hour in CDN too
           "Content-Disposition": `attachment; filename="${filename}"`,
-          "ETag": assetObject.etag,
+          ETag: assetObject.etag,
         },
       });
     } catch (error) {
@@ -500,7 +498,7 @@ export function createApp(env: Env) {
           new Request(installScriptUrl, {
             method: "GET",
             headers: c.req.raw.headers,
-          })
+          }),
         );
 
         if (response.ok) {
@@ -513,7 +511,7 @@ export function createApp(env: Env) {
             },
           });
         }
-      } catch (e) {
+      } catch (e: any) {
         console.error("Failed to serve install script:", e);
       }
     }
@@ -529,7 +527,7 @@ export function createApp(env: Env) {
           method: c.req.method,
           headers: c.req.raw.headers,
           body: c.req.raw.body,
-        })
+        }),
       );
     }
 
@@ -538,6 +536,7 @@ export function createApp(env: Env) {
       return await c.env.ASSETS.fetch(c.req.raw);
     } catch (e) {
       // If ASSETS binding is not available in development
+      void e; // Acknowledge the error variable
       return c.text("Static asset serving not configured", 503);
     }
   });

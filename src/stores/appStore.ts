@@ -1,11 +1,11 @@
-import { create } from 'zustand';
-import { subscribeWithSelector } from 'zustand/middleware';
-import type { AppEvent, SSEMessage } from '../types/events';
+import { create } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
+import type { AppEvent, SSEMessage } from "../types/events";
 
 interface Port {
   port: number;
   service?: string;
-  protocol?: 'http' | 'tcp';
+  protocol?: "http" | "tcp";
   title?: string;
   timestamp: number;
 }
@@ -29,19 +29,19 @@ interface AppState {
   sseConnected: boolean;
   sseError: string | null;
   lastEventId: string | null;
-  
+
   // Application state
   ports: Map<number, Port>;
   gitWorkspaces: Map<string, GitWorkspace>;
   processes: Map<number, Process>;
-  containerStatus: 'running' | 'stopped' | 'error';
+  containerStatus: "running" | "stopped" | "error";
   containerMessage?: string;
-  
+
   // Actions
   connectSSE: () => void;
   disconnectSSE: () => void;
   handleEvent: (event: AppEvent) => void;
-  
+
   // Getters
   getActivePorts: () => Port[];
   getDirtyWorkspaces: () => GitWorkspace[];
@@ -59,68 +59,73 @@ export const useAppStore = create<AppState>()(
     ports: new Map(),
     gitWorkspaces: new Map(),
     processes: new Map(),
-    containerStatus: 'stopped',
-    
+    containerStatus: "stopped",
+
     connectSSE: () => {
       if (eventSource) {
         eventSource.close();
       }
-      
-      const url = '/v1/events';
-      console.log('Connecting to SSE:', url);
+
+      const url = "/v1/events";
+      console.log("Connecting to SSE:", url);
       eventSource = new EventSource(url);
-      
+
       eventSource.onopen = () => {
         set({ sseConnected: true, sseError: null });
-        console.log('SSE connected successfully');
+        console.log("SSE connected successfully");
       };
-      
+
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          
+
           // Handle different message formats
-          if (data.type === 'connection') {
+          if (data.type === "connection") {
             // Connection message from server
-            console.log('SSE connection confirmed:', data.payload?.clientId);
+            console.log("SSE connection confirmed:", data.payload?.clientId);
             return;
           }
-          
+
           const message: SSEMessage = data;
-          
+
           // Skip empty or invalid events
           if (!message.event || !message.event.type) {
-            console.warn('Received invalid SSE message:', message);
+            console.warn("Received invalid SSE message:", message);
             return;
           }
-          
+
           set({ lastEventId: message.id });
           get().handleEvent(message.event);
-          console.log('SSE message received:', message.event.type);
+          console.log("SSE message received:", message.event.type);
         } catch (error) {
-          console.error('Failed to parse SSE message:', error, 'Raw data:', event.data);
+          console.error(
+            "Failed to parse SSE message:",
+            error,
+            "Raw data:",
+            event.data,
+          );
         }
       };
-      
+
       eventSource.onerror = (error) => {
-        console.error('SSE error:', error);
-        console.log('SSE readyState:', eventSource?.readyState);
-        set({ 
-          sseConnected: false, 
-          sseError: 'Connection lost. Attempting to reconnect...' 
+        console.error("SSE error:", error);
+        console.log("SSE readyState:", eventSource?.readyState);
+        set({
+          sseConnected: false,
+          sseError: "Connection lost. Attempting to reconnect...",
         });
-        
+
         // Auto-reconnect after 3 seconds
         setTimeout(() => {
           const currentState = get();
           if (!currentState.sseConnected) {
-            console.log('Attempting to reconnect SSE...');
+            console.log("Attempting to reconnect SSE...");
             currentState.connectSSE();
           }
         }, 3000);
       };
     },
-    
+
     disconnectSSE: () => {
       if (eventSource) {
         eventSource.close();
@@ -128,12 +133,12 @@ export const useAppStore = create<AppState>()(
       }
       set({ sseConnected: false, sseError: null });
     },
-    
+
     handleEvent: (event: AppEvent) => {
       const { ports, gitWorkspaces, processes } = get();
-      
+
       switch (event.type) {
-        case 'port:opened':
+        case "port:opened": {
           const newPorts = new Map(ports);
           newPorts.set(event.payload.port, {
             port: event.payload.port,
@@ -144,14 +149,16 @@ export const useAppStore = create<AppState>()(
           });
           set({ ports: newPorts });
           break;
-          
-        case 'port:closed':
+        }
+
+        case "port:closed": {
           const updatedPorts = new Map(ports);
           updatedPorts.delete(event.payload.port);
           set({ ports: updatedPorts });
           break;
-          
-        case 'git:dirty':
+        }
+
+        case "git:dirty": {
           const newGitWorkspaces = new Map(gitWorkspaces);
           newGitWorkspaces.set(event.payload.workspace, {
             workspace: event.payload.workspace,
@@ -161,8 +168,9 @@ export const useAppStore = create<AppState>()(
           });
           set({ gitWorkspaces: newGitWorkspaces });
           break;
-          
-        case 'git:clean':
+        }
+
+        case "git:clean": {
           const cleanGitWorkspaces = new Map(gitWorkspaces);
           const workspace = cleanGitWorkspaces.get(event.payload.workspace);
           if (workspace) {
@@ -175,8 +183,9 @@ export const useAppStore = create<AppState>()(
           }
           set({ gitWorkspaces: cleanGitWorkspaces });
           break;
-          
-        case 'process:started':
+        }
+
+        case "process:started": {
           const newProcesses = new Map(processes);
           newProcesses.set(event.payload.pid, {
             pid: event.payload.pid,
@@ -186,39 +195,42 @@ export const useAppStore = create<AppState>()(
           });
           set({ processes: newProcesses });
           break;
-          
-        case 'process:stopped':
+        }
+
+        case "process:stopped": {
           const updatedProcesses = new Map(processes);
           updatedProcesses.delete(event.payload.pid);
           set({ processes: updatedProcesses });
           break;
-          
-        case 'container:status':
-          set({ 
+        }
+
+        case "container:status":
+          set({
             containerStatus: event.payload.status,
-            containerMessage: event.payload.message 
+            containerMessage: event.payload.message,
           });
           break;
-          
-        case 'heartbeat':
+
+        case "heartbeat":
           // Heartbeat keeps connection alive, no state update needed
           break;
       }
     },
-    
+
     // Getters
     getActivePorts: () => Array.from(get().ports.values()),
-    getDirtyWorkspaces: () => Array.from(get().gitWorkspaces.values()).filter(w => w.isDirty),
+    getDirtyWorkspaces: () =>
+      Array.from(get().gitWorkspaces.values()).filter((w) => w.isDirty),
     getRunningProcesses: () => Array.from(get().processes.values()),
-  }))
+  })),
 );
 
 // Auto-connect on store creation
 useAppStore.getState().connectSSE();
 
 // Cleanup on page unload
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
     useAppStore.getState().disconnectSSE();
   });
 }

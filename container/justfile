@@ -58,8 +58,25 @@ deps:
     go mod tidy
 
 # Format code
-fmt:
-    go fmt ./...
+#fmt:
+#    go fmt ./...
+
+# Format all Go files with gofmt
+format-go:
+    echo "Disabled global gofmt until we start enforcing..."
+    # gofmt -w -s .
+
+# Format only changed Go files
+format-go-changed:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Get changed and untracked Go files
+    files=$({ git diff --name-only; git ls-files --others --exclude-standard; } | grep -E '\.go$' || true)
+    if [ -n "$files" ]; then
+        echo "$files" | xargs gofmt -w -s
+    else
+        echo "No changed Go files to format"
+    fi
 
 # Lint code
 lint:

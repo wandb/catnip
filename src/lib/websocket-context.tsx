@@ -1,26 +1,12 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
-
-interface WebSocketContextType {
-  isConnected: boolean
-  setIsConnected: (connected: boolean) => void
-}
-
-const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
+import { useState, type ReactNode } from "react";
+import { WebSocketContext } from "./contexts/websocket";
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const [isConnected, setIsConnected] = useState(false)
+  const [isConnected, setIsConnected] = useState(false);
 
   return (
-    <WebSocketContext.Provider value={{ isConnected, setIsConnected }}>
+    <WebSocketContext value={{ isConnected, setIsConnected }}>
       {children}
-    </WebSocketContext.Provider>
-  )
-}
-
-export function useWebSocket() {
-  const context = useContext(WebSocketContext)
-  if (context === undefined) {
-    throw new Error('useWebSocket must be used within a WebSocketProvider')
-  }
-  return context
+    </WebSocketContext>
+  );
 }

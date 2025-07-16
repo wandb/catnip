@@ -4,7 +4,7 @@ import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { useWebSocket as useWebSocketContext } from "@/lib/websocket-context";
+import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
 
 // TODO: What a cluster fuck.  It's working reasonable well now.  Please clean this awful shit up.
@@ -120,7 +120,7 @@ function TerminalPage() {
 
     ws.onmessage = async (event) => {
       let data: string | Uint8Array | undefined;
-      let rePaint = () => {
+      const rePaint = () => {
         fitAddon.current?.fit();
         console.log("✅ Buffer replay complete, fitting terminal");
         fitAddon.current?.fit();
@@ -140,7 +140,7 @@ function TerminalPage() {
           const msg = JSON.parse(event.data);
           if (msg.type === "buffer-size") {
             console.log(
-              `📐 Server wants terminal at ${msg.cols}x${msg.rows} for buffer replay`
+              `📐 Server wants terminal at ${msg.cols}x${msg.rows} for buffer replay`,
             );
             // Resize terminal to match buffer dimensions
             if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
@@ -155,7 +155,7 @@ function TerminalPage() {
             terminalReady.current = true;
             return;
           }
-        } catch (e) {
+        } catch (_e) {
           // Not JSON, treat as regular text
         }
         // Check if this is the shell exit message
@@ -170,7 +170,7 @@ function TerminalPage() {
           console.log(
             "🔍 Buffering blob, claude?",
             search.agent,
-            arrayBuffer.byteLength
+            arrayBuffer.byteLength,
           );
           buffer.push(new Uint8Array(arrayBuffer));
           // TODO: this assumes there's one buffer message :(
@@ -186,7 +186,7 @@ function TerminalPage() {
         console.log(
           "🔍 Writing buffer and calling repaint",
           instance.cols,
-          instance.rows
+          instance.rows,
         );
         rePaint();
         for (const chunk of buffer) {
@@ -199,7 +199,7 @@ function TerminalPage() {
           "🔍 Writing data",
           data.length,
           instance.cols,
-          instance.rows
+          instance.rows,
         );
         instance.write(data);
       }
