@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Debug: Log that hook is being executed
-echo "🔧 Claude format hook executing..." >&2
+# Read JSON input from stdin
+CLAUDE_INPUT=$(cat)
 
-# Extract file path from Claude input
-FILE_PATH=$(echo "$CLAUDE_INPUT" | jq -r '.file_path // .path // empty' 2>/dev/null || true)
-
-# Debug: Log the file path
-echo "🔧 Hook processing file: $FILE_PATH" >&2
+# Extract file path from Claude input JSON
+FILE_PATH=$(echo "$CLAUDE_INPUT" | jq -r '.tool_input.file_path // .tool_response.filePath // .file_path // .path // empty' 2>/dev/null || true)
 
 # Exit if no file path found
 if [ -z "$FILE_PATH" ]; then
