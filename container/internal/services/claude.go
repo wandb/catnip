@@ -84,20 +84,30 @@ func WriteClaudeSettingsFile(homeDir string) error {
 		echo 'No changes to commit'
 	else 
 		TOOL_DATA=$(cat)
-		TOOL_NAME=$(echo "$TOOL_DATA" | jq -r '.tool_name // "tool"')
-		FILE_PATH=$(echo "$TOOL_DATA" | jq -r '.tool_input.file_path // .tool_input.target_file // .tool_input.target_notebook // empty')
-		COMMAND=$(echo "$TOOL_DATA" | jq -r '.tool_input.command // empty' | head -c 50)
-		SUCCESS=$(echo "$TOOL_DATA" | jq -r '.tool_response.success // empty')
+		# Test if jq can parse the JSON
+		echo "Testing jq parsing..." >> /tmp/claude-hook-debug.log
+		echo "$TOOL_DATA" | jq . > /dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			echo "jq parsing: SUCCESS" >> /tmp/claude-hook-debug.log
+		else
+			echo "jq parsing: FAILED" >> /tmp/claude-hook-debug.log
+		fi
+		
+		TOOL_NAME=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_name // "tool"')
+		FILE_PATH=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_input.file_path // .tool_input.target_file // .tool_input.target_notebook // .tool_response.filePath // empty')
+		COMMAND=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_input.command // empty' | head -c 50)
+		RESPONSE_TYPE=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_response.type // empty')
+		SUCCESS=$(printf '%s' "$TOOL_DATA" | jq -r '.tool_response.success // empty')
 
-		if [ -n "$FILE_PATH" ]; then
+		if [ -n "$FILE_PATH" ] && [ "$FILE_PATH" != "null" ]; then
 			MSG="checkpoint: $TOOL_NAME $(basename "$FILE_PATH")"
-		elif [ -n "$COMMAND" ]; then
+		elif [ -n "$COMMAND" ] && [ "$COMMAND" != "null" ]; then
 			MSG="checkpoint: $TOOL_NAME '$COMMAND'"
 		else
 			MSG="checkpoint: $TOOL_NAME"
 		fi
 
-		if [ "$SUCCESS" = "true" ]; then
+		if [ "$SUCCESS" = "true" ] || [ "$RESPONSE_TYPE" = "create" ] || [ "$RESPONSE_TYPE" = "edit" ]; then
 			MSG="$MSG ✓"
 		elif [ "$SUCCESS" = "false" ]; then
 			MSG="$MSG ✗"
@@ -111,8 +121,6 @@ func WriteClaudeSettingsFile(homeDir string) error {
 		"hooks": map[string]interface{}{
 			"PostToolUse": []interface{}{
 				map[string]interface{}{
-					// git checkpoint after every tool use
-					"matcher": "",
 					"hooks": []interface{}{
 						map[string]interface{}{
 							"type":    "command",
