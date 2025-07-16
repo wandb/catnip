@@ -36,8 +36,8 @@ interface ClaudeSession {
 interface WorktreeRowProps {
   worktree: Worktree;
   claudeSessions: Record<string, ClaudeSession>;
-  syncConflicts: Record<string, any>;
-  mergeConflicts: Record<string, any>;
+  syncConflicts: Record<string, ConflictStatus>;
+  mergeConflicts: Record<string, ConflictStatus>;
   worktreeSummaries: Record<string, WorktreeSummary>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   openDiffWorktreeId: string | null;
