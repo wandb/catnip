@@ -375,6 +375,10 @@ definitions:
         description: When the session was initially started
         example: "2024-01-15T14:30:00Z"
         type: string
+      title:
+        description: Title of the session
+        example: Updating README.md
+        type: string
     type: object
   internal_handlers.AppEvent:
     properties:
