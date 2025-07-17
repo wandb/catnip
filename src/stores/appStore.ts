@@ -62,6 +62,11 @@ export const useAppStore = create<AppState>()(
     containerStatus: "stopped",
 
     connectSSE: () => {
+      // Prevent multiple simultaneous connections
+      if (eventSource && eventSource.readyState === EventSource.CONNECTING) {
+        return;
+      }
+
       if (eventSource) {
         eventSource.close();
       }
@@ -115,11 +120,13 @@ export const useAppStore = create<AppState>()(
           sseError: "Connection lost. Attempting to reconnect...",
         });
 
-        // Auto-reconnect after 3 seconds
+        // Auto-reconnect after 3 seconds, but only if not already connected
         setTimeout(() => {
           const currentState = get();
-          if (!currentState.sseConnected) {
-            console.log("Attempting to reconnect SSE...");
+          if (
+            !currentState.sseConnected &&
+            (!eventSource || eventSource.readyState === EventSource.CLOSED)
+          ) {
             currentState.connectSSE();
           }
         }, 3000);

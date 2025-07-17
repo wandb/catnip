@@ -6,7 +6,7 @@ const (
 	KeyQuitAlt   = "ctrl+c"
 	KeyOverview  = "o"
 	KeyLogs      = "l"
-	KeyShell     = "s"
+	KeyShell     = "t"
 	KeyOpenUI    = "0"
 	KeyEscape    = "esc"
 	KeyEnter     = "enter"

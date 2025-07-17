@@ -251,6 +251,7 @@ func (m Model) handlePorts(msg portsMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleHealthStatus(msg healthStatusMsg) (tea.Model, tea.Cmd) {
 	wasHealthy := m.appHealthy
 	m.appHealthy = bool(msg)
+	debugLog("handleHealthStatus: wasHealthy=%v, appHealthy=%v, sseStarted=%v", wasHealthy, m.appHealthy, m.sseStarted)
 
 	// Start SSE client when app becomes healthy for the first time
 	if m.appHealthy && !wasHealthy && !m.sseStarted && m.sseClient != nil {

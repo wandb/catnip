@@ -96,6 +96,7 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	m.shellViewport = shellViewport
 	m.shellSpinner = spinner.New()
 	m.sseClient = sseClient
+	m.sseStarted = true // SSE will be started immediately
 
 	// Initialize spinner
 	m.shellSpinner.Spinner = spinner.Dot
@@ -109,6 +110,9 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	// Update SSE client with the program reference
 	sseClient.program = a.program
 	a.sseClient = sseClient
+
+	// Start SSE client immediately
+	sseClient.Start()
 
 	_, err := a.program.Run()
 
@@ -161,7 +165,7 @@ func (m Model) renderFooter() string {
 		}
 		return footerStyle.Render("Initializing container... Press q to quit")
 	case OverviewView:
-		return footerStyle.Render("Press l for logs, s for shell, 0 to open UI, 1-9 to open ports, q to quit")
+		return footerStyle.Render("Press l for logs, t for terminal, 0 to open UI, 1-9 to open ports, q to quit")
 	case ShellView:
 		scrollKey := "Alt"
 		if runtime.GOOS == "darwin" {

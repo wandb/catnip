@@ -263,7 +263,13 @@ func (v *OverviewViewImpl) fetchLogs(m *Model) tea.Cmd {
 }
 
 func (v *OverviewViewImpl) createNewShellSessionWithCmd(m *Model) (*Model, tea.Cmd) {
-	sessionID := fmt.Sprintf("shell-%d", time.Now().Unix())
+	var sessionID string
+	// Use "default" for the first shell, then fall back to timestamp format
+	if globalShellManager == nil || len(globalShellManager.sessions) == 0 {
+		sessionID = "default"
+	} else {
+		sessionID = fmt.Sprintf("shell-%d", time.Now().Unix())
+	}
 	m.currentSessionID = sessionID
 	m.SwitchToView(ShellView)
 	m.shellOutput = ""
