@@ -194,26 +194,26 @@ dev:
     
     # Set up signal handlers
     trap cleanup EXIT INT TERM
-    
-    # Start Air (backend) in background
-    echo "🚀 Starting Air (backend) on port ${PORT:-8080}..."
-    cd container && air &
-    AIR_PID=$!
-    
-    # Give Air a moment to start
-    sleep 2
-    
+
     # Start pnpm dev (frontend) in background
     echo "🚀 Starting pnpm dev (frontend) on port $VITE_PORT..."
     pnpm dev &
     PNPM_PID=$!
+    # Give vite a moment to start
+    sleep 2
+    
+    # Start Air (backend) in background
+    echo "🚀 Starting Air (backend) on port ${PORT:-8080}..."
+    CATNIP_DEV=true
+    cd container && air &
+    AIR_PID=$!
     
     # Display helpful info
     echo ""
     echo "🎉 Development servers started!"
     echo "   📱 Frontend: http://localhost:$VITE_PORT"
     echo "   🔧 Backend:  http://localhost:${PORT:-8080}"
-    echo "   📚 API Docs: http://localhost:${PORT:-8080}/swagger/"
+    echo "   📚 API Docs: http://localhost:${PORT:-8080}/docs/"
     echo ""
     echo "Press Ctrl+C to stop both servers"
     echo ""
