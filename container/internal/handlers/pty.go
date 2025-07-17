@@ -219,13 +219,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			// Add to buffer (unlimited growth for TUI compatibility)
 			session.bufferMutex.Lock()
 			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
-				session.Title = title
-				log.Printf("🪧 Updated terminal title: %q", title)
-
-				// Update session service with the new title
-				if err := h.sessionService.UpdateSessionTitle(session.WorkDir, title); err != nil {
-					log.Printf("⚠️  Failed to update session title: %v", err)
-				}
+				h.handleTitleUpdate(session, title)
 			}
 			session.outputBuffer = append(session.outputBuffer, buf[:n]...)
 			// Update buffered dimensions to current terminal size
@@ -633,6 +627,14 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	log.Printf("🧹 Cleaning up idle session: %s", session.ID)
 
+	// Perform final git add to catch any uncommitted changes before cleanup
+	if h.gitService != nil {
+		log.Printf("🔄 Performing final git add for any uncommitted changes in: %s", session.WorkDir)
+		if err := h.performFinalGitAdd(session.WorkDir); err != nil {
+			log.Printf("⚠️  Final git add during cleanup failed (this is often expected): %v", err)
+		}
+	}
+
 	// End session tracking if it's a claude session
 	if session.Agent == "claude" {
 		if err := h.sessionService.EndActiveSession(session.WorkDir); err != nil {
@@ -653,6 +655,25 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	// Remove from sessions map
 	delete(h.sessions, session.ID)
+}
+
+// performFinalGitAdd stages any uncommitted changes during cleanup
+func (h *PTYHandler) performFinalGitAdd(workspaceDir string) error {
+	// Check if it's a git repository by trying to run git status
+	cmd := exec.Command("git", "-C", workspaceDir, "rev-parse", "--git-dir")
+	if err := cmd.Run(); err != nil {
+		// Not a git repository, skip silently
+		return nil
+	}
+
+	// Stage all changes
+	addCmd := exec.Command("git", "-C", workspaceDir, "add", ".")
+	if output, err := addCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add failed: %v, output: %s", err, string(output))
+	}
+
+	log.Printf("✅ Staged any remaining changes in: %s", workspaceDir)
+	return nil
 }
 
 // sanitizeSessionID cleans the session ID to prevent path traversal attacks
@@ -836,6 +857,50 @@ func (h *PTYHandler) findNewestClaudeSession(claudeProjectsDir string) string {
 	}
 
 	return newestFile
+}
+
+// handleTitleUpdate processes a new terminal title, committing previous work and updating session state
+func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
+	log.Printf("🪧 New terminal title detected: %q", title)
+
+	// Get the previous title before updating
+	previousTitle := h.sessionService.GetPreviousTitle(session.WorkDir)
+
+	// Only commit if we have a previous title (new title marks start of new work)
+	if previousTitle != "" {
+		h.commitPreviousWork(session, previousTitle)
+	} else {
+		log.Printf("📝 No previous title found, starting fresh work with: %q", title)
+	}
+
+	// Update session service with the new title (no commit hash yet)
+	if err := h.sessionService.UpdateSessionTitle(session.WorkDir, title, ""); err != nil {
+		log.Printf("⚠️  Failed to update session title: %v", err)
+	}
+
+	// Update the session's current title for display
+	session.Title = title
+}
+
+// commitPreviousWork commits the previous work with the given title and updates the commit hash
+func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) {
+	if h.gitService == nil {
+		log.Printf("⚠️  GitService is nil, skipping git operations")
+		return
+	}
+
+	commitHash, err := h.gitService.GitAddCommitGetHash(session.WorkDir, previousTitle)
+	if err != nil {
+		log.Printf("⚠️  Git operations failed for previous title '%s': %v", previousTitle, err)
+		return
+	}
+
+	log.Printf("✅ Committed previous work with title: %q (hash: %s)", previousTitle, commitHash)
+
+	// Update the previous title's commit hash
+	if err := h.sessionService.UpdatePreviousTitleCommitHash(session.WorkDir, commitHash); err != nil {
+		log.Printf("⚠️  Failed to update previous title commit hash: %v", err)
+	}
 }
 
 // GetSessionService returns the session service for external access

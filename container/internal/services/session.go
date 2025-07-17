@@ -11,10 +11,11 @@ import (
 	"time"
 )
 
-// TitleEntry represents a title with its timestamp
+// TitleEntry represents a title with its timestamp and commit hash
 type TitleEntry struct {
-	Title     string    `json:"title"`
-	Timestamp time.Time `json:"timestamp"`
+	Title      string    `json:"title"`
+	Timestamp  time.Time `json:"timestamp"`
+	CommitHash string    `json:"commit_hash,omitempty"`
 }
 
 // SessionState represents persistent session state
@@ -290,7 +291,7 @@ func (s *SessionService) EndActiveSession(workspaceDir string) error {
 }
 
 // UpdateSessionTitle updates the title for an active session and adds it to history
-func (s *SessionService) UpdateSessionTitle(workspaceDir, title string) error {
+func (s *SessionService) UpdateSessionTitle(workspaceDir, title, commitHash string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -303,16 +304,19 @@ func (s *SessionService) UpdateSessionTitle(workspaceDir, title string) error {
 
 	// Only update if the title has changed
 	if session.Title == nil || session.Title.Title != title {
+		now := time.Now()
 		session.Title = &TitleEntry{
-			Title:     title,
-			Timestamp: time.Now(),
+			Title:      title,
+			Timestamp:  now,
+			CommitHash: commitHash,
 		}
 
 		// Add to history if not already the last entry
 		if len(session.TitleHistory) == 0 || session.TitleHistory[len(session.TitleHistory)-1].Title != title {
 			session.TitleHistory = append(session.TitleHistory, TitleEntry{
-				Title:     title,
-				Timestamp: time.Now(),
+				Title:      title,
+				Timestamp:  now,
+				CommitHash: commitHash,
 			})
 		}
 
@@ -320,6 +324,48 @@ func (s *SessionService) UpdateSessionTitle(workspaceDir, title string) error {
 	}
 
 	return nil
+}
+
+// UpdatePreviousTitleCommitHash updates the commit hash for the previous title entry
+func (s *SessionService) UpdatePreviousTitleCommitHash(workspaceDir, commitHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, exists := s.activeSessions[workspaceDir]
+	if !exists {
+		return fmt.Errorf("no active session found for workspace: %s", workspaceDir)
+	}
+
+	// Update the current title's commit hash if it exists
+	if session.Title != nil {
+		session.Title.CommitHash = commitHash
+	}
+
+	// Also update the last entry in history if it exists
+	if len(session.TitleHistory) > 0 {
+		lastIndex := len(session.TitleHistory) - 1
+		session.TitleHistory[lastIndex].CommitHash = commitHash
+	}
+
+	return s.saveActiveSessionsState()
+}
+
+// GetPreviousTitle returns the previous title from the session, or empty string if none exists
+func (s *SessionService) GetPreviousTitle(workspaceDir string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	session, exists := s.activeSessions[workspaceDir]
+	if !exists {
+		return ""
+	}
+
+	// Return the current title if it exists
+	if session.Title != nil {
+		return session.Title.Title
+	}
+
+	return ""
 }
 
 // GetActiveSession returns the active session info for a workspace directory
