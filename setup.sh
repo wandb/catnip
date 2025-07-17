@@ -136,32 +136,39 @@ else
     exit 1
 fi
 
-# Format Go files
-echo "Formatting Go files..."
-cd container
-if just format-go-changed 2>/dev/null; then
-    # Check if any files were actually formatted
-    if [ -n "$(git diff --name-only)" ]; then
-        formatted_files=true
-        echo -e "${GREEN}✅ Go files formatted${NC}"
-    else
-        echo -e "${GREEN}✅ No Go files needed formatting${NC}"
-    fi
-else
-    echo -e "${RED}❌ Failed to format Go files${NC}"
-    exit 1
-fi
+# Check if there are any changes in the container directory
+container_changes=$(git diff --cached --name-only --diff-filter=ACM | grep '^container/' || true)
 
-# Run Go lint checks
-echo "Running Go lint checks..."
-if just lint >/dev/null 2>&1; then
-    echo -e "${GREEN}✅ Go lint checks passed${NC}"
+if [ -n "$container_changes" ]; then
+    # Format Go files
+    echo "Formatting Go files..."
+    cd container
+    if just format-go-changed 2>/dev/null; then
+        # Check if any files were actually formatted
+        if [ -n "$(git diff --name-only)" ]; then
+            formatted_files=true
+            echo -e "${GREEN}✅ Go files formatted${NC}"
+        else
+            echo -e "${GREEN}✅ No Go files needed formatting${NC}"
+        fi
+    else
+        echo -e "${RED}❌ Failed to format Go files${NC}"
+        exit 1
+    fi
+
+    # Run Go lint checks
+    echo "Running Go lint checks..."
+    if just lint >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Go lint checks passed${NC}"
+    else
+        echo -e "${RED}❌ Go lint checks failed${NC}"
+        echo -e "${YELLOW}Run 'cd container && just lint' to see details${NC}"
+        exit 1
+    fi
+    cd ..
 else
-    echo -e "${RED}❌ Go lint checks failed${NC}"
-    echo -e "${YELLOW}Run 'cd container && just lint' to see details${NC}"
-    exit 1
+    echo -e "${GREEN}✅ No Go files changed, skipping Go formatting and lint checks${NC}"
 fi
-cd ..
 
 # If files were formatted, add them to staging and inform user
 if [ "$formatted_files" = true ]; then
