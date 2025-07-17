@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"io/fs"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,10 @@ func ServeEmbeddedAssets() fiber.Handler {
 		Root:   http.FS(embeddedFS),
 		Browse: false,
 		Index:  "index.html",
+		Next: func(c *fiber.Ctx) bool {
+			// Let the SPA handler catch routes that don't exist as files
+			return true
+		},
 	})
 }
 
@@ -50,18 +55,48 @@ func ServeEmbeddedSPA(c *fiber.Ctx) error {
 
 	// Clean the path to prevent directory traversal
 	path = filepath.Clean(path)
-	
+
 	// Check if file exists
 	if data, err := fs.ReadFile(embeddedFS, path); err == nil {
-		// File exists, serve it
+		// File exists, serve it with appropriate content type
+		contentType := getContentType(path)
+		c.Set("Content-Type", contentType)
 		return c.Send(data)
 	}
 
 	// File doesn't exist, serve index.html for SPA routing
 	if data, err := fs.ReadFile(embeddedFS, "index.html"); err == nil {
+		c.Set("Content-Type", "text/html; charset=utf-8")
 		return c.Send(data)
 	}
-	
+
 	return c.Status(404).SendString("Asset not found")
 }
 
+// getContentType returns the appropriate content type for a file based on its extension
+func getContentType(path string) string {
+	ext := filepath.Ext(path)
+	contentType := mime.TypeByExtension(ext)
+
+	// Set default content types for common web files if mime doesn't recognize them
+	if contentType == "" {
+		switch ext {
+		case ".js":
+			contentType = "application/javascript; charset=utf-8"
+		case ".css":
+			contentType = "text/css; charset=utf-8"
+		case ".html":
+			contentType = "text/html; charset=utf-8"
+		case ".json":
+			contentType = "application/json; charset=utf-8"
+		case ".svg":
+			contentType = "image/svg+xml"
+		case ".ico":
+			contentType = "image/x-icon"
+		default:
+			contentType = "application/octet-stream"
+		}
+	}
+
+	return contentType
+}

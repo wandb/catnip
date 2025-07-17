@@ -64,7 +64,6 @@ func (s *GitService) execCommand(command string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-
 // execGitCommand executes a git command with standard environment
 func (s *GitService) execGitCommand(workingDir string, args ...string) *exec.Cmd {
 	cmd := exec.Command("git", args...)
@@ -152,7 +151,6 @@ func (m *RemoteURLManager) convertSSHToHTTPS(url string) string {
 	}
 	return url
 }
-
 
 // PushStrategy defines the strategy for pushing branches
 type PushStrategy struct {
@@ -913,6 +911,20 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
+	}
+
+	// Add the "live" remote to the worktree pointing back to the main repo
+	// This allows status updates to fetch latest changes from the main repo
+	addRemoteCmd := s.execGitCommand(worktreePath, "remote", "add", "live", repo.Path)
+	if output, err := addRemoteCmd.CombinedOutput(); err != nil {
+		log.Printf("⚠️ Failed to add live remote: %v\n%s", err, output)
+	} else {
+		// Fetch the source branch from the live remote to get latest state
+		log.Printf("🔄 Fetching latest %s from live remote", branch)
+		fetchCmd := s.execGitCommand(worktreePath, "fetch", "live", branch)
+		if output, err := fetchCmd.CombinedOutput(); err != nil {
+			log.Printf("⚠️ Failed to fetch %s from live remote: %v\n%s", branch, err, output)
+		}
 	}
 
 	// Get current commit hash
@@ -2634,7 +2646,6 @@ func (s *GitService) inferRemoteURL(repoPath string) (string, error) {
 	return "", fmt.Errorf("could not infer remote URL from repository")
 }
 
-
 // setupRemoteOrigin sets up or updates the remote origin URL
 func (s *GitService) setupRemoteOrigin(worktreePath, remoteURL string) error {
 	// Check if remote already exists
@@ -2653,7 +2664,6 @@ func (s *GitService) setupRemoteOrigin(worktreePath, remoteURL string) error {
 	}
 	return nil
 }
-
 
 // GetPullRequestInfo gets information about an existing pull request for a worktree
 func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestInfo, error) {
