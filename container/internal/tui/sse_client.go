@@ -32,37 +32,17 @@ type AppEvent struct {
 
 // Event type constants
 const (
-	PortOpenedEvent     = "port:opened"
-	PortClosedEvent     = "port:closed"
-	GitDirtyEvent       = "git:dirty"
-	GitCleanEvent       = "git:clean"
-	ProcessStartedEvent = "process:started"
-	ProcessStoppedEvent = "process:stopped"
+	PortOpenedEvent      = "port:opened"
+	PortClosedEvent      = "port:closed"
+	GitDirtyEvent        = "git:dirty"
+	GitCleanEvent        = "git:clean"
+	ProcessStartedEvent  = "process:started"
+	ProcessStoppedEvent  = "process:stopped"
 	ContainerStatusEvent = "container:status"
-	HeartbeatEvent      = "heartbeat"
+	HeartbeatEvent       = "heartbeat"
 )
 
-// SSE event messages for the TUI
-type ssePortOpenedMsg struct {
-	port int
-	service string
-}
-
-type ssePortClosedMsg struct {
-	port int
-}
-
-type sseContainerStatusMsg struct {
-	status string
-	message string
-}
-
-type sseErrorMsg struct {
-	err error
-}
-
-type sseConnectedMsg struct{}
-type sseDisconnectedMsg struct{}
+// SSE event messages are defined in messages.go
 
 // NewSSEClient creates a new SSE client
 func NewSSEClient(url string, program *tea.Program) *SSEClient {
@@ -180,11 +160,21 @@ func (c *SSEClient) processEvent(data string) {
 			if svc, ok := payload["service"].(string); ok {
 				service = svc
 			}
-			
+			title := ""
+			if t, ok := payload["title"].(string); ok {
+				title = t
+			}
+			protocol := ""
+			if p, ok := payload["protocol"].(string); ok {
+				protocol = p
+			}
+
 			if c.program != nil {
 				c.program.Send(ssePortOpenedMsg{
-					port:    int(portFloat),
-					service: service,
+					port:     int(portFloat),
+					service:  service,
+					title:    title,
+					protocol: protocol,
 				})
 			}
 		}
@@ -192,7 +182,7 @@ func (c *SSEClient) processEvent(data string) {
 	case PortClosedEvent:
 		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
 			portFloat, _ := payload["port"].(float64)
-			
+
 			if c.program != nil {
 				c.program.Send(ssePortClosedMsg{
 					port: int(portFloat),
@@ -207,7 +197,7 @@ func (c *SSEClient) processEvent(data string) {
 			if msg, ok := payload["message"].(string); ok {
 				message = msg
 			}
-			
+
 			if c.program != nil {
 				c.program.Send(sseContainerStatusMsg{
 					status:  status,

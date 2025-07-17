@@ -36,9 +36,9 @@ func (sm *ShellManager) CreateSession(sessionID string) *ShellSession {
 		Client: NewPTYClient(sessionID),
 		Output: []byte{},
 	}
-	
+
 	sm.sessions[sessionID] = session
-	
+
 	// Set up handlers
 	session.Client.SetMessageHandler(func(data []byte) {
 		session.Output = append(session.Output, data...)
@@ -49,7 +49,7 @@ func (sm *ShellManager) CreateSession(sessionID string) *ShellSession {
 			})
 		}
 	})
-	
+
 	session.Client.SetErrorHandler(func(err error) {
 		session.Error = err
 		if sm.program != nil {
@@ -59,7 +59,7 @@ func (sm *ShellManager) CreateSession(sessionID string) *ShellSession {
 			})
 		}
 	})
-	
+
 	return session
 }
 
@@ -74,7 +74,6 @@ func (sm *ShellManager) ConnectSession(sessionID string) error {
 	return fmt.Errorf("session not found: %s", sessionID)
 }
 
-
 func (sm *ShellManager) GetSession(sessionID string) *ShellSession {
 	return sm.sessions[sessionID]
 }
@@ -88,9 +87,9 @@ func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 				err:       fmt.Errorf("shell manager not initialized"),
 			}
 		}
-		
+
 		_ = globalShellManager.CreateSession(sessionID)
-		
+
 		// Connect in background and send initial size
 		go func() {
 			err := globalShellManager.ConnectSession(sessionID)
@@ -98,7 +97,7 @@ func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 				debugLog("Failed to connect shell session %s: %v", sessionID, err)
 				return
 			}
-			
+
 			// Send initial terminal size after connection with a small delay
 			time.Sleep(200 * time.Millisecond) // Give PTY time to initialize
 			if session := globalShellManager.GetSession(sessionID); session != nil && session.Client != nil {
@@ -106,47 +105,15 @@ func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 				if err := session.Client.Resize(width, height); err != nil {
 					debugLog("Failed to send initial PTY size: %v", err)
 				}
-				
+
 			}
 		}()
-		
+
 		// Give it a moment to connect
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Don't send any initial message - let the shell prompt show
 		return nil
 	}
-}
-
-// Updated createNewShellSession to use the shell manager
-func (m model) createNewShellSessionWithCmd() (model, tea.Cmd) {
-	sessionID := fmt.Sprintf("shell-%d", time.Now().Unix())
-	m.currentSessionID = sessionID
-	m.currentView = shellView
-	m.shellOutput = ""
-	m.shellConnecting = true // Set connecting state
-	m.shellLastInput = time.Now() // Initialize cursor timer
-	
-	// Initialize shell viewport
-	if m.height > 0 {
-		headerHeight := 3
-		m.shellViewport.Width = m.width - 2
-		m.shellViewport.Height = m.height - headerHeight
-		// Initialize or resize terminal emulator to match viewport
-		// Account for viewport padding/borders
-		terminalWidth := m.shellViewport.Width - 2  // Subtract 2 for viewport borders
-		if m.terminalEmulator == nil {
-			debugLog("Creating terminal emulator with size: %dx%d", terminalWidth, m.shellViewport.Height)
-			m.terminalEmulator = NewTerminalEmulator(terminalWidth, m.shellViewport.Height)
-		} else {
-			m.terminalEmulator.Clear()
-			m.terminalEmulator.Resize(terminalWidth, m.shellViewport.Height)
-		}
-	}
-	
-	// Return the command to create and connect the session
-	// Use terminal width (viewport width - 2 for borders)
-	terminalWidth := m.shellViewport.Width - 2
-	return m, createAndConnectShell(sessionID, terminalWidth, m.shellViewport.Height)
 }
 

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": ".claude/format-hook.sh"
+            "command": "$(git rev-parse --show-toplevel)/.claude/format-hook.sh"
           }
         ]
       }
