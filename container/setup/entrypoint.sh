@@ -66,6 +66,9 @@ fi
 mkdir -p "${GOPATH}/bin" "${GOPATH}/src" "${GOPATH}/pkg"
 mkdir -p "${WORKSPACE}/projects"
 
+# Ensure Go workspace has proper permissions for catnip user
+chown -R 1000:1000 "${GOPATH}"
+
 # Initialize volume directory for persistent data
 if [ -d "/volume" ]; then
     echo "📁 Setting up persistent volume..."

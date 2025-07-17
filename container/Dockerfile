@@ -133,7 +133,7 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi && \
     useradd -m -s /bin/bash -u 1000 catnip && \
     usermod -aG sudo catnip && \
-    echo 'catnip ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+    echo '#1000 ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Create global workspace directory
 RUN mkdir -p /workspace && \
@@ -144,9 +144,10 @@ ENV CATNIP_ROOT="/opt/catnip"
 ENV WORKSPACE="/workspace"
 ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
 
-# Create directory structure
+# Create directory structure with full write permissions for catnip user
 RUN mkdir -p ${CATNIP_ROOT}/bin ${CATNIP_ROOT}/lib ${CATNIP_ROOT}/versions && \
-    chown -R catnip:catnip ${CATNIP_ROOT}
+    chown -R catnip:catnip ${CATNIP_ROOT} && \
+    chmod -R 755 ${CATNIP_ROOT}
 
 # Install language version managers globally
 # Install NVM globally
@@ -180,6 +181,7 @@ ENV GOPATH="${CATNIP_ROOT}/go-workspace"
 ENV PIPX_BIN_DIR="${CATNIP_ROOT}/bin"
 ENV PIPX_HOME="${CATNIP_ROOT}/pipx"
 RUN mkdir -p ${CATNIP_ROOT}/pipx && \
+    chown -R catnip:catnip ${CATNIP_ROOT}/pipx && \
     pipx install uv && \
     echo "System python: $(python3 --version)" && \
     if [ "${PYTHON_VERSION}" != "system" ]; then \
