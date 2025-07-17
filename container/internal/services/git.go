@@ -2045,6 +2045,145 @@ func (s *GitService) unshallowRepository(barePath, branch string) {
 	}
 }
 
+// CreateWorktreeFromSource creates a new worktree from various source types
+func (s *GitService) CreateWorktreeFromSource(req models.WorktreeCreateRequest) (*models.Worktree, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Find the repository for this worktree
+	var repo *models.Repository
+	var repoID string
+
+	// If source is a worktree, get its repository
+	if req.SourceType == "worktree" {
+		sourceWorktree, exists := s.worktrees[req.Source]
+		if !exists {
+			return nil, fmt.Errorf("source worktree %s not found", req.Source)
+		}
+		repoID = sourceWorktree.RepoID
+		repo = s.repositories[repoID]
+		if repo == nil {
+			return nil, fmt.Errorf("repository %s not found", repoID)
+		}
+	} else {
+		// For branch/commit sources, find the repository
+		// For now, assume we're working with the first available repository
+		// This could be enhanced to support multi-repo scenarios
+		if len(s.repositories) == 0 {
+			return nil, fmt.Errorf("no repositories available")
+		}
+		for id, r := range s.repositories {
+			repo = r
+			repoID = id
+			break
+		}
+	}
+
+	// Resolve the source to an actual git reference
+	resolvedSource, sourceBranch, parentWorktreeID, err := s.resolveWorktreeSource(repoID, req.Source, req.SourceType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve source: %v", err)
+	}
+
+	// Generate name if not provided
+	name := req.Name
+	if name == "" {
+		name = generateSessionName()
+	}
+
+	// Create the worktree
+	worktree, err := s.createWorktreeInternalForRepo(repo, resolvedSource, name, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create worktree: %v", err)
+	}
+
+	// Update source branch and parent relationship
+	worktree.SourceBranch = sourceBranch
+	worktree.ParentWorktreeID = parentWorktreeID
+
+	// Update parent worktree's children list
+	if parentWorktreeID != nil {
+		if parentWorktree, exists := s.worktrees[*parentWorktreeID]; exists {
+			if parentWorktree.ChildWorktreeIDs == nil {
+				parentWorktree.ChildWorktreeIDs = make([]string, 0)
+			}
+			parentWorktree.ChildWorktreeIDs = append(parentWorktree.ChildWorktreeIDs, worktree.ID)
+		}
+	}
+
+	// Store the worktree
+	s.worktrees[worktree.ID] = worktree
+
+	// Save state
+	_ = s.saveState()
+
+	log.Printf("✅ Worktree created from source: %s (type: %s)", req.Source, req.SourceType)
+	return worktree, nil
+}
+
+// resolveWorktreeSource resolves a source reference to an actual git reference
+func (s *GitService) resolveWorktreeSource(repoID string, source string, sourceType string) (resolvedSource string, sourceBranch string, parentWorktreeID *string, err error) {
+	switch sourceType {
+	case "worktree":
+		// Find the worktree by ID
+		worktree, exists := s.worktrees[source]
+		if !exists {
+			return "", "", nil, fmt.Errorf("worktree %s not found", source)
+		}
+
+		// Use the current commit hash as source
+		return worktree.CommitHash, worktree.Branch, &source, nil
+
+	case "branch":
+		// Use branch name directly
+		return source, source, nil, nil
+
+	case "commit":
+		// Use commit hash, try to resolve parent branch
+		parentBranch := s.findParentBranch(repoID, source)
+		return source, parentBranch, nil, nil
+
+	default:
+		return "", "", nil, fmt.Errorf("invalid source type: %s", sourceType)
+	}
+}
+
+// findParentBranch tries to find which branch contains the given commit
+func (s *GitService) findParentBranch(repoID string, commitHash string) string {
+	repo := s.repositories[repoID]
+	if repo == nil {
+		return "main" // fallback
+	}
+
+	// Try to find which branch contains this commit
+	cmd := exec.Command("git", "-C", repo.Path, "branch", "--contains", commitHash)
+	output, err := cmd.Output()
+	if err != nil {
+		return "main" // fallback
+	}
+
+	branches := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, branch := range branches {
+		cleanBranch := strings.TrimSpace(branch)
+		cleanBranch = strings.TrimPrefix(cleanBranch, "*")
+		cleanBranch = strings.TrimPrefix(cleanBranch, "+")
+		cleanBranch = strings.TrimSpace(cleanBranch)
+		cleanBranch = strings.TrimPrefix(cleanBranch, "origin/")
+
+		// Skip preview branches
+		if strings.HasPrefix(cleanBranch, "preview/") {
+			continue
+		}
+
+		// Return the first valid branch
+		if cleanBranch != "" {
+			return cleanBranch
+		}
+	}
+
+	return "main" // fallback
+}
+
 // GetRepositoryByID returns a repository by its ID
 func (s *GitService) GetRepositoryByID(repoID string) *models.Repository {
 	s.mu.RLock()

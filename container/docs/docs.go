@@ -346,6 +346,38 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "post": {
+                "description": "Creates a new worktree from a branch, commit, or existing worktree",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Create a new worktree",
+                "parameters": [
+                    {
+                        "description": "Worktree creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.WorktreeCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+                        }
+                    }
+                }
             }
         },
         "/v1/git/worktrees/{id}": {
@@ -1413,6 +1445,13 @@ const docTemplate = `{
                     "type": "string",
                     "example": "feature/api-docs"
                 },
+                "child_worktree_ids": {
+                    "description": "Child worktree IDs created from this worktree",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "commit_count": {
                     "description": "Number of commits ahead of the divergence point (CommitHash)",
                     "type": "integer",
@@ -1453,6 +1492,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "feature-api-docs"
                 },
+                "parent_worktree_id": {
+                    "description": "Parent worktree ID if created from another worktree",
+                    "type": "string"
+                },
                 "path": {
                     "description": "Absolute path to the worktree directory",
                     "type": "string",
@@ -1482,6 +1525,23 @@ const docTemplate = `{
                     "description": "Branch this worktree was originally created from",
                     "type": "string",
                     "example": "main"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.WorktreeCreateRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "description": "User-friendly name (optional, generated if empty)",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "Branch name, commit hash, or worktree ID",
+                    "type": "string"
+                },
+                "source_type": {
+                    "description": "\"branch\", \"commit\", or \"worktree\"",
+                    "type": "string"
                 }
             }
         },
