@@ -266,19 +266,23 @@ func (s *GitService) branchExists(repoPath, branch string, isRemote bool) bool {
 
 // branchExistsWithOptions checks if a branch exists in a repository with full options
 func (s *GitService) branchExistsWithOptions(repoPath, branch string, opts BranchExistsOptions) bool {
-	var ref string
 	if opts.IsRemote {
 		remoteName := opts.RemoteName
 		if remoteName == "" {
 			remoteName = "origin"
 		}
-		ref = fmt.Sprintf("refs/remotes/%s/%s", remoteName, branch)
+		ref := fmt.Sprintf("refs/remotes/%s/%s", remoteName, branch)
+		cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", ref)
+		return cmd.Run() == nil
 	} else {
-		ref = fmt.Sprintf("refs/heads/%s", branch)
+		// For local branches, use git branch --list which is more reliable
+		output, err := s.runGitCommand(repoPath, "branch", "--list", branch)
+		if err != nil {
+			return false
+		}
+		// Check if the output contains the branch name
+		return strings.Contains(string(output), branch)
 	}
-
-	cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", ref)
-	return cmd.Run() == nil
 }
 
 // getCommitCount counts commits between two refs
@@ -1866,7 +1870,7 @@ func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, 
 	}
 
 	// Commit with the message
-	if output, err := s.runGitCommand(workspaceDir, "commit", "-m", message); err != nil {
+	if output, err := s.runGitCommand(workspaceDir, "commit", "-m", message, "-n"); err != nil {
 		return "", fmt.Errorf("git commit failed: %v, output: %s", err, string(output))
 	}
 
