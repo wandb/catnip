@@ -160,11 +160,21 @@ func (c *SSEClient) processEvent(data string) {
 			if svc, ok := payload["service"].(string); ok {
 				service = svc
 			}
+			title := ""
+			if t, ok := payload["title"].(string); ok {
+				title = t
+			}
+			protocol := ""
+			if p, ok := payload["protocol"].(string); ok {
+				protocol = p
+			}
 
 			if c.program != nil {
 				c.program.Send(ssePortOpenedMsg{
-					port:    int(portFloat),
-					service: service,
+					port:     int(portFloat),
+					service:  service,
+					title:    title,
+					protocol: protocol,
 				})
 			}
 		}

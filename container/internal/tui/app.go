@@ -36,7 +36,7 @@ func init() {
 
 func debugLog(format string, args ...interface{}) {
 	if debugEnabled && debugLogger != nil {
-		debugLogger.Printf(format, args...)
+		debugLogger.Printf(format+"\n", args...)
 	}
 }
 
@@ -46,18 +46,27 @@ type App struct {
 	containerName    string
 	program          *tea.Program
 	sseClient        *SSEClient
+
+	// Initialization parameters
+	containerImage string
+	devMode        bool
+	refreshFlag    bool
+	quitRequested  bool
 }
 
 // NewApp creates a new application instance
-func NewApp(containerService *services.ContainerService, containerName, workDir string) *App {
+func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string) *App {
 	return &App{
 		containerService: containerService,
 		containerName:    containerName,
+		containerImage:   containerImage,
+		devMode:          devMode,
+		refreshFlag:      refreshFlag,
 	}
 }
 
 // Run starts the TUI application
-func (a *App) Run(ctx context.Context, workDir string) error {
+func (a *App) Run(ctx context.Context, workDir string, customPorts []string) error {
 	// Initialize search input
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Enter search pattern (regex supported)..."
@@ -78,8 +87,8 @@ func (a *App) Run(ctx context.Context, workDir string) error {
 	// Initialize SSE client
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
 
-	// Create the model using the new structure
-	m := NewModel(a.containerService, a.containerName, workDir)
+	// Create the model - always with initialization
+	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts)
 
 	// Set up the detailed model state
 	m.logo = logo
@@ -147,6 +156,11 @@ func (m Model) renderFooter() string {
 	footerStyle := components.FooterStyle.Width(m.width - 2)
 
 	switch m.currentView {
+	case InitializationView:
+		if initView, ok := m.views[InitializationView].(*InitializationViewImpl); ok && initView.currentAction != "" {
+			return footerStyle.Render(fmt.Sprintf("%s • Press q to quit", initView.currentAction))
+		}
+		return footerStyle.Render("Initializing container... Press q to quit")
 	case OverviewView:
 		return footerStyle.Render("Press l for logs, s for shell, 0 to open UI, 1-9 to open ports, q to quit")
 	case ShellView:

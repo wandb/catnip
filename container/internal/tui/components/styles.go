@@ -14,6 +14,7 @@ const (
 	ColorText      = "15" // White
 	ColorMuted     = "8"  // Dark gray
 	ColorAccent    = "11" // Bright yellow
+	ColorBorder    = "8"  // Border color
 )
 
 // Header styles

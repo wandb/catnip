@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui"
+	"github.com/vanpelt/catnip/internal/util"
 	"golang.org/x/term"
 )
 
@@ -34,33 +36,56 @@ var runCmd = &cobra.Command{
 Use the **--dev** flag to:
 - Run the development image (**catnip-dev:dev**)
 - Mount node_modules volume for faster builds
-- Enable development-specific features`,
+- Enable development-specific features
+
+Use the **--refresh** flag to:
+- Force refresh: rebuild dev image with **just build-dev** or pull production image from registry
+- Useful for testing changes to the container setup or getting latest production image`,
 	RunE: runContainer,
 }
 
 var (
-	image      string
-	name       string
-	detach     bool
-	noTUI      bool
-	ports      []string
-	dev        bool
+	image   string
+	name    string
+	detach  bool
+	noTUI   bool
+	ports   []string
+	dev     bool
+	refresh bool
 )
 
 func init() {
 	rootCmd.AddCommand(runCmd)
-	
-	runCmd.Flags().StringVarP(&image, "image", "i", "ghcr.io/wandb/catnip:latest", "Container image to run")
+
+	runCmd.Flags().StringVarP(&image, "image", "i", "", "Container image to run")
 	runCmd.Flags().StringVarP(&name, "name", "n", "", "Container name (auto-generated if not provided)")
 	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run container in detached mode")
 	runCmd.Flags().BoolVar(&noTUI, "no-tui", false, "Disable TUI and tail logs directly")
 	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"8080:8080"}, "Port mappings")
 	runCmd.Flags().BoolVar(&dev, "dev", false, "Run in development mode with dev image and node_modules volume")
+	runCmd.Flags().BoolVar(&refresh, "refresh", false, "Force refresh: rebuild dev image with 'just build-dev' or pull production image from registry")
+}
+
+// cleanVersionForProduction removes the -dev suffix and v prefix from version string
+func cleanVersionForProduction(version string) string {
+	// Remove v prefix if present
+	if strings.HasPrefix(version, "v") {
+		version = version[1:]
+	}
+
+	// Remove -dev suffix if present
+	if strings.HasSuffix(version, "-dev") {
+		version = strings.TrimSuffix(version, "-dev")
+	}
+
+	return version
 }
 
 func runContainer(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// No flag validation needed for --refresh as it works with both dev and production modes
 
 	// Handle interrupt signals
 	sigChan := make(chan os.Signal, 1)
@@ -70,15 +95,21 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	// Get current working directory
+	// Get current working directory and find git root
 	workDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
+	// Find git root early - all our operations should be relative to this
+	gitRoot, isGitRepo := util.FindGitRoot(workDir)
+	if !isGitRepo {
+		return fmt.Errorf("not in a git repository")
+	}
+
 	// Generate container name if not provided
 	if name == "" {
-		basename := filepath.Base(workDir)
+		basename := filepath.Base(gitRoot)
 		name = fmt.Sprintf("catnip-%s", basename)
 		if dev {
 			name = name + "-dev"
@@ -91,27 +122,40 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Override image for dev mode
+	// Determine container image
 	containerImage := image
 	if dev {
 		containerImage = "catnip-dev:dev"
+	} else if image == "" {
+		// Use versioned image for production
+		cleanVersion := cleanVersionForProduction(version)
+		containerImage = fmt.Sprintf("wandb/catnip:%s", cleanVersion)
 	}
-	
-	// Check if container is already running
-	if containerService.IsContainerRunning(ctx, name) {
-		fmt.Printf("Container '%s' is already running. Connecting to existing instance...\n", name)
-	} else {
-		mode := "production"
+
+	// For non-TTY mode, handle initialization directly
+	if !isTTY() && !containerService.IsContainerRunning(ctx, name) {
+		// Check if we need to build/pull image
 		if dev {
-			mode = "development"
+			if !containerService.ImageExists(ctx, containerImage) || refresh {
+				fmt.Printf("Running 'just build-dev' in container directory...\n")
+				if err := runBuildDevDirect(gitRoot); err != nil {
+					return fmt.Errorf("Build failed: %w", err)
+				}
+			}
+		} else {
+			if !containerService.ImageExists(ctx, containerImage) || refresh {
+				fmt.Printf("Running 'docker pull %s'...\n", containerImage)
+				if err := runDockerPullDirect(ctx, containerService, containerImage); err != nil {
+					return fmt.Errorf("Pull failed: %w", err)
+				}
+			}
 		}
-		fmt.Printf("Starting container '%s' in %s mode from image '%s'...\n", name, mode, containerImage)
-		
+
 		// Start the container
-		if err := containerService.RunContainer(ctx, containerImage, name, workDir, ports, dev); err != nil {
+		fmt.Printf("Starting container '%s'...\n", name)
+		if err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev); err != nil {
 			return fmt.Errorf("failed to start container: %w", err)
 		}
-		
 		fmt.Printf("Container started successfully!\n")
 	}
 
@@ -135,9 +179,9 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		return tailContainerLogs(ctx, containerService, name)
 	}
 
-	// Start the TUI
-	tuiApp := tui.NewApp(containerService, name, workDir)
-	if err := tuiApp.Run(ctx, workDir); err != nil {
+	// Start the TUI - it will handle all initialization and container management
+	tuiApp := tui.NewApp(containerService, name, gitRoot, containerImage, dev, refresh, ports)
+	if err := tuiApp.Run(ctx, gitRoot, ports); err != nil {
 		// Clean up container on TUI error
 		fmt.Printf("Stopping container '%s'...\n", name)
 		_ = containerService.StopContainer(ctx, name)
@@ -235,4 +279,33 @@ func tailContainerLogs(ctx context.Context, containerService *services.Container
 
 func isTTY() bool {
 	return term.IsTerminal(int(os.Stdin.Fd()))
+}
+
+// runBuildDevDirect runs 'just build-dev' directly without TUI
+func runBuildDevDirect(gitRoot string) error {
+	// Use the container service to get the build command
+	containerService, err := services.NewContainerService()
+	if err != nil {
+		return fmt.Errorf("failed to create container service: %w", err)
+	}
+
+	cmd, err := containerService.BuildDevImage(context.Background(), gitRoot)
+	if err != nil {
+		return fmt.Errorf("failed to create build command: %w", err)
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// runDockerPullDirect runs 'docker pull' directly without TUI
+func runDockerPullDirect(ctx context.Context, containerService *services.ContainerService, image string) error {
+	cmd, err := containerService.PullImage(ctx, image)
+	if err != nil {
+		return err
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }

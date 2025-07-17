@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -98,12 +99,26 @@ func (m Model) handleSpinnerTick(msg spinner.TickMsg) (tea.Model, tea.Cmd) {
 		m.shellSpinner, cmd = m.shellSpinner.Update(msg)
 		return m, cmd
 	}
+
+	// Handle initialization view spinner
+	if m.currentView == InitializationView {
+		// Update the spinner in the initialization view
+		updatedModel, cmd := m.GetCurrentView().Update(&m, msg)
+		return *updatedModel, cmd
+	}
+
 	return m, nil
 }
 
 // Periodic tick handler
 func (m Model) handleTick(msg tickMsg) (tea.Model, tea.Cmd) {
 	m.lastUpdate = time.Time(msg)
+
+	// If quit was requested, stop scheduling new commands
+	if m.quitRequested {
+		debugLog("handleTick: quit requested, stopping background commands")
+		return m, nil
+	}
 
 	// Build batch of commands based on connection state
 	cmds := []tea.Cmd{tick(), m.fetchContainerInfo()}
@@ -119,6 +134,12 @@ func (m Model) handleTick(msg tickMsg) (tea.Model, tea.Cmd) {
 
 // Animation tick handler
 func (m Model) handleAnimationTick(msg animationTickMsg) (tea.Model, tea.Cmd) {
+	// If quit was requested, stop scheduling new commands
+	if m.quitRequested {
+		debugLog("handleAnimationTick: quit requested, stopping animation")
+		return m, nil
+	}
+
 	// Update animation state
 	m.bootingAnimDots = (m.bootingAnimDots + 1) % 4
 
@@ -132,6 +153,12 @@ func (m Model) handleAnimationTick(msg animationTickMsg) (tea.Model, tea.Cmd) {
 
 // Logs tick handler
 func (m Model) handleLogsTick(msg logsTickMsg) (tea.Model, tea.Cmd) {
+	// If quit was requested, stop scheduling new commands
+	if m.quitRequested {
+		debugLog("handleLogsTick: quit requested, stopping logs tick")
+		return m, nil
+	}
+
 	// Auto-refresh logs only when in logs view
 	switch m.currentView {
 	case LogsView:
@@ -152,7 +179,25 @@ func (m Model) handleLogsTick(msg logsTickMsg) (tea.Model, tea.Cmd) {
 
 // Data message handlers
 func (m Model) handleContainerInfo(msg containerInfoMsg) (tea.Model, tea.Cmd) {
-	m.containerInfo = map[string]interface{}(msg)
+	// Merge new info with existing, preserving stats if not present in new info
+	newInfo := map[string]interface{}(msg)
+
+	// Check if new stats are valid (present and non-empty)
+	newStats, hasNewStats := newInfo["stats"]
+	newStatsStr, isString := newStats.(string)
+	hasValidNewStats := hasNewStats && isString && strings.TrimSpace(newStatsStr) != ""
+
+	// If the new info doesn't have valid stats but we have previous stats, keep them
+	if !hasValidNewStats {
+		if oldStats, hasOldStats := m.containerInfo["stats"]; hasOldStats {
+			if oldStatsStr, ok := oldStats.(string); ok && strings.TrimSpace(oldStatsStr) != "" {
+				newInfo["stats"] = oldStats
+			}
+		}
+	}
+
+	m.containerInfo = newInfo
+
 	return m, nil
 }
 
@@ -192,7 +237,14 @@ func (m Model) handleLogs(msg logsMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handlePorts(msg portsMsg) (tea.Model, tea.Cmd) {
-	m.ports = []string(msg)
+	// Convert string ports to PortInfo
+	m.ports = []PortInfo{}
+	for _, port := range msg {
+		m.ports = append(m.ports, PortInfo{
+			Port:  port,
+			Title: fmt.Sprintf("Port %s", port),
+		})
+	}
 	return m, nil
 }
 
@@ -235,14 +287,24 @@ func (m Model) handleSSEPortOpened(msg ssePortOpenedMsg) (tea.Model, tea.Cmd) {
 	portStr := fmt.Sprintf("%d", msg.port)
 	found := false
 	for _, p := range m.ports {
-		if p == portStr {
+		if p.Port == portStr {
 			found = true
 			break
 		}
 	}
 	if !found {
-		m.ports = append(m.ports, portStr)
-		debugLog("SSE: Port opened: %d", msg.port)
+		// Use title if available, otherwise default format
+		title := msg.title
+		if title == "" {
+			title = fmt.Sprintf("Port %d", msg.port)
+		}
+		m.ports = append(m.ports, PortInfo{
+			Port:     portStr,
+			Title:    title,
+			Service:  msg.service,
+			Protocol: msg.protocol,
+		})
+		debugLog("SSE: Port opened: %d (title: %s)", msg.port, title)
 	}
 	return m, nil
 }
@@ -250,9 +312,9 @@ func (m Model) handleSSEPortOpened(msg ssePortOpenedMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleSSEPortClosed(msg ssePortClosedMsg) (tea.Model, tea.Cmd) {
 	// Remove port from our list
 	portStr := fmt.Sprintf("%d", msg.port)
-	newPorts := []string{}
+	newPorts := []PortInfo{}
 	for _, p := range m.ports {
-		if p != portStr {
+		if p.Port != portStr {
 			newPorts = append(newPorts, p)
 		}
 	}

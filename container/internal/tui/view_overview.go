@@ -88,8 +88,8 @@ func (v *OverviewViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd)
 		if components.IsPortKey(msg.String()) {
 			portIndex := components.GetPortIndex(msg.String())
 			if portIndex < len(m.ports) {
-				port := m.ports[portIndex]
-				url := fmt.Sprintf("http://localhost:8080/%s", port)
+				portInfo := m.ports[portIndex]
+				url := fmt.Sprintf("http://localhost:8080/%s", portInfo.Port)
 				go func() {
 					if v.isAppReady("http://localhost:8080") {
 						_ = v.openBrowser(url)
@@ -161,12 +161,12 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 	if len(m.ports) > 0 {
 		sections = append(sections, components.SubHeaderStyle.Render("🌐 Detected Services"))
 
-		for i, port := range m.ports {
+		for i, portInfo := range m.ports {
 			if i < 9 { // Only show first 9 ports for number shortcuts
 				portKey := components.KeyHighlightStyle.Render(fmt.Sprintf("%d.", i+1))
-				sections = append(sections, fmt.Sprintf("  %s Port %s → http://localhost:8080/%s", portKey, port, port))
+				sections = append(sections, fmt.Sprintf("  %s %s → http://localhost:8080/%s", portKey, portInfo.Title, portInfo.Port))
 			} else {
-				sections = append(sections, fmt.Sprintf("     Port %s → http://localhost:8080/%s", port, port))
+				sections = append(sections, fmt.Sprintf("     %s → http://localhost:8080/%s", portInfo.Title, portInfo.Port))
 			}
 		}
 	} else {

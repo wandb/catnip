@@ -34,8 +34,10 @@ type sseErrorMsg struct {
 	err error
 }
 type ssePortOpenedMsg struct {
-	port    int
-	service string
+	port     int
+	service  string
+	title    string
+	protocol string
 }
 type ssePortClosedMsg struct {
 	port int

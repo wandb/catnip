@@ -87,6 +87,10 @@ lint:
 docker-build:
     docker build -t catnip:latest .
 
+# Docker build for development
+build-dev:
+    docker build -t catnip-dev:dev .
+
 # All-in-one development setup
 setup: deps swagger build
     @echo "✅ Catnip is ready for development!"
