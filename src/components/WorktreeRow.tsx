@@ -138,6 +138,7 @@ interface StatusBadgesProps {
   hasConflicts: boolean;
   claudeSession?: ClaudeSession;
   repositoryUrl?: string;
+  prStatus?: PullRequestInfo;
 }
 
 function StatusBadges({
@@ -145,17 +146,37 @@ function StatusBadges({
   hasConflicts,
   claudeSession,
   repositoryUrl,
+  prStatus,
 }: StatusBadgesProps) {
   let repoUrl = repositoryUrl;
   if (repoUrl && repoUrl.startsWith("file:///live/")) {
     repoUrl = repoUrl.slice(13);
   }
 
+  const badgeContent = `${repoUrl}::${worktree.branch}`;
+  const hasOpenPR = prStatus?.exists && prStatus.url;
+
   return (
     <div className="flex items-center gap-2">
-      <Badge variant="outline" className="text-xs">
-        {repoUrl}::{worktree.branch}
-      </Badge>
+      {hasOpenPR ? (
+        <a
+          href={prStatus.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block"
+        >
+          <Badge
+            variant="outline"
+            className="text-xs bg-sky-50 border-sky-200 text-sky-800 hover:bg-sky-100 transition-colors cursor-pointer"
+          >
+            {badgeContent}
+          </Badge>
+        </a>
+      ) : (
+        <Badge variant="outline" className="text-xs">
+          {badgeContent}
+        </Badge>
+      )}
       {hasConflicts && (
         <Badge variant="destructive" className="text-xs">
           <AlertTriangle size={12} className="mr-1" />
@@ -361,6 +382,7 @@ interface WorktreeHeaderProps {
   hasConflicts: boolean;
   claudeSession?: ClaudeSession;
   repositoryUrl?: string;
+  prStatus?: PullRequestInfo;
 }
 
 function WorktreeHeader({
@@ -368,6 +390,7 @@ function WorktreeHeader({
   hasConflicts,
   claudeSession,
   repositoryUrl,
+  prStatus,
 }: WorktreeHeaderProps) {
   return (
     <div className="flex items-center gap-3">
@@ -384,6 +407,7 @@ function WorktreeHeader({
           hasConflicts={hasConflicts}
           claudeSession={claudeSession}
           repositoryUrl={repositoryUrl}
+          prStatus={prStatus}
         />
       </div>
     </div>
@@ -702,6 +726,7 @@ export function WorktreeRow({
             hasConflicts={hasConflicts}
             claudeSession={claudeSession}
             repositoryUrl={repositoryUrl}
+            prStatus={prStatus}
           />
 
           <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
