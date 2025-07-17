@@ -574,7 +574,10 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 	for range ticker.C {
 		// Check if we have a title set and if checkpoint is needed
 		if session.Title != "" && session.checkpointManager.ShouldCreateCheckpoint() {
-			session.checkpointManager.CreateCheckpoint(session.Title)
+			err := session.checkpointManager.CreateCheckpoint(session.Title)
+			if err != nil {
+				log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
+			}
 		}
 
 		// If no connections, stop monitoring
@@ -1044,13 +1047,11 @@ func (cm *SessionCheckpointManager) CreateCheckpoint(title string) error {
 	checkpointTitle := fmt.Sprintf("%s checkpoint: %d", title, cm.checkpointCount+1)
 	commitHash, err := cm.gitService.GitAddCommitGetHash(cm.workDir, checkpointTitle)
 	if err != nil {
-		log.Printf("⚠️  Checkpoint commit failed: %v", err)
 		return err
-	}
-
-	if commitHash == "" {
+	} else if commitHash == "" {
 		return nil
 	}
+
 	cm.checkpointCount++
 
 	log.Printf("✅ Created checkpoint commit: %q (hash: %s)", checkpointTitle, commitHash)
