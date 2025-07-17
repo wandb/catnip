@@ -86,7 +86,8 @@ func sanitizeTitle(title string) string {
 		safeTitle = safeTitle[:100]
 	}
 
-	return safeTitle
+	// Strip leading/trailing whitespace
+	return strings.TrimSpace(safeTitle)
 }
 
 // extractTitleFromEscapeSequence extracts the fancy Claude terminal title from escape sequences
