@@ -836,7 +836,40 @@ func (s *GitService) detectLocalRepos() {
 		s.repositories[repoID] = repo
 
 		log.Printf("✅ Local repository loaded: %s", repoID)
+
+		// Check if any worktrees exist for this repo
+		if s.shouldCreateInitialWorktree(repoID) {
+			log.Printf("🌱 Creating initial worktree for %s", repoID)
+			if _, worktree, err := s.handleLocalRepoWorktree(repoID, repo.DefaultBranch); err != nil {
+				log.Printf("❌ Failed to create initial worktree for %s: %v", repoID, err)
+			} else {
+				log.Printf("✅ Initial worktree created: %s", worktree.Name)
+			}
+		}
 	}
+}
+
+// shouldCreateInitialWorktree checks if we should create an initial worktree for a repo
+func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
+	// Check if any worktrees exist for this repo in /workspace
+	dirName := filepath.Base(strings.TrimPrefix(repoID, "local/"))
+	repoWorkspaceDir := filepath.Join(workspaceDir, dirName)
+
+	// Check if the repo workspace directory exists and has any worktrees
+	if entries, err := os.ReadDir(repoWorkspaceDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				// Check if this directory is a valid git worktree
+				if _, err := os.Stat(filepath.Join(repoWorkspaceDir, entry.Name(), ".git")); err == nil {
+					log.Printf("🔍 Found existing worktree for %s: %s", repoID, entry.Name())
+					return false
+				}
+			}
+		}
+	}
+
+	log.Printf("🔍 No existing worktrees found for %s, will create initial worktree", repoID)
+	return true
 }
 
 // getLocalRepoDefaultBranch gets the current branch of a local repo

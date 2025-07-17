@@ -374,13 +374,28 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 	var workDir string
 
 	// Priority order for workspace directory:
-	// 1. Session ID in repo/branch format maps to Git worktree
-	// 2. Active Git worktree (if available and no specific session)
-	// 3. Mounted directory at /workspace/{sessionID}
-	// 4. Default /workspace
+	// 1. Session ID "default" maps to /workspace/current symlink if it exists
+	// 2. Session ID in repo/branch format maps to Git worktree
+	// 3. Active Git worktree (if available and no specific session)
+	// 4. Mounted directory at /workspace/{sessionID}
+	// 5. Default /workspace
+
+	// Check if session ID is "default" and /workspace/current symlink exists
+	if sessionID == "default" {
+		currentSymlinkPath := filepath.Join("/workspace", "current")
+		if target, err := os.Readlink(currentSymlinkPath); err == nil {
+			// Symlink exists, check if target is valid
+			if info, err := os.Stat(target); err == nil && info.IsDir() {
+				workDir = target
+				log.Printf("📁 Using current workspace symlink for default session: %s", workDir)
+			} else {
+				log.Printf("⚠️ /workspace/current symlink target is invalid: %s", target)
+			}
+		}
+	}
 
 	// Check if session ID is in repo/branch format (e.g., "myrepo/main")
-	if strings.Contains(sessionID, "/") && h.gitService != nil {
+	if workDir == "" && strings.Contains(sessionID, "/") && h.gitService != nil {
 		// This might be a Git worktree session
 		// The session format is "repo/branch" which maps to /workspace/repo/branch or /workspace/repo
 		parts := strings.SplitN(sessionID, "/", 2)

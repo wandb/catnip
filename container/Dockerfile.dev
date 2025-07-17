@@ -24,6 +24,7 @@ ENV VITE_DEV_SERVER=http://localhost:5173
 
 # Expose ports for Go server and Vite dev server
 EXPOSE 8080 5173
+USER root
 
 # Use development entrypoint
 ENTRYPOINT ["/entrypoint.sh", "./dev-entrypoint.sh"]

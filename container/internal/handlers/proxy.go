@@ -113,11 +113,21 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Set response status
 	c.Status(resp.StatusCode)
 
+	// Get content type for later use
+	contentType := resp.Header.Get("Content-Type")
+
 	// Copy response headers
 	for name, values := range resp.Header {
 		for _, value := range values {
 			c.Response().Header.Add(name, value)
 		}
+	}
+
+	// Add Service-Worker-Allowed header for JavaScript responses
+	if strings.Contains(strings.ToLower(contentType), "javascript") ||
+		strings.Contains(strings.ToLower(contentType), "application/javascript") ||
+		strings.Contains(strings.ToLower(contentType), "text/javascript") {
+		c.Response().Header.Set("Service-Worker-Allowed", fmt.Sprintf("/%d/", port))
 	}
 
 	// Read response body
@@ -130,7 +140,6 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	}
 
 	// Check if we should modify HTML content
-	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/html") && c.Get("X-Disable-HTML-Modification") == "" {
 		modifiedBody := h.modifyHTMLContent(string(body), port)
 		return c.SendString(modifiedBody)

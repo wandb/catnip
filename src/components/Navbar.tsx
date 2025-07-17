@@ -24,11 +24,11 @@ import {
 import { useAppStore } from "@/stores/appStore";
 
 export function Navbar() {
-  const { sseConnected, getActivePorts } = useAppStore();
+  const { sseConnected, ports } = useAppStore();
   const router = useRouter();
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const activePorts = getActivePorts();
+  const activePorts = Array.from(ports.values());
 
   // Get current route params
   const currentPath = router.state.location.pathname;
@@ -111,7 +111,7 @@ export function Navbar() {
               </Link>
 
               {/* Ports Section in Mobile Menu */}
-              {activePorts.length > 0 && (
+              {ports.size > 0 && (
                 <>
                   <div className="border-t border-gray-700 my-2" />
                   <div className="text-xs text-muted-foreground px-3 py-1">
@@ -225,7 +225,7 @@ export function Navbar() {
               </Link>
 
               {/* Ports Dropdown */}
-              {activePorts.length > 0 && (
+              {ports.size > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button

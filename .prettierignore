@@ -21,7 +21,9 @@ pnpm-lock.yaml
 package-lock.json
 
 # Docs
-swagger.json
+container/docs/swagger.json
+container/docs/swagger.yaml
+container/docs/docs.go
 
 # Misc
 .DS_Store

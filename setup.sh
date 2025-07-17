@@ -133,6 +133,7 @@ if pnpm format:changed 2>/dev/null; then
     fi
 else
     echo -e "${RED}❌ Failed to format TypeScript/JavaScript files${NC}"
+    echo -e "${RED}💥 Commit blocked - fix formatting issues and try again${NC}"
     exit 1
 fi
 
@@ -147,6 +148,7 @@ if [ -n "$src_changes" ]; then
     else
         echo -e "${RED}❌ TypeScript lint checks failed${NC}"
         echo -e "${YELLOW}Run 'pnpm lint' to see details${NC}"
+        echo -e "${RED}💥 Commit blocked - fix lint issues and try again${NC}"
         exit 1
     fi
 
@@ -157,6 +159,7 @@ if [ -n "$src_changes" ]; then
     else
         echo -e "${RED}❌ TypeScript type checks failed${NC}"
         echo -e "${YELLOW}Run 'pnpm typecheck' to see details${NC}"
+        echo -e "${RED}💥 Commit blocked - fix type errors and try again${NC}"
         exit 1
     fi
 else
@@ -180,6 +183,7 @@ if [ -n "$container_changes" ]; then
         fi
     else
         echo -e "${RED}❌ Failed to format Go files${NC}"
+        echo -e "${RED}💥 Commit blocked - fix Go formatting issues and try again${NC}"
         exit 1
     fi
 
@@ -190,6 +194,7 @@ if [ -n "$container_changes" ]; then
     else
         echo -e "${RED}❌ Go lint checks failed${NC}"
         echo -e "${YELLOW}Run 'cd container && just lint' to see details${NC}"
+        echo -e "${RED}💥 Commit blocked - fix Go lint issues and try again${NC}"
         exit 1
     fi
     cd ..

@@ -130,6 +130,7 @@ function PreviewComponent() {
     );
   }
 
+  // Removed: allow-same-origin for now...
   return (
     <div className="h-[calc(100vh-4rem)] relative">
       {iframeLoading && (
@@ -151,7 +152,7 @@ function PreviewComponent() {
           minHeight: "400px",
         }}
         title={`Service preview for port ${port}`}
-        sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+        sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
       />
     </div>
   );
