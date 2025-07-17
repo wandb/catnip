@@ -4,6 +4,13 @@ import (
 	"time"
 )
 
+// TitleEntry represents a title with its timestamp and hash
+type TitleEntry struct {
+	Title      string    `json:"title"`
+	Timestamp  time.Time `json:"timestamp"`
+	CommitHash string    `json:"commit_hash,omitempty"`
+}
+
 // MergeConflictError represents a merge conflict that occurred during sync or merge operations
 type MergeConflictError struct {
 	Operation     string   `json:"operation"`      // "sync" or "merge"
@@ -63,6 +70,10 @@ type Worktree struct {
 	CreatedAt time.Time `json:"created_at" example:"2024-01-15T14:00:00Z"`
 	// When this worktree was last accessed
 	LastAccessed time.Time `json:"last_accessed" example:"2024-01-15T16:30:00Z"`
+	// Current session title (from terminal title escape sequences)
+	SessionTitle *TitleEntry `json:"session_title,omitempty"`
+	// History of session titles
+	SessionTitleHistory []TitleEntry `json:"session_title_history,omitempty"`
 }
 
 // WorktreeCreateRequest represents a request to create a new worktree

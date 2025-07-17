@@ -1846,6 +1846,40 @@ func (s *GitService) Stop() {
 	// No background services to stop
 }
 
+// GitAddCommitGetHash performs git add, commit, and returns the commit hash
+// Returns empty string if not a git repository or no changes to commit
+func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {
+	// Check if it's a git repository
+	if err := s.execGitCommand(workspaceDir, "rev-parse", "--git-dir").Run(); err != nil {
+		log.Printf("📂 Not a git repository, skipping git operations")
+		return "", nil
+	}
+
+	// Stage all changes
+	if output, err := s.runGitCommand(workspaceDir, "add", "."); err != nil {
+		return "", fmt.Errorf("git add failed: %v, output: %s", err, string(output))
+	}
+
+	// Check if there are staged changes to commit
+	if err := s.execGitCommand(workspaceDir, "diff", "--cached", "--quiet").Run(); err == nil {
+		return "", nil
+	}
+
+	// Commit with the message
+	if output, err := s.runGitCommand(workspaceDir, "commit", "-m", message); err != nil {
+		return "", fmt.Errorf("git commit failed: %v, output: %s", err, string(output))
+	}
+
+	// Get the commit hash
+	output, err := s.runGitCommand(workspaceDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse failed: %v", err)
+	}
+
+	hash := strings.TrimSpace(string(output))
+	return hash, nil
+}
+
 // createWorktreeForExistingRepo creates a worktree for an already loaded repository
 func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, branch string) (*models.Repository, *models.Worktree, error) {
 	// If no branch specified, use default
