@@ -561,6 +561,7 @@ interface WorktreeActionsProps {
     commitCount: number,
   ) => void;
   onOpenPrDialog: (worktreeId: string, branchName: string) => void;
+  onBranchFromWorktree: (worktreeId: string, name: string) => void;
 }
 
 function WorktreeActions({
@@ -575,6 +576,7 @@ function WorktreeActions({
   onCreatePreview,
   onConfirmDelete,
   onOpenPrDialog,
+  onBranchFromWorktree,
 }: WorktreeActionsProps) {
   const hasDiff = (diffStats[worktree.id]?.file_diffs?.length ?? 0) > 0;
 
@@ -611,7 +613,7 @@ function WorktreeActions({
         onCreatePreview={onCreatePreview}
         onConfirmDelete={onConfirmDelete}
         onOpenPrDialog={onOpenPrDialog}
-        onBranchFromWorktree={handleBranchFromWorktree}
+        onBranchFromWorktree={onBranchFromWorktree}
       />
     </div>
   );
@@ -747,6 +749,7 @@ export function WorktreeRow({
           onCreatePreview={onCreatePreview}
           onConfirmDelete={onConfirmDelete}
           onOpenPrDialog={openPrDialog}
+          onBranchFromWorktree={handleBranchFromWorktree}
         />
       </div>
       <DiffViewer

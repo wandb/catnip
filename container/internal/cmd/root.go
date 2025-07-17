@@ -58,10 +58,10 @@ func Execute() {
 
 func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
-	
+
 	// Add version command
 	rootCmd.AddCommand(versionCmd)
-	
+
 	// Set custom help function to use Glow for beautiful markdown rendering
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		renderMarkdownHelp(cmd)
@@ -91,7 +91,7 @@ var versionCmd = &cobra.Command{
 func renderMarkdownHelp(cmd *cobra.Command) {
 	// Create the help content
 	var helpContent strings.Builder
-	
+
 	// Add the long description if available
 	if cmd.Long != "" {
 		helpContent.WriteString(cmd.Long)
@@ -100,13 +100,13 @@ func renderMarkdownHelp(cmd *cobra.Command) {
 		helpContent.WriteString("# " + cmd.Short)
 		helpContent.WriteString("\n\n")
 	}
-	
+
 	// Add usage
 	helpContent.WriteString("## 📖 Usage\n\n")
 	helpContent.WriteString("```bash\n")
 	helpContent.WriteString(cmd.UseLine())
 	helpContent.WriteString("\n```\n\n")
-	
+
 	// Add available commands
 	if cmd.HasAvailableSubCommands() {
 		helpContent.WriteString("## 🔧 Available Commands\n\n")
@@ -117,7 +117,7 @@ func renderMarkdownHelp(cmd *cobra.Command) {
 		}
 		helpContent.WriteString("\n")
 	}
-	
+
 	// Add flags
 	if cmd.HasAvailableFlags() {
 		helpContent.WriteString("## ⚙️  Flags\n\n")
@@ -128,7 +128,7 @@ func renderMarkdownHelp(cmd *cobra.Command) {
 			helpContent.WriteString("```\n\n")
 		}
 	}
-	
+
 	// Add global flags if this is a subcommand
 	if cmd.HasParent() && cmd.InheritedFlags().HasFlags() {
 		helpContent.WriteString("## 🌐 Global Flags\n\n")
@@ -139,7 +139,7 @@ func renderMarkdownHelp(cmd *cobra.Command) {
 			helpContent.WriteString("```\n\n")
 		}
 	}
-	
+
 	// Render with glamour
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
@@ -150,13 +150,13 @@ func renderMarkdownHelp(cmd *cobra.Command) {
 		_ = cmd.Help()
 		return
 	}
-	
+
 	rendered, err := renderer.Render(helpContent.String())
 	if err != nil {
 		// Fallback to default help if rendering fails
 		_ = cmd.Help()
 		return
 	}
-	
+
 	fmt.Print(rendered)
 }
