@@ -29,23 +29,39 @@ if [ -n "$CATNIP_EMAIL" ]; then
     GIT_EMAIL="$CATNIP_EMAIL"
 fi
 
-# Set git config globally
-git config --global user.name "$GIT_USERNAME"
-git config --global user.email "$GIT_EMAIL"
-git config --global init.defaultBranch main
+# Copy any existing root configuration to catnip user home
+# This handles cases where setup might have accidentally created files in /root
+if [ -f "/root/.gitconfig" ] && [ ! -f "/home/catnip/.gitconfig" ]; then
+    echo "📋 Migrating git config from /root to /home/catnip"
+    cp /root/.gitconfig /home/catnip/.gitconfig 2>/dev/null || true
+    chown 1000:1000 /home/catnip/.gitconfig 2>/dev/null || true
+fi
 
-# Install specific versions if requested via environment variables
+# Copy other common configuration files that might be in /root
+for config_dir in .ssh .aws .config .local .cargo .rustup; do
+    if [ -d "/root/$config_dir" ] && [ ! -d "/home/catnip/$config_dir" ]; then
+        echo "📋 Migrating $config_dir from /root to /home/catnip"
+        cp -r "/root/$config_dir" "/home/catnip/" 2>/dev/null || true
+        chown -R 1000:1000 "/home/catnip/$config_dir" 2>/dev/null || true
+    fi
+done
+
+# Set git config for the catnip user (not root)
+gosu 1000:1000 git config --global user.name "$GIT_USERNAME"
+gosu 1000:1000 git config --global user.email "$GIT_EMAIL"
+gosu 1000:1000 git config --global init.defaultBranch main
+
+# Install specific versions if requested via environment variables (run as catnip user)
 if [ -n "$CATNIP_NODE_VERSION" ]; then
     echo "Installing Node.js version: $CATNIP_NODE_VERSION"
-    source "$NVM_DIR/nvm.sh" && nvm install "$CATNIP_NODE_VERSION" && nvm use "$CATNIP_NODE_VERSION"
+    gosu 1000:1000 bash -c 'source /etc/profile.d/catnip.sh && source "$NVM_DIR/nvm.sh" && nvm install "$CATNIP_NODE_VERSION" && nvm use "$CATNIP_NODE_VERSION"'
 fi
 
 if [ -n "$CATNIP_PYTHON_VERSION" ]; then
     if [ "$CATNIP_PYTHON_VERSION" != "system" ]; then
         echo "Installing Python version: $CATNIP_PYTHON_VERSION"
-        # Use uv to install and manage Python versions
-        uv python install "$CATNIP_PYTHON_VERSION"
-        uv python pin "$CATNIP_PYTHON_VERSION"
+        # Use uv to install and manage Python versions as catnip user
+        gosu 1000:1000 bash -c 'source /etc/profile.d/catnip.sh && uv python install "$CATNIP_PYTHON_VERSION" && uv python pin "$CATNIP_PYTHON_VERSION"'
     else
         echo "Using system Python: $(python3 --version)"
     fi
@@ -53,7 +69,7 @@ fi
 
 if [ -n "$CATNIP_RUST_VERSION" ]; then
     echo "Installing Rust version: $CATNIP_RUST_VERSION"
-    rustup install "$CATNIP_RUST_VERSION" && rustup default "$CATNIP_RUST_VERSION"
+    gosu 1000:1000 bash -c 'source /etc/profile.d/catnip.sh && rustup install "$CATNIP_RUST_VERSION" && rustup default "$CATNIP_RUST_VERSION"'
 fi
 
 if [ -n "$CATNIP_GO_VERSION" ]; then
@@ -62,12 +78,12 @@ if [ -n "$CATNIP_GO_VERSION" ]; then
     echo "Note: Go version switching not yet implemented"
 fi
 
-# Initialize workspace directories
-mkdir -p "${GOPATH}/bin" "${GOPATH}/src" "${GOPATH}/pkg"
-mkdir -p "${WORKSPACE}/projects"
+# Initialize workspace directories as catnip user
+gosu 1000:1000 mkdir -p "${GOPATH}/bin" "${GOPATH}/src" "${GOPATH}/pkg"
+gosu 1000:1000 mkdir -p "${WORKSPACE}/projects"
 
-# Ensure Go workspace has proper permissions for catnip user
-chown -R 1000:1000 "${GOPATH}"
+# Ensure Go workspace has proper permissions for catnip user (redundant but safe)
+chown -R 1000:1000 "${GOPATH}" 2>/dev/null || true
 
 # Initialize volume directory for persistent data
 if [ -d "/volume" ]; then
@@ -76,6 +92,9 @@ if [ -d "/volume" ]; then
     sudo chown -R 1000:1000 /volume 2>/dev/null || true
     sudo chmod -R 755 /volume 2>/dev/null || true
 fi
+
+# Ensure workspace has proper ownership
+chown -R 1000:1000 "${WORKSPACE}" 2>/dev/null || true
 
 # Change to catnip user if running as root
 if [ "$EUID" -eq 0 ]; then

@@ -18,7 +18,11 @@ func IsDevMode() bool {
 func ProxyToVite(c *fiber.Ctx) error {
 	viteServer := os.Getenv("VITE_DEV_SERVER")
 	if viteServer == "" {
-		viteServer = "http://localhost:5173"
+		port := os.Getenv("VITE_PORT")
+		if port == "" {
+			port = "5173"
+		}
+		viteServer = "http://localhost:" + port
 	}
 
 	// Build the target URL

@@ -225,15 +225,21 @@ func (pm *PortMonitor) healthCheckService(service *ServiceInfo) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Try HTTP health check
-	if pm.checkHTTPHealth(service) {
+	httpResult := pm.checkHTTPHealth(service)
+	if httpResult.IsHTTP {
 		pm.mutex.Lock()
 		if existingService, exists := pm.services[service.Port]; exists {
 			existingService.ServiceType = "http"
-			existingService.Health = "healthy"
+			if httpResult.IsHealthy {
+				existingService.Health = "healthy"
+				log.Printf("✅ Port %d: HTTP service detected and healthy", service.Port)
+			} else {
+				existingService.Health = "unhealthy"
+				log.Printf("⚠️  Port %d: HTTP service detected but unhealthy", service.Port)
+			}
 			existingService.LastSeen = time.Now()
 		}
 		pm.mutex.Unlock()
-		log.Printf("✅ Port %d: HTTP service detected and healthy", service.Port)
 		return
 	}
 
@@ -260,8 +266,17 @@ func (pm *PortMonitor) healthCheckService(service *ServiceInfo) {
 	log.Printf("❌ Port %d: Service detected but unhealthy", service.Port)
 }
 
+// HTTPHealthResult contains the result of HTTP health check
+type HTTPHealthResult struct {
+	IsHTTP    bool
+	IsHealthy bool
+	URL       string
+}
+
 // checkHTTPHealth checks if the service responds to HTTP requests
-func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) bool {
+// Returns IsHTTP=true if any HTTP headers are received (indicating HTTP service)
+// Returns IsHealthy=true if status code < 500 (indicating healthy service)
+func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
@@ -276,14 +291,25 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) bool {
 		}
 		resp.Body.Close()
 
-		if resp.StatusCode < 500 {
-			// Extract title from response if it's HTML
-			pm.extractTitle(service, url)
-			return true
+		// If we got any HTTP response (even error), it's an HTTP service
+		result := HTTPHealthResult{
+			IsHTTP:    true,
+			IsHealthy: resp.StatusCode < 500,
+			URL:       url,
 		}
+
+		// Extract title from response if it's HTML and healthy
+		if result.IsHealthy {
+			pm.extractTitle(service, url)
+		}
+
+		return result
 	}
 
-	return false
+	return HTTPHealthResult{
+		IsHTTP:    false,
+		IsHealthy: false,
+	}
 }
 
 // checkTCPHealth checks if the service accepts TCP connections

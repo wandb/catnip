@@ -20,6 +20,9 @@ reference/
 pnpm-lock.yaml
 package-lock.json
 
+# Docs
+swagger.json
+
 # Misc
 .DS_Store
 *.log

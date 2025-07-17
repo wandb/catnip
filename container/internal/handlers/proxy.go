@@ -49,10 +49,10 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 		})
 	}
 
-	// Only proxy to healthy HTTP services
-	if service.ServiceType != "http" || service.Health != "healthy" {
+	// Only proxy to HTTP services (health status doesn't matter for proxying)
+	if service.ServiceType != "http" {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-			"error": fmt.Sprintf("Port %d is not a healthy HTTP service", port),
+			"error": fmt.Sprintf("Port %d is not an HTTP service", port),
 		})
 	}
 

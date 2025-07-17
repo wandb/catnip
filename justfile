@@ -204,7 +204,7 @@ dev:
     
     # Start Air (backend) in background
     echo "🚀 Starting Air (backend) on port ${PORT:-8080}..."
-    CATNIP_DEV=true
+    export CATNIP_DEV=true
     cd container && air &
     AIR_PID=$!
     
