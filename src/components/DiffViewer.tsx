@@ -325,11 +325,7 @@ export function DiffViewer({
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={onClose}>
-              {loading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-              ) : (
-                "✕"
-              )}
+              ✕
             </Button>
           </div>
         </div>

@@ -49,6 +49,7 @@ interface WorktreeRowProps {
   mergeConflicts: Record<string, ConflictStatus>;
   worktreeSummaries: Record<string, WorktreeSummary>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
+  diffStatsLoading: boolean;
   openDiffWorktreeId: string | null;
   setPrDialog: (dialog: {
     open: boolean;
@@ -537,6 +538,7 @@ interface WorktreeActionsProps {
   worktree: Worktree;
   mergeConflicts: Record<string, ConflictStatus>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
+  diffStatsLoading: boolean;
   openDiffWorktreeId: string | null;
   diffLoading: boolean;
   prStatus?: PullRequestInfo;
@@ -557,6 +559,7 @@ function WorktreeActions({
   worktree,
   mergeConflicts,
   diffStats,
+  diffStatsLoading,
   openDiffWorktreeId,
   diffLoading,
   prStatus,
@@ -568,21 +571,35 @@ function WorktreeActions({
   onOpenPrDialog,
 }: WorktreeActionsProps) {
   const hasDiff = (diffStats[worktree.id]?.file_diffs?.length ?? 0) > 0;
+  const isLoading =
+    diffStatsLoading || (diffLoading && openDiffWorktreeId === worktree.id);
 
   return (
     <div className="flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => onToggleDiff(worktree.id)}
-        disabled={
-          !hasDiff || (diffLoading && openDiffWorktreeId === worktree.id)
+      <div
+        title={
+          isLoading
+            ? "Loading diff..."
+            : !hasDiff
+              ? "No changes to show"
+              : undefined
         }
-        className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
       >
-        <FileText size={16} className="mr-2" />
-        View Diff
-      </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onToggleDiff(worktree.id)}
+          disabled={isLoading || !hasDiff}
+          className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
+        >
+          {isLoading ? (
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+          ) : (
+            <FileText size={16} className="mr-2" />
+          )}
+          View Diff
+        </Button>
+      </div>
 
       <Link
         to="/terminal/$sessionId"
@@ -620,6 +637,7 @@ export function WorktreeRow({
   mergeConflicts,
   worktreeSummaries,
   diffStats,
+  diffStatsLoading,
   openDiffWorktreeId,
   setPrDialog,
   onToggleDiff,
@@ -631,6 +649,7 @@ export function WorktreeRow({
   repositories,
 }: WorktreeRowPropsWithPR) {
   const [diffLoading, setDiffLoading] = useState(false);
+
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = Boolean(
@@ -726,6 +745,7 @@ export function WorktreeRow({
           worktree={worktree}
           mergeConflicts={mergeConflicts}
           diffStats={diffStats}
+          diffStatsLoading={diffStatsLoading}
           openDiffWorktreeId={openDiffWorktreeId}
           diffLoading={diffLoading}
           prStatus={prStatus}
