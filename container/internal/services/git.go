@@ -585,20 +585,44 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 	return repository, worktree, nil
 }
 
-// ListWorktrees returns all worktrees
+// ListWorktrees returns all worktrees with optimized git command usage
 func (s *GitService) ListWorktrees() []*models.Worktree {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	worktrees := make([]*models.Worktree, 0, len(s.worktrees))
 	for _, wt := range s.worktrees {
-		// Update dirty status
-		wt.IsDirty = s.isDirty(wt.Path)
+		// Create a copy to avoid modifying the original
+		worktreeCopy := *wt
 
-		// Update commit count and commits behind
-		s.updateWorktreeStatusInternal(wt)
+		// Get all status info with minimal git commands
+		s.getCombinedWorktreeStatus(&worktreeCopy)
 
-		worktrees = append(worktrees, wt)
+		worktrees = append(worktrees, &worktreeCopy)
+	}
+
+	return worktrees
+}
+
+// ListWorktreesWithFetch returns all worktrees with optional fetch for latest remote state
+func (s *GitService) ListWorktreesWithFetch(skipFetch bool) []*models.Worktree {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	worktrees := make([]*models.Worktree, 0, len(s.worktrees))
+	for _, wt := range s.worktrees {
+		// Create a copy to avoid modifying the original
+		worktreeCopy := *wt
+
+		// Optionally fetch latest reference (expensive operation)
+		if !skipFetch {
+			s.fetchLatestReference(&worktreeCopy)
+		}
+
+		// Get all status info with minimal git commands
+		s.getCombinedWorktreeStatus(&worktreeCopy)
+
+		worktrees = append(worktrees, &worktreeCopy)
 	}
 
 	return worktrees
@@ -2870,4 +2894,102 @@ func (s *GitService) checkExistingPR(worktree *models.Worktree, ownerRepo string
 
 	log.Printf("✅ Found existing PR #%d for branch %s", existingPR.Number, worktree.Branch)
 	return nil
+}
+
+// getCombinedWorktreeStatus gets dirty status, ahead/behind counts in minimal git commands
+func (s *GitService) getCombinedWorktreeStatus(worktree *models.Worktree) {
+	// Skip if no source branch or same as current branch
+	if worktree.SourceBranch == "" || worktree.SourceBranch == worktree.Branch {
+		worktree.IsDirty = s.isDirty(worktree.Path)
+		return
+	}
+
+	// Determine source reference based on repo type
+	var sourceRef string
+	if s.isLocalRepo(worktree.RepoID) {
+		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
+	} else {
+		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
+	}
+
+	// Try to use git status --porcelain=v2 --branch to get both dirty status and ahead/behind
+	// This is much faster than separate commands
+	cmd := s.execGitCommand(worktree.Path, "status", "--porcelain=v2", "--branch")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("🔍 Status error: %v", err)
+		// Fallback to individual commands if v2 format fails
+		s.getCombinedWorktreeStatusFallback(worktree, sourceRef)
+		return
+	}
+
+	// Parse the v2 format output
+	lines := strings.Split(string(output), "\n")
+	var isDirty bool
+	var ahead, behind int
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Check for file changes (indicates dirty)
+		if strings.HasPrefix(line, "1 ") || strings.HasPrefix(line, "2 ") || strings.HasPrefix(line, "u ") || strings.HasPrefix(line, "? ") {
+			isDirty = true
+		}
+
+		// Check for branch tracking info
+		if strings.HasPrefix(line, "# branch.ab ") {
+			// Format: # branch.ab +ahead -behind
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				if aheadStr := strings.TrimPrefix(parts[2], "+"); aheadStr != parts[2] {
+					ahead, _ = strconv.Atoi(aheadStr)
+				}
+				if len(parts) >= 4 {
+					if behindStr := strings.TrimPrefix(parts[3], "-"); behindStr != parts[3] {
+						behind, _ = strconv.Atoi(behindStr)
+					}
+				}
+			}
+		}
+	}
+
+	// Set the results
+	worktree.IsDirty = isDirty
+	worktree.CommitCount = ahead
+	worktree.CommitsBehind = behind
+}
+
+// getCombinedWorktreeStatusFallback uses combined rev-list command for ahead/behind
+func (s *GitService) getCombinedWorktreeStatusFallback(worktree *models.Worktree, sourceRef string) {
+	// Get dirty status first
+	worktree.IsDirty = s.isDirty(worktree.Path)
+
+	// Use --left-right to get both ahead and behind in one command
+	// This is much faster than two separate rev-list calls
+	cmd := s.execGitCommand(worktree.Path, "rev-list", "--left-right", "--count", fmt.Sprintf("%s...HEAD", sourceRef))
+	output, err := cmd.Output()
+	if err != nil {
+		// If that fails, fall back to individual commands
+		if count, err := s.getCommitCount(worktree.Path, sourceRef, "HEAD"); err == nil {
+			worktree.CommitCount = count
+		}
+		if count, err := s.getCommitCount(worktree.Path, "HEAD", sourceRef); err == nil {
+			worktree.CommitsBehind = count
+		}
+		return
+	}
+
+	// Parse the output: "behind_count	ahead_count"
+	parts := strings.Fields(strings.TrimSpace(string(output)))
+	if len(parts) >= 2 {
+		if behind, err := strconv.Atoi(parts[0]); err == nil {
+			worktree.CommitsBehind = behind
+		}
+		if ahead, err := strconv.Atoi(parts[1]); err == nil {
+			worktree.CommitCount = ahead
+		}
+	}
 }

@@ -335,6 +335,14 @@ const docTemplate = `{
                     "git"
                 ],
                 "summary": "List all worktrees",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Skip fetch for faster response (default: true)",
+                        "name": "fetch",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",

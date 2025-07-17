@@ -921,6 +921,11 @@ paths:
   /v1/git/worktrees:
     get:
       description: Returns a list of all worktrees for the current repository
+      parameters:
+      - description: 'Skip fetch for faster response (default: true)'
+        in: query
+        name: fetch
+        type: boolean
       produces:
       - application/json
       responses:

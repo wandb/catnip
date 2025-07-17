@@ -147,10 +147,21 @@ func (h *GitHandler) GetStatus(c *fiber.Ctx) error {
 // @Description Returns a list of all worktrees for the current repository
 // @Tags git
 // @Produce json
+// @Param fetch query boolean false "Skip fetch for faster response (default: true)"
 // @Success 200 {array} models.Worktree
 // @Router /v1/git/worktrees [get]
 func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
-	worktrees := h.gitService.ListWorktrees()
+	// Check if we should skip fetch for faster response
+	skipFetch := c.Query("fetch", "true") == "false"
+
+	var worktrees []*models.Worktree
+	if skipFetch {
+		// Fast path: no fetch, use local git state only
+		worktrees = h.gitService.ListWorktrees()
+	} else {
+		// Slower path: fetch latest remote state
+		worktrees = h.gitService.ListWorktreesWithFetch(false)
+	}
 
 	// Enhance worktrees with session information
 	for _, worktree := range worktrees {
