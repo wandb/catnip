@@ -1,6 +1,17 @@
 import { useState, useEffect } from "react";
-import { gitApi, type GitStatus, type Worktree, type Repository, type WorktreeDiffStats, type PullRequestInfo } from "@/lib/git-api";
-import { generateWorktreeSummary, shouldGenerateSummary, type WorktreeSummary } from "@/lib/worktree-summary";
+import {
+  gitApi,
+  type GitStatus,
+  type Worktree,
+  type Repository,
+  type WorktreeDiffStats,
+  type PullRequestInfo,
+} from "@/lib/git-api";
+import {
+  generateWorktreeSummary,
+  shouldGenerateSummary,
+  type WorktreeSummary,
+} from "@/lib/worktree-summary";
 
 interface ClaudeSession {
   sessionStartTime?: string | Date;
@@ -35,6 +46,7 @@ export interface GitState {
   loading: boolean;
   reposLoading: boolean;
   worktreesLoading: boolean;
+  diffStatsLoading: boolean;
 }
 
 export function useGitState() {
@@ -53,17 +65,20 @@ export function useGitState() {
     loading: false,
     reposLoading: false,
     worktreesLoading: false,
+    diffStatsLoading: false,
   });
 
   const fetchGitStatus = async () => {
     try {
       const data = await gitApi.fetchGitStatus();
-      setState(prev => ({ ...prev, gitStatus: data }));
+      setState((prev) => ({ ...prev, gitStatus: data }));
 
       // Fetch branches for each repository
       if (data.repositories) {
-        const branchMap = await gitApi.fetchBranchesForRepositories(data.repositories);
-        setState(prev => ({ ...prev, repoBranches: branchMap }));
+        const branchMap = await gitApi.fetchBranchesForRepositories(
+          data.repositories,
+        );
+        setState((prev) => ({ ...prev, repoBranches: branchMap }));
       }
     } catch (error) {
       console.error("Failed to fetch git status:", error);
@@ -71,33 +86,33 @@ export function useGitState() {
   };
 
   const fetchWorktrees = async () => {
-    setState(prev => ({ ...prev, worktreesLoading: true }));
+    setState((prev) => ({ ...prev, worktreesLoading: true }));
     try {
       const data = await gitApi.fetchWorktrees();
-      setState(prev => ({ ...prev, worktrees: data }));
+      setState((prev) => ({ ...prev, worktrees: data }));
     } catch (error) {
       console.error("Failed to fetch worktrees:", error);
     } finally {
-      setState(prev => ({ ...prev, worktreesLoading: false }));
+      setState((prev) => ({ ...prev, worktreesLoading: false }));
     }
   };
 
   const fetchRepositories = async () => {
-    setState(prev => ({ ...prev, reposLoading: true }));
+    setState((prev) => ({ ...prev, reposLoading: true }));
     try {
       const data = await gitApi.fetchRepositories();
-      setState(prev => ({ ...prev, repositories: data }));
+      setState((prev) => ({ ...prev, repositories: data }));
     } catch (error) {
       console.error("Failed to fetch repositories:", error);
     } finally {
-      setState(prev => ({ ...prev, reposLoading: false }));
+      setState((prev) => ({ ...prev, reposLoading: false }));
     }
   };
 
   const fetchClaudeSessions = async () => {
     try {
       const data = await gitApi.fetchClaudeSessions();
-      setState(prev => ({ ...prev, claudeSessions: data }));
+      setState((prev) => ({ ...prev, claudeSessions: data }));
     } catch (error) {
       console.error("Failed to fetch claude sessions:", error);
     }
@@ -106,7 +121,7 @@ export function useGitState() {
   const fetchActiveSessions = async () => {
     try {
       const data = await gitApi.fetchActiveSessions();
-      setState(prev => ({ ...prev, activeSessions: data }));
+      setState((prev) => ({ ...prev, activeSessions: data }));
     } catch (error) {
       console.error("Failed to fetch active sessions:", error);
     }
@@ -114,19 +129,24 @@ export function useGitState() {
 
   const checkConflicts = async () => {
     try {
-      const { syncConflicts, mergeConflicts } = await gitApi.checkAllConflicts(state.worktrees);
-      setState(prev => ({ ...prev, syncConflicts, mergeConflicts }));
+      const { syncConflicts, mergeConflicts } = await gitApi.checkAllConflicts(
+        state.worktrees,
+      );
+      setState((prev) => ({ ...prev, syncConflicts, mergeConflicts }));
     } catch (error) {
       console.error("Failed to check conflicts:", error);
     }
   };
 
   const fetchDiffStats = async () => {
+    setState((prev) => ({ ...prev, diffStatsLoading: true }));
     try {
       const diffStats = await gitApi.fetchAllDiffStats(state.worktrees);
-      setState(prev => ({ ...prev, diffStats }));
+      setState((prev) => ({ ...prev, diffStats }));
     } catch (error) {
       console.error("Failed to fetch diff stats:", error);
+    } finally {
+      setState((prev) => ({ ...prev, diffStatsLoading: false }));
     }
   };
 
@@ -134,7 +154,7 @@ export function useGitState() {
   const fetchPrStatuses = async () => {
     try {
       if (state.worktrees.length === 0) {
-        setState(prev => ({ ...prev, prStatuses: {} }));
+        setState((prev) => ({ ...prev, prStatuses: {} }));
         return;
       }
 
@@ -145,14 +165,14 @@ export function useGitState() {
 
       const prResults = await Promise.all(prPromises);
       const newPrStatuses: Record<string, PullRequestInfo | undefined> = {};
-      
+
       prResults.forEach(({ worktreeId, prInfo }) => {
         if (prInfo) {
           newPrStatuses[worktreeId] = prInfo;
         }
       });
 
-      setState(prev => ({ ...prev, prStatuses: newPrStatuses }));
+      setState((prev) => ({ ...prev, prStatuses: newPrStatuses }));
     } catch (error) {
       console.error("Failed to fetch PR statuses:", error);
     }
@@ -161,42 +181,45 @@ export function useGitState() {
   // Generate summary for a specific worktree
   const generateWorktreeSummaryForId = async (worktreeId: string) => {
     // Set status to generating
-    setState(prev => ({
+    setState((prev) => ({
       ...prev,
       worktreeSummaries: {
         ...prev.worktreeSummaries,
         [worktreeId]: {
           worktreeId,
-          title: '',
-          summary: '',
-          status: 'generating'
-        }
-      }
+          title: "",
+          summary: "",
+          status: "generating",
+        },
+      },
     }));
 
     try {
       const summary = await generateWorktreeSummary(worktreeId);
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         worktreeSummaries: {
           ...prev.worktreeSummaries,
-          [worktreeId]: summary
-        }
+          [worktreeId]: summary,
+        },
       }));
     } catch (error) {
-      console.error(`Failed to generate summary for worktree ${worktreeId}:`, error);
-      setState(prev => ({
+      console.error(
+        `Failed to generate summary for worktree ${worktreeId}:`,
+        error,
+      );
+      setState((prev) => ({
         ...prev,
         worktreeSummaries: {
           ...prev.worktreeSummaries,
           [worktreeId]: {
             worktreeId,
-            title: 'Failed to generate summary',
-            summary: 'An error occurred while generating the summary',
-            status: 'error',
-            error: error instanceof Error ? error.message : 'Unknown error'
-          }
-        }
+            title: "Failed to generate summary",
+            summary: "An error occurred while generating the summary",
+            status: "error",
+            error: error instanceof Error ? error.message : "Unknown error",
+          },
+        },
       }));
     }
   };
@@ -204,69 +227,78 @@ export function useGitState() {
   // Generate summaries for all qualifying worktrees
   const generateAllWorktreeSummaries = async () => {
     const qualifyingWorktrees = state.worktrees.filter(shouldGenerateSummary);
-    
+
     // Initialize pending summaries
     const pendingSummaries: Record<string, WorktreeSummary> = {};
-    qualifyingWorktrees.forEach(worktree => {
-      if (!state.worktreeSummaries[worktree.id] || state.worktreeSummaries[worktree.id].status === 'error') {
+    qualifyingWorktrees.forEach((worktree) => {
+      if (
+        !state.worktreeSummaries[worktree.id] ||
+        state.worktreeSummaries[worktree.id].status === "error"
+      ) {
         pendingSummaries[worktree.id] = {
           worktreeId: worktree.id,
-          title: '',
-          summary: '',
-          status: 'pending'
+          title: "",
+          summary: "",
+          status: "pending",
         };
       }
     });
 
     if (Object.keys(pendingSummaries).length > 0) {
-      setState(prev => ({
+      setState((prev) => ({
         ...prev,
         worktreeSummaries: {
           ...prev.worktreeSummaries,
-          ...pendingSummaries
-        }
+          ...pendingSummaries,
+        },
       }));
 
       // Generate summaries in parallel
-      const summaryPromises = Object.keys(pendingSummaries).map(async (worktreeId) => {
-        // Set to generating
-        setState(prev => ({
-          ...prev,
-          worktreeSummaries: {
-            ...prev.worktreeSummaries,
-            [worktreeId]: {
-              ...prev.worktreeSummaries[worktreeId],
-              status: 'generating'
-            }
-          }
-        }));
-
-        try {
-          const summary = await generateWorktreeSummary(worktreeId);
-          setState(prev => ({
-            ...prev,
-            worktreeSummaries: {
-              ...prev.worktreeSummaries,
-              [worktreeId]: summary
-            }
-          }));
-        } catch (error) {
-          console.error(`Failed to generate summary for worktree ${worktreeId}:`, error);
-          setState(prev => ({
+      const summaryPromises = Object.keys(pendingSummaries).map(
+        async (worktreeId) => {
+          // Set to generating
+          setState((prev) => ({
             ...prev,
             worktreeSummaries: {
               ...prev.worktreeSummaries,
               [worktreeId]: {
-                worktreeId,
-                title: 'Failed to generate summary',
-                summary: 'An error occurred while generating the summary',
-                status: 'error',
-                error: error instanceof Error ? error.message : 'Unknown error'
-              }
-            }
+                ...prev.worktreeSummaries[worktreeId],
+                status: "generating",
+              },
+            },
           }));
-        }
-      });
+
+          try {
+            const summary = await generateWorktreeSummary(worktreeId);
+            setState((prev) => ({
+              ...prev,
+              worktreeSummaries: {
+                ...prev.worktreeSummaries,
+                [worktreeId]: summary,
+              },
+            }));
+          } catch (error) {
+            console.error(
+              `Failed to generate summary for worktree ${worktreeId}:`,
+              error,
+            );
+            setState((prev) => ({
+              ...prev,
+              worktreeSummaries: {
+                ...prev.worktreeSummaries,
+                [worktreeId]: {
+                  worktreeId,
+                  title: "Failed to generate summary",
+                  summary: "An error occurred while generating the summary",
+                  status: "error",
+                  error:
+                    error instanceof Error ? error.message : "Unknown error",
+                },
+              },
+            }));
+          }
+        },
+      );
 
       await Promise.all(summaryPromises);
     }
@@ -274,7 +306,7 @@ export function useGitState() {
 
   // Clear summary for a specific worktree
   const clearWorktreeSummary = (worktreeId: string) => {
-    setState(prev => {
+    setState((prev) => {
       const newSummaries = { ...prev.worktreeSummaries };
       delete newSummaries[worktreeId];
       return { ...prev, worktreeSummaries: newSummaries };
@@ -283,7 +315,7 @@ export function useGitState() {
 
   // Clear all summaries
   const clearAllWorktreeSummaries = () => {
-    setState(prev => ({ ...prev, worktreeSummaries: {} }));
+    setState((prev) => ({ ...prev, worktreeSummaries: {} }));
   };
 
   const refreshAll = async () => {
@@ -296,7 +328,7 @@ export function useGitState() {
   };
 
   const setLoading = (loading: boolean) => {
-    setState(prev => ({ ...prev, loading }));
+    setState((prev) => ({ ...prev, loading }));
   };
 
   // Compute overall loading state
