@@ -1,1812 +1,1668 @@
 {
-    "schemes": [
-        "http",
-        "ws"
-    ],
-    "swagger": "2.0",
-    "info": {
-        "description": "API for managing container PTY sessions and services",
-        "title": "Catnip Container API",
-        "contact": {},
-        "version": "1.0"
-    },
-    "host": "localhost:8080",
-    "paths": {
-        "/v1/auth/github/start": {
-            "post": {
-                "description": "Initiates GitHub device flow authentication",
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Start GitHub authentication",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.AuthStartResponse"
-                        }
-                    }
-                }
+  "schemes": ["http", "ws"],
+  "swagger": "2.0",
+  "info": {
+    "description": "API for managing container PTY sessions and services",
+    "title": "Catnip Container API",
+    "contact": {},
+    "version": "1.0"
+  },
+  "host": "localhost:8080",
+  "paths": {
+    "/v1/auth/github/start": {
+      "post": {
+        "description": "Initiates GitHub device flow authentication",
+        "tags": ["auth"],
+        "summary": "Start GitHub authentication",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.AuthStartResponse"
             }
-        },
-        "/v1/auth/github/status": {
-            "get": {
-                "description": "Returns the current status of the authentication flow",
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Get authentication status",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.AuthStatusResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/claude/completion": {
-            "post": {
-                "description": "Sends a message to Claude and returns the completion response",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "claude"
-                ],
-                "summary": "Get Claude completion",
-                "parameters": [
-                    {
-                        "description": "Completion request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/claude/session": {
-            "get": {
-                "description": "Returns Claude Code session metadata for a specific worktree",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "claude"
-                ],
-                "summary": "Get worktree session summary",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree path",
-                        "name": "worktree_path",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/claude/session/{uuid}": {
-            "get": {
-                "description": "Returns complete session data including all messages for a specific session UUID",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "claude"
-                ],
-                "summary": "Get session by UUID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session UUID",
-                        "name": "uuid",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/claude/sessions": {
-            "get": {
-                "description": "Returns Claude Code session metadata for all worktrees with Claude data",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "claude"
-                ],
-                "summary": "Get all worktree session summaries",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/events": {
-            "get": {
-                "description": "Streams real-time events in Server-Sent Events format. Events include port changes, git status, processes, and container status updates.\n\n## Event Types\n\n### Port Events\n- **port:opened**: Fired when a new port is detected\n- `port` (int): Port number\n- `service` (string): Service type (http, tcp)\n- `protocol` (string): Protocol used\n- `title` (string): Service title/name if detected\n- **port:closed**: Fired when a port is no longer available\n- `port` (int): Port number that was closed\n\n### Git Events\n- **git:dirty**: Fired when git workspace has uncommitted changes\n- `workspace` (string): Workspace path\n- `files` ([]string): List of modified files\n- **git:clean**: Fired when git workspace becomes clean\n- `workspace` (string): Workspace path\n\n### Process Events\n- **process:started**: Fired when a new process starts\n- `pid` (int): Process ID\n- `command` (string): Command that was executed\n- `workspace` (string): Workspace where process started\n- **process:stopped**: Fired when a process terminates\n- `pid` (int): Process ID that stopped\n- `exitCode` (int): Exit code of the process\n\n### Container Events\n- **container:status**: Fired when container status changes\n- `status` (string): Container status (running, stopped, error)\n- `message` (string): Optional status message\n\n### System Events\n- **heartbeat**: Sent every 5 seconds to keep connection alive\n- `timestamp` (int64): Current timestamp in milliseconds\n- `uptime` (int64): Server uptime in milliseconds\n\n## Message Format\nEach SSE message is a JSON object with:\n- `event`: Event object containing `type` and `payload`\n- `timestamp`: Event timestamp in milliseconds\n- `id`: Unique event identifier\n\n## Connection Behavior\n- Auto-reconnects on disconnection\n- Sends current state on initial connection\n- Heartbeat every 5 seconds\n- Rate limited to prevent spam",
-                "consumes": [
-                    "text/event-stream"
-                ],
-                "produces": [
-                    "text/event-stream"
-                ],
-                "tags": [
-                    "events"
-                ],
-                "summary": "Server-Sent Events endpoint for real-time container events",
-                "responses": {
-                    "200": {
-                        "description": "SSE stream of events",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.SSEMessage"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/branches/{repo_id}": {
-            "get": {
-                "description": "Returns a list of remote branches for a specific repository",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Get repository branches",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Repository ID",
-                        "name": "repo_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/checkout/{org}/{repo}": {
-            "post": {
-                "description": "Clones a GitHub repository as a bare repo and creates initial worktree",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Checkout a GitHub repository",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Organization name",
-                        "name": "org",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Repository name",
-                        "name": "repo",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Branch name (optional)",
-                        "name": "branch",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.CheckoutResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/github/repos": {
-            "get": {
-                "description": "Returns a list of GitHub repositories accessible to the authenticated user",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "List GitHub repositories",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/internal_handlers.GitHubRepository"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/status": {
-            "get": {
-                "description": "Returns the current repository and worktree status",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Get Git status",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.GitStatus"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees": {
-            "get": {
-                "description": "Returns a list of all worktrees for the current repository",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "List all worktrees",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}": {
-            "delete": {
-                "description": "Removes a worktree from the repository",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Delete worktree",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}/diff": {
-            "get": {
-                "description": "Returns the diff for a worktree against its source branch, including all staged/unstaged changes",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Get worktree diff",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeDiffResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}/merge": {
-            "post": {
-                "description": "Merges a local repo worktree's changes back to the main repository",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Merge worktree to main",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Merge options",
-                        "name": "body",
-                        "in": "body",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}/merge/check": {
-            "get": {
-                "description": "Checks if merging a worktree to main would cause conflicts",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Check merge conflicts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}/pr": {
-            "get": {
-                "description": "Gets information about an existing pull request for a worktree branch",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Get pull request info",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "description": "Updates an existing pull request for a worktree branch",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Update pull request",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Pull request details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "description": "Creates a pull request for a worktree branch",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Create pull request",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Pull request details",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}/preview": {
-            "post": {
-                "description": "Creates a preview branch in the main repo for viewing changes outside container",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Create worktree preview",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}/sync": {
-            "post": {
-                "description": "Syncs a worktree with its source branch using merge or rebase strategy",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Sync worktree with source branch",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Sync options",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/git/worktrees/{id}/sync/check": {
-            "get": {
-                "description": "Checks if syncing a worktree would cause merge conflicts",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "git"
-                ],
-                "summary": "Check sync conflicts",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Worktree ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/ports": {
-            "get": {
-                "description": "Returns a list of all currently detected ports with their service information",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ports"
-                ],
-                "summary": "Get detected ports",
-                "responses": {
-                    "200": {
-                        "description": "List of detected ports and services",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/ports/{port}": {
-            "get": {
-                "description": "Returns detailed information about a specific port if it exists",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "ports"
-                ],
-                "summary": "Get port information",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Port number",
-                        "name": "port",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Port information",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_services.ServiceInfo"
-                        }
-                    },
-                    "404": {
-                        "description": "Port not found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/pty": {
-            "get": {
-                "description": "Establishes a WebSocket connection for terminal access",
-                "tags": [
-                    "pty"
-                ],
-                "summary": "Create PTY WebSocket connection",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Session ID",
-                        "name": "session",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "101": {
-                        "description": "Switching Protocols",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/sessions": {
-            "get": {
-                "description": "Returns all sessions including ended ones",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Get all sessions",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.SessionsResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/sessions/active": {
-            "get": {
-                "description": "Returns all active sessions (not ended)",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Get active sessions",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.SessionsResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/sessions/workspace/{workspace}": {
-            "get": {
-                "description": "Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Get session by workspace",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Workspace directory path",
-                        "name": "workspace",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "boolean",
-                        "description": "Include full session data with messages and user prompts",
-                        "name": "full",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Full session data when full=true",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "description": "Removes a session from the active sessions mapping",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Delete session",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Workspace directory path",
-                        "name": "workspace",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.DeleteSessionResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/sessions/workspace/{workspace}/session/{sessionId}": {
-            "get": {
-                "description": "Returns complete session data for a specific session ID within a workspace",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "sessions"
-                ],
-                "summary": "Get session by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Workspace directory path",
-                        "name": "workspace",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "Session ID (UUID)",
-                        "name": "sessionId",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
-                        }
-                    }
-                }
-            }
-        },
-        "/v1/upload": {
-            "post": {
-                "description": "Upload a file to /tmp/uploads directory with automatic conflict resolution",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "upload"
-                ],
-                "summary": "Upload a file",
-                "parameters": [
-                    {
-                        "type": "file",
-                        "description": "File to upload",
-                        "name": "file",
-                        "in": "formData",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.UploadResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.UploadResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.UploadResponse"
-                        }
-                    }
-                }
-            }
+          }
         }
+      }
     },
-    "definitions": {
-        "github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry": {
-            "type": "object",
-            "properties": {
-                "display": {
-                    "type": "string"
-                },
-                "pastedContents": {
-                    "type": "object",
-                    "additionalProperties": {}
-                }
+    "/v1/auth/github/status": {
+      "get": {
+        "description": "Returns the current status of the authentication flow",
+        "tags": ["auth"],
+        "summary": "Get authentication status",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.AuthStatusResponse"
             }
-        },
-        "github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage": {
-            "type": "object",
-            "properties": {
-                "cwd": {
-                    "type": "string"
-                },
-                "isMeta": {
-                    "type": "boolean"
-                },
-                "isSidechain": {
-                    "type": "boolean"
-                },
-                "message": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "parentUuid": {
-                    "type": "string"
-                },
-                "sessionId": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "userType": {
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "string"
-                }
+          }
+        }
+      }
+    },
+    "/v1/claude/completion": {
+      "post": {
+        "description": "Sends a message to Claude and returns the completion response",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["claude"],
+        "summary": "Get Claude completion",
+        "parameters": [
+          {
+            "description": "Completion request",
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionRequest"
             }
-        },
-        "github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary": {
-            "description": "Claude Code session summary with metrics and timing information",
-            "type": "object",
-            "properties": {
-                "allSessions": {
-                    "description": "List of all available sessions for this worktree",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
-                    }
-                },
-                "currentSessionId": {
-                    "description": "ID of the currently active session",
-                    "type": "string",
-                    "example": "xyz789-ghi012"
-                },
-                "header": {
-                    "description": "Header/title of the session from the Claude history",
-                    "type": "string",
-                    "example": "Fix bug in user authentication"
-                },
-                "isActive": {
-                    "description": "Whether this session is currently active",
-                    "type": "boolean",
-                    "example": true
-                },
-                "lastCost": {
-                    "description": "Metrics (from completed sessions)\nCost in USD of the last completed session",
-                    "type": "number",
-                    "example": 0.25
-                },
-                "lastDuration": {
-                    "description": "Duration in seconds of the last session",
-                    "type": "integer",
-                    "example": 3600
-                },
-                "lastSessionId": {
-                    "description": "ID of the most recent completed session",
-                    "type": "string",
-                    "example": "abc123-def456"
-                },
-                "lastTotalInputTokens": {
-                    "description": "Total input tokens used in the last session",
-                    "type": "integer",
-                    "example": 15000
-                },
-                "lastTotalOutputTokens": {
-                    "description": "Total output tokens generated in the last session",
-                    "type": "integer",
-                    "example": 8500
-                },
-                "sessionEndTime": {
-                    "description": "When the last session ended (if not active)",
-                    "type": "string",
-                    "example": "2024-01-15T16:45:30Z"
-                },
-                "sessionStartTime": {
-                    "description": "When the current session started",
-                    "type": "string",
-                    "example": "2024-01-15T14:30:00Z"
-                },
-                "turnCount": {
-                    "description": "Number of conversation turns in the session",
-                    "type": "integer",
-                    "example": 15
-                },
-                "worktreePath": {
-                    "description": "Path to the worktree directory",
-                    "type": "string",
-                    "example": "/workspace/my-project"
-                }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionResponse"
             }
-        },
-        "github_com_vanpelt_catnip_internal_models.CompletionMessage": {
-            "description": "A message in the conversation context",
-            "type": "object",
-            "properties": {
-                "content": {
-                    "description": "Content of the message",
-                    "type": "string",
-                    "example": "What is the weather like?"
-                },
-                "role": {
-                    "description": "Role of the message sender",
-                    "type": "string",
-                    "example": "user"
-                }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
-        },
-        "github_com_vanpelt_catnip_internal_models.CompletionRequest": {
-            "description": "Request payload for Claude completion API",
-            "type": "object",
-            "properties": {
-                "context": {
-                    "description": "Optional conversation context",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionMessage"
-                    }
-                },
-                "max_tokens": {
-                    "description": "Maximum number of tokens to generate",
-                    "type": "integer",
-                    "example": 1024
-                },
-                "message": {
-                    "description": "The message to send to Claude",
-                    "type": "string",
-                    "example": "Hello, how are you?"
-                },
-                "model": {
-                    "description": "Model to use for completion",
-                    "type": "string",
-                    "example": "claude-3-5-sonnet-20241022"
-                },
-                "system": {
-                    "description": "Optional system prompt",
-                    "type": "string",
-                    "example": "You are a helpful assistant."
-                }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
             }
-        },
-        "github_com_vanpelt_catnip_internal_models.CompletionResponse": {
-            "description": "Response from Claude completion API",
-            "type": "object",
-            "properties": {
-                "model": {
-                    "description": "Model used for the completion",
-                    "type": "string",
-                    "example": "claude-3-5-sonnet-20241022"
-                },
-                "response": {
-                    "description": "Generated response text",
-                    "type": "string",
-                    "example": "I'm doing well, thank you for asking!"
-                },
-                "truncated": {
-                    "description": "Whether the response was truncated",
-                    "type": "boolean"
-                },
-                "usage": {
-                    "description": "Number of tokens used in the request",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionUsage"
-                        }
-                    ]
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.CompletionUsage": {
-            "description": "Token usage information for completion",
-            "type": "object",
-            "properties": {
-                "input_tokens": {
-                    "description": "Tokens used in the input",
-                    "type": "integer",
-                    "example": 15
-                },
-                "output_tokens": {
-                    "description": "Tokens generated in the output",
-                    "type": "integer",
-                    "example": 25
-                },
-                "total_tokens": {
-                    "description": "Total tokens used",
-                    "type": "integer",
-                    "example": 40
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.FullSessionData": {
-            "description": "Complete session data with all messages and metadata",
-            "type": "object",
-            "properties": {
-                "allSessions": {
-                    "description": "All sessions available for this workspace",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
-                    }
-                },
-                "messageCount": {
-                    "description": "Total message count in full data",
-                    "type": "integer"
-                },
-                "messages": {
-                    "description": "Full conversation history (only when full=true)",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage"
-                    }
-                },
-                "sessionInfo": {
-                    "description": "Basic session information",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
-                        }
-                    ]
-                },
-                "userPrompts": {
-                    "description": "User prompts from ~/.claude.json (only when full=true)",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry"
-                    }
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.GitStatus": {
-            "description": "Current git status including repository information",
-            "type": "object",
-            "properties": {
-                "repositories": {
-                    "description": "All loaded repositories mapped by repository ID",
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
-                    }
-                },
-                "worktree_count": {
-                    "description": "Total number of worktrees across all repositories",
-                    "type": "integer",
-                    "example": 3
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.PullRequestInfo": {
-            "description": "Information about an existing pull request for a worktree",
-            "type": "object",
-            "properties": {
-                "body": {
-                    "description": "Body/description of the existing pull request (if exists)",
-                    "type": "string",
-                    "example": "This PR adds new functionality"
-                },
-                "exists": {
-                    "description": "Whether a pull request exists for this branch",
-                    "type": "boolean",
-                    "example": true
-                },
-                "has_commits_ahead": {
-                    "description": "Whether the branch has commits ahead of the base branch",
-                    "type": "boolean",
-                    "example": true
-                },
-                "number": {
-                    "description": "Pull request number (if exists)",
-                    "type": "integer",
-                    "example": 123
-                },
-                "title": {
-                    "description": "Title of the existing pull request (if exists)",
-                    "type": "string",
-                    "example": "Feature: Add new functionality"
-                },
-                "url": {
-                    "description": "URL to the pull request (if exists)",
-                    "type": "string",
-                    "example": "https://github.com/owner/repo/pull/123"
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.PullRequestResponse": {
-            "description": "Response containing pull request information after creation",
-            "type": "object",
-            "properties": {
-                "base_branch": {
-                    "description": "Base branch (target branch of the PR)",
-                    "type": "string",
-                    "example": "main"
-                },
-                "body": {
-                    "description": "Body/description of the pull request",
-                    "type": "string",
-                    "example": "This PR adds new functionality to the system"
-                },
-                "head_branch": {
-                    "description": "Head branch (source branch of the PR)",
-                    "type": "string",
-                    "example": "feature/new-feature"
-                },
-                "number": {
-                    "description": "Pull request number",
-                    "type": "integer",
-                    "example": 123
-                },
-                "repository": {
-                    "description": "Repository in owner/repo format",
-                    "type": "string",
-                    "example": "owner/repo"
-                },
-                "title": {
-                    "description": "Title of the pull request",
-                    "type": "string",
-                    "example": "Feature: Add new functionality"
-                },
-                "url": {
-                    "description": "URL to the pull request",
-                    "type": "string",
-                    "example": "https://github.com/owner/repo/pull/123"
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.Repository": {
-            "description": "Git repository information and metadata",
-            "type": "object",
-            "properties": {
-                "created_at": {
-                    "description": "When this repository was first cloned",
-                    "type": "string",
-                    "example": "2024-01-15T10:30:00Z"
-                },
-                "default_branch": {
-                    "description": "Default branch name for this repository",
-                    "type": "string",
-                    "example": "main"
-                },
-                "description": {
-                    "description": "Repository description",
-                    "type": "string",
-                    "example": "AI coding assistant"
-                },
-                "id": {
-                    "description": "Repository identifier in owner/repo format",
-                    "type": "string",
-                    "example": "anthropics/claude-code"
-                },
-                "last_accessed": {
-                    "description": "When this repository was last accessed",
-                    "type": "string",
-                    "example": "2024-01-15T16:45:30Z"
-                },
-                "path": {
-                    "description": "Local path to the bare repository",
-                    "type": "string",
-                    "example": "/workspace/repos/anthropics_claude-code.git"
-                },
-                "url": {
-                    "description": "Full GitHub repository URL",
-                    "type": "string",
-                    "example": "https://github.com/anthropics/claude-code"
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.SessionListEntry": {
-            "description": "Session list entry with basic metadata",
-            "type": "object",
-            "properties": {
-                "endTime": {
-                    "description": "When the session ended (if available)",
-                    "type": "string",
-                    "example": "2024-01-15T16:45:30Z"
-                },
-                "isActive": {
-                    "description": "Whether this session is currently active",
-                    "type": "boolean",
-                    "example": false
-                },
-                "lastModified": {
-                    "description": "When the session was last modified",
-                    "type": "string",
-                    "example": "2024-01-15T16:45:30Z"
-                },
-                "sessionId": {
-                    "description": "Unique session identifier",
-                    "type": "string",
-                    "example": "abc123-def456-ghi789"
-                },
-                "startTime": {
-                    "description": "When the session started (if available)",
-                    "type": "string",
-                    "example": "2024-01-15T14:30:00Z"
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.Worktree": {
-            "description": "Git worktree with branch and status information",
-            "type": "object",
-            "properties": {
-                "branch": {
-                    "description": "Current git branch name in this worktree",
-                    "type": "string",
-                    "example": "feature/api-docs"
-                },
-                "commit_count": {
-                    "description": "Number of commits ahead of the divergence point (CommitHash)",
-                    "type": "integer",
-                    "example": 3
-                },
-                "commit_hash": {
-                    "description": "Commit hash where this worktree diverged from source branch (updated after merges)",
-                    "type": "string",
-                    "example": "abc123def456"
-                },
-                "commits_behind": {
-                    "description": "Number of commits the source branch is ahead of our divergence point",
-                    "type": "integer",
-                    "example": 2
-                },
-                "created_at": {
-                    "description": "When this worktree was created",
-                    "type": "string",
-                    "example": "2024-01-15T14:00:00Z"
-                },
-                "id": {
-                    "description": "Unique identifier for this worktree",
-                    "type": "string",
-                    "example": "abc123-def456-ghi789"
-                },
-                "is_dirty": {
-                    "description": "Whether there are uncommitted changes in the worktree",
-                    "type": "boolean",
-                    "example": true
-                },
-                "last_accessed": {
-                    "description": "When this worktree was last accessed",
-                    "type": "string",
-                    "example": "2024-01-15T16:30:00Z"
-                },
-                "name": {
-                    "description": "User-friendly name for this worktree (e.g., 'vectorize-quasar')",
-                    "type": "string",
-                    "example": "feature-api-docs"
-                },
-                "path": {
-                    "description": "Absolute path to the worktree directory",
-                    "type": "string",
-                    "example": "/workspace/worktrees/feature-api-docs"
-                },
-                "repo_id": {
-                    "description": "Repository this worktree belongs to",
-                    "type": "string",
-                    "example": "anthropics/claude-code"
-                },
-                "source_branch": {
-                    "description": "Branch this worktree was originally created from",
-                    "type": "string",
-                    "example": "main"
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_services.ServiceInfo": {
-            "type": "object",
-            "properties": {
-                "health": {
-                    "type": "string"
-                },
-                "last_seen": {
-                    "type": "string"
-                },
-                "pid": {
-                    "type": "integer"
-                },
-                "port": {
-                    "type": "integer"
-                },
-                "service_type": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_handlers.ActiveSessionInfo": {
-            "description": "Active session information with timing and Claude session details",
-            "type": "object",
-            "properties": {
-                "claude_session_uuid": {
-                    "description": "Unique identifier for the Claude session",
-                    "type": "string",
-                    "example": "abc123-def456-ghi789"
-                },
-                "ended_at": {
-                    "description": "When the session ended (if not active)",
-                    "type": "string",
-                    "example": "2024-01-15T18:30:00Z"
-                },
-                "resumed_at": {
-                    "description": "When the session was resumed (if applicable)",
-                    "type": "string",
-                    "example": "2024-01-15T16:00:00Z"
-                },
-                "started_at": {
-                    "description": "When the session was initially started",
-                    "type": "string",
-                    "example": "2024-01-15T14:30:00Z"
-                },
-                "title": {
-                    "description": "Title of the session",
-                    "type": "string",
-                    "example": "Updating README.md"
-                }
-            }
-        },
-        "internal_handlers.AppEvent": {
-            "type": "object",
-            "properties": {
-                "payload": {},
-                "type": {
-                    "$ref": "#/definitions/internal_handlers.EventType"
-                }
-            }
-        },
-        "internal_handlers.AuthStartResponse": {
-            "description": "Response when starting GitHub device flow authentication",
-            "type": "object",
-            "properties": {
-                "code": {
-                    "description": "Device verification code to enter on GitHub",
-                    "type": "string",
-                    "example": "1234-5678"
-                },
-                "status": {
-                    "description": "Current authentication status",
-                    "type": "string",
-                    "example": "waiting"
-                },
-                "url": {
-                    "description": "GitHub device activation URL",
-                    "type": "string",
-                    "example": "https://github.com/login/device"
-                }
-            }
-        },
-        "internal_handlers.AuthStatusResponse": {
-            "description": "Response containing the current authentication status",
-            "type": "object",
-            "properties": {
-                "error": {
-                    "description": "Error message if authentication failed",
-                    "type": "string",
-                    "example": "authentication timeout"
-                },
-                "status": {
-                    "description": "Authentication status: pending, waiting, success, or error",
-                    "type": "string",
-                    "example": "success"
-                }
-            }
-        },
-        "internal_handlers.CheckoutResponse": {
-            "description": "Response containing repository and worktree information after checkout",
-            "type": "object",
-            "properties": {
-                "message": {
-                    "description": "Success message",
-                    "type": "string",
-                    "example": "Repository checked out successfully"
-                },
-                "repository": {
-                    "description": "Repository information",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
-                        }
-                    ]
-                },
-                "worktree": {
-                    "description": "Created worktree information",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
-                        }
-                    ]
-                }
-            }
-        },
-        "internal_handlers.ConflictCheckResponse": {
-            "description": "Response containing conflict information for sync/merge operations",
-            "type": "object",
-            "properties": {
-                "conflict_files": {
-                    "description": "List of files with conflicts",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "[\"src/main.go\"",
-                        " \"README.md\"]"
-                    ]
-                },
-                "has_conflicts": {
-                    "description": "Whether conflicts were detected",
-                    "type": "boolean",
-                    "example": true
-                },
-                "message": {
-                    "description": "Status message",
-                    "type": "string",
-                    "example": "No conflicts detected"
-                },
-                "operation": {
-                    "description": "Operation type (sync/merge)",
-                    "type": "string",
-                    "example": "sync"
-                },
-                "worktree_name": {
-                    "description": "Name of the worktree",
-                    "type": "string",
-                    "example": "feature-branch"
-                }
-            }
-        },
-        "internal_handlers.CreatePullRequestRequest": {
-            "type": "object",
-            "properties": {
-                "body": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_handlers.DeleteSessionResponse": {
-            "description": "Response confirming session deletion",
-            "type": "object",
-            "properties": {
-                "message": {
-                    "description": "Confirmation message",
-                    "type": "string",
-                    "example": "Session deleted successfully"
-                },
-                "workspace": {
-                    "description": "Workspace path that was deleted",
-                    "type": "string",
-                    "example": "/workspace/my-project"
-                }
-            }
-        },
-        "internal_handlers.EventType": {
+          }
+        }
+      }
+    },
+    "/v1/claude/session": {
+      "get": {
+        "description": "Returns Claude Code session metadata for a specific worktree",
+        "produces": ["application/json"],
+        "tags": ["claude"],
+        "summary": "Get worktree session summary",
+        "parameters": [
+          {
             "type": "string",
-            "enum": [
-                "port:opened",
-                "port:closed",
-                "git:dirty",
-                "git:clean",
-                "process:started",
-                "process:stopped",
-                "container:status",
-                "heartbeat"
-            ],
-            "x-enum-varnames": [
-                "PortOpenedEvent",
-                "PortClosedEvent",
-                "GitDirtyEvent",
-                "GitCleanEvent",
-                "ProcessStartedEvent",
-                "ProcessStoppedEvent",
-                "ContainerStatusEvent",
-                "HeartbeatEvent"
-            ]
-        },
-        "internal_handlers.GitHubRepository": {
-            "description": "GitHub repository information from the GitHub API",
-            "type": "object",
-            "properties": {
-                "clone_url": {
-                    "description": "Git clone URL",
-                    "type": "string",
-                    "example": "https://github.com/anthropics/claude-code.git"
-                },
-                "description": {
-                    "description": "Repository description",
-                    "type": "string",
-                    "example": "AI coding assistant"
-                },
-                "full_name": {
-                    "description": "Full repository name (org/repo)",
-                    "type": "string",
-                    "example": "anthropics/claude-code"
-                },
-                "html_url": {
-                    "description": "Repository URL",
-                    "type": "string",
-                    "example": "https://github.com/anthropics/claude-code"
-                },
-                "id": {
-                    "description": "GitHub repository ID",
-                    "type": "integer",
-                    "example": 123456789
-                },
-                "name": {
-                    "description": "Repository name",
-                    "type": "string",
-                    "example": "claude-code"
-                },
-                "private": {
-                    "description": "Whether the repository is private",
-                    "type": "boolean",
-                    "example": false
-                }
+            "description": "Worktree path",
+            "name": "worktree_path",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
             }
-        },
-        "internal_handlers.SSEMessage": {
-            "type": "object",
-            "properties": {
-                "event": {
-                    "$ref": "#/definitions/internal_handlers.AppEvent"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "integer"
-                }
-            }
-        },
-        "internal_handlers.SessionsResponse": {
-            "description": "Map of workspace paths to session information",
-            "type": "object",
-            "additionalProperties": {
-                "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
-            }
-        },
-        "internal_handlers.UploadResponse": {
-            "description": "Response containing upload status and file location",
-            "type": "object",
-            "properties": {
-                "filePath": {
-                    "description": "Path where the uploaded file was saved",
-                    "type": "string",
-                    "example": "/tmp/uploads/document.pdf"
-                },
-                "message": {
-                    "description": "Status message or error details",
-                    "type": "string",
-                    "example": "File uploaded successfully"
-                },
-                "success": {
-                    "description": "Whether the upload succeeded",
-                    "type": "boolean",
-                    "example": true
-                }
-            }
-        },
-        "internal_handlers.WorktreeDiffResponse": {
-            "description": "Response containing git diff information for a worktree",
-            "type": "object",
-            "properties": {
-                "additions": {
-                    "description": "Number of lines added",
-                    "type": "integer",
-                    "example": 25
-                },
-                "deletions": {
-                    "description": "Number of lines deleted",
-                    "type": "integer",
-                    "example": 10
-                },
-                "diff": {
-                    "description": "Raw git diff output",
-                    "type": "string",
-                    "example": "diff --git a/main.go b/main.go..."
-                },
-                "files_changed": {
-                    "description": "List of changed files",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "[\"main.go\"",
-                        " \"README.md\"]"
-                    ]
-                },
-                "summary": {
-                    "description": "Diff summary",
-                    "type": "string",
-                    "example": "2 files changed, 25 insertions(+), 10 deletions(-)"
-                }
-            }
-        },
-        "internal_handlers.WorktreeOperationResponse": {
-            "description": "Response for worktree operations like delete, sync, merge, preview",
-            "type": "object",
-            "properties": {
-                "id": {
-                    "description": "Worktree ID",
-                    "type": "string",
-                    "example": "abc123-def456-ghi789"
-                },
-                "message": {
-                    "description": "Operation result message",
-                    "type": "string",
-                    "example": "Worktree deleted successfully"
-                },
-                "strategy": {
-                    "description": "Strategy used for sync operations",
-                    "type": "string",
-                    "example": "rebase"
-                }
-            }
+          }
         }
+      }
+    },
+    "/v1/claude/session/{uuid}": {
+      "get": {
+        "description": "Returns complete session data including all messages for a specific session UUID",
+        "produces": ["application/json"],
+        "tags": ["claude"],
+        "summary": "Get session by UUID",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Session UUID",
+            "name": "uuid",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+            }
+          }
+        }
+      }
+    },
+    "/v1/claude/sessions": {
+      "get": {
+        "description": "Returns Claude Code session metadata for all worktrees with Claude data",
+        "produces": ["application/json"],
+        "tags": ["claude"],
+        "summary": "Get all worktree session summaries",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "description": "Streams real-time events in Server-Sent Events format. Events include port changes, git status, processes, and container status updates.\n\n## Event Types\n\n### Port Events\n- **port:opened**: Fired when a new port is detected\n- `port` (int): Port number\n- `service` (string): Service type (http, tcp)\n- `protocol` (string): Protocol used\n- `title` (string): Service title/name if detected\n- **port:closed**: Fired when a port is no longer available\n- `port` (int): Port number that was closed\n\n### Git Events\n- **git:dirty**: Fired when git workspace has uncommitted changes\n- `workspace` (string): Workspace path\n- `files` ([]string): List of modified files\n- **git:clean**: Fired when git workspace becomes clean\n- `workspace` (string): Workspace path\n\n### Process Events\n- **process:started**: Fired when a new process starts\n- `pid` (int): Process ID\n- `command` (string): Command that was executed\n- `workspace` (string): Workspace where process started\n- **process:stopped**: Fired when a process terminates\n- `pid` (int): Process ID that stopped\n- `exitCode` (int): Exit code of the process\n\n### Container Events\n- **container:status**: Fired when container status changes\n- `status` (string): Container status (running, stopped, error)\n- `message` (string): Optional status message\n\n### System Events\n- **heartbeat**: Sent every 5 seconds to keep connection alive\n- `timestamp` (int64): Current timestamp in milliseconds\n- `uptime` (int64): Server uptime in milliseconds\n\n## Message Format\nEach SSE message is a JSON object with:\n- `event`: Event object containing `type` and `payload`\n- `timestamp`: Event timestamp in milliseconds\n- `id`: Unique event identifier\n\n## Connection Behavior\n- Auto-reconnects on disconnection\n- Sends current state on initial connection\n- Heartbeat every 5 seconds\n- Rate limited to prevent spam",
+        "consumes": ["text/event-stream"],
+        "produces": ["text/event-stream"],
+        "tags": ["events"],
+        "summary": "Server-Sent Events endpoint for real-time container events",
+        "responses": {
+          "200": {
+            "description": "SSE stream of events",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.SSEMessage"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/branches/{repo_id}": {
+      "get": {
+        "description": "Returns a list of remote branches for a specific repository",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Get repository branches",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Repository ID",
+            "name": "repo_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/checkout/{org}/{repo}": {
+      "post": {
+        "description": "Clones a GitHub repository as a bare repo and creates initial worktree",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Checkout a GitHub repository",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Organization name",
+            "name": "org",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Repository name",
+            "name": "repo",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Branch name (optional)",
+            "name": "branch",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.CheckoutResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/github/repos": {
+      "get": {
+        "description": "Returns a list of GitHub repositories accessible to the authenticated user",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "List GitHub repositories",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/internal_handlers.GitHubRepository"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/status": {
+      "get": {
+        "description": "Returns the current repository and worktree status",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Get Git status",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.GitStatus"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees": {
+      "get": {
+        "description": "Returns a list of all worktrees for the current repository",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "List all worktrees",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}": {
+      "delete": {
+        "description": "Removes a worktree from the repository",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Delete worktree",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}/diff": {
+      "get": {
+        "description": "Returns the diff for a worktree against its source branch, including all staged/unstaged changes",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Get worktree diff",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.WorktreeDiffResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}/merge": {
+      "post": {
+        "description": "Merges a local repo worktree's changes back to the main repository",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Merge worktree to main",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Merge options",
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}/merge/check": {
+      "get": {
+        "description": "Checks if merging a worktree to main would cause conflicts",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Check merge conflicts",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}/pr": {
+      "get": {
+        "description": "Gets information about an existing pull request for a worktree branch",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Get pull request info",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Updates an existing pull request for a worktree branch",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Update pull request",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Pull request details",
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Creates a pull request for a worktree branch",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Create pull request",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Pull request details",
+            "name": "request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}/preview": {
+      "post": {
+        "description": "Creates a preview branch in the main repo for viewing changes outside container",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Create worktree preview",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}/sync": {
+      "post": {
+        "description": "Syncs a worktree with its source branch using merge or rebase strategy",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Sync worktree with source branch",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "Sync options",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/git/worktrees/{id}/sync/check": {
+      "get": {
+        "description": "Checks if syncing a worktree would cause merge conflicts",
+        "produces": ["application/json"],
+        "tags": ["git"],
+        "summary": "Check sync conflicts",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Worktree ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/ports": {
+      "get": {
+        "description": "Returns a list of all currently detected ports with their service information",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["ports"],
+        "summary": "Get detected ports",
+        "responses": {
+          "200": {
+            "description": "List of detected ports and services",
+            "schema": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "/v1/ports/{port}": {
+      "get": {
+        "description": "Returns detailed information about a specific port if it exists",
+        "consumes": ["application/json"],
+        "produces": ["application/json"],
+        "tags": ["ports"],
+        "summary": "Get port information",
+        "parameters": [
+          {
+            "type": "integer",
+            "description": "Port number",
+            "name": "port",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Port information",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_services.ServiceInfo"
+            }
+          },
+          "404": {
+            "description": "Port not found",
+            "schema": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pty": {
+      "get": {
+        "description": "Establishes a WebSocket connection for terminal access",
+        "tags": ["pty"],
+        "summary": "Create PTY WebSocket connection",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Session ID",
+            "name": "session",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions": {
+      "get": {
+        "description": "Returns all sessions including ended ones",
+        "produces": ["application/json"],
+        "tags": ["sessions"],
+        "summary": "Get all sessions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.SessionsResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/active": {
+      "get": {
+        "description": "Returns all active sessions (not ended)",
+        "produces": ["application/json"],
+        "tags": ["sessions"],
+        "summary": "Get active sessions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.SessionsResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/workspace/{workspace}": {
+      "get": {
+        "description": "Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.",
+        "produces": ["application/json"],
+        "tags": ["sessions"],
+        "summary": "Get session by workspace",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Workspace directory path",
+            "name": "workspace",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "description": "Include full session data with messages and user prompts",
+            "name": "full",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full session data when full=true",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "Removes a session from the active sessions mapping",
+        "produces": ["application/json"],
+        "tags": ["sessions"],
+        "summary": "Delete session",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Workspace directory path",
+            "name": "workspace",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.DeleteSessionResponse"
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/workspace/{workspace}/session/{sessionId}": {
+      "get": {
+        "description": "Returns complete session data for a specific session ID within a workspace",
+        "produces": ["application/json"],
+        "tags": ["sessions"],
+        "summary": "Get session by ID",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Workspace directory path",
+            "name": "workspace",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Session ID (UUID)",
+            "name": "sessionId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+            }
+          }
+        }
+      }
+    },
+    "/v1/upload": {
+      "post": {
+        "description": "Upload a file to /tmp/uploads directory with automatic conflict resolution",
+        "consumes": ["multipart/form-data"],
+        "produces": ["application/json"],
+        "tags": ["upload"],
+        "summary": "Upload a file",
+        "parameters": [
+          {
+            "type": "file",
+            "description": "File to upload",
+            "name": "file",
+            "in": "formData",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.UploadResponse"
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.UploadResponse"
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "schema": {
+              "$ref": "#/definitions/internal_handlers.UploadResponse"
+            }
+          }
+        }
+      }
     }
+  },
+  "definitions": {
+    "github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry": {
+      "type": "object",
+      "properties": {
+        "display": {
+          "type": "string"
+        },
+        "pastedContents": {
+          "type": "object",
+          "additionalProperties": {}
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage": {
+      "type": "object",
+      "properties": {
+        "cwd": {
+          "type": "string"
+        },
+        "isMeta": {
+          "type": "boolean"
+        },
+        "isSidechain": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "object",
+          "additionalProperties": {}
+        },
+        "parentUuid": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "userType": {
+          "type": "string"
+        },
+        "uuid": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary": {
+      "description": "Claude Code session summary with metrics and timing information",
+      "type": "object",
+      "properties": {
+        "allSessions": {
+          "description": "List of all available sessions for this worktree",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
+          }
+        },
+        "currentSessionId": {
+          "description": "ID of the currently active session",
+          "type": "string",
+          "example": "xyz789-ghi012"
+        },
+        "header": {
+          "description": "Header/title of the session from the Claude history",
+          "type": "string",
+          "example": "Fix bug in user authentication"
+        },
+        "isActive": {
+          "description": "Whether this session is currently active",
+          "type": "boolean",
+          "example": true
+        },
+        "lastCost": {
+          "description": "Metrics (from completed sessions)\nCost in USD of the last completed session",
+          "type": "number",
+          "example": 0.25
+        },
+        "lastDuration": {
+          "description": "Duration in seconds of the last session",
+          "type": "integer",
+          "example": 3600
+        },
+        "lastSessionId": {
+          "description": "ID of the most recent completed session",
+          "type": "string",
+          "example": "abc123-def456"
+        },
+        "lastTotalInputTokens": {
+          "description": "Total input tokens used in the last session",
+          "type": "integer",
+          "example": 15000
+        },
+        "lastTotalOutputTokens": {
+          "description": "Total output tokens generated in the last session",
+          "type": "integer",
+          "example": 8500
+        },
+        "sessionEndTime": {
+          "description": "When the last session ended (if not active)",
+          "type": "string",
+          "example": "2024-01-15T16:45:30Z"
+        },
+        "sessionStartTime": {
+          "description": "When the current session started",
+          "type": "string",
+          "example": "2024-01-15T14:30:00Z"
+        },
+        "turnCount": {
+          "description": "Number of conversation turns in the session",
+          "type": "integer",
+          "example": 15
+        },
+        "worktreePath": {
+          "description": "Path to the worktree directory",
+          "type": "string",
+          "example": "/workspace/my-project"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.CompletionMessage": {
+      "description": "A message in the conversation context",
+      "type": "object",
+      "properties": {
+        "content": {
+          "description": "Content of the message",
+          "type": "string",
+          "example": "What is the weather like?"
+        },
+        "role": {
+          "description": "Role of the message sender",
+          "type": "string",
+          "example": "user"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.CompletionRequest": {
+      "description": "Request payload for Claude completion API",
+      "type": "object",
+      "properties": {
+        "context": {
+          "description": "Optional conversation context",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionMessage"
+          }
+        },
+        "max_tokens": {
+          "description": "Maximum number of tokens to generate",
+          "type": "integer",
+          "example": 1024
+        },
+        "message": {
+          "description": "The message to send to Claude",
+          "type": "string",
+          "example": "Hello, how are you?"
+        },
+        "model": {
+          "description": "Model to use for completion",
+          "type": "string",
+          "example": "claude-3-5-sonnet-20241022"
+        },
+        "system": {
+          "description": "Optional system prompt",
+          "type": "string",
+          "example": "You are a helpful assistant."
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.CompletionResponse": {
+      "description": "Response from Claude completion API",
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "Model used for the completion",
+          "type": "string",
+          "example": "claude-3-5-sonnet-20241022"
+        },
+        "response": {
+          "description": "Generated response text",
+          "type": "string",
+          "example": "I'm doing well, thank you for asking!"
+        },
+        "truncated": {
+          "description": "Whether the response was truncated",
+          "type": "boolean"
+        },
+        "usage": {
+          "description": "Number of tokens used in the request",
+          "allOf": [
+            {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionUsage"
+            }
+          ]
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.CompletionUsage": {
+      "description": "Token usage information for completion",
+      "type": "object",
+      "properties": {
+        "input_tokens": {
+          "description": "Tokens used in the input",
+          "type": "integer",
+          "example": 15
+        },
+        "output_tokens": {
+          "description": "Tokens generated in the output",
+          "type": "integer",
+          "example": 25
+        },
+        "total_tokens": {
+          "description": "Total tokens used",
+          "type": "integer",
+          "example": 40
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.FullSessionData": {
+      "description": "Complete session data with all messages and metadata",
+      "type": "object",
+      "properties": {
+        "allSessions": {
+          "description": "All sessions available for this workspace",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
+          }
+        },
+        "messageCount": {
+          "description": "Total message count in full data",
+          "type": "integer"
+        },
+        "messages": {
+          "description": "Full conversation history (only when full=true)",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage"
+          }
+        },
+        "sessionInfo": {
+          "description": "Basic session information",
+          "allOf": [
+            {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
+            }
+          ]
+        },
+        "userPrompts": {
+          "description": "User prompts from ~/.claude.json (only when full=true)",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry"
+          }
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.GitStatus": {
+      "description": "Current git status including repository information",
+      "type": "object",
+      "properties": {
+        "repositories": {
+          "description": "All loaded repositories mapped by repository ID",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
+          }
+        },
+        "worktree_count": {
+          "description": "Total number of worktrees across all repositories",
+          "type": "integer",
+          "example": 3
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.PullRequestInfo": {
+      "description": "Information about an existing pull request for a worktree",
+      "type": "object",
+      "properties": {
+        "body": {
+          "description": "Body/description of the existing pull request (if exists)",
+          "type": "string",
+          "example": "This PR adds new functionality"
+        },
+        "exists": {
+          "description": "Whether a pull request exists for this branch",
+          "type": "boolean",
+          "example": true
+        },
+        "has_commits_ahead": {
+          "description": "Whether the branch has commits ahead of the base branch",
+          "type": "boolean",
+          "example": true
+        },
+        "number": {
+          "description": "Pull request number (if exists)",
+          "type": "integer",
+          "example": 123
+        },
+        "title": {
+          "description": "Title of the existing pull request (if exists)",
+          "type": "string",
+          "example": "Feature: Add new functionality"
+        },
+        "url": {
+          "description": "URL to the pull request (if exists)",
+          "type": "string",
+          "example": "https://github.com/owner/repo/pull/123"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.PullRequestResponse": {
+      "description": "Response containing pull request information after creation",
+      "type": "object",
+      "properties": {
+        "base_branch": {
+          "description": "Base branch (target branch of the PR)",
+          "type": "string",
+          "example": "main"
+        },
+        "body": {
+          "description": "Body/description of the pull request",
+          "type": "string",
+          "example": "This PR adds new functionality to the system"
+        },
+        "head_branch": {
+          "description": "Head branch (source branch of the PR)",
+          "type": "string",
+          "example": "feature/new-feature"
+        },
+        "number": {
+          "description": "Pull request number",
+          "type": "integer",
+          "example": 123
+        },
+        "repository": {
+          "description": "Repository in owner/repo format",
+          "type": "string",
+          "example": "owner/repo"
+        },
+        "title": {
+          "description": "Title of the pull request",
+          "type": "string",
+          "example": "Feature: Add new functionality"
+        },
+        "url": {
+          "description": "URL to the pull request",
+          "type": "string",
+          "example": "https://github.com/owner/repo/pull/123"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.Repository": {
+      "description": "Git repository information and metadata",
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "description": "When this repository was first cloned",
+          "type": "string",
+          "example": "2024-01-15T10:30:00Z"
+        },
+        "default_branch": {
+          "description": "Default branch name for this repository",
+          "type": "string",
+          "example": "main"
+        },
+        "description": {
+          "description": "Repository description",
+          "type": "string",
+          "example": "AI coding assistant"
+        },
+        "id": {
+          "description": "Repository identifier in owner/repo format",
+          "type": "string",
+          "example": "anthropics/claude-code"
+        },
+        "last_accessed": {
+          "description": "When this repository was last accessed",
+          "type": "string",
+          "example": "2024-01-15T16:45:30Z"
+        },
+        "path": {
+          "description": "Local path to the bare repository",
+          "type": "string",
+          "example": "/workspace/repos/anthropics_claude-code.git"
+        },
+        "url": {
+          "description": "Full GitHub repository URL",
+          "type": "string",
+          "example": "https://github.com/anthropics/claude-code"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.SessionListEntry": {
+      "description": "Session list entry with basic metadata",
+      "type": "object",
+      "properties": {
+        "endTime": {
+          "description": "When the session ended (if available)",
+          "type": "string",
+          "example": "2024-01-15T16:45:30Z"
+        },
+        "isActive": {
+          "description": "Whether this session is currently active",
+          "type": "boolean",
+          "example": false
+        },
+        "lastModified": {
+          "description": "When the session was last modified",
+          "type": "string",
+          "example": "2024-01-15T16:45:30Z"
+        },
+        "sessionId": {
+          "description": "Unique session identifier",
+          "type": "string",
+          "example": "abc123-def456-ghi789"
+        },
+        "startTime": {
+          "description": "When the session started (if available)",
+          "type": "string",
+          "example": "2024-01-15T14:30:00Z"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_models.Worktree": {
+      "description": "Git worktree with branch and status information",
+      "type": "object",
+      "properties": {
+        "branch": {
+          "description": "Current git branch name in this worktree",
+          "type": "string",
+          "example": "feature/api-docs"
+        },
+        "commit_count": {
+          "description": "Number of commits ahead of the divergence point (CommitHash)",
+          "type": "integer",
+          "example": 3
+        },
+        "commit_hash": {
+          "description": "Commit hash where this worktree diverged from source branch (updated after merges)",
+          "type": "string",
+          "example": "abc123def456"
+        },
+        "commits_behind": {
+          "description": "Number of commits the source branch is ahead of our divergence point",
+          "type": "integer",
+          "example": 2
+        },
+        "created_at": {
+          "description": "When this worktree was created",
+          "type": "string",
+          "example": "2024-01-15T14:00:00Z"
+        },
+        "id": {
+          "description": "Unique identifier for this worktree",
+          "type": "string",
+          "example": "abc123-def456-ghi789"
+        },
+        "is_dirty": {
+          "description": "Whether there are uncommitted changes in the worktree",
+          "type": "boolean",
+          "example": true
+        },
+        "last_accessed": {
+          "description": "When this worktree was last accessed",
+          "type": "string",
+          "example": "2024-01-15T16:30:00Z"
+        },
+        "name": {
+          "description": "User-friendly name for this worktree (e.g., 'vectorize-quasar')",
+          "type": "string",
+          "example": "feature-api-docs"
+        },
+        "path": {
+          "description": "Absolute path to the worktree directory",
+          "type": "string",
+          "example": "/workspace/worktrees/feature-api-docs"
+        },
+        "repo_id": {
+          "description": "Repository this worktree belongs to",
+          "type": "string",
+          "example": "anthropics/claude-code"
+        },
+        "source_branch": {
+          "description": "Branch this worktree was originally created from",
+          "type": "string",
+          "example": "main"
+        }
+      }
+    },
+    "github_com_vanpelt_catnip_internal_services.ServiceInfo": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "health": {
+          "type": "string"
+        },
+        "last_seen": {
+          "type": "string"
+        },
+        "pid": {
+          "type": "integer"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "service_type": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "internal_handlers.ActiveSessionInfo": {
+      "description": "Active session information with timing and Claude session details",
+      "type": "object",
+      "properties": {
+        "claude_session_uuid": {
+          "description": "Unique identifier for the Claude session",
+          "type": "string",
+          "example": "abc123-def456-ghi789"
+        },
+        "ended_at": {
+          "description": "When the session ended (if not active)",
+          "type": "string",
+          "example": "2024-01-15T18:30:00Z"
+        },
+        "resumed_at": {
+          "description": "When the session was resumed (if applicable)",
+          "type": "string",
+          "example": "2024-01-15T16:00:00Z"
+        },
+        "started_at": {
+          "description": "When the session was initially started",
+          "type": "string",
+          "example": "2024-01-15T14:30:00Z"
+        },
+        "title": {
+          "description": "Title of the session",
+          "type": "string",
+          "example": "Updating README.md"
+        }
+      }
+    },
+    "internal_handlers.AppEvent": {
+      "type": "object",
+      "properties": {
+        "payload": {},
+        "type": {
+          "$ref": "#/definitions/internal_handlers.EventType"
+        }
+      }
+    },
+    "internal_handlers.AuthStartResponse": {
+      "description": "Response when starting GitHub device flow authentication",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Device verification code to enter on GitHub",
+          "type": "string",
+          "example": "1234-5678"
+        },
+        "status": {
+          "description": "Current authentication status",
+          "type": "string",
+          "example": "waiting"
+        },
+        "url": {
+          "description": "GitHub device activation URL",
+          "type": "string",
+          "example": "https://github.com/login/device"
+        }
+      }
+    },
+    "internal_handlers.AuthStatusResponse": {
+      "description": "Response containing the current authentication status",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "Error message if authentication failed",
+          "type": "string",
+          "example": "authentication timeout"
+        },
+        "status": {
+          "description": "Authentication status: pending, waiting, success, or error",
+          "type": "string",
+          "example": "success"
+        }
+      }
+    },
+    "internal_handlers.CheckoutResponse": {
+      "description": "Response containing repository and worktree information after checkout",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "Success message",
+          "type": "string",
+          "example": "Repository checked out successfully"
+        },
+        "repository": {
+          "description": "Repository information",
+          "allOf": [
+            {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
+            }
+          ]
+        },
+        "worktree": {
+          "description": "Created worktree information",
+          "allOf": [
+            {
+              "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+            }
+          ]
+        }
+      }
+    },
+    "internal_handlers.ConflictCheckResponse": {
+      "description": "Response containing conflict information for sync/merge operations",
+      "type": "object",
+      "properties": {
+        "conflict_files": {
+          "description": "List of files with conflicts",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["[\"src/main.go\"", " \"README.md\"]"]
+        },
+        "has_conflicts": {
+          "description": "Whether conflicts were detected",
+          "type": "boolean",
+          "example": true
+        },
+        "message": {
+          "description": "Status message",
+          "type": "string",
+          "example": "No conflicts detected"
+        },
+        "operation": {
+          "description": "Operation type (sync/merge)",
+          "type": "string",
+          "example": "sync"
+        },
+        "worktree_name": {
+          "description": "Name of the worktree",
+          "type": "string",
+          "example": "feature-branch"
+        }
+      }
+    },
+    "internal_handlers.CreatePullRequestRequest": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "internal_handlers.DeleteSessionResponse": {
+      "description": "Response confirming session deletion",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "Confirmation message",
+          "type": "string",
+          "example": "Session deleted successfully"
+        },
+        "workspace": {
+          "description": "Workspace path that was deleted",
+          "type": "string",
+          "example": "/workspace/my-project"
+        }
+      }
+    },
+    "internal_handlers.EventType": {
+      "type": "string",
+      "enum": [
+        "port:opened",
+        "port:closed",
+        "git:dirty",
+        "git:clean",
+        "process:started",
+        "process:stopped",
+        "container:status",
+        "heartbeat"
+      ],
+      "x-enum-varnames": [
+        "PortOpenedEvent",
+        "PortClosedEvent",
+        "GitDirtyEvent",
+        "GitCleanEvent",
+        "ProcessStartedEvent",
+        "ProcessStoppedEvent",
+        "ContainerStatusEvent",
+        "HeartbeatEvent"
+      ]
+    },
+    "internal_handlers.GitHubRepository": {
+      "description": "GitHub repository information from the GitHub API",
+      "type": "object",
+      "properties": {
+        "clone_url": {
+          "description": "Git clone URL",
+          "type": "string",
+          "example": "https://github.com/anthropics/claude-code.git"
+        },
+        "description": {
+          "description": "Repository description",
+          "type": "string",
+          "example": "AI coding assistant"
+        },
+        "full_name": {
+          "description": "Full repository name (org/repo)",
+          "type": "string",
+          "example": "anthropics/claude-code"
+        },
+        "html_url": {
+          "description": "Repository URL",
+          "type": "string",
+          "example": "https://github.com/anthropics/claude-code"
+        },
+        "id": {
+          "description": "GitHub repository ID",
+          "type": "integer",
+          "example": 123456789
+        },
+        "name": {
+          "description": "Repository name",
+          "type": "string",
+          "example": "claude-code"
+        },
+        "private": {
+          "description": "Whether the repository is private",
+          "type": "boolean",
+          "example": false
+        }
+      }
+    },
+    "internal_handlers.SSEMessage": {
+      "type": "object",
+      "properties": {
+        "event": {
+          "$ref": "#/definitions/internal_handlers.AppEvent"
+        },
+        "id": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "integer"
+        }
+      }
+    },
+    "internal_handlers.SessionsResponse": {
+      "description": "Map of workspace paths to session information",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
+      }
+    },
+    "internal_handlers.UploadResponse": {
+      "description": "Response containing upload status and file location",
+      "type": "object",
+      "properties": {
+        "filePath": {
+          "description": "Path where the uploaded file was saved",
+          "type": "string",
+          "example": "/tmp/uploads/document.pdf"
+        },
+        "message": {
+          "description": "Status message or error details",
+          "type": "string",
+          "example": "File uploaded successfully"
+        },
+        "success": {
+          "description": "Whether the upload succeeded",
+          "type": "boolean",
+          "example": true
+        }
+      }
+    },
+    "internal_handlers.WorktreeDiffResponse": {
+      "description": "Response containing git diff information for a worktree",
+      "type": "object",
+      "properties": {
+        "additions": {
+          "description": "Number of lines added",
+          "type": "integer",
+          "example": 25
+        },
+        "deletions": {
+          "description": "Number of lines deleted",
+          "type": "integer",
+          "example": 10
+        },
+        "diff": {
+          "description": "Raw git diff output",
+          "type": "string",
+          "example": "diff --git a/main.go b/main.go..."
+        },
+        "files_changed": {
+          "description": "List of changed files",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "example": ["[\"main.go\"", " \"README.md\"]"]
+        },
+        "summary": {
+          "description": "Diff summary",
+          "type": "string",
+          "example": "2 files changed, 25 insertions(+), 10 deletions(-)"
+        }
+      }
+    },
+    "internal_handlers.WorktreeOperationResponse": {
+      "description": "Response for worktree operations like delete, sync, merge, preview",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "Worktree ID",
+          "type": "string",
+          "example": "abc123-def456-ghi789"
+        },
+        "message": {
+          "description": "Operation result message",
+          "type": "string",
+          "example": "Worktree deleted successfully"
+        },
+        "strategy": {
+          "description": "Strategy used for sync operations",
+          "type": "string",
+          "example": "rebase"
+        }
+      }
+    }
+  }
 }

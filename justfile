@@ -162,9 +162,6 @@ release *ARGS="":
     @echo "🚀 Creating release..."
     npx tsx scripts/release.ts {{ARGS}}
 
-# Import container justfile with a namespace
-mod container
-
 # Development mode - runs both frontend and backend with proper port allocation
 dev:
     #!/usr/bin/env bash

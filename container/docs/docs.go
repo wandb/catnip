@@ -1459,6 +1459,9 @@ const docTemplate = `{
         "github_com_vanpelt_catnip_internal_services.ServiceInfo": {
             "type": "object",
             "properties": {
+                "command": {
+                    "type": "string"
+                },
                 "health": {
                     "type": "string"
                 },

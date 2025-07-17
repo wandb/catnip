@@ -375,6 +375,8 @@ definitions:
     type: object
   github_com_vanpelt_catnip_internal_services.ServiceInfo:
     properties:
+      command:
+        type: string
       health:
         type: string
       last_seen:
