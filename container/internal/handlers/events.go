@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,30 +78,29 @@ type SSEMessage struct {
 }
 
 type EventsHandler struct {
-	portMonitor      *services.PortMonitor
-	gitService       *services.GitService
-	clients          map[string]chan SSEMessage
-	clientsMux       sync.RWMutex
-	startTime        time.Time
-	stopChan         chan bool
-	lastPortCheck    time.Time
-	lastPortCheckMux sync.RWMutex
+	portMonitor        *services.PortMonitor
+	gitService         *services.GitService
+	clients            map[string]chan SSEMessage
+	clientsMux         sync.RWMutex
+	clientConnectTimes map[string]time.Time
+	startTime          time.Time
+	stopChan           chan bool
+	lastPortCheck      time.Time
+	lastPortCheckMux   sync.RWMutex
 }
 
 func NewEventsHandler(portMonitor *services.PortMonitor, gitService *services.GitService) *EventsHandler {
 	h := &EventsHandler{
-		portMonitor: portMonitor,
-		gitService:  gitService,
-		clients:     make(map[string]chan SSEMessage),
-		startTime:   time.Now(),
-		stopChan:    make(chan bool),
+		portMonitor:        portMonitor,
+		gitService:         gitService,
+		clients:            make(map[string]chan SSEMessage),
+		clientConnectTimes: make(map[string]time.Time),
+		startTime:          time.Now(),
+		stopChan:           make(chan bool),
 	}
 
 	// Start listening for port changes
 	go h.monitorPorts()
-
-	// Start heartbeat
-	go h.heartbeat()
 
 	return h
 }
@@ -162,185 +162,88 @@ func NewEventsHandler(portMonitor *services.PortMonitor, gitService *services.Gi
 // @Produce text/event-stream
 // @Success 200 {object} SSEMessage "SSE stream of events"
 // @Router /v1/events [get]
+// HandleSSE streams container / port / git / process events to the browser.
+// GET /v1/events
 func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
+	// --------------------------------------------------------------------
+	// 1.  Reject non-SSE clients up-front
+	// --------------------------------------------------------------------
+	if ah := c.Get("Accept"); ah != "" && !strings.Contains(ah, "text/event-stream") {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "This endpoint only accepts Server-Sent Events (text/event-stream)",
+		})
+	}
+
+	//--------------------------------------------------------------------
+	// 2.  Prepare HTTP headers once
+	//--------------------------------------------------------------------
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
-	c.Set("Transfer-Encoding", "chunked")
-	c.Set("Access-Control-Allow-Origin", "*")
-	c.Set("Access-Control-Allow-Headers", "Cache-Control")
-	c.Set("X-Accel-Buffering", "no") // Disable nginx buffering
+	c.Set("X-Accel-Buffering", "no") // disable nginx buffering
 
+	//--------------------------------------------------------------------
+	// 3.  Register client
+	//--------------------------------------------------------------------
 	clientID := uuid.New().String()
-	clientChan := make(chan SSEMessage, 100)
+	clientType := c.Query("client", "unknown")
+	ch := make(chan SSEMessage, 100)
 
-	log.Printf("SSE client connected: %s", clientID)
+	h.addClient(clientID, ch)
+	log.Printf("SSE client connected: %s (%s) from %s", clientID, clientType, c.IP())
 
-	h.clientsMux.Lock()
-	h.clients[clientID] = clientChan
-	h.clientsMux.Unlock()
-
-	defer func() {
-		log.Printf("SSE client disconnected: %s", clientID)
-		h.clientsMux.Lock()
-		delete(h.clients, clientID)
-		// Don't close the channel here - let the StreamWriter handle it
-		h.clientsMux.Unlock()
-	}()
-
+	//--------------------------------------------------------------------
+	// 4.  Stream writer
+	//--------------------------------------------------------------------
 	c.Context().SetBodyStreamWriter(fasthttp.StreamWriter(func(w *bufio.Writer) {
-		log.Printf("SSE stream writer started for client: %s", clientID)
-		defer func() {
-			log.Printf("SSE stream writer ended for client: %s", clientID)
-			// Close the channel when StreamWriter actually ends
-			close(clientChan)
-		}()
-
-		// Send initial container status
-		containerStatusMsg := SSEMessage{
-			Event: AppEvent{
-				Type: ContainerStatusEvent,
-				Payload: ContainerStatusPayload{
-					Status:  "running",
-					Message: nil,
-				},
-			},
-			Timestamp: time.Now().UnixMilli(),
-			ID:        uuid.New().String(),
-		}
-
-		data, err := json.Marshal(containerStatusMsg)
-		if err == nil {
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
-				log.Printf("Error writing container status message: %v", err)
-				return
-			}
+		flushOrDie := func() bool {
+			// ??? || c.Context().IsConnectionClosed()
 			if err := w.Flush(); err != nil {
-				log.Printf("Error flushing container status message: %v", err)
+				return false
+			}
+			return true
+		}
+
+		send := func(msg SSEMessage) bool {
+			if msg.Event.Type == "" { // guard against empty events
+				return true
+			}
+			b, _ := json.Marshal(msg)
+			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+				return false
+			}
+			return flushOrDie()
+		}
+
+		// ---------------- initial state ----------------
+		if !send(h.makeHeartbeat()) {
+			return
+		}
+		if !send(h.makeContainerStatus()) {
+			return
+		}
+		for _, p := range h.portMonitor.GetServices() {
+			if !send(h.makePortOpened(p)) {
 				return
 			}
 		}
 
-		// Send current port status
-		services := h.portMonitor.GetServices()
-		for _, serviceInfo := range services {
-			var service *string
-			var protocol *string
-			var title *string
-			var pid *int
-			var command *string
-			if serviceInfo.ServiceType != "" {
-				service = &serviceInfo.ServiceType
-			}
-			protocol = &serviceInfo.ServiceType // Use service type as protocol for now
-			if serviceInfo.Title != "" {
-				title = &serviceInfo.Title
-			}
-			if serviceInfo.PID != 0 {
-				pid = &serviceInfo.PID
-			}
-			if serviceInfo.Command != "" {
-				command = &serviceInfo.Command
-			}
+		// ---------------- main loop --------------------
+		tick := time.NewTicker(30 * time.Second)
+		defer tick.Stop()
 
-			portMsg := SSEMessage{
-				Event: AppEvent{
-					Type: PortOpenedEvent,
-					Payload: PortPayload{
-						Port:     serviceInfo.Port,
-						Service:  service,
-						Protocol: protocol,
-						Title:    title,
-						PID:      pid,
-						Command:  command,
-					},
-				},
-				Timestamp: time.Now().UnixMilli(),
-				ID:        uuid.New().String(),
-			}
-
-			data, err := json.Marshal(portMsg)
-			if err == nil {
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
-					log.Printf("Error writing port message: %v", err)
-					return
-				}
-				if err := w.Flush(); err != nil {
-					log.Printf("Error flushing port message: %v", err)
-					return
-				}
-			}
-		}
-
-		// Send initial heartbeat
-		heartbeatMsg := SSEMessage{
-			Event: AppEvent{
-				Type: HeartbeatEvent,
-				Payload: HeartbeatPayload{
-					Timestamp: time.Now().UnixMilli(),
-					Uptime:    time.Since(h.startTime).Milliseconds(),
-				},
-			},
-			Timestamp: time.Now().UnixMilli(),
-			ID:        uuid.New().String(),
-		}
-
-		data, err = json.Marshal(heartbeatMsg)
-		if err == nil {
-			if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
-				log.Printf("Error writing heartbeat message: %v", err)
-				return
-			}
-			if err := w.Flush(); err != nil {
-				log.Printf("Error flushing heartbeat message: %v", err)
-				return
-			}
-		}
-
-		log.Printf("Entering main streaming loop for client: %s", clientID)
-
-		// Main streaming loop - no separate initial message processing
 		for {
 			select {
-			case msg, ok := <-clientChan:
+			case msg, ok := <-ch:
 				if !ok {
-					log.Printf("Client channel closed for: %s", clientID)
+					log.Printf("Event client %s is closed somehow!", clientID)
+				}
+				if !ok || !send(msg) {
 					return
 				}
-
-				// Additional validation to prevent empty messages
-				if msg.Event.Type == "" {
-					log.Printf("Skipping empty event type for client: %s", clientID)
-					continue
-				}
-
-				log.Printf("Sending SSE message to client %s: %s", clientID, msg.Event.Type)
-
-				data, err := json.Marshal(msg)
-				if err != nil {
-					log.Printf("Error marshaling SSE message: %v", err)
-					continue
-				}
-
-				if _, err := fmt.Fprintf(w, "data: %s\n\n", string(data)); err != nil {
-					log.Printf("Error writing SSE message: %v", err)
-					return
-				}
-
-				if err := w.Flush(); err != nil {
-					log.Printf("Error flushing SSE message: %v", err)
-					return
-				}
-
-			case <-time.After(30 * time.Second):
-				// Send keepalive
-				log.Printf("Sending keepalive to client: %s", clientID)
-				if _, err := fmt.Fprintf(w, ": keepalive\n\n"); err != nil {
-					log.Printf("Error writing keepalive: %v", err)
-					return
-				}
-				if err := w.Flush(); err != nil {
-					log.Printf("Error flushing keepalive: %v", err)
+			case <-tick.C:
+				send(h.makeHeartbeat())
+				if !flushOrDie() {
 					return
 				}
 			}
@@ -348,6 +251,87 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 	}))
 
 	return nil
+}
+
+func (h *EventsHandler) addClient(id string, ch chan SSEMessage) {
+	h.clientsMux.Lock()
+	h.clients[id] = ch
+	h.clientConnectTimes[id] = time.Now()
+	log.Printf("Added event client %s", id)
+	h.clientsMux.Unlock()
+}
+
+func (h *EventsHandler) removeClient(id string) {
+	h.clientsMux.Lock()
+	if ch, ok := h.clients[id]; ok {
+		log.Printf("Removing eventclient %s", id)
+		close(ch)
+		delete(h.clients, id)
+	}
+	delete(h.clientConnectTimes, id)
+	h.clientsMux.Unlock()
+}
+
+// --- small builders to keep main handler tiny ---
+func (h *EventsHandler) makeHeartbeat() SSEMessage {
+	return SSEMessage{
+		Event: AppEvent{
+			Type: HeartbeatEvent,
+			Payload: HeartbeatPayload{
+				Timestamp: time.Now().UnixMilli(),
+				Uptime:    time.Since(h.startTime).Milliseconds(),
+			},
+		},
+		Timestamp: time.Now().UnixMilli(),
+		ID:        uuid.New().String(),
+	}
+}
+
+func (h *EventsHandler) makeContainerStatus() SSEMessage {
+	return SSEMessage{
+		Event: AppEvent{
+			Type: ContainerStatusEvent,
+			Payload: ContainerStatusPayload{
+				Status: "running",
+			},
+		},
+		Timestamp: time.Now().UnixMilli(),
+		ID:        uuid.New().String(),
+	}
+}
+
+func (h *EventsHandler) makePortOpened(s *services.ServiceInfo) SSEMessage {
+	// fill optional pointers exactly as before
+	return SSEMessage{
+		Event: AppEvent{
+			Type: PortOpenedEvent,
+			Payload: PortPayload{
+				Port:     s.Port,
+				Service:  &s.ServiceType,
+				Protocol: &s.ServiceType,
+				Title: func() *string {
+					if s.Title != "" {
+						return &s.Title
+					}
+					return nil
+				}(),
+				PID: func() *int {
+					if s.PID != 0 {
+						return &s.PID
+					}
+					return nil
+				}(),
+				Command: func() *string {
+					if s.Command != "" {
+						return &s.Command
+					}
+					return nil
+				}(),
+			},
+		},
+		Timestamp: time.Now().UnixMilli(),
+		ID:        uuid.New().String(),
+	}
 }
 
 func (h *EventsHandler) monitorPorts() {
@@ -453,22 +437,26 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 		select {
 		case clientChan <- message:
 		default:
-			// Client channel is full or closed, mark for removal
-			clientsToRemove = append(clientsToRemove, clientID)
+			// Check if client is in grace period (first 2 seconds after connection)
+			connectTime, exists := h.clientConnectTimes[clientID]
+			gracePeriod := 2 * time.Second
+
+			if exists && time.Since(connectTime) < gracePeriod {
+				// Client is in grace period, don't remove yet
+				log.Printf("Client %s in grace period, not removing (connected %v ago)", clientID, time.Since(connectTime))
+			} else {
+				// Client channel is full or closed, mark for removal
+				clientsToRemove = append(clientsToRemove, clientID)
+			}
 		}
 	}
 	h.clientsMux.RUnlock()
 
 	// Remove disconnected clients
 	if len(clientsToRemove) > 0 {
-		h.clientsMux.Lock()
 		for _, clientID := range clientsToRemove {
-			if clientChan, exists := h.clients[clientID]; exists {
-				close(clientChan)
-				delete(h.clients, clientID)
-			}
+			h.removeClient(clientID)
 		}
-		h.clientsMux.Unlock()
 	}
 }
 
@@ -527,37 +515,10 @@ func (h *EventsHandler) EmitContainerStatus(status string, message *string) {
 	})
 }
 
-func (h *EventsHandler) heartbeat() {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-h.stopChan:
-			return
-		case <-ticker.C:
-			// Only send heartbeat if we have connected clients
-			h.clientsMux.RLock()
-			clientCount := len(h.clients)
-			h.clientsMux.RUnlock()
-
-			if clientCount > 0 {
-				h.broadcastEvent(AppEvent{
-					Type: HeartbeatEvent,
-					Payload: HeartbeatPayload{
-						Timestamp: time.Now().UnixMilli(),
-						Uptime:    time.Since(h.startTime).Milliseconds(),
-					},
-				})
-			}
-		}
-	}
-}
-
 // Stop stops the events handler and cleans up resources
 func (h *EventsHandler) Stop() {
 	close(h.stopChan)
-
+	log.Printf("Stopping events handler...")
 	h.clientsMux.Lock()
 	defer h.clientsMux.Unlock()
 
@@ -565,4 +526,5 @@ func (h *EventsHandler) Stop() {
 		close(clientChan)
 	}
 	h.clients = make(map[string]chan SSEMessage)
+	h.clientConnectTimes = make(map[string]time.Time)
 }

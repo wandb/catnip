@@ -109,6 +109,7 @@ func (m *Model) fetchRepositoryInfo() tea.Cmd {
 func (m *Model) fetchHealthStatus() tea.Cmd {
 	return func() tea.Msg {
 		healthy := isAppReady("http://localhost:8080")
+		debugLog("Health check result: %v", healthy)
 		return healthStatusMsg(healthy)
 	}
 }
