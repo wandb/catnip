@@ -136,6 +136,33 @@ else
     exit 1
 fi
 
+# Check if there are any changes in the src directory
+src_changes=$(git diff --cached --name-only --diff-filter=ACM | grep '^src/' || true)
+
+if [ -n "$src_changes" ]; then
+    # Run TypeScript lint checks
+    echo "Running TypeScript lint checks..."
+    if pnpm lint >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ TypeScript lint checks passed${NC}"
+    else
+        echo -e "${RED}❌ TypeScript lint checks failed${NC}"
+        echo -e "${YELLOW}Run 'pnpm lint' to see details${NC}"
+        exit 1
+    fi
+
+    # Run TypeScript type checks
+    echo "Running TypeScript type checks..."
+    if pnpm typecheck >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ TypeScript type checks passed${NC}"
+    else
+        echo -e "${RED}❌ TypeScript type checks failed${NC}"
+        echo -e "${YELLOW}Run 'pnpm typecheck' to see details${NC}"
+        exit 1
+    fi
+else
+    echo -e "${GREEN}✅ No src files changed, skipping TypeScript lint and type checks${NC}"
+fi
+
 # Check if there are any changes in the container directory
 container_changes=$(git diff --cached --name-only --diff-filter=ACM | grep '^container/' || true)
 
