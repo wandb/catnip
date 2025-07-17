@@ -265,6 +265,8 @@ interface WorktreeActionDropdownProps {
     commitCount: number,
   ) => void;
   onOpenPrDialog: (worktreeId: string, branchName: string) => void;
+  isSyncing?: boolean;
+  isMerging?: boolean;
 }
 
 function WorktreeActionDropdown({
@@ -276,6 +278,8 @@ function WorktreeActionDropdown({
   onCreatePreview,
   onConfirmDelete,
   onOpenPrDialog,
+  isSyncing = false,
+  isMerging = false,
 }: WorktreeActionDropdownProps) {
   const handleDeleteClick = () => {
     onConfirmDelete(
@@ -294,9 +298,17 @@ function WorktreeActionDropdown({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => onSync(worktree.id)}>
-          <RefreshCw size={16} />
+        <DropdownMenuItem
+          onClick={() => onSync(worktree.id)}
+          disabled={isSyncing}
+        >
+          {isSyncing ? (
+            <RefreshCw size={16} className="animate-spin" />
+          ) : (
+            <RefreshCw size={16} />
+          )}
           Sync with {worktree.source_branch}
+          {isSyncing && <span className="ml-2 text-xs">Syncing...</span>}
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
@@ -349,20 +361,25 @@ function WorktreeActionDropdown({
         {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
           <DropdownMenuItem
             onClick={() => onMerge(worktree.id, worktree.name)}
+            disabled={isMerging}
             className={
               mergeConflicts[worktree.id]?.has_conflicts
                 ? "text-red-600"
                 : "text-blue-600"
             }
           >
-            {mergeConflicts[worktree.id]?.has_conflicts ? (
+            {isMerging ? (
+              <RefreshCw size={16} className="animate-spin" />
+            ) : mergeConflicts[worktree.id]?.has_conflicts ? (
               <AlertTriangle size={16} />
             ) : (
               <GitMerge size={16} />
             )}
-            {mergeConflicts[worktree.id]?.has_conflicts
-              ? `Merge ${worktree.commit_count} commits (conflicts)`
-              : `Merge ${worktree.commit_count} commits`}
+            {isMerging
+              ? `Merging ${worktree.commit_count} commits...`
+              : mergeConflicts[worktree.id]?.has_conflicts
+                ? `Merge ${worktree.commit_count} commits (conflicts)`
+                : `Merge ${worktree.commit_count} commits`}
           </DropdownMenuItem>
         )}
 
@@ -444,8 +461,16 @@ function SessionTitle({ worktree, isActive, prStatus }: SessionTitleProps) {
   }
 
   return (
-    <div className="mt-2">
-      {session_title_history && session_title_history.length > 1 ? (
+    <div className="mt-2 flex items-center gap-2">
+      {isActive ? (
+        <div
+          className="w-2 h-2 bg-green-500 rounded-full animate-pulse"
+          title="Active"
+        />
+      ) : (
+        <div className="w-2 h-2 bg-gray-500 rounded-full" title="Inactive" />
+      )}
+      {session_title_history && session_title_history.length >= 1 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -453,9 +478,6 @@ function SessionTitle({ worktree, isActive, prStatus }: SessionTitleProps) {
               className="h-auto p-1 justify-start hover:bg-muted"
             >
               <div className="flex items-center gap-2">
-                {isActive && (
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                )}
                 <span
                   className="text-sm font-medium text-foreground"
                   title={displayTitle}
@@ -488,25 +510,6 @@ function SessionTitle({ worktree, isActive, prStatus }: SessionTitleProps) {
               ))}
           </DropdownMenuContent>
         </DropdownMenu>
-      ) : (
-        <div className="flex items-center gap-2 p-1">
-          {isActive && (
-            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-          )}
-          <div className="flex flex-col">
-            <span
-              className="text-sm font-medium text-foreground"
-              title={displayTitle}
-            >
-              {displayTitle}
-            </span>
-            {session_title && (
-              <span className="text-xs text-muted-foreground">
-                {new Date(session_title.timestamp).toLocaleString()}
-              </span>
-            )}
-          </div>
-        </div>
       )}
     </div>
   );
@@ -520,7 +523,9 @@ function WorktreeClaudeStatus({
   if (!claudeSession) {
     return (
       <div>
-        <p className="text-xs text-muted-foreground">No Claude sessions</p>
+        <div className="flex items-center gap-2 mt-1">
+          <p className="text-xs text-muted-foreground">No Claude sessions</p>
+        </div>
         <SessionTitle
           worktree={worktree}
           isActive={false}
@@ -577,6 +582,8 @@ interface WorktreeActionsProps {
     commitCount: number,
   ) => void;
   onOpenPrDialog: (worktreeId: string, branchName: string) => void;
+  isSyncing?: boolean;
+  isMerging?: boolean;
 }
 
 function WorktreeActions({
@@ -593,6 +600,8 @@ function WorktreeActions({
   onCreatePreview,
   onConfirmDelete,
   onOpenPrDialog,
+  isSyncing = false,
+  isMerging = false,
 }: WorktreeActionsProps) {
   const hasDiff = (diffStats[worktree.id]?.file_diffs?.length ?? 0) > 0;
   const isLoading =
@@ -616,12 +625,12 @@ function WorktreeActions({
           disabled={isLoading || !hasDiff}
           className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
         >
-          {isLoading ? (
+          {diffStatsLoading ? (
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
           ) : (
             <FileText size={16} className="mr-2" />
           )}
-          View Diff
+          {openDiffWorktreeId === worktree.id ? "Hide" : "View"} Diff
         </Button>
       </div>
 
@@ -644,6 +653,8 @@ function WorktreeActions({
         onCreatePreview={onCreatePreview}
         onConfirmDelete={onConfirmDelete}
         onOpenPrDialog={onOpenPrDialog}
+        isSyncing={isSyncing}
+        isMerging={isMerging}
       />
     </div>
   );
@@ -652,6 +663,8 @@ function WorktreeActions({
 interface WorktreeRowPropsWithPR extends WorktreeRowProps {
   prStatuses?: Record<string, PullRequestInfo | undefined>;
   repositories?: Record<string, LocalRepository>;
+  isSyncing?: boolean;
+  isMerging?: boolean;
 }
 
 export function WorktreeRow({
@@ -671,6 +684,8 @@ export function WorktreeRow({
   onConfirmDelete,
   prStatuses,
   repositories,
+  isSyncing = false,
+  isMerging = false,
 }: WorktreeRowPropsWithPR) {
   const [diffLoading, setDiffLoading] = useState(false);
 
@@ -780,6 +795,8 @@ export function WorktreeRow({
           onCreatePreview={onCreatePreview}
           onConfirmDelete={onConfirmDelete}
           onOpenPrDialog={openPrDialog}
+          isSyncing={isSyncing}
+          isMerging={isMerging}
         />
       </div>
       <DiffViewer
