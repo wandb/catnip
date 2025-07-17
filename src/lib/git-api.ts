@@ -78,6 +78,8 @@ export interface PullRequestInfo {
   exists: boolean;
   title?: string;
   body?: string;
+  number?: number;
+  url?: string;
 }
 
 export interface ErrorHandler {

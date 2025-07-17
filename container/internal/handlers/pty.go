@@ -54,6 +54,8 @@ type Session struct {
 	bufferedRows uint16
 	// WebSocket write protection
 	writeMutex sync.Mutex
+	// Checkpoint functionality
+	checkpointManager CheckpointManager
 }
 
 // ResizeMsg represents terminal resize message
@@ -70,9 +72,9 @@ type ControlMsg struct {
 
 // sanitizeTitle ensures the extracted title is safe and conforms to expected formats
 func sanitizeTitle(title string) string {
-	// Allow only alphanumeric characters, spaces, and basic punctuation
+	// Allow alphanumeric characters, spaces, and common punctuation
 	safeTitle := strings.Map(func(r rune) rune {
-		if strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,-_", r) {
+		if strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,-_:()[]{}/@#$%&*+=!?", r) {
 			return r
 		}
 		return -1
@@ -467,6 +469,13 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		rows:          24,
 		bufferedCols:  80,
 		bufferedRows:  24,
+		checkpointManager: &SessionCheckpointManager{
+			lastCommitTime:  time.Now(),
+			checkpointCount: 0,
+			gitService:      h.gitService,
+			sessionService:  h.sessionService,
+			workDir:         workDir,
+		},
 	}
 
 	h.sessions[sessionID] = session
@@ -492,6 +501,9 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 	if agent == "claude" {
 		go h.monitorClaudeSession(session)
 	}
+
+	// Start checkpoint monitoring for all sessions
+	go h.monitorCheckpoints(session)
 
 	return session
 }
@@ -533,6 +545,28 @@ func (h *PTYHandler) monitorSession(session *Session) {
 		// If no connections and idle for 10 minutes, clean up
 		if connectionCount == 0 && time.Since(session.LastAccess) > 10*time.Minute {
 			h.cleanupSession(session)
+			return
+		}
+	}
+}
+
+func (h *PTYHandler) monitorCheckpoints(session *Session) {
+	// Monitor session for checkpoint opportunities
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// Check if we have a title set and if checkpoint is needed
+		if session.Title != "" && session.checkpointManager.ShouldCreateCheckpoint() {
+			session.checkpointManager.CreateCheckpoint(session.Title)
+		}
+
+		// If no connections, stop monitoring
+		session.connMutex.RLock()
+		connectionCount := len(session.connections)
+		session.connMutex.RUnlock()
+
+		if connectionCount == 0 {
 			return
 		}
 	}
@@ -869,8 +903,6 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 	// Only commit if we have a previous title (new title marks start of new work)
 	if previousTitle != "" {
 		h.commitPreviousWork(session, previousTitle)
-	} else {
-		log.Printf("📝 No previous title found, starting fresh work with: %q", title)
 	}
 
 	// Update session service with the new title (no commit hash yet)
@@ -880,6 +912,9 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 
 	// Update the session's current title for display
 	session.Title = title
+
+	// Reset checkpoint state for new title
+	session.checkpointManager.Reset()
 }
 
 // commitPreviousWork commits the previous work with the given title and updates the commit hash
@@ -901,9 +936,85 @@ func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) 
 	if err := h.sessionService.UpdatePreviousTitleCommitHash(session.WorkDir, commitHash); err != nil {
 		log.Printf("⚠️  Failed to update previous title commit hash: %v", err)
 	}
+
+	// Update last commit time to reset checkpoint timer
+	session.checkpointManager.UpdateLastCommitTime()
 }
 
 // GetSessionService returns the session service for external access
 func (h *PTYHandler) GetSessionService() *services.SessionService {
 	return h.sessionService
+}
+
+// CheckpointManager handles checkpoint functionality for sessions
+type CheckpointManager interface {
+	ShouldCreateCheckpoint() bool
+	CreateCheckpoint(title string) error
+	Reset()
+	UpdateLastCommitTime()
+}
+
+// SessionCheckpointManager implements CheckpointManager
+type SessionCheckpointManager struct {
+	lastCommitTime  time.Time
+	checkpointCount int
+	checkpointMutex sync.RWMutex
+	gitService      *services.GitService
+	sessionService  *services.SessionService
+	workDir         string
+}
+
+// ShouldCreateCheckpoint returns true if a checkpoint should be created
+func (cm *SessionCheckpointManager) ShouldCreateCheckpoint() bool {
+	cm.checkpointMutex.RLock()
+	defer cm.checkpointMutex.RUnlock()
+	return time.Since(cm.lastCommitTime) >= 60*time.Second
+}
+
+// CreateCheckpoint creates a checkpoint commit
+func (cm *SessionCheckpointManager) CreateCheckpoint(title string) error {
+	if cm.gitService == nil {
+		return fmt.Errorf("git service not available")
+	}
+
+	cm.checkpointMutex.Lock()
+	defer cm.checkpointMutex.Unlock()
+
+	cm.checkpointCount++
+	checkpointTitle := fmt.Sprintf("%s checkpoint: %d", title, cm.checkpointCount)
+
+	log.Printf("🔄 Creating checkpoint commit: %q", checkpointTitle)
+
+	commitHash, err := cm.gitService.GitAddCommitGetHash(cm.workDir, checkpointTitle)
+	if err != nil {
+		log.Printf("⚠️  Checkpoint commit failed: %v", err)
+		return err
+	}
+
+	log.Printf("✅ Created checkpoint commit: %q (hash: %s)", checkpointTitle, commitHash)
+
+	// Update last commit time
+	cm.lastCommitTime = time.Now()
+
+	// Update the session service with the checkpoint commit
+	if err := cm.sessionService.UpdateSessionTitle(cm.workDir, title, commitHash); err != nil {
+		log.Printf("⚠️  Failed to update session with checkpoint: %v", err)
+	}
+
+	return nil
+}
+
+// Reset resets the checkpoint state for a new title
+func (cm *SessionCheckpointManager) Reset() {
+	cm.checkpointMutex.Lock()
+	defer cm.checkpointMutex.Unlock()
+	cm.checkpointCount = 0
+	cm.lastCommitTime = time.Now()
+}
+
+// UpdateLastCommitTime updates the last commit time
+func (cm *SessionCheckpointManager) UpdateLastCommitTime() {
+	cm.checkpointMutex.Lock()
+	defer cm.checkpointMutex.Unlock()
+	cm.lastCommitTime = time.Now()
 }

@@ -158,8 +158,9 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 			// Convert services.TitleEntry to models.TitleEntry
 			if sessionInfo.Title != nil {
 				worktree.SessionTitle = &models.TitleEntry{
-					Title:     sessionInfo.Title.Title,
-					Timestamp: sessionInfo.Title.Timestamp,
+					Title:      sessionInfo.Title.Title,
+					Timestamp:  sessionInfo.Title.Timestamp,
+					CommitHash: sessionInfo.Title.CommitHash,
 				}
 			}
 
@@ -168,8 +169,9 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 				history := make([]models.TitleEntry, len(sessionInfo.TitleHistory))
 				for i, entry := range sessionInfo.TitleHistory {
 					history[i] = models.TitleEntry{
-						Title:     entry.Title,
-						Timestamp: entry.Timestamp,
+						Title:      entry.Title,
+						Timestamp:  entry.Timestamp,
+						CommitHash: entry.CommitHash,
 					}
 				}
 				worktree.SessionTitleHistory = history

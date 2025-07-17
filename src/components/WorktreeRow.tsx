@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DiffViewer } from "@/components/DiffViewer";
@@ -18,7 +19,9 @@ import {
   MoreHorizontal, 
   RefreshCw, 
   Terminal, 
-  Trash2 
+  Trash2,
+  Copy,
+  Check
 } from "lucide-react";
 import { type Worktree, type WorktreeDiffStats, type PullRequestInfo, type LocalRepository } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
@@ -120,15 +123,18 @@ function WorktreeHeader({ worktree, hasConflicts, claudeSession, repositoryUrl }
 interface WorktreeClaudeStatusProps {
   worktree: Worktree;
   claudeSession?: ClaudeSession;
+  prStatus?: PullRequestInfo;
 }
 
 interface SessionTitleProps {
   worktree: Worktree;
   isActive: boolean;
+  prStatus?: PullRequestInfo;
 }
 
-function SessionTitle({ worktree, isActive }: SessionTitleProps) {
+function SessionTitle({ worktree, isActive, prStatus }: SessionTitleProps) {
   const { session_title, session_title_history = [] } = worktree;
+  const [copiedHash, setCopiedHash] = useState<string | null>(null);
   
   if (!session_title && (!session_title_history || session_title_history.length === 0)) {
     return null;
@@ -138,6 +144,53 @@ function SessionTitle({ worktree, isActive }: SessionTitleProps) {
   if (!displayTitle) {
     return null;
   }
+
+  // Helper function to copy to clipboard
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedHash(text);
+      setTimeout(() => setCopiedHash(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Helper function to render commit hash as link if PR exists
+  const renderCommitHash = (commitHash: string) => {
+    if (prStatus?.exists && prStatus.url) {
+      const prCommitUrl = `${prStatus.url}/commits/${commitHash}`;
+      return (
+        <a
+          href={prCommitUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-mono text-xs text-muted-foreground hover:text-foreground hover:underline transition-colors inline-flex items-center gap-1 group"
+        >
+          {commitHash.slice(0, 7)}
+          <svg className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </a>
+      );
+    }
+    // Enhanced fallback with copy functionality
+    const isCopied = copiedHash === commitHash;
+    return (
+      <button
+        onClick={() => copyToClipboard(commitHash)}
+        className="font-mono text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded px-1 py-0.5 transition-colors inline-flex items-center gap-1 group cursor-pointer"
+        title={commitHash}
+      >
+        {commitHash.slice(0, 7)}
+        {isCopied ? (
+          <Check className="w-3 h-3 text-green-500 opacity-100 transition-opacity" />
+        ) : (
+          <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+        )}
+      </button>
+    );
+  };
 
   return (
     <div className="mt-2">
@@ -165,12 +218,16 @@ function SessionTitle({ worktree, isActive }: SessionTitleProps) {
               <div key={index} className="px-2 py-1.5 text-sm">
                 <div className="flex items-center justify-between w-full">
                   <div className="flex flex-col min-w-0">
-                    <span className="truncate font-medium">{historyEntry.title}</span>
+                    <div className="flex items-center justify-between w-full">
+                      <span className="truncate font-medium">{historyEntry.title}</span>
+                      {historyEntry.commit_hash && (
+                        <span className="ml-2 shrink-0">
+                          {renderCommitHash(historyEntry.commit_hash)}
+                        </span>
+                      )}
+                    </div>
                     <span className="text-xs text-muted-foreground">
                       {new Date(historyEntry.timestamp).toLocaleString()}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {historyEntry.commit_hash}
                     </span>
                   </div>
                   {index === 0 && (
@@ -204,12 +261,12 @@ function SessionTitle({ worktree, isActive }: SessionTitleProps) {
   );
 }
 
-function WorktreeClaudeStatus({ worktree, claudeSession }: WorktreeClaudeStatusProps) {
+function WorktreeClaudeStatus({ worktree, claudeSession, prStatus }: WorktreeClaudeStatusProps) {
   if (!claudeSession) {
     return (
       <div>
         <p className="text-xs text-muted-foreground">No Claude sessions</p>
-        <SessionTitle worktree={worktree} isActive={false} />
+        <SessionTitle worktree={worktree} isActive={false} prStatus={prStatus} />
       </div>
     );
   }
@@ -232,7 +289,7 @@ function WorktreeClaudeStatus({ worktree, claudeSession }: WorktreeClaudeStatusP
 
   return (
     <div>
-      <SessionTitle worktree={worktree} isActive={claudeSession.isActive} />
+      <SessionTitle worktree={worktree} isActive={claudeSession.isActive} prStatus={prStatus} />
       <p className="text-xs text-muted-foreground mt-2">
         {sessionStatusText}
       </p>
@@ -480,7 +537,7 @@ export function WorktreeRow({
 
           <div className="flex items-center gap-4">
             <div className="text-xs text-muted-foreground">
-              <WorktreeClaudeStatus worktree={worktree} claudeSession={claudeSession} />
+              <WorktreeClaudeStatus worktree={worktree} claudeSession={claudeSession} prStatus={prStatus} />
             </div>
           </div>
         </div>
