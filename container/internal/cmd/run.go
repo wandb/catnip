@@ -11,9 +11,9 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/vanpelt/catnip/internal/gitutil"
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui"
-	"github.com/vanpelt/catnip/internal/util"
 	"golang.org/x/term"
 )
 
@@ -69,14 +69,10 @@ func init() {
 // cleanVersionForProduction removes the -dev suffix and v prefix from version string
 func cleanVersionForProduction(version string) string {
 	// Remove v prefix if present
-	if strings.HasPrefix(version, "v") {
-		version = version[1:]
-	}
+	version = strings.TrimPrefix(version, "v")
 
 	// Remove -dev suffix if present
-	if strings.HasSuffix(version, "-dev") {
-		version = strings.TrimSuffix(version, "-dev")
-	}
+	version = strings.TrimSuffix(version, "-dev")
 
 	return version
 }
@@ -102,7 +98,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find git root early - all our operations should be relative to this
-	gitRoot, isGitRepo := util.FindGitRoot(workDir)
+	gitRoot, isGitRepo := gitutil.FindGitRoot(workDir)
 	if !isGitRepo {
 		return fmt.Errorf("not in a git repository")
 	}
@@ -139,14 +135,14 @@ func runContainer(cmd *cobra.Command, args []string) error {
 			if !containerService.ImageExists(ctx, containerImage) || refresh {
 				fmt.Printf("Running 'just build-dev' in container directory...\n")
 				if err := runBuildDevDirect(gitRoot); err != nil {
-					return fmt.Errorf("Build failed: %w", err)
+					return fmt.Errorf("build failed: %w", err)
 				}
 			}
 		} else {
 			if !containerService.ImageExists(ctx, containerImage) || refresh {
 				fmt.Printf("Running 'docker pull %s'...\n", containerImage)
 				if err := runDockerPullDirect(ctx, containerService, containerImage); err != nil {
-					return fmt.Errorf("Pull failed: %w", err)
+					return fmt.Errorf("pull failed: %w", err)
 				}
 			}
 		}

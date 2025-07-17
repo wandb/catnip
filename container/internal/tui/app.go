@@ -51,7 +51,6 @@ type App struct {
 	containerImage string
 	devMode        bool
 	refreshFlag    bool
-	quitRequested  bool
 }
 
 // NewApp creates a new application instance

@@ -256,11 +256,15 @@ func (v *InitializationViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (
 	return m, nil
 }
 
-// Initialization message types
+// InitializationCompleteMsg signals that container initialization has completed successfully
 type InitializationCompleteMsg struct{}
+
+// InitializationFailedMsg signals that container initialization has failed
 type InitializationFailedMsg struct {
 	Error string
 }
+
+// InitializationStatusMsg provides status updates during container initialization
 type InitializationStatusMsg struct {
 	Status         string
 	Action         string

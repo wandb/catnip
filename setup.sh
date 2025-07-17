@@ -151,6 +151,16 @@ else
     echo -e "${RED}❌ Failed to format Go files${NC}"
     exit 1
 fi
+
+# Run Go lint checks
+echo "Running Go lint checks..."
+if just lint >/dev/null 2>&1; then
+    echo -e "${GREEN}✅ Go lint checks passed${NC}"
+else
+    echo -e "${RED}❌ Go lint checks failed${NC}"
+    echo -e "${YELLOW}Run 'cd container && just lint' to see details${NC}"
+    exit 1
+fi
 cd ..
 
 # If files were formatted, add them to staging and inform user
