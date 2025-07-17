@@ -83,33 +83,6 @@ func (s *GitService) runGitCommand(workingDir string, args ...string) ([]byte, e
 	return cmd.CombinedOutput()
 }
 
-// ensureRepositorySafe ensures that a repository is safe to work with by handling dubious ownership issues
-func (s *GitService) ensureRepositorySafe(repoPath string) error {
-	// Quick check if repository is already safe
-	output, err := s.runGitCommand(repoPath, "rev-parse", "--git-dir")
-	if err == nil {
-		return nil // Repository is already safe
-	}
-
-	// Check if it's a dubious ownership issue (check both error and output)
-	errorText := err.Error() + string(output)
-	if strings.Contains(errorText, "dubious ownership") {
-		// Add to safe.directory
-		_, safeErr := s.runGitCommand("", "config", "--global", "--add", "safe.directory", repoPath)
-		if safeErr != nil {
-			return fmt.Errorf("failed to add repository to safe.directory: %v", safeErr)
-		}
-
-		// Verify it's now safe
-		_, verifyErr := s.runGitCommand(repoPath, "rev-parse", "--git-dir")
-		if verifyErr != nil {
-			return fmt.Errorf("repository still not safe after adding to safe.directory: %v", verifyErr)
-		}
-	}
-
-	return nil
-}
-
 // RemoteURLManager handles remote URL operations with conversion and restoration
 type RemoteURLManager struct {
 	service      *GitService
@@ -928,11 +901,6 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 	localRepo, exists := s.repositories[repoID]
 	if !exists {
 		return nil, nil, fmt.Errorf("local repository %s not found - it may not be mounted", repoID)
-	}
-
-	// Ensure repository is safe to work with
-	if err := s.ensureRepositorySafe(localRepo.Path); err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure repository safety: %v", err)
 	}
 
 	// If no branch specified, use current branch
