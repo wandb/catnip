@@ -16,7 +16,7 @@ func GetEmbeddedAssets() fs.FS {
 		// Assets not embedded (likely development build)
 		return nil
 	}
-	
+
 	assets, err := fs.Sub(embeddedAssets, "dist")
 	if err != nil {
 		// This shouldn't happen if ReadDir succeeded above

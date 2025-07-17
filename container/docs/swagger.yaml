@@ -335,6 +335,11 @@ definitions:
         description: Current git branch name in this worktree
         example: feature/api-docs
         type: string
+      child_worktree_ids:
+        description: Child worktree IDs created from this worktree
+        items:
+          type: string
+        type: array
       commit_count:
         description: Number of commits ahead of the divergence point (CommitHash)
         example: 3
@@ -369,6 +374,9 @@ definitions:
         description: User-friendly name for this worktree (e.g., 'vectorize-quasar')
         example: feature-api-docs
         type: string
+      parent_worktree_id:
+        description: Parent worktree ID if created from another worktree
+        type: string
       path:
         description: Absolute path to the worktree directory
         example: /workspace/worktrees/feature-api-docs
@@ -389,6 +397,18 @@ definitions:
       source_branch:
         description: Branch this worktree was originally created from
         example: main
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.WorktreeCreateRequest:
+    properties:
+      name:
+        description: User-friendly name (optional, generated if empty)
+        type: string
+      source:
+        description: Branch name, commit hash, or worktree ID
+        type: string
+      source_type:
+        description: '"branch", "commit", or "worktree"'
         type: string
     type: object
   github_com_vanpelt_catnip_internal_services.ServiceInfo:
@@ -931,6 +951,27 @@ paths:
               $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
             type: array
       summary: List all worktrees
+      tags:
+      - git
+    post:
+      consumes:
+      - application/json
+      description: Creates a new worktree from a branch, commit, or existing worktree
+      parameters:
+      - description: Worktree creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.WorktreeCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+      summary: Create a new worktree
       tags:
       - git
   /v1/git/worktrees/{id}:

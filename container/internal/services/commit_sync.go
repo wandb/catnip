@@ -115,7 +115,7 @@ func (css *CommitSyncService) Stop() {
 // setupWatchers sets up filesystem watchers for existing worktrees
 func (css *CommitSyncService) setupWatchers() {
 	worktrees := css.gitService.ListWorktrees()
-	
+
 	for _, worktree := range worktrees {
 		css.addWorktreeWatcher(worktree.Path)
 	}
@@ -219,14 +219,14 @@ func (css *CommitSyncService) handleCommitEvent(event fsnotify.Event) {
 func (css *CommitSyncService) extractWorktreePath(refsPath string) string {
 	// Convert /workspace/repo/branch/.git/refs/heads/branchname to /workspace/repo/branch
 	parts := strings.Split(refsPath, string(filepath.Separator))
-	
+
 	for i, part := range parts {
 		if part == ".git" && i > 0 {
 			// Return path up to but not including .git
 			return filepath.Join(parts[:i]...)
 		}
 	}
-	
+
 	return ""
 }
 
@@ -299,7 +299,7 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	checkCmd := exec.Command("git", "-C", bareRepoPath, "cat-file", "-e", commitInfo.CommitHash)
 	if err := checkCmd.Run(); err == nil {
 		// Commit already exists, just update the ref
-		updateRefCmd := exec.Command("git", "-C", bareRepoPath, "update-ref", 
+		updateRefCmd := exec.Command("git", "-C", bareRepoPath, "update-ref",
 			fmt.Sprintf("refs/heads/%s", commitInfo.Branch), commitInfo.CommitHash)
 		updateOutput, err := updateRefCmd.CombinedOutput()
 		if err != nil {
@@ -313,11 +313,11 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	// Create unique remote name using repo ID to avoid conflicts between repositories
 	repoID := strings.ReplaceAll(repo.ID, "/", "-")
 	remoteName := fmt.Sprintf("sync-%s-%s", repoID, strings.ReplaceAll(commitInfo.Branch, "/", "-"))
-	
+
 	// Remove existing remote first to avoid conflicts
 	removeRemoteCmd := exec.Command("git", "-C", bareRepoPath, "remote", "remove", remoteName)
 	_ = removeRemoteCmd.Run() // Ignore error - remote might not exist
-	
+
 	// Add remote
 	addRemoteCmd := exec.Command("git", "-C", bareRepoPath, "remote", "add", remoteName, commitInfo.WorktreePath)
 	if err := addRemoteCmd.Run(); err != nil {
@@ -338,7 +338,7 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	} else {
 		fetchCmd = exec.Command("git", "-C", bareRepoPath, "fetch", remoteName, commitInfo.Branch)
 	}
-	
+
 	output, err := fetchCmd.CombinedOutput()
 	if err != nil {
 		// If unshallow fails, try regular fetch as fallback
@@ -355,7 +355,7 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	}
 
 	// Update the branch ref in the bare repository
-	updateRefCmd := exec.Command("git", "-C", bareRepoPath, "update-ref", 
+	updateRefCmd := exec.Command("git", "-C", bareRepoPath, "update-ref",
 		fmt.Sprintf("refs/heads/%s", commitInfo.Branch), commitInfo.CommitHash)
 	updateOutput, err := updateRefCmd.CombinedOutput()
 	if err != nil {
@@ -393,7 +393,7 @@ func (css *CommitSyncService) PerformManualSync() {
 // performPeriodicSync checks all worktrees for unsync'd commits
 func (css *CommitSyncService) performPeriodicSync() {
 	worktrees := css.gitService.ListWorktrees()
-	
+
 	for _, worktree := range worktrees {
 		// Check if worktree has commits that aren't in the bare repo
 		if css.hasUnsyncedCommits(worktree.Path) {
@@ -427,7 +427,7 @@ func (css *CommitSyncService) cleanupOrphanedRemotes() {
 
 // cleanupOrphanedRemotesForRepo removes orphaned remotes for a specific repository
 func (css *CommitSyncService) cleanupOrphanedRemotesForRepo(bareRepoPath string) {
-	
+
 	// List all remotes
 	cmd := exec.Command("git", "-C", bareRepoPath, "remote")
 	output, err := cmd.Output()

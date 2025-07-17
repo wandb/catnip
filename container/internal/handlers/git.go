@@ -547,3 +547,49 @@ func (h *GitHandler) GetPullRequestInfo(c *fiber.Ctx) error {
 
 	return c.JSON(prInfo)
 }
+
+// CreateWorktree creates a new worktree from various source types
+// @Summary Create a new worktree
+// @Description Creates a new worktree from a branch, commit, or existing worktree
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param request body models.WorktreeCreateRequest true "Worktree creation request"
+// @Success 201 {object} models.Worktree
+// @Router /v1/git/worktrees [post]
+func (h *GitHandler) CreateWorktree(c *fiber.Ctx) error {
+	var req models.WorktreeCreateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Validate request
+	if req.Source == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Source is required",
+		})
+	}
+
+	// Default source type to branch if not specified
+	if req.SourceType == "" {
+		req.SourceType = "branch"
+	}
+
+	// Validate source type
+	if req.SourceType != "branch" && req.SourceType != "commit" && req.SourceType != "worktree" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Source type must be 'branch', 'commit', or 'worktree'",
+		})
+	}
+
+	worktree, err := h.gitService.CreateWorktreeFromSource(req)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.Status(201).JSON(worktree)
+}

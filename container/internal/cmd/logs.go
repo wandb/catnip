@@ -85,13 +85,13 @@ func runWithLogging(args []string) error {
 
 	// Set up the command
 	command := exec.Command(args[0], args[1:]...)
-	
+
 	// Create pipes for stdout and stderr
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
-	
+
 	stderr, err := command.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
@@ -114,7 +114,7 @@ func runWithLogging(args []string) error {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
-			fmt.Println(line)                    // Print to console
+			fmt.Println(line) // Print to console
 			if _, err := fmt.Fprintln(file, line); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing to log file: %v\n", err)
 			}
@@ -125,7 +125,7 @@ func runWithLogging(args []string) error {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
-			fmt.Fprintln(os.Stderr, line)       // Print to console stderr
+			fmt.Fprintln(os.Stderr, line) // Print to console stderr
 			if _, err := fmt.Fprintln(file, line); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing to log file: %v\n", err)
 			}

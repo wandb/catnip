@@ -17,38 +17,38 @@ import (
 
 // AuthHandler handles authentication flows
 type AuthHandler struct {
-	activeAuth      *AuthProcess
-	authMutex       sync.Mutex
+	activeAuth *AuthProcess
+	authMutex  sync.Mutex
 }
 
 // AuthProcess represents an active authentication process
 type AuthProcess struct {
-	Cmd         *exec.Cmd
-	Code        string
-	URL         string
-	Status      string // "pending", "waiting", "success", "error"
-	Error       string
-	StartedAt   time.Time
+	Cmd       *exec.Cmd
+	Code      string
+	URL       string
+	Status    string // "pending", "waiting", "success", "error"
+	Error     string
+	StartedAt time.Time
 }
 
 // AuthStartResponse represents the auth start response
 // @Description Response when starting GitHub device flow authentication
 type AuthStartResponse struct {
 	// Device verification code to enter on GitHub
-	Code   string `json:"code" example:"1234-5678"`
+	Code string `json:"code" example:"1234-5678"`
 	// GitHub device activation URL
-	URL    string `json:"url" example:"https://github.com/login/device"`
+	URL string `json:"url" example:"https://github.com/login/device"`
 	// Current authentication status
 	Status string `json:"status" example:"waiting"`
 }
 
-// AuthStatusResponse represents the auth status response  
+// AuthStatusResponse represents the auth status response
 // @Description Response containing the current authentication status
 type AuthStatusResponse struct {
 	// Authentication status: pending, waiting, success, or error
 	Status string `json:"status" example:"success"`
 	// Error message if authentication failed
-	Error  string `json:"error,omitempty" example:"authentication timeout"`
+	Error string `json:"error,omitempty" example:"authentication timeout"`
 }
 
 // NewAuthHandler creates a new auth handler
@@ -78,7 +78,7 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 		"HOME=/home/catnip",
 		"USER=catnip",
 	)
-	
+
 	// Set stdin to null to avoid hanging on prompts
 	cmd.Stdin = nil
 
@@ -109,7 +109,7 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 		err := h.activeAuth.Cmd.Wait()
 		h.authMutex.Lock()
 		defer h.authMutex.Unlock()
-		
+
 		if err != nil && h.activeAuth.Status != "success" {
 			log.Printf("❌ Auth process error: %v", err)
 			h.activeAuth.Status = "error"
@@ -137,14 +137,14 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 				_ = h.activeAuth.Cmd.Process.Kill()
 			}
 			return c.Status(408).JSON(fiber.Map{"error": "Authentication timeout - please try again"})
-			
+
 		case <-ticker.C:
 			h.authMutex.Lock()
 			code = h.activeAuth.Code
 			url = h.activeAuth.URL
 			status := h.activeAuth.Status
 			h.authMutex.Unlock()
-			
+
 			if code != "" && url != "" {
 				return c.JSON(AuthStartResponse{
 					Code:   code,
@@ -203,4 +203,3 @@ func (h *AuthHandler) parseAuthOutput(stdout io.Reader) {
 		}
 	}
 }
-

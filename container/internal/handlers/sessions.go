@@ -21,22 +21,22 @@ type SessionsResponse map[string]ActiveSessionInfo
 // @Description Active session information with timing and Claude session details
 type ActiveSessionInfo struct {
 	// Unique identifier for the Claude session
-	ClaudeSessionUUID string     `json:"claude_session_uuid" example:"abc123-def456-ghi789"`
+	ClaudeSessionUUID string `json:"claude_session_uuid" example:"abc123-def456-ghi789"`
 	// Title of the session
-	Title             string     `json:"title" example:"Updating README.md"`
+	Title string `json:"title" example:"Updating README.md"`
 	// When the session was initially started
-	StartedAt         time.Time  `json:"started_at" example:"2024-01-15T14:30:00Z"`
+	StartedAt time.Time `json:"started_at" example:"2024-01-15T14:30:00Z"`
 	// When the session was resumed (if applicable)
-	ResumedAt         *time.Time `json:"resumed_at,omitempty" example:"2024-01-15T16:00:00Z"`
+	ResumedAt *time.Time `json:"resumed_at,omitempty" example:"2024-01-15T16:00:00Z"`
 	// When the session ended (if not active)
-	EndedAt           *time.Time `json:"ended_at,omitempty" example:"2024-01-15T18:30:00Z"`
+	EndedAt *time.Time `json:"ended_at,omitempty" example:"2024-01-15T18:30:00Z"`
 }
 
 // DeleteSessionResponse represents the response when deleting a session
 // @Description Response confirming session deletion
 type DeleteSessionResponse struct {
 	// Confirmation message
-	Message   string `json:"message" example:"Session deleted successfully"`
+	Message string `json:"message" example:"Session deleted successfully"`
 	// Workspace path that was deleted
 	Workspace string `json:"workspace" example:"/workspace/my-project"`
 }
@@ -87,23 +87,23 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 	workspace := c.Params("workspace")
 	fullParam := c.Query("full", "false")
 	includeFull := fullParam == "true"
-	
+
 	if includeFull {
 		// Return full session data using Claude service
 		fullData, err := h.claudeService.GetFullSessionData(workspace, true)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
-				"error": "Failed to get full session data",
+				"error":   "Failed to get full session data",
 				"details": err.Error(),
 			})
 		}
-		
+
 		if fullData == nil {
 			return c.Status(404).JSON(fiber.Map{
 				"error": "Session not found for workspace",
 			})
 		}
-		
+
 		return c.JSON(fullData)
 	} else {
 		// Try session service first (for active PTY sessions)
@@ -111,22 +111,22 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 		if exists {
 			return c.JSON(session)
 		}
-		
+
 		// Fallback to Claude service for basic info (without full data)
 		fullData, err := h.claudeService.GetFullSessionData(workspace, false)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
-				"error": "Failed to get session data",
+				"error":   "Failed to get session data",
 				"details": err.Error(),
 			})
 		}
-		
+
 		if fullData == nil {
 			return c.Status(404).JSON(fiber.Map{
 				"error": "Session not found for workspace",
 			})
 		}
-		
+
 		// Return just the session info part for basic requests
 		return c.JSON(fullData.SessionInfo)
 	}
@@ -142,15 +142,15 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 // @Router /v1/sessions/workspace/{workspace} [delete]
 func (h *SessionsHandler) DeleteSession(c *fiber.Ctx) error {
 	workspace := c.Params("workspace")
-	
+
 	if err := h.sessionService.RemoveActiveSession(workspace); err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(fiber.Map{
-		"message": "Session deleted successfully",
+		"message":   "Session deleted successfully",
 		"workspace": workspace,
 	})
 }
@@ -167,20 +167,20 @@ func (h *SessionsHandler) DeleteSession(c *fiber.Ctx) error {
 func (h *SessionsHandler) GetSessionById(c *fiber.Ctx) error {
 	workspace := c.Params("workspace")
 	sessionId := c.Params("sessionId")
-	
+
 	sessionData, err := h.claudeService.GetSessionByID(workspace, sessionId)
 	if err != nil {
 		if err.Error() == "session not found: "+sessionId {
 			return c.Status(404).JSON(fiber.Map{
-				"error": "Session not found",
+				"error":     "Session not found",
 				"sessionId": sessionId,
 			})
 		}
 		return c.Status(500).JSON(fiber.Map{
-			"error": "Failed to get session data",
+			"error":   "Failed to get session data",
 			"details": err.Error(),
 		})
 	}
-	
+
 	return c.JSON(sessionData)
 }

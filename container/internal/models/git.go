@@ -74,12 +74,17 @@ type Worktree struct {
 	SessionTitle *TitleEntry `json:"session_title,omitempty"`
 	// History of session titles
 	SessionTitleHistory []TitleEntry `json:"session_title_history,omitempty"`
+	// Parent worktree ID if created from another worktree
+	ParentWorktreeID *string `json:"parent_worktree_id,omitempty"`
+	// Child worktree IDs created from this worktree
+	ChildWorktreeIDs []string `json:"child_worktree_ids,omitempty"`
 }
 
 // WorktreeCreateRequest represents a request to create a new worktree
 type WorktreeCreateRequest struct {
-	Source string `json:"source"` // Branch name or commit hash
-	Name   string `json:"name"`   // User-friendly name
+	Source     string `json:"source"`      // Branch name, commit hash, or worktree ID
+	Name       string `json:"name"`        // User-friendly name (optional, generated if empty)
+	SourceType string `json:"source_type"` // "branch", "commit", or "worktree"
 }
 
 // CheckoutRequest represents a request to checkout a repository

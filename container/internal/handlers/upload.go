@@ -23,11 +23,11 @@ func NewUploadHandler() *UploadHandler {
 // @Description Response containing upload status and file location
 type UploadResponse struct {
 	// Whether the upload succeeded
-	Success  bool   `json:"success" example:"true"`
+	Success bool `json:"success" example:"true"`
 	// Path where the uploaded file was saved
 	FilePath string `json:"filePath" example:"/tmp/uploads/document.pdf"`
 	// Status message or error details
-	Message  string `json:"message,omitempty" example:"File uploaded successfully"`
+	Message string `json:"message,omitempty" example:"File uploaded successfully"`
 }
 
 // UploadFile handles file uploads to /tmp/uploads with conflict resolution
@@ -109,7 +109,7 @@ func (h *UploadHandler) resolveConflict(dir, filename string) string {
 	// Split filename into name and extension
 	ext := filepath.Ext(filename)
 	name := strings.TrimSuffix(filename, ext)
-	
+
 	// Try original filename first
 	fullPath := filepath.Join(dir, filename)
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -121,13 +121,13 @@ func (h *UploadHandler) resolveConflict(dir, filename string) string {
 	for {
 		numberedName := fmt.Sprintf("%s_%d%s", name, counter, ext)
 		fullPath = filepath.Join(dir, numberedName)
-		
+
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 			return fullPath
 		}
-		
+
 		counter++
-		
+
 		// Safety check to avoid infinite loops
 		if counter > 9999 {
 			// Use timestamp as fallback

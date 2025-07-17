@@ -42,7 +42,6 @@ func (te *TerminalEmulator) Write(data []byte) {
 	_, _ = te.terminal.Write(data)
 }
 
-
 // Resize updates the terminal dimensions
 func (te *TerminalEmulator) Resize(cols, rows int) {
 	te.cols = cols
@@ -50,35 +49,34 @@ func (te *TerminalEmulator) Resize(cols, rows int) {
 	te.terminal.Resize(cols, rows)
 }
 
-
 // Render returns the current terminal view as a string with ANSI color codes
 func (te *TerminalEmulator) Render() string {
 	var buf bytes.Buffer
-	
+
 	// Get cursor information
 	cursor := te.terminal.Cursor()
 	cursorVisible := te.terminal.CursorVisible()
-	
+
 	// Track current attributes to minimize ANSI codes
 	var lastFg, lastBg vt10x.Color
 	var lastMode int16
 	resetNeeded := false
-	
+
 	for row := 0; row < te.rows; row++ {
 		if row > 0 {
 			buf.WriteString("\n")
 		}
-		
+
 		for col := 0; col < te.cols; col++ {
 			cell := te.terminal.Cell(col, row)
-			
+
 			// Handle colors and attributes
 			if cell.FG != lastFg || cell.BG != lastBg || cell.Mode != lastMode {
 				// Reset if needed
 				if resetNeeded {
 					buf.WriteString("\033[0m")
 				}
-				
+
 				// Apply new attributes based on Mode
 				if cell.Mode&attrBold != 0 {
 					buf.WriteString("\033[1m")
@@ -89,7 +87,7 @@ func (te *TerminalEmulator) Render() string {
 				if cell.Mode&attrReverse != 0 {
 					buf.WriteString("\033[7m")
 				}
-				
+
 				// Apply foreground color
 				if cell.FG != vt10x.DefaultFG {
 					if cell.FG < 8 {
@@ -109,7 +107,7 @@ func (te *TerminalEmulator) Render() string {
 						buf.WriteString(fmt.Sprintf("\033[38;2;%d;%d;%dm", r, g, b))
 					}
 				}
-				
+
 				// Apply background color
 				if cell.BG != vt10x.DefaultBG {
 					if cell.BG < 8 {
@@ -129,13 +127,13 @@ func (te *TerminalEmulator) Render() string {
 						buf.WriteString(fmt.Sprintf("\033[48;2;%d;%d;%dm", r, g, b))
 					}
 				}
-				
+
 				lastFg = cell.FG
 				lastBg = cell.BG
 				lastMode = cell.Mode
 				resetNeeded = true
 			}
-			
+
 			// Handle cursor position
 			if cursorVisible && row == cursor.Y && col == cursor.X {
 				// Use reverse video for cursor
@@ -159,16 +157,16 @@ func (te *TerminalEmulator) Render() string {
 			}
 		}
 	}
-	
+
 	// Final reset if needed
 	if resetNeeded {
 		buf.WriteString("\033[0m")
 	}
-	
+
 	// Trim trailing empty lines
 	output := buf.String()
 	lines := strings.Split(output, "\n")
-	
+
 	// Find last non-empty line
 	lastNonEmpty := -1
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -177,12 +175,12 @@ func (te *TerminalEmulator) Render() string {
 			break
 		}
 	}
-	
+
 	if lastNonEmpty >= 0 {
 		lines = lines[:lastNonEmpty+1]
 		output = strings.Join(lines, "\n")
 	}
-	
+
 	return output
 }
 

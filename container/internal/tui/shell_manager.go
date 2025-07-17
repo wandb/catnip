@@ -116,4 +116,3 @@ func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 		return nil
 	}
 }
-

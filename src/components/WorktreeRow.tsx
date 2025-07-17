@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  GitBranch,
   GitMerge,
   MoreHorizontal,
   RefreshCw,
@@ -68,6 +69,7 @@ interface WorktreeRowProps {
     isDirty: boolean,
     commitCount: number,
   ) => void;
+  onBranchFromWorktree: (worktreeId: string, name: string) => void;
 }
 
 interface CommitHashDisplayProps {
@@ -243,6 +245,7 @@ interface WorktreeActionDropdownProps {
     commitCount: number,
   ) => void;
   onOpenPrDialog: (worktreeId: string, branchName: string) => void;
+  onBranchFromWorktree: (worktreeId: string, name: string) => void;
 }
 
 function WorktreeActionDropdown({
@@ -254,6 +257,7 @@ function WorktreeActionDropdown({
   onCreatePreview,
   onConfirmDelete,
   onOpenPrDialog,
+  onBranchFromWorktree,
 }: WorktreeActionDropdownProps) {
   const handleDeleteClick = () => {
     onConfirmDelete(
@@ -275,6 +279,13 @@ function WorktreeActionDropdown({
         <DropdownMenuItem onClick={() => onSync(worktree.id)}>
           <RefreshCw size={16} />
           Sync with {worktree.source_branch}
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          onClick={() => onBranchFromWorktree(worktree.id, worktree.name)}
+        >
+          <GitBranch size={16} />
+          Branch from this worktree
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
@@ -550,6 +561,7 @@ interface WorktreeActionsProps {
     commitCount: number,
   ) => void;
   onOpenPrDialog: (worktreeId: string, branchName: string) => void;
+  onBranchFromWorktree: (worktreeId: string, name: string) => void;
 }
 
 function WorktreeActions({
@@ -564,6 +576,7 @@ function WorktreeActions({
   onCreatePreview,
   onConfirmDelete,
   onOpenPrDialog,
+  onBranchFromWorktree,
 }: WorktreeActionsProps) {
   const hasDiff = (diffStats[worktree.id]?.file_diffs?.length ?? 0) > 0;
 
@@ -600,6 +613,7 @@ function WorktreeActions({
         onCreatePreview={onCreatePreview}
         onConfirmDelete={onConfirmDelete}
         onOpenPrDialog={onOpenPrDialog}
+        onBranchFromWorktree={onBranchFromWorktree}
       />
     </div>
   );
@@ -624,6 +638,7 @@ export function WorktreeRow({
   onMerge,
   onCreatePreview,
   onConfirmDelete,
+  onBranchFromWorktree,
   prStatuses,
   repositories,
 }: WorktreeRowPropsWithPR) {
@@ -665,6 +680,10 @@ export function WorktreeRow({
       description: defaultDescription,
       isUpdate,
     });
+  };
+
+  const handleBranchFromWorktree = (worktreeId: string, name: string) => {
+    onBranchFromWorktree(worktreeId, name);
   };
 
   // const totalAdditions = diffStat?.file_diffs?.filter(diff => diff.change_type === 'added').length ?? 0;
@@ -730,6 +749,7 @@ export function WorktreeRow({
           onCreatePreview={onCreatePreview}
           onConfirmDelete={onConfirmDelete}
           onOpenPrDialog={openPrDialog}
+          onBranchFromWorktree={handleBranchFromWorktree}
         />
       </div>
       <DiffViewer
