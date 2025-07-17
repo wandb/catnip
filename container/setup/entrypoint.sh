@@ -50,7 +50,8 @@ done
 gosu 1000:1000 git config --global user.name "$GIT_USERNAME"
 gosu 1000:1000 git config --global user.email "$GIT_EMAIL"
 gosu 1000:1000 git config --global init.defaultBranch main
-gosu 1000:1000 git config --global --add safe.directory "${WORKSPACE}"
+# TODO: This should be tightly scoped to mounted volume. Bad!
+gosu 1000:1000 git config --global --add safe.directory "*"
 
 # Install specific versions if requested via environment variables (run as catnip user)
 if [ -n "$CATNIP_NODE_VERSION" ]; then
