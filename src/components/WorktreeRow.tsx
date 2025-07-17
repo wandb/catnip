@@ -245,6 +245,7 @@ interface WorktreeActionDropdownProps {
     commitCount: number,
   ) => void;
   onOpenPrDialog: (worktreeId: string, branchName: string) => void;
+  onBranchFromWorktree: (worktreeId: string, name: string) => void;
 }
 
 function WorktreeActionDropdown({
@@ -256,6 +257,7 @@ function WorktreeActionDropdown({
   onCreatePreview,
   onConfirmDelete,
   onOpenPrDialog,
+  onBranchFromWorktree,
 }: WorktreeActionDropdownProps) {
   const handleDeleteClick = () => {
     onConfirmDelete(
@@ -609,6 +611,7 @@ function WorktreeActions({
         onCreatePreview={onCreatePreview}
         onConfirmDelete={onConfirmDelete}
         onOpenPrDialog={onOpenPrDialog}
+        onBranchFromWorktree={handleBranchFromWorktree}
       />
     </div>
   );
@@ -675,6 +678,10 @@ export function WorktreeRow({
       description: defaultDescription,
       isUpdate,
     });
+  };
+
+  const handleBranchFromWorktree = (worktreeId: string, name: string) => {
+    onBranchFromWorktree(worktreeId, name);
   };
 
   // const totalAdditions = diffStat?.file_diffs?.filter(diff => diff.change_type === 'added').length ?? 0;
