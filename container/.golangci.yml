@@ -6,6 +6,15 @@ run:
   tests: true
   allow-parallel-runners: true
 
+output:
+  formats:
+    text:
+      path: stdout
+      colors: true
+      print-linter-name: true
+      print-issued-lines: true
+  show-stats: true
+
 linters:
   enable:
     - errcheck
@@ -90,3 +99,10 @@ issues:
   max-same-issues: 0
   new: false
   uniq-by-line: true
+
+severity:
+  default: error
+  rules:
+    - linters:
+        - misspell
+      severity: warning
