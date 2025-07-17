@@ -83,6 +83,33 @@ func (s *GitService) runGitCommand(workingDir string, args ...string) ([]byte, e
 	return cmd.CombinedOutput()
 }
 
+// ensureRepositorySafe ensures that a repository is safe to work with by handling dubious ownership issues
+func (s *GitService) ensureRepositorySafe(repoPath string) error {
+	// Quick check if repository is already safe
+	output, err := s.runGitCommand(repoPath, "rev-parse", "--git-dir")
+	if err == nil {
+		return nil // Repository is already safe
+	}
+
+	// Check if it's a dubious ownership issue (check both error and output)
+	errorText := err.Error() + string(output)
+	if strings.Contains(errorText, "dubious ownership") {
+		// Add to safe.directory
+		_, safeErr := s.runGitCommand("", "config", "--global", "--add", "safe.directory", repoPath)
+		if safeErr != nil {
+			return fmt.Errorf("failed to add repository to safe.directory: %v", safeErr)
+		}
+
+		// Verify it's now safe
+		_, verifyErr := s.runGitCommand(repoPath, "rev-parse", "--git-dir")
+		if verifyErr != nil {
+			return fmt.Errorf("repository still not safe after adding to safe.directory: %v", verifyErr)
+		}
+	}
+
+	return nil
+}
+
 // RemoteURLManager handles remote URL operations with conversion and restoration
 type RemoteURLManager struct {
 	service      *GitService
@@ -266,19 +293,24 @@ func (s *GitService) branchExists(repoPath, branch string, isRemote bool) bool {
 
 // branchExistsWithOptions checks if a branch exists in a repository with full options
 func (s *GitService) branchExistsWithOptions(repoPath, branch string, opts BranchExistsOptions) bool {
-	var ref string
 	if opts.IsRemote {
 		remoteName := opts.RemoteName
 		if remoteName == "" {
 			remoteName = "origin"
 		}
-		ref = fmt.Sprintf("refs/remotes/%s/%s", remoteName, branch)
+		ref := fmt.Sprintf("refs/remotes/%s/%s", remoteName, branch)
+		cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", ref)
+		return cmd.Run() == nil
 	} else {
-		ref = fmt.Sprintf("refs/heads/%s", branch)
-	}
+		// For local branches, use git branch --list which is more reliable
+		output, err := s.runGitCommand(repoPath, "branch", "--list", branch)
+		if err != nil {
+			return false
+		}
 
-	cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", ref)
-	return cmd.Run() == nil
+		// Check if the output contains the branch name
+		return strings.Contains(string(output), branch)
+	}
 }
 
 // getCommitCount counts commits between two refs
@@ -896,6 +928,11 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 	localRepo, exists := s.repositories[repoID]
 	if !exists {
 		return nil, nil, fmt.Errorf("local repository %s not found - it may not be mounted", repoID)
+	}
+
+	// Ensure repository is safe to work with
+	if err := s.ensureRepositorySafe(localRepo.Path); err != nil {
+		return nil, nil, fmt.Errorf("failed to ensure repository safety: %v", err)
 	}
 
 	// If no branch specified, use current branch
@@ -1866,7 +1903,7 @@ func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, 
 	}
 
 	// Commit with the message
-	if output, err := s.runGitCommand(workspaceDir, "commit", "-m", message); err != nil {
+	if output, err := s.runGitCommand(workspaceDir, "commit", "-m", message, "-n"); err != nil {
 		return "", fmt.Errorf("git commit failed: %v, output: %s", err, string(output))
 	}
 
