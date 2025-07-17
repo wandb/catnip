@@ -538,6 +538,7 @@ interface WorktreeActionsProps {
   mergeConflicts: Record<string, ConflictStatus>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   openDiffWorktreeId: string | null;
+  diffLoading: boolean;
   prStatus?: PullRequestInfo;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
@@ -557,6 +558,7 @@ function WorktreeActions({
   mergeConflicts,
   diffStats,
   openDiffWorktreeId,
+  diffLoading,
   prStatus,
   onToggleDiff,
   onSync,
@@ -569,17 +571,22 @@ function WorktreeActions({
 
   return (
     <div className="flex items-center gap-2">
-      {hasDiff && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onToggleDiff(worktree.id)}
-          className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
-        >
-          <FileText size={16} />
-          View Diff
-        </Button>
-      )}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => onToggleDiff(worktree.id)}
+        disabled={
+          !hasDiff || (diffLoading && openDiffWorktreeId === worktree.id)
+        }
+        className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
+      >
+        {diffLoading && openDiffWorktreeId === worktree.id ? (
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+        ) : (
+          <FileText size={16} className="" />
+        )}
+        View Diff
+      </Button>
 
       <Link
         to="/terminal/$sessionId"
@@ -627,6 +634,7 @@ export function WorktreeRow({
   prStatuses,
   repositories,
 }: WorktreeRowPropsWithPR) {
+  const [diffLoading, setDiffLoading] = useState(false);
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = Boolean(
@@ -723,6 +731,7 @@ export function WorktreeRow({
           mergeConflicts={mergeConflicts}
           diffStats={diffStats}
           openDiffWorktreeId={openDiffWorktreeId}
+          diffLoading={diffLoading}
           prStatus={prStatus}
           onToggleDiff={onToggleDiff}
           onSync={onSync}
@@ -736,6 +745,7 @@ export function WorktreeRow({
         worktreeId={worktree.id}
         isOpen={openDiffWorktreeId === worktree.id}
         onClose={() => onToggleDiff(worktree.id)}
+        onLoadingChange={setDiffLoading}
       />
     </div>
   );
