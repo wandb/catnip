@@ -580,11 +580,7 @@ function WorktreeActions({
         }
         className={openDiffWorktreeId === worktree.id ? "bg-muted" : ""}
       >
-        {diffLoading && openDiffWorktreeId === worktree.id ? (
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
-        ) : (
-          <FileText size={16} className="" />
-        )}
+        <FileText size={16} className="mr-2" />
         View Diff
       </Button>
 
