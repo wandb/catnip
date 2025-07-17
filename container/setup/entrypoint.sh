@@ -46,10 +46,11 @@ for config_dir in .ssh .aws .config .local .cargo .rustup; do
     fi
 done
 
-# Set git config for the catnip user (not root)
+# Set git config for the catnip user (not root) and mark as safe repo
 gosu 1000:1000 git config --global user.name "$GIT_USERNAME"
 gosu 1000:1000 git config --global user.email "$GIT_EMAIL"
 gosu 1000:1000 git config --global init.defaultBranch main
+gosu 1000:1000 git config --global --add safe.directory "${WORKSPACE}"
 
 # Install specific versions if requested via environment variables (run as catnip user)
 if [ -n "$CATNIP_NODE_VERSION" ]; then

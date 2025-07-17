@@ -266,19 +266,24 @@ func (s *GitService) branchExists(repoPath, branch string, isRemote bool) bool {
 
 // branchExistsWithOptions checks if a branch exists in a repository with full options
 func (s *GitService) branchExistsWithOptions(repoPath, branch string, opts BranchExistsOptions) bool {
-	var ref string
 	if opts.IsRemote {
 		remoteName := opts.RemoteName
 		if remoteName == "" {
 			remoteName = "origin"
 		}
-		ref = fmt.Sprintf("refs/remotes/%s/%s", remoteName, branch)
+		ref := fmt.Sprintf("refs/remotes/%s/%s", remoteName, branch)
+		cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", ref)
+		return cmd.Run() == nil
 	} else {
-		ref = fmt.Sprintf("refs/heads/%s", branch)
-	}
+		// For local branches, use git branch --list which is more reliable
+		output, err := s.runGitCommand(repoPath, "branch", "--list", branch)
+		if err != nil {
+			return false
+		}
 
-	cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", ref)
-	return cmd.Run() == nil
+		// Check if the output contains the branch name
+		return strings.Contains(string(output), branch)
+	}
 }
 
 // getCommitCount counts commits between two refs
@@ -1844,6 +1849,40 @@ func contains(slice []string, item string) bool {
 // Stop stops the Git service
 func (s *GitService) Stop() {
 	// No background services to stop
+}
+
+// GitAddCommitGetHash performs git add, commit, and returns the commit hash
+// Returns empty string if not a git repository or no changes to commit
+func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {
+	// Check if it's a git repository
+	if err := s.execGitCommand(workspaceDir, "rev-parse", "--git-dir").Run(); err != nil {
+		log.Printf("📂 Not a git repository, skipping git operations")
+		return "", nil
+	}
+
+	// Stage all changes
+	if output, err := s.runGitCommand(workspaceDir, "add", "."); err != nil {
+		return "", fmt.Errorf("git add failed: %v, output: %s", err, string(output))
+	}
+
+	// Check if there are staged changes to commit
+	if err := s.execGitCommand(workspaceDir, "diff", "--cached", "--quiet").Run(); err == nil {
+		return "", nil
+	}
+
+	// Commit with the message
+	if output, err := s.runGitCommand(workspaceDir, "commit", "-m", message, "-n"); err != nil {
+		return "", fmt.Errorf("git commit failed: %v, output: %s", err, string(output))
+	}
+
+	// Get the commit hash
+	output, err := s.runGitCommand(workspaceDir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse failed: %v", err)
+	}
+
+	hash := strings.TrimSpace(string(output))
+	return hash, nil
 }
 
 // createWorktreeForExistingRepo creates a worktree for an already loaded repository
