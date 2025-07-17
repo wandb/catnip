@@ -118,16 +118,25 @@ NC='\033[0m' # No Color
 
 echo -e "${YELLOW}🎨 Running pre-commit formatters...${NC}"
 
-# Track if any files were formatted
-formatted_files=false
+# Track files that were formatted
+formatted_files_list=""
 
 # Format TypeScript/JavaScript files
 echo "Formatting TypeScript/JavaScript files..."
+# Store files modified before formatting
+files_before_ts=$(git diff --name-only)
 if pnpm format:changed 2>/dev/null; then
     # Check if any files were actually formatted
-    if [ -n "$(git diff --name-only)" ]; then
-        formatted_files=true
-        echo -e "${GREEN}✅ TypeScript/JavaScript files formatted${NC}"
+    files_after_ts=$(git diff --name-only)
+    if [ -n "$files_after_ts" ]; then
+        # Get the newly formatted files
+        new_formatted_files=$(echo "$files_after_ts" | grep -v -F -x "$files_before_ts" 2>/dev/null || echo "$files_after_ts")
+        if [ -n "$new_formatted_files" ]; then
+            formatted_files_list="$formatted_files_list $new_formatted_files"
+            echo -e "${GREEN}✅ TypeScript/JavaScript files formatted${NC}"
+        else
+            echo -e "${GREEN}✅ No TypeScript/JavaScript files needed formatting${NC}"
+        fi
     else
         echo -e "${GREEN}✅ No TypeScript/JavaScript files needed formatting${NC}"
     fi
@@ -173,11 +182,22 @@ if [ -n "$container_changes" ]; then
     # Format Go files
     echo "Formatting Go files..."
     cd container
+    # Store files modified before formatting
+    files_before_go=$(git diff --name-only)
     if just format-go-changed 2>/dev/null; then
         # Check if any files were actually formatted
-        if [ -n "$(git diff --name-only)" ]; then
-            formatted_files=true
-            echo -e "${GREEN}✅ Go files formatted${NC}"
+        files_after_go=$(git diff --name-only)
+        if [ -n "$files_after_go" ]; then
+            # Get the newly formatted files
+            new_formatted_go_files=$(echo "$files_after_go" | grep -v -F -x "$files_before_go" 2>/dev/null || echo "$files_after_go")
+            if [ -n "$new_formatted_go_files" ]; then
+                # Add container/ prefix to Go files
+                prefixed_go_files=$(echo "$new_formatted_go_files" | sed 's|^|container/|')
+                formatted_files_list="$formatted_files_list $prefixed_go_files"
+                echo -e "${GREEN}✅ Go files formatted${NC}"
+            else
+                echo -e "${GREEN}✅ No Go files needed formatting${NC}"
+            fi
         else
             echo -e "${GREEN}✅ No Go files needed formatting${NC}"
         fi
@@ -202,10 +222,16 @@ else
     echo -e "${GREEN}✅ No Go files changed, skipping Go formatting and lint checks${NC}"
 fi
 
-# If files were formatted, add them to staging and inform user
-if [ "$formatted_files" = true ]; then
-    echo -e "${YELLOW}📝 Files were formatted. Adding to staging area...${NC}"
-    git add -u
+# If files were formatted, add only those specific files to staging
+if [ -n "$formatted_files_list" ]; then
+    echo -e "${YELLOW}📝 Files were formatted. Adding only formatted files to staging area...${NC}"
+    # Add only the formatted files
+    for file in $formatted_files_list; do
+        if [ -f "$file" ]; then
+            git add "$file"
+            echo -e "${GREEN}  ✅ Added $file${NC}"
+        fi
+    done
     echo -e "${GREEN}✅ Pre-commit formatting complete${NC}"
 else
     echo -e "${GREEN}✅ All files already formatted${NC}"
