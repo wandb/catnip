@@ -169,6 +169,9 @@ function SessionTitle({ worktree, isActive }: SessionTitleProps) {
                     <span className="text-xs text-muted-foreground">
                       {new Date(historyEntry.timestamp).toLocaleString()}
                     </span>
+                    <span className="text-xs text-muted-foreground">
+                      {historyEntry.commit_hash}
+                    </span>
                   </div>
                   {index === 0 && (
                     <Badge variant="secondary" className="ml-2 text-xs shrink-0">

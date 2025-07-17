@@ -9,14 +9,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-)
 
-// TitleEntry represents a title with its timestamp and commit hash
-type TitleEntry struct {
-	Title      string    `json:"title"`
-	Timestamp  time.Time `json:"timestamp"`
-	CommitHash string    `json:"commit_hash,omitempty"`
-}
+	"github.com/vanpelt/catnip/internal/models"
+)
 
 // SessionState represents persistent session state
 type SessionState struct {
@@ -38,12 +33,12 @@ type SessionService struct {
 
 // ActiveSessionInfo represents information about an active session in a workspace
 type ActiveSessionInfo struct {
-	ClaudeSessionUUID string       `json:"claude_session_uuid"`
-	Title             *TitleEntry  `json:"title,omitempty"`
-	TitleHistory      []TitleEntry `json:"title_history"`
-	StartedAt         time.Time    `json:"started_at"`
-	ResumedAt         *time.Time   `json:"resumed_at,omitempty"`
-	EndedAt           *time.Time   `json:"ended_at,omitempty"`
+	ClaudeSessionUUID string              `json:"claude_session_uuid"`
+	Title             *models.TitleEntry  `json:"title,omitempty"`
+	TitleHistory      []models.TitleEntry `json:"title_history"`
+	StartedAt         time.Time           `json:"started_at"`
+	ResumedAt         *time.Time          `json:"resumed_at,omitempty"`
+	EndedAt           *time.Time          `json:"ended_at,omitempty"`
 }
 
 // NewSessionService creates a new session service
@@ -305,19 +300,16 @@ func (s *SessionService) UpdateSessionTitle(workspaceDir, title, commitHash stri
 	// Only update if the title has changed
 	if session.Title == nil || session.Title.Title != title {
 		now := time.Now()
-		session.Title = &TitleEntry{
+		entry := models.TitleEntry{
 			Title:      title,
 			Timestamp:  now,
 			CommitHash: commitHash,
 		}
+		session.Title = &entry
 
 		// Add to history if not already the last entry
 		if len(session.TitleHistory) == 0 || session.TitleHistory[len(session.TitleHistory)-1].Title != title {
-			session.TitleHistory = append(session.TitleHistory, TitleEntry{
-				Title:      title,
-				Timestamp:  now,
-				CommitHash: commitHash,
-			})
+			session.TitleHistory = append(session.TitleHistory, entry)
 		}
 
 		return s.saveActiveSessionsState()

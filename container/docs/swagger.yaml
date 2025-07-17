@@ -321,6 +321,8 @@ definitions:
     type: object
   github_com_vanpelt_catnip_internal_models.TitleEntry:
     properties:
+      commit_hash:
+        type: string
       timestamp:
         type: string
       title:

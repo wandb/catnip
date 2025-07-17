@@ -1393,6 +1393,9 @@ const docTemplate = `{
         "github_com_vanpelt_catnip_internal_models.TitleEntry": {
             "type": "object",
             "properties": {
+                "commit_hash": {
+                    "type": "string"
+                },
                 "timestamp": {
                     "type": "string"
                 },

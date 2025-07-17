@@ -4,10 +4,11 @@ import (
 	"time"
 )
 
-// TitleEntry represents a title with its timestamp
+// TitleEntry represents a title with its timestamp and hash
 type TitleEntry struct {
-	Title     string    `json:"title"`
-	Timestamp time.Time `json:"timestamp"`
+	Title      string    `json:"title"`
+	Timestamp  time.Time `json:"timestamp"`
+	CommitHash string    `json:"commit_hash,omitempty"`
 }
 
 // MergeConflictError represents a merge conflict that occurred during sync or merge operations

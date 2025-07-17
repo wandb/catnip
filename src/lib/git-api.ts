@@ -9,6 +9,7 @@ export interface GitStatus {
 export interface TitleEntry {
   title: string;
   timestamp: string;
+  commit_hash?: string;
 }
 
 export interface Worktree {
