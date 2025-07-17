@@ -1803,13 +1803,10 @@ func (s *GitService) Stop() {
 // Returns empty string if not a git repository or no changes to commit
 func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {
 	// Check if it's a git repository
-	log.Printf("🔄 Checking if %s is a git repository", workspaceDir)
 	if err := s.execGitCommand(workspaceDir, "rev-parse", "--git-dir").Run(); err != nil {
 		log.Printf("📂 Not a git repository, skipping git operations")
 		return "", nil
 	}
-
-	log.Printf("🔄 Performing git operations for title update...")
 
 	// Stage all changes
 	if output, err := s.runGitCommand(workspaceDir, "add", "."); err != nil {
@@ -1818,7 +1815,6 @@ func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, 
 
 	// Check if there are staged changes to commit
 	if err := s.execGitCommand(workspaceDir, "diff", "--cached", "--quiet").Run(); err == nil {
-		log.Printf("📝 No changes to commit for title update")
 		return "", nil
 	}
 
@@ -1834,7 +1830,6 @@ func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, 
 	}
 
 	hash := strings.TrimSpace(string(output))
-	log.Printf("✅ Committed changes with hash: %s", hash)
 	return hash, nil
 }
 

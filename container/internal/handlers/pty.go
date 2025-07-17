@@ -483,9 +483,15 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 
 	// Track active session for this workspace
 	if agent == "claude" {
-		// Start session tracking - we'll update with actual Claude session UUID later
-		if err := h.sessionService.StartActiveSession(workDir, ""); err != nil {
-			log.Printf("⚠️  Failed to start session tracking for %s: %v", workDir, err)
+		// Start or resume session tracking - we'll update with actual Claude session UUID later
+		if activeSession, err := h.sessionService.StartOrResumeActiveSession(workDir, ""); err != nil {
+			log.Printf("⚠️  Failed to start/resume session tracking for %s: %v", workDir, err)
+		} else {
+			// Inherit the current title from the active session if it exists
+			if activeSession.Title != nil && activeSession.Title.Title != "" {
+				session.Title = activeSession.Title.Title
+				log.Printf("🔄 Inherited existing title from active session: %q", session.Title)
+			}
 		}
 	}
 
@@ -648,6 +654,16 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	session.bufferMutex.Lock()
 	session.outputBuffer = make([]byte, 0)
 	session.bufferMutex.Unlock()
+
+	// Preserve the current title from the active session if it exists
+	if session.Agent == "claude" {
+		if activeSession, exists := h.sessionService.GetActiveSession(session.WorkDir); exists {
+			if activeSession.Title != nil && activeSession.Title.Title != "" {
+				session.Title = activeSession.Title.Title
+				log.Printf("🔄 Preserved existing title after PTY recreation: %q", session.Title)
+			}
+		}
+	}
 
 	// Resize to match previous size
 	_ = h.resizePTY(ptmx, session.cols, session.rows)
@@ -836,7 +852,7 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 			session.ClaudeSessionID = sessionID
 
 			// Update active sessions service with real Claude session UUID
-			if err := h.sessionService.StartActiveSession(session.WorkDir, sessionID); err != nil {
+			if _, err := h.sessionService.StartOrResumeActiveSession(session.WorkDir, sessionID); err != nil {
 				log.Printf("⚠️  Failed to update active session with Claude UUID: %v", err)
 			}
 
@@ -930,6 +946,10 @@ func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) 
 		return
 	}
 
+	if commitHash == "" {
+		return
+	}
+
 	log.Printf("✅ Committed previous work with title: %q (hash: %s)", previousTitle, commitHash)
 
 	// Update the previous title's commit hash
@@ -980,25 +1000,26 @@ func (cm *SessionCheckpointManager) CreateCheckpoint(title string) error {
 	cm.checkpointMutex.Lock()
 	defer cm.checkpointMutex.Unlock()
 
-	cm.checkpointCount++
-	checkpointTitle := fmt.Sprintf("%s checkpoint: %d", title, cm.checkpointCount)
-
-	log.Printf("🔄 Creating checkpoint commit: %q", checkpointTitle)
-
+	checkpointTitle := fmt.Sprintf("%s checkpoint: %d", title, cm.checkpointCount+1)
 	commitHash, err := cm.gitService.GitAddCommitGetHash(cm.workDir, checkpointTitle)
 	if err != nil {
 		log.Printf("⚠️  Checkpoint commit failed: %v", err)
 		return err
 	}
 
+	if commitHash == "" {
+		return nil
+	}
+	cm.checkpointCount++
+
 	log.Printf("✅ Created checkpoint commit: %q (hash: %s)", checkpointTitle, commitHash)
 
 	// Update last commit time
 	cm.lastCommitTime = time.Now()
 
-	// Update the session service with the checkpoint commit
-	if err := cm.sessionService.UpdateSessionTitle(cm.workDir, title, commitHash); err != nil {
-		log.Printf("⚠️  Failed to update session with checkpoint: %v", err)
+	// Add the checkpoint to session history (without updating the current title)
+	if err := cm.sessionService.AddToSessionHistory(cm.workDir, checkpointTitle, commitHash); err != nil {
+		log.Printf("⚠️  Failed to add checkpoint to session history: %v", err)
 	}
 
 	return nil

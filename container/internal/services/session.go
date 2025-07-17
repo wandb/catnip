@@ -247,12 +247,60 @@ func (s *SessionService) StartActiveSession(workspaceDir, claudeSessionUUID stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Check if there's already an active session for this workspace
+	if existingSession, exists := s.activeSessions[workspaceDir]; exists {
+		// If session is not ended, resume it instead of overwriting
+		if existingSession.EndedAt == nil {
+			now := time.Now()
+			existingSession.ResumedAt = &now
+			// Update Claude session UUID if provided
+			if claudeSessionUUID != "" {
+				existingSession.ClaudeSessionUUID = claudeSessionUUID
+			}
+			return s.saveActiveSessionsState()
+		}
+		// If session was ended, we can create a new one (fall through)
+	}
+
+	// Create new session
 	s.activeSessions[workspaceDir] = &ActiveSessionInfo{
 		ClaudeSessionUUID: claudeSessionUUID,
 		StartedAt:         time.Now(),
 	}
 
 	return s.saveActiveSessionsState()
+}
+
+// StartOrResumeActiveSession is a convenience method that handles both new and existing sessions
+func (s *SessionService) StartOrResumeActiveSession(workspaceDir, claudeSessionUUID string) (*ActiveSessionInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if there's already an active session for this workspace
+	if existingSession, exists := s.activeSessions[workspaceDir]; exists {
+		// If session is not ended, resume it
+		if existingSession.EndedAt == nil {
+			now := time.Now()
+			existingSession.ResumedAt = &now
+			// Update Claude session UUID if provided
+			if claudeSessionUUID != "" {
+				existingSession.ClaudeSessionUUID = claudeSessionUUID
+			}
+			err := s.saveActiveSessionsState()
+			return existingSession, err
+		}
+		// If session was ended, we can create a new one (fall through)
+	}
+
+	// Create new session
+	newSession := &ActiveSessionInfo{
+		ClaudeSessionUUID: claudeSessionUUID,
+		StartedAt:         time.Now(),
+	}
+	s.activeSessions[workspaceDir] = newSession
+
+	err := s.saveActiveSessionsState()
+	return newSession, err
 }
 
 // ResumeActiveSession marks an existing session as resumed
@@ -283,6 +331,35 @@ func (s *SessionService) EndActiveSession(workspaceDir string) error {
 	}
 
 	return fmt.Errorf("no active session found for workspace: %s", workspaceDir)
+}
+
+// AddToSessionHistory adds an entry to the session history without updating the current title
+func (s *SessionService) AddToSessionHistory(workspaceDir, title, commitHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fmt.Printf("📝 Adding to session history: %s for workspace: %s\n", title, workspaceDir)
+
+	session, exists := s.activeSessions[workspaceDir]
+	if !exists {
+		return fmt.Errorf("no active session found for workspace: %s", workspaceDir)
+	}
+
+	// Create history entry
+	now := time.Now()
+	entry := models.TitleEntry{
+		Title:      title,
+		Timestamp:  now,
+		CommitHash: commitHash,
+	}
+
+	// Add to history if not already the last entry
+	if len(session.TitleHistory) == 0 || session.TitleHistory[len(session.TitleHistory)-1].Title != title {
+		session.TitleHistory = append(session.TitleHistory, entry)
+		return s.saveActiveSessionsState()
+	}
+
+	return nil
 }
 
 // UpdateSessionTitle updates the title for an active session and adds it to history
