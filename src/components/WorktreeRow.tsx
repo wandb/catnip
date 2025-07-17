@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  GitBranch,
   GitMerge,
   MoreHorizontal,
   RefreshCw,
@@ -68,6 +69,7 @@ interface WorktreeRowProps {
     isDirty: boolean,
     commitCount: number,
   ) => void;
+  onBranchFromWorktree: (worktreeId: string, name: string) => void;
 }
 
 interface CommitHashDisplayProps {
@@ -275,6 +277,13 @@ function WorktreeActionDropdown({
         <DropdownMenuItem onClick={() => onSync(worktree.id)}>
           <RefreshCw size={16} />
           Sync with {worktree.source_branch}
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          onClick={() => onBranchFromWorktree(worktree.id, worktree.name)}
+        >
+          <GitBranch size={16} />
+          Branch from this worktree
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
@@ -624,6 +633,7 @@ export function WorktreeRow({
   onMerge,
   onCreatePreview,
   onConfirmDelete,
+  onBranchFromWorktree,
   prStatuses,
   repositories,
 }: WorktreeRowPropsWithPR) {
