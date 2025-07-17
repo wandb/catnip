@@ -27,24 +27,25 @@ type PTYHandler struct {
 	sessionMutex   sync.RWMutex
 	gitService     *services.GitService
 	sessionService *services.SessionService
+	portService    *services.PortAllocationService
 }
 
 // Session represents a PTY session
 type Session struct {
-	ID          string
-	PTY         *os.File
-	Cmd         *exec.Cmd
-	CreatedAt   time.Time
-	LastAccess  time.Time
-	WorkDir     string
-	Agent       string
-	Title       string
+	ID              string
+	PTY             *os.File
+	Cmd             *exec.Cmd
+	CreatedAt       time.Time
+	LastAccess      time.Time
+	WorkDir         string
+	Agent           string
+	Title           string
 	ClaudeSessionID string // Track Claude session UUID for resume functionality
-	connections map[*websocket.Conn]bool
-	connMutex   sync.RWMutex
+	connections     map[*websocket.Conn]bool
+	connMutex       sync.RWMutex
 	// Buffer to store PTY output for replay
-	outputBuffer []byte
-	bufferMutex  sync.RWMutex
+	outputBuffer  []byte
+	bufferMutex   sync.RWMutex
 	maxBufferSize int
 	// Terminal dimensions
 	cols uint16
@@ -110,6 +111,7 @@ func NewPTYHandler(gitService *services.GitService) *PTYHandler {
 		sessions:       make(map[string]*Session),
 		gitService:     gitService,
 		sessionService: services.NewSessionService(),
+		portService:    services.NewPortAllocationService(),
 	}
 }
 
@@ -151,7 +153,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		conn.Close()
 		return
 	}
-	
+
 	// Add connection to session
 	session.connMutex.Lock()
 	session.connections[conn] = true
@@ -162,22 +164,22 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 	// Channel to signal when connection should close
 	done := make(chan struct{})
-	
+
 	// Clean up connection on exit
 	defer func() {
 		// Recover from any panics in this connection handler
 		if r := recover(); r != nil {
 			log.Printf("❌ Recovered from panic in PTY connection handler: %v", r)
 		}
-		
+
 		close(done) // Signal goroutines to stop
 		session.connMutex.Lock()
 		delete(session.connections, conn)
 		connectionCount := len(session.connections)
 		session.connMutex.Unlock()
-		
+
 		log.Printf("🔌 PTY connection closed for session %s (remaining: %d)", sessionID, connectionCount)
-		
+
 		// Safe close with error handling
 		if err := conn.Close(); err != nil {
 			log.Printf("❌ Error closing websocket connection: %v", err)
@@ -191,7 +193,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				log.Printf("❌ Recovered from panic in PTY read goroutine: %v", r)
 			}
 		}()
-		
+
 		buf := make([]byte, 1024)
 		for {
 			select {
@@ -199,23 +201,23 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				return
 			default:
 			}
-			
+
 			n, err := session.PTY.Read(buf)
 			if err != nil {
 				// Check for various exit conditions
 				if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
 					log.Printf("🔄 PTY closed (shell exited: %v), creating new session...", err)
-					
+
 					// Create new PTY (this will clear the buffer)
 					h.recreateSession(session)
-					
+
 					// Continue reading from new PTY
 					continue
 				}
 				log.Printf("❌ PTY read error: %v", err)
 				return
 			}
-			
+
 			// Add to buffer (unlimited growth for TUI compatibility)
 			session.bufferMutex.Lock()
 			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
@@ -227,14 +229,14 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			session.bufferedCols = session.cols
 			session.bufferedRows = session.rows
 			session.bufferMutex.Unlock()
-			
+
 			// Check if connection is still valid before writing
 			select {
 			case <-done:
 				return
 			default:
 			}
-			
+
 			// Send to all connections
 			session.broadcastToConnections(websocket.BinaryMessage, buf[:n])
 		}
@@ -260,19 +262,19 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					continue
 				case "ready":
 					log.Printf("🎯 Client ready signal received")
-					
+
 					// Get buffer info
 					session.bufferMutex.RLock()
 					hasBuffer := len(session.outputBuffer) > 0
 					bufferCols := session.bufferedCols
 					bufferRows := session.bufferedRows
 					session.bufferMutex.RUnlock()
-					
+
 					if hasBuffer && bufferCols > 0 && bufferRows > 0 {
 						// First, resize PTY to match buffered dimensions
 						log.Printf("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
 						_ = h.resizePTY(session.PTY, bufferCols, bufferRows)
-						
+
 						// Tell client what size to use for replay
 						sizeMsg := struct {
 							Type string `json:"type"`
@@ -283,18 +285,18 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 							Cols: bufferCols,
 							Rows: bufferRows,
 						}
-						
+
 						if data, err := json.Marshal(sizeMsg); err == nil {
 							_ = session.writeToConnection(conn, websocket.TextMessage, data)
 						}
-						
+
 						// Then replay the buffer
 						session.bufferMutex.RLock()
 						log.Printf("📋 Replaying %d bytes of buffered output at %dx%d", len(session.outputBuffer), bufferCols, bufferRows)
 						bufferCopy := make([]byte, len(session.outputBuffer))
 						copy(bufferCopy, session.outputBuffer)
 						session.bufferMutex.RUnlock()
-						
+
 						if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferCopy); err != nil {
 							log.Printf("❌ Failed to replay buffer: %v", err)
 						}
@@ -307,14 +309,14 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					}{
 						Type: "buffer-complete",
 					}
-					
+
 					if data, err := json.Marshal(completeMsg); err == nil {
 						_ = session.writeToConnection(conn, websocket.TextMessage, data)
 					}
 					continue
 				}
 			}
-			
+
 			// Try to parse as JSON for resize messages
 			var resizeMsg ResizeMsg
 			if err := json.Unmarshal(data, &resizeMsg); err == nil && resizeMsg.Cols > 0 && resizeMsg.Rows > 0 {
@@ -331,7 +333,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			log.Printf("❌ PTY write error: %v", err)
 			break
 		}
-		
+
 		// Update last access time
 		session.LastAccess = time.Now()
 	}
@@ -340,7 +342,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 	// Sanitize session ID to prevent path traversal
 	sessionID = h.sanitizeSessionID(sessionID)
-	
+
 	h.sessionMutex.RLock()
 	session, exists := h.sessions[sessionID]
 	h.sessionMutex.RUnlock()
@@ -369,13 +371,13 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 
 	// Set workspace directory
 	var workDir string
-	
+
 	// Priority order for workspace directory:
 	// 1. Session ID in repo/branch format maps to Git worktree
 	// 2. Active Git worktree (if available and no specific session)
-	// 3. Mounted directory at /workspace/{sessionID} 
+	// 3. Mounted directory at /workspace/{sessionID}
 	// 4. Default /workspace
-	
+
 	// Check if session ID is in repo/branch format (e.g., "myrepo/main")
 	if strings.Contains(sessionID, "/") && h.gitService != nil {
 		// This might be a Git worktree session
@@ -384,7 +386,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		if len(parts) == 2 {
 			repo := parts[0]
 			branch := parts[1]
-			
+
 			// Check for worktree at /workspace/repo/branch (our standard pattern)
 			branchWorktreePath := filepath.Join("/workspace", repo, branch)
 			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
@@ -395,7 +397,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 			}
 		}
 	}
-	
+
 	// If not a Git session, check if Git service has a default worktree
 	if workDir == "" && h.gitService != nil {
 		gitWorkDir := h.gitService.GetDefaultWorktreePath()
@@ -404,7 +406,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 			log.Printf("📁 Using default Git worktree directory: %s", workDir)
 		}
 	}
-	
+
 	// If no Git worktree, check for session-based directory
 	if workDir == "" {
 		sessionWorkDir := filepath.Join("/workspace", sessionID)
@@ -424,7 +426,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 			}
 		}
 	}
-	
+
 	// Fallback to default workspace
 	if workDir == "" {
 		workDir = "/workspace"
@@ -440,8 +442,16 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		}
 	}
 
+	// Allocate ports for this session
+	ports, err := h.portService.AllocatePortsForSession(sessionID)
+	if err != nil {
+		log.Printf("❌ Failed to allocate ports for session %s: %v", sessionID, err)
+		return nil
+	}
+	log.Printf("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
+
 	// Create command based on agent parameter
-	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID)
+	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID, ports)
 
 	// Start PTY
 	ptmx, err := pty.Start(cmd)
@@ -488,7 +498,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 
 	// Start session cleanup goroutine
 	go h.monitorSession(session)
-	
+
 	// Start Claude session ID monitoring for claude sessions
 	if agent == "claude" {
 		go h.monitorClaudeSession(session)
@@ -507,14 +517,14 @@ func (h *PTYHandler) resizePTY(ptmx *os.File, cols, rows uint16) error {
 		Row: rows,
 		Col: cols,
 	}
-	
+
 	_, _, errno := syscall.Syscall(
 		syscall.SYS_IOCTL,
 		ptmx.Fd(),
 		syscall.TIOCSWINSZ,
 		uintptr(unsafe.Pointer(ws)),
 	)
-	
+
 	if errno != 0 {
 		return errno
 	}
@@ -539,8 +549,16 @@ func (h *PTYHandler) monitorSession(session *Session) {
 	}
 }
 
-func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID string) *exec.Cmd {
+func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID string, ports *services.SessionPorts) *exec.Cmd {
 	var cmd *exec.Cmd
+
+	// Get port environment variables
+	portEnvVars, err := h.portService.GetEnvironmentVariables(sessionID)
+	if err != nil {
+		log.Printf("⚠️  Failed to get port environment variables for session %s: %v", sessionID, err)
+		portEnvVars = []string{} // fallback to empty
+	}
+
 	if agent == "claude" {
 		// Build Claude command with optional resume flag
 		args := []string{"--dangerously-skip-permissions"}
@@ -550,7 +568,7 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		} else {
 			log.Printf("🤖 Starting new Claude Code session: %s", sessionID)
 		}
-		
+
 		cmd = exec.Command("claude", args...)
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
@@ -559,6 +577,8 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
+		// Add port environment variables
+		cmd.Env = append(cmd.Env, portEnvVars...)
 	} else {
 		// Default bash shell
 		cmd = exec.Command("bash", "--login")
@@ -569,6 +589,8 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
+		// Add port environment variables
+		cmd.Env = append(cmd.Env, portEnvVars...)
 		log.Printf("🐚 Starting bash shell for session: %s", sessionID)
 	}
 	cmd.Dir = workDir
@@ -597,8 +619,20 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		}
 	}
 
+	// Get ports for this session (should already be allocated)
+	ports, exists := h.portService.GetPortsForSession(session.ID)
+	if !exists {
+		log.Printf("⚠️  No ports found for session %s during recreation, reallocating", session.ID)
+		var err error
+		ports, err = h.portService.AllocatePortsForSession(session.ID)
+		if err != nil {
+			log.Printf("❌ Failed to allocate ports for session %s during recreation: %v", session.ID, err)
+			return
+		}
+	}
+
 	// Create new command using the same agent
-	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID)
+	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID, ports)
 
 	// Start new PTY
 	ptmx, err := pty.Start(cmd)
@@ -646,6 +680,13 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 		_ = session.Cmd.Wait()
 	}
 
+	// Release ports for this session
+	if err := h.portService.ReleasePortsForSession(session.ID); err != nil {
+		log.Printf("⚠️  Failed to release ports for session %s: %v", session.ID, err)
+	} else {
+		log.Printf("🔗 Released ports for session: %s", session.ID)
+	}
+
 	// Remove from sessions map
 	delete(h.sessions, session.ID)
 }
@@ -657,25 +698,25 @@ func (h *PTYHandler) sanitizeSessionID(sessionID string) string {
 	sessionID = strings.ReplaceAll(sessionID, "..", "")
 	sessionID = strings.ReplaceAll(sessionID, "~/", "")
 	sessionID = strings.ReplaceAll(sessionID, "~", "")
-	
+
 	// Remove any absolute path attempts
 	sessionID = strings.TrimPrefix(sessionID, "/")
-	
+
 	// Remove any null bytes or other dangerous characters
 	sessionID = strings.ReplaceAll(sessionID, "\x00", "")
 	sessionID = strings.ReplaceAll(sessionID, "\n", "")
 	sessionID = strings.ReplaceAll(sessionID, "\r", "")
-	
+
 	// Limit the session ID length to prevent DOS
 	if len(sessionID) > 100 {
 		sessionID = sessionID[:100]
 	}
-	
+
 	// Ensure it's not empty after sanitization
 	if sessionID == "" {
 		sessionID = "default"
 	}
-	
+
 	return sessionID
 }
 
@@ -683,12 +724,12 @@ func (h *PTYHandler) sanitizeSessionID(sessionID string) string {
 func (s *Session) broadcastToConnections(messageType int, data []byte) {
 	s.writeMutex.Lock()
 	defer s.writeMutex.Unlock()
-	
+
 	s.connMutex.RLock()
 	defer s.connMutex.RUnlock()
-	
+
 	var disconnectedConns []*websocket.Conn
-	
+
 	for conn := range s.connections {
 		if err := conn.WriteMessage(messageType, data); err != nil {
 			log.Printf("❌ WebSocket write error: %v", err)
@@ -696,7 +737,7 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 			disconnectedConns = append(disconnectedConns, conn)
 		}
 	}
-	
+
 	// Remove disconnected connections
 	if len(disconnectedConns) > 0 {
 		// Need to upgrade to write lock to modify connections map
@@ -716,19 +757,19 @@ func (s *Session) writeToConnection(conn *websocket.Conn, messageType int, data 
 	if conn == nil {
 		return fmt.Errorf("connection is nil")
 	}
-	
+
 	s.writeMutex.Lock()
 	defer s.writeMutex.Unlock()
-	
+
 	// Check if connection is still in our connections map
 	s.connMutex.RLock()
 	_, exists := s.connections[conn]
 	s.connMutex.RUnlock()
-	
+
 	if !exists {
 		return fmt.Errorf("connection no longer exists")
 	}
-	
+
 	return conn.WriteMessage(messageType, data)
 }
 
@@ -743,7 +784,7 @@ func (h *PTYHandler) saveSessionState(session *Session) {
 		LastAccess:       session.LastAccess,
 		Environment:      make(map[string]string),
 	}
-	
+
 	if err := h.sessionService.SaveSessionState(state); err != nil {
 		log.Printf("⚠️  Failed to save session state for %s: %v", session.ID, err)
 	} else {
@@ -754,32 +795,32 @@ func (h *PTYHandler) saveSessionState(session *Session) {
 // monitorClaudeSession monitors .claude/projects directory for new session files
 func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	log.Printf("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
-	
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	
+
 	startTime := time.Now()
 	timeout := 30 * time.Second // Give Claude 30 seconds to create session file
-	
+
 	claudeProjectsDir := filepath.Join(session.WorkDir, ".claude", "projects")
-	
+
 	for range ticker.C {
 		if time.Since(startTime) > timeout {
 			log.Printf("⏰ Claude session monitoring timeout for %s", session.ID)
 			return
 		}
-		
+
 		// Find newest JSONL file in .claude/projects
 		sessionID := h.findNewestClaudeSession(claudeProjectsDir)
 		if sessionID != "" && sessionID != session.ClaudeSessionID {
 			log.Printf("🎯 Detected Claude session ID: %s for PTY session: %s", sessionID, session.ID)
 			session.ClaudeSessionID = sessionID
-			
+
 			// Update active sessions service with real Claude session UUID
 			if err := h.sessionService.StartActiveSession(session.WorkDir, sessionID); err != nil {
 				log.Printf("⚠️  Failed to update active session with Claude UUID: %v", err)
 			}
-			
+
 			// Update persisted state
 			go h.saveSessionState(session)
 			return
@@ -793,43 +834,43 @@ func (h *PTYHandler) findNewestClaudeSession(claudeProjectsDir string) string {
 	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
 		return ""
 	}
-	
+
 	files, err := os.ReadDir(claudeProjectsDir)
 	if err != nil {
 		log.Printf("⚠️  Failed to read .claude/projects directory: %v", err)
 		return ""
 	}
-	
+
 	var newestFile string
 	var newestTime time.Time
-	
+
 	for _, file := range files {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
 			continue
 		}
-		
+
 		// Extract session ID from filename (remove .jsonl extension)
 		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
-		
+
 		// Validate that it looks like a UUID
 		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
 			continue
 		}
-		
+
 		// Get file modification time
 		filePath := filepath.Join(claudeProjectsDir, file.Name())
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
 			continue
 		}
-		
+
 		// Track the newest file
 		if fileInfo.ModTime().After(newestTime) {
 			newestTime = fileInfo.ModTime()
 			newestFile = sessionID
 		}
 	}
-	
+
 	return newestFile
 }
 

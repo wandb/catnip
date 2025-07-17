@@ -29,12 +29,12 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0", // Allow external connections
-    port: 5173,
-    strictPort: true, // Don't try other ports if 5173 is busy
+    port: parseInt(process.env.VITE_PORT || "5173"),
+    strictPort: true, // Don't try other ports if configured port is busy
     hmr: {
       // Configure HMR for container development
       host: "localhost",
-      port: 5173,
+      port: parseInt(process.env.VITE_PORT || "5173"),
       // Use WebSocket for HMR in containers
       protocol: "ws",
     },
