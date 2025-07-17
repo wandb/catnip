@@ -40,13 +40,22 @@ function GitPage() {
     prStatuses,
     loading,
     reposLoading,
-    fetchGitStatus,
-    fetchWorktrees,
+    checkoutLoading,
+    syncingWorktrees,
+    mergingWorktrees,
+    loadingNewWorktrees,
     fetchRepositories,
     fetchActiveSessions,
     fetchPrStatuses,
     refreshAll,
-    setLoading,
+    // New incremental update functions
+    backgroundRefreshGitStatus,
+    addNewWorktrees,
+    refreshWorktree,
+    removeWorktree,
+    setCheckoutLoading,
+    setSyncingWorktree,
+    setMergingWorktree,
   } = useGitState();
 
   const [githubUrl, setGithubUrl] = useState("");
@@ -92,7 +101,7 @@ function GitPage() {
   });
 
   const handleCheckout = async (url: string) => {
-    setLoading(true);
+    setCheckoutLoading(true);
     try {
       const parsedUrl = parseGitUrl(url);
       if (!parsedUrl) {
@@ -110,12 +119,24 @@ function GitPage() {
       });
 
       if (response.ok) {
-        await refreshAll();
+        // Stop loading immediately when checkout succeeds
+        setCheckoutLoading(false);
+
         const message =
           parsedUrl.type === "local"
             ? "Local repository checked out successfully"
             : "Repository checked out successfully";
         toast.success(message);
+
+        // Clear the input if successful
+        setGithubUrl("");
+
+        // Do background updates without blocking UI
+        Promise.all([addNewWorktrees(), backgroundRefreshGitStatus()]).catch(
+          console.error,
+        );
+
+        return; // Early return to avoid finally block
       } else {
         const errorData = (await response.json()) as { error?: string };
         console.error("Failed to checkout repository:", errorData);
@@ -133,26 +154,40 @@ function GitPage() {
         description: `Failed to checkout repository: ${String(error)}`,
       });
     } finally {
-      setLoading(false);
+      // Only runs if there was an error (early return above on success)
+      setCheckoutLoading(false);
     }
   };
 
   const deleteWorktree = async (id: string) => {
     try {
       await gitApi.deleteWorktree(id);
-      await fetchWorktrees();
+      // Remove from state immediately
+      removeWorktree(id);
       await fetchActiveSessions();
-      await fetchPrStatuses();
     } catch (error) {
       console.error("Failed to delete worktree:", error);
     }
   };
 
   const syncWorktree = async (id: string) => {
-    const success = await gitApi.syncWorktree(id, { setErrorAlert });
-    if (success) {
-      await fetchWorktrees();
-      await fetchPrStatuses();
+    setSyncingWorktree(id, true);
+    try {
+      const success = await gitApi.syncWorktree(id, { setErrorAlert });
+
+      // Stop loading immediately when sync succeeds
+      setSyncingWorktree(id, false);
+
+      if (success) {
+        // Do background refresh without blocking UI
+        refreshWorktree(id, { includeDiffs: true }).catch(console.error);
+        return; // Early return to avoid finally block
+      }
+    } catch (error) {
+      console.error("Failed to sync worktree:", error);
+    } finally {
+      // Only runs if there was an error (early return above on success)
+      setSyncingWorktree(id, false);
     }
   };
 
@@ -161,13 +196,28 @@ function GitPage() {
     worktreeName: string,
     squash = true,
   ) => {
-    const success = await gitApi.mergeWorktree(id, worktreeName, squash, {
-      setErrorAlert,
-    });
-    if (success) {
-      await fetchWorktrees();
-      await fetchGitStatus();
-      await fetchPrStatuses();
+    setMergingWorktree(id, true);
+    try {
+      const success = await gitApi.mergeWorktree(id, worktreeName, squash, {
+        setErrorAlert,
+      });
+
+      // Stop loading immediately when merge succeeds
+      setMergingWorktree(id, false);
+
+      if (success) {
+        // Do background refreshes without blocking UI
+        Promise.all([
+          refreshWorktree(id, { includeDiffs: true }),
+          backgroundRefreshGitStatus(),
+        ]).catch(console.error);
+        return; // Early return to avoid finally block
+      }
+    } catch (error) {
+      console.error("Failed to merge worktree:", error);
+    } finally {
+      // Only runs if there was an error (early return above on success)
+      setMergingWorktree(id, false);
     }
   };
 
@@ -276,8 +326,36 @@ function GitPage() {
                         prStatuses={prStatuses}
                         onConfirmDelete={onConfirmDelete}
                         repositories={gitStatus.repositories}
+                        // Pass individual loading states
+                        isSyncing={syncingWorktrees.has(worktree.id)}
+                        isMerging={mergingWorktrees.has(worktree.id)}
                       />
                     ))}
+                  {loadingNewWorktrees && (
+                    <div className="border rounded-lg p-4 mb-4 bg-card animate-pulse">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                              <span className="text-sm text-muted-foreground">
+                                Loading new worktree...
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                            <div className="h-3 w-16 bg-muted rounded"></div>
+                            <div className="h-3 w-20 bg-muted rounded"></div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-8 w-24 bg-muted rounded"></div>
+                          <div className="h-8 w-16 bg-muted rounded"></div>
+                          <div className="h-8 w-8 bg-muted rounded"></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-muted-foreground">No worktrees found</p>
@@ -325,10 +403,10 @@ function GitPage() {
             </div>
             <Button
               onClick={() => void handleCheckout(githubUrl)}
-              disabled={!githubUrl || loading}
-              className="mt-6"
+              disabled={!githubUrl || checkoutLoading}
+              className="mt-5.5"
             >
-              {loading ? (
+              {checkoutLoading ? (
                 <RefreshCw className="animate-spin" size={16} />
               ) : (
                 "Checkout"
