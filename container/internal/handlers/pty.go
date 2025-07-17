@@ -27,6 +27,7 @@ type PTYHandler struct {
 	sessionMutex   sync.RWMutex
 	gitService     *services.GitService
 	sessionService *services.SessionService
+	portService    *services.PortAllocationService
 }
 
 // Session represents a PTY session
@@ -112,6 +113,7 @@ func NewPTYHandler(gitService *services.GitService) *PTYHandler {
 		sessions:       make(map[string]*Session),
 		gitService:     gitService,
 		sessionService: services.NewSessionService(),
+		portService:    services.NewPortAllocationService(),
 	}
 }
 
@@ -441,8 +443,16 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		}
 	}
 
+	// Allocate ports for this session
+	ports, err := h.portService.AllocatePortsForSession(sessionID)
+	if err != nil {
+		log.Printf("❌ Failed to allocate ports for session %s: %v", sessionID, err)
+		return nil
+	}
+	log.Printf("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
+
 	// Create command based on agent parameter
-	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID)
+	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID, ports)
 
 	// Start PTY
 	ptmx, err := pty.Start(cmd)
@@ -578,8 +588,16 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 	}
 }
 
-func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID string) *exec.Cmd {
+func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID string, ports *services.SessionPorts) *exec.Cmd {
 	var cmd *exec.Cmd
+
+	// Get port environment variables
+	portEnvVars, err := h.portService.GetEnvironmentVariables(sessionID)
+	if err != nil {
+		log.Printf("⚠️  Failed to get port environment variables for session %s: %v", sessionID, err)
+		portEnvVars = []string{} // fallback to empty
+	}
+
 	if agent == "claude" {
 		// Build Claude command with optional resume flag
 		args := []string{"--dangerously-skip-permissions"}
@@ -598,6 +616,8 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
+		// Add port environment variables
+		cmd.Env = append(cmd.Env, portEnvVars...)
 	} else {
 		// Default bash shell
 		cmd = exec.Command("bash", "--login")
@@ -608,6 +628,8 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
+		// Add port environment variables
+		cmd.Env = append(cmd.Env, portEnvVars...)
 		log.Printf("🐚 Starting bash shell for session: %s", sessionID)
 	}
 	cmd.Dir = workDir
@@ -636,8 +658,20 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		}
 	}
 
+	// Get ports for this session (should already be allocated)
+	ports, exists := h.portService.GetPortsForSession(session.ID)
+	if !exists {
+		log.Printf("⚠️  No ports found for session %s during recreation, reallocating", session.ID)
+		var err error
+		ports, err = h.portService.AllocatePortsForSession(session.ID)
+		if err != nil {
+			log.Printf("❌ Failed to allocate ports for session %s during recreation: %v", session.ID, err)
+			return
+		}
+	}
+
 	// Create new command using the same agent
-	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID)
+	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID, ports)
 
 	// Start new PTY
 	ptmx, err := pty.Start(cmd)
@@ -701,6 +735,13 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 	if session.Cmd != nil && session.Cmd.Process != nil {
 		_ = session.Cmd.Process.Kill()
 		_ = session.Cmd.Wait()
+	}
+
+	// Release ports for this session
+	if err := h.portService.ReleasePortsForSession(session.ID); err != nil {
+		log.Printf("⚠️  Failed to release ports for session %s: %v", session.ID, err)
+	} else {
+		log.Printf("🔗 Released ports for session: %s", session.ID)
 	}
 
 	// Remove from sessions map

@@ -34,7 +34,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 		// If this isn't a valid port number, let other handlers handle it
 		return c.Next()
 	}
-	
+
 	// Validate port range
 	if port < 1 || port > 65535 {
 		return c.Next()
@@ -49,10 +49,10 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 		})
 	}
 
-	// Only proxy to healthy HTTP services
-	if service.ServiceType != "http" || service.Health != "healthy" {
+	// Only proxy to HTTP services (health status doesn't matter for proxying)
+	if service.ServiceType != "http" {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-			"error": fmt.Sprintf("Port %d is not a healthy HTTP service", port),
+			"error": fmt.Sprintf("Port %d is not an HTTP service", port),
 		})
 	}
 
@@ -66,7 +66,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 
 	// Build target URL
 	targetURL := fmt.Sprintf("http://localhost:%d%s", port, path)
-	
+
 	// Add query parameters
 	if c.Request().URI().QueryString() != nil {
 		targetURL += "?" + string(c.Request().URI().QueryString())
@@ -88,12 +88,12 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	c.Request().Header.VisitAll(func(key, value []byte) {
 		keyStr := string(key)
 		valueStr := string(value)
-		
+
 		// Skip headers that shouldn't be forwarded
 		if keyStr == "Host" || keyStr == "Connection" || keyStr == "Content-Length" {
 			return
 		}
-		
+
 		req.Header.Set(keyStr, valueStr)
 	})
 
@@ -143,11 +143,11 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 // modifyHTMLContent injects base tag and JavaScript to handle SPA routing
 func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 	basePath := fmt.Sprintf("/%d/", port)
-	
+
 	// Inject base tag and early variable declaration
 	baseTag := fmt.Sprintf(`<base href="%s">`, basePath)
 	earlyScript := fmt.Sprintf(`<script>window.__PROXY_BASE_PATH__ = '%s';</script>`, basePath)
-	
+
 	// Find head tag and inject base tag and early script
 	headRegex := regexp.MustCompile(`<head[^>]*>`)
 	if headRegex.MatchString(content) {
@@ -155,7 +155,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 			return match + "\n" + baseTag + "\n" + earlyScript
 		})
 	}
-	
+
 	// Inject JavaScript for SPA support and iframe resizing
 	jsCode := fmt.Sprintf(`
 <script>
@@ -201,6 +201,16 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
     let parentOrigin = null;
     let lastHeight = 0;
     let resizeObserver = null;
+    
+    // Guards against infinite resize loops
+    const MAX_HEIGHT = 50000; // Maximum allowed height
+    const MIN_HEIGHT_CHANGE = 10; // Minimum height change to trigger update
+    const RATE_LIMIT_MS = 200; // Minimum time between height updates (5 per second)
+    const CYCLE_DETECTION_WINDOW = 5; // Number of recent heights to track
+    
+    let lastUpdateTime = 0;
+    let recentHeights = []; // Track recent heights for cycle detection
+    let isRateLimited = false;
 
     // Check if we're in an iframe
     try {
@@ -219,15 +229,22 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
         });
 
         function initializeIframeResizer() {
-            // Function to calculate and send height
+            // Function to calculate and send height with guards
             function sendHeight() {
-                if (!parentOrigin) return;
+                if (!parentOrigin || isRateLimited) return;
+
+                const now = Date.now();
+                
+                // Rate limiting - enforce minimum time between updates
+                if (now - lastUpdateTime < RATE_LIMIT_MS) {
+                    return;
+                }
 
                 const body = document.body;
                 const html = document.documentElement;
                 
                 // Get the maximum height of the document
-                const height = Math.max(
+                let height = Math.max(
                     body.scrollHeight,
                     body.offsetHeight,
                     html.clientHeight,
@@ -235,13 +252,42 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
                     html.offsetHeight
                 );
 
-                // Only send if height has changed significantly (avoid spam)
-                if (Math.abs(height - lastHeight) > 10) {
-                    lastHeight = height;
+                // Enforce maximum height limit
+                if (height > MAX_HEIGHT) {
+                    console.warn('Iframe resizer: Height exceeds maximum, capping at', MAX_HEIGHT);
+                    height = MAX_HEIGHT;
+                }
+
+                // Only send if height has changed significantly
+                if (Math.abs(height - lastHeight) < MIN_HEIGHT_CHANGE) {
+                    return;
+                }
+
+                // Cycle detection - check if we're oscillating between heights
+                if (recentHeights.length >= CYCLE_DETECTION_WINDOW) {
+                    const isOscillating = recentHeights.some(h => Math.abs(h - height) < MIN_HEIGHT_CHANGE);
+                    if (isOscillating && recentHeights.length > 2) {
+                        console.warn('Iframe resizer: Potential oscillation detected, skipping update');
+                        return;
+                    }
+                }
+
+                // Update tracking variables
+                recentHeights.push(height);
+                if (recentHeights.length > CYCLE_DETECTION_WINDOW) {
+                    recentHeights.shift();
+                }
+                
+                lastHeight = height;
+                lastUpdateTime = now;
+
+                try {
                     window.parent.postMessage({
                         type: 'catnip-iframe-height',
                         height: height
                     }, parentOrigin);
+                } catch (e) {
+                    console.error('Iframe resizer: Failed to send height update', e);
                 }
             }
 
@@ -255,22 +301,38 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
                 setTimeout(sendHeight, 100);
             });
 
-            // Use ResizeObserver if available
+            // Use ResizeObserver if available with timeout protection
             if (window.ResizeObserver) {
+                let resizeTimeout;
                 resizeObserver = new ResizeObserver(function() {
-                    sendHeight();
+                    // Debounce resize events to prevent excessive calls
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(sendHeight, 50);
                 });
                 resizeObserver.observe(document.body);
                 resizeObserver.observe(document.documentElement);
             } else {
-                // Fallback: poll for height changes
-                setInterval(sendHeight, 500);
+                // Fallback: poll for height changes with timeout protection
+                let pollInterval = setInterval(function() {
+                    if (isRateLimited) {
+                        clearInterval(pollInterval);
+                        // Restart polling after rate limit cooldown
+                        setTimeout(() => {
+                            pollInterval = setInterval(sendHeight, 500);
+                        }, 2000);
+                    } else {
+                        sendHeight();
+                    }
+                }, 500);
             }
 
-            // Listen for dynamic content changes
+            // Listen for dynamic content changes with timeout protection
             if (window.MutationObserver) {
+                let mutationTimeout;
                 const mutationObserver = new MutationObserver(function() {
-                    setTimeout(sendHeight, 50); // Small delay for layout
+                    // Debounce mutation events to prevent excessive calls
+                    clearTimeout(mutationTimeout);
+                    mutationTimeout = setTimeout(sendHeight, 50);
                 });
                 mutationObserver.observe(document.body, {
                     childList: true,
@@ -288,7 +350,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
     }
 })();
 </script>`, basePath)
-	
+
 	// Inject before closing body tag
 	bodyRegex := regexp.MustCompile(`</body>`)
 	if bodyRegex.MatchString(content) {
@@ -299,7 +361,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 		// If no body tag, append to end
 		content += jsCode
 	}
-	
+
 	log.Printf("🔧 Modified HTML response for port %d with base path %s", port, basePath)
 	return content
 }

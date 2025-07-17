@@ -64,6 +64,7 @@ catnip/
 ## Documentation
 
 The `docs/` directory contains detailed documentation:
+
 - **GIT.md**: Git operations and worktree management
 - **LOCAL_REPOSITORIES.md**: Local repository handling
 - **SETTINGS_SYNC.md**: Settings synchronization
@@ -81,6 +82,22 @@ I've prototyped a number of these features in a folder named "reference". It cou
 - Use shadcn theme variables as much as possible. You can add new ones in `index.css` if necessary.
 - When making changes to Golang, our dev server needs to recompile before we hit http://localhost:8080. You should run `just build` in the container directory to ensure we've waited long enough and don't have any build errors.
 
+## Getting Started
+
+New developers should run the setup script to install dependencies and configure the development environment:
+
+```bash
+./setup.sh
+```
+
+This script will:
+
+- Check for required dependencies (node, pnpm, go, just)
+- Install pnpm packages and Go dependencies
+- Install pre-commit hooks for automatic formatting
+- Build the initial Go server
+- Provide installation instructions for missing tools
+
 ## Operation Guidelines
 
 - Don't restart the container unless explicitly asked to.
@@ -95,6 +112,7 @@ I've prototyped a number of these features in a folder named "reference". It cou
 The application includes an automatic port detection system with iframe preview capabilities:
 
 ### Features
+
 - **Real-time port monitoring**: Detects services automatically when they start
 - **Health checking**: Validates HTTP and TCP services
 - **Reverse proxy**: Routes `/$PORT/*` to `localhost:$PORT` services
@@ -144,7 +162,7 @@ export ANTHROPIC_API_KEY="your-api-key-here"
       "content": "Previous message"
     },
     {
-      "role": "assistant", 
+      "role": "assistant",
       "content": "Previous response"
     }
   ]
@@ -169,6 +187,7 @@ export ANTHROPIC_API_KEY="your-api-key-here"
 ## Examples
 
 ### Basic request
+
 ```bash
 curl -X POST http://localhost:8080/v1/claude/completion \
   -H "Content-Type: application/json" \
@@ -176,6 +195,7 @@ curl -X POST http://localhost:8080/v1/claude/completion \
 ```
 
 ### With context
+
 ```bash
 curl -X POST http://localhost:8080/v1/claude/completion \
   -H "Content-Type: application/json" \
@@ -189,6 +209,7 @@ curl -X POST http://localhost:8080/v1/claude/completion \
 ```
 
 ### With system prompt
+
 ```bash
 curl -X POST http://localhost:8080/v1/claude/completion \
   -H "Content-Type: application/json" \
@@ -208,7 +229,7 @@ curl -X POST http://localhost:8080/v1/claude/completion \
 ```
 
 Common errors:
+
 - `API key not configured` - Set ANTHROPIC_API_KEY environment variable
 - `Message is required` - Include a message in the request
 - `API error: [details]` - Check your API key and request format
-

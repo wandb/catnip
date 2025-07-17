@@ -126,6 +126,7 @@ info:
     @echo "  just run               - Run container interactively"
     @echo ""
     @echo "Development:"
+    @echo "  just dev               - Local dev mode (frontend + backend with port allocation)"
     @echo "  just run-dev           - Full-stack dev (interactive, Ctrl+C to stop)"
     @echo "  just test-dev          - Test development environment (background)"
     @echo "  just build-dev         - Build development container (with pre-warmed cache)"
@@ -161,8 +162,64 @@ release *ARGS="":
     @echo "🚀 Creating release..."
     npx tsx scripts/release.ts {{ARGS}}
 
-# Import container justfile with a namespace
-mod container
+# Development mode - runs both frontend and backend with proper port allocation
+dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Extract first port from PORTZ if available, otherwise use default
+    if [ -n "${PORTZ:-}" ]; then
+        VITE_PORT=$(echo "$PORTZ" | jq -r '.[0] // 5173')
+        echo "🌐 Using VITE_PORT=$VITE_PORT from PORTZ array"
+    else
+        VITE_PORT=5173
+        echo "🌐 Using default VITE_PORT=$VITE_PORT (no PORTZ found)"
+    fi
+    
+    # Show port info
+    echo "🔗 Backend PORT: ${PORT:-8080}"
+    echo "🔗 Frontend VITE_PORT: $VITE_PORT"
+    echo ""
+    
+    # Export VITE_PORT for both processes
+    export VITE_PORT
+    
+    # Function to cleanup background processes
+    cleanup() {
+        echo "🛑 Stopping development servers..."
+        kill $(jobs -p) 2>/dev/null || true
+        wait
+        echo "✅ Development servers stopped"
+    }
+    
+    # Set up signal handlers
+    trap cleanup EXIT INT TERM
+
+    # Start pnpm dev (frontend) in background
+    echo "🚀 Starting pnpm dev (frontend) on port $VITE_PORT..."
+    pnpm dev &
+    PNPM_PID=$!
+    # Give vite a moment to start
+    sleep 2
+    
+    # Start Air (backend) in background
+    echo "🚀 Starting Air (backend) on port ${PORT:-8080}..."
+    export CATNIP_DEV=true
+    cd container && air &
+    AIR_PID=$!
+    
+    # Display helpful info
+    echo ""
+    echo "🎉 Development servers started!"
+    echo "   📱 Frontend: http://localhost:$VITE_PORT"
+    echo "   🔧 Backend:  http://localhost:${PORT:-8080}"
+    echo "   📚 API Docs: http://localhost:${PORT:-8080}/docs/"
+    echo ""
+    echo "Press Ctrl+C to stop both servers"
+    echo ""
+    
+    # Wait for either process to exit
+    wait
 
 # Default recipe
 default:

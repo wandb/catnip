@@ -913,6 +913,20 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
 	}
 
+	// Add the "live" remote to the worktree pointing back to the main repo
+	// This allows status updates to fetch latest changes from the main repo
+	addRemoteCmd := s.execGitCommand(worktreePath, "remote", "add", "live", repo.Path)
+	if output, err := addRemoteCmd.CombinedOutput(); err != nil {
+		log.Printf("⚠️ Failed to add live remote: %v\n%s", err, output)
+	} else {
+		// Fetch the source branch from the live remote to get latest state
+		log.Printf("🔄 Fetching latest %s from live remote", branch)
+		fetchCmd := s.execGitCommand(worktreePath, "fetch", "live", branch)
+		if output, err := fetchCmd.CombinedOutput(); err != nil {
+			log.Printf("⚠️ Failed to fetch %s from live remote: %v\n%s", branch, err, output)
+		}
+	}
+
 	// Get current commit hash
 	cmd = s.execGitCommand(worktreePath, "rev-parse", "HEAD")
 	commitOutput, err := cmd.Output()

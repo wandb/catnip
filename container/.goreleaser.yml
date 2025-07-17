@@ -38,18 +38,14 @@ builds:
     goarch:
       - amd64
       - arm64
-      - arm
-      - 386
 
     # ARM variants
-    goarm:
-      - 6
-      - 7
+    # goarm:
 
     # Ignore combinations that don't make sense
     ignore:
       - goos: darwin
-        goarch: 386
+        goarch: "386"
       - goos: darwin
         goarch: arm
       - goos: freebsd
@@ -131,16 +127,16 @@ release:
   header: |
     ## 🐱 Catnip CLI (catctrl) {{.Version}}
 
-    Welcome to this new release of catctrl! 
+    Welcome to this new release of catctrl!
 
     ### 📦 Installation
 
     ```bash
     # Quick install (latest version)
-    curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh
+    curl -sfL install.catnip.sh | sh
 
     # Install specific version
-    curl -sfL https://raw.githubusercontent.com/wandb/catnip/main/public/install.sh | sh -s -- --version {{.Version}}
+    curl -sfL install.catnip.sh | sh -s -- --version {{.Version}}
     ```
 
     ### 📋 What's Changed
@@ -154,7 +150,7 @@ release:
 
     ```bash
     # Download checksum file
-    curl -sL https://github.com/wandb/catnip/releases/download/{{.Version}}/checksums.txt
+    curl -sL https://catnip.run/v1/github/releases/download/{{.Version}}/checksums.txt
 
     # Verify binary (example for Linux amd64)
     sha256sum -c checksums.txt --ignore-missing
