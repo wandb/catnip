@@ -10,6 +10,15 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { RepoSelector } from "@/components/RepoSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ErrorAlert } from "@/components/ErrorAlert";
@@ -88,6 +97,13 @@ function GitPage() {
     title: "",
     description: "",
     isUpdate: false,
+  });
+
+  const [branchDialog, setBranchDialog] = useState({
+    open: false,
+    sourceWorktreeId: "",
+    sourceWorktreeName: "",
+    newWorktreeName: "",
   });
 
   const handleCheckout = async (url: string) => {
@@ -219,6 +235,62 @@ function GitPage() {
       onConfirm: () => void deleteWorktree(id),
       variant: "destructive",
     });
+  };
+
+  const onBranchFromWorktree = (worktreeId: string, name: string) => {
+    setBranchDialog({
+      open: true,
+      sourceWorktreeId: worktreeId,
+      sourceWorktreeName: name,
+      newWorktreeName: "",
+    });
+  };
+
+  const createWorktreeFromSource = async (
+    sourceWorktreeId: string,
+    newName: string,
+  ) => {
+    try {
+      setLoading(true);
+      const response = await fetch("/v1/git/worktrees", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source: sourceWorktreeId,
+          source_type: "worktree",
+          name: newName,
+        }),
+      });
+
+      if (response.ok) {
+        await refreshAll();
+        toast.success(`Worktree "${newName}" created successfully`);
+        setBranchDialog({
+          open: false,
+          sourceWorktreeId: "",
+          sourceWorktreeName: "",
+          newWorktreeName: "",
+        });
+      } else {
+        const errorData = (await response.json()) as { error?: string };
+        setErrorAlert({
+          open: true,
+          title: "Failed to Create Worktree",
+          description: errorData.error || "Unknown error occurred",
+        });
+      }
+    } catch (error) {
+      console.error("Failed to create worktree:", error);
+      setErrorAlert({
+        open: true,
+        title: "Failed to Create Worktree",
+        description: String(error),
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -440,6 +512,62 @@ function GitPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Branch From Worktree Dialog */}
+      <Dialog
+        open={branchDialog.open}
+        onOpenChange={(open) => setBranchDialog((prev) => ({ ...prev, open }))}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Worktree</DialogTitle>
+            <DialogDescription>
+              Create a new worktree from "{branchDialog.sourceWorktreeName}".
+              This will branch off the current commit in the source worktree.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="worktree-name" className="text-right">
+                Name
+              </Label>
+              <Input
+                id="worktree-name"
+                value={branchDialog.newWorktreeName}
+                onChange={(e) =>
+                  setBranchDialog((prev) => ({
+                    ...prev,
+                    newWorktreeName: e.target.value,
+                  }))
+                }
+                className="col-span-3"
+                placeholder="Enter worktree name (leave empty for auto-generated)"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() =>
+                setBranchDialog((prev) => ({ ...prev, open: false }))
+              }
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                void createWorktreeFromSource(
+                  branchDialog.sourceWorktreeId,
+                  branchDialog.newWorktreeName,
+                )
+              }
+              disabled={loading}
+            >
+              {loading ? "Creating..." : "Create Worktree"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Confirmation Dialog */}
       <ConfirmDialog
