@@ -316,6 +316,15 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 						_ = session.writeToConnection(conn, websocket.TextMessage, data)
 					}
 					continue
+				case "prompt":
+					// Handle prompt injection for Claude TUI
+					if controlMsg.Data != "" {
+						log.Printf("📝 Injecting prompt into PTY: %q", controlMsg.Data)
+						if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
+							log.Printf("❌ Failed to write prompt to PTY: %v", err)
+						}
+					}
+					continue
 				}
 			}
 

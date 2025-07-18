@@ -153,6 +153,20 @@ function TerminalPage() {
             // Now fit to actual window size and send resize
             console.log("🔍 Terminal ready");
             terminalReady.current = true;
+
+            // Check if we have a prompt to send
+            if (search.prompt && search.agent === "claude") {
+              console.log("📝 Scheduling prompt injection...");
+              setTimeout(() => {
+                console.log("📝 Sending prompt to Claude:", search.prompt);
+                wsRef.current?.send(
+                  JSON.stringify({
+                    type: "prompt",
+                    data: search.prompt,
+                  }),
+                );
+              }, 2000); // Wait 2 seconds for Claude UI to fully load
+            }
             return;
           }
         } catch (_e) {
