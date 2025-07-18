@@ -2,9 +2,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { WorkspaceCard } from "@/components/WorkspaceCard";
 import { useGitState } from "@/hooks/useGitState";
+import { useGitActions } from "@/hooks/useGitActions";
 
 function Index() {
   const { worktrees, loading } = useGitState();
+  const { deleteWorktree } = useGitActions();
+
+  const handleDelete = (id: string, name: string) => {
+    if (confirm(`Are you sure you want to delete workspace "${name}"?`)) {
+      deleteWorktree(id);
+    }
+  };
 
   return (
     <div className="container mx-auto px-4 py-16">
@@ -14,7 +22,7 @@ function Index() {
       ) : (
         <div className="flex flex-wrap justify-center gap-6">
           {worktrees.map((wt) => (
-            <WorkspaceCard key={wt.id} worktree={wt} />
+            <WorkspaceCard key={wt.id} worktree={wt} onDelete={handleDelete} />
           ))}
           <Link
             to="/git"
