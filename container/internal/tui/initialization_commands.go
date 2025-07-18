@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -261,10 +263,222 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 		}
 
 		// Start the container
-		if err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled); err != nil {
-			return ContainerStartFailedMsg{Error: err.Error()}
+		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled); err != nil {
+			return ContainerStartFailedMsg{Error: fmt.Sprintf("Failed to start container: %v\nCommand: %s", err, strings.Join(cmd, " "))}
 		}
 
-		return ContainerStartedMsg{}
+		// Container started, now monitor its health
+		return ContainerStartedMsg{
+			ContainerName:    name,
+			ContainerService: containerService,
+		}
+	}
+}
+
+// MonitorContainerHealthCmd monitors container health after starting
+func MonitorContainerHealthCmd(containerService *services.ContainerService, containerName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		// Get the container logs command
+		cmd, err := containerService.GetContainerLogs(ctx, containerName, true) // follow=true
+		if err != nil {
+			return ContainerHealthCheckFailedMsg{Error: fmt.Sprintf("Failed to get logs command: %v", err)}
+		}
+
+		// Start streaming logs
+		return StartStreamingContainerLogsCmd{Command: cmd, ContainerName: containerName, ContainerService: containerService}
+	}
+}
+
+// StartStreamingContainerLogsCmd represents a command to stream container logs
+type StartStreamingContainerLogsCmd struct {
+	Command          *exec.Cmd
+	ContainerName    string
+	ContainerService *services.ContainerService
+}
+
+// ContainerHealthCheckFailedMsg indicates container health check failed
+type ContainerHealthCheckFailedMsg struct {
+	Error string
+}
+
+// ExecuteStreamingContainerLogsCmd streams container logs and monitors health
+func ExecuteStreamingContainerLogsCmd(cmd *exec.Cmd, containerName string, containerService *services.ContainerService) tea.Cmd {
+	return func() tea.Msg {
+		// Create channels for streaming output
+		outputChan := make(chan string, 100)
+		doneChan := make(chan bool, 1)
+		healthyChan := make(chan bool, 1)
+
+		// Start a goroutine to execute the command and stream output
+		go func() {
+			defer close(outputChan)
+			defer close(doneChan)
+			defer close(healthyChan)
+
+			debugLog("ExecuteStreamingContainerLogsCmd: starting container log streaming")
+
+			// Create pipes for stdout and stderr
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				outputChan <- fmt.Sprintf("Error: Failed to create stdout pipe: %v", err)
+				doneChan <- true
+				return
+			}
+
+			stderr, err := cmd.StderrPipe()
+			if err != nil {
+				outputChan <- fmt.Sprintf("Error: Failed to create stderr pipe: %v", err)
+				doneChan <- true
+				return
+			}
+
+			// Start the command
+			if err := cmd.Start(); err != nil {
+				outputChan <- fmt.Sprintf("Error: Failed to start logs command: %v", err)
+				doneChan <- true
+				return
+			}
+
+			// Start goroutines to read stdout and stderr
+			go streamReader(stdout, outputChan)
+			go streamReader(stderr, outputChan)
+
+			// Start health check goroutine
+			go func() {
+				ctx := context.Background()
+				startTime := time.Now()
+				maxWaitTime := 30 * time.Second
+				checkInterval := 500 * time.Millisecond
+
+				for {
+					// Check if container is still running
+					if !containerService.IsContainerRunning(ctx, containerName) {
+						outputChan <- fmt.Sprintf("❌ Container %s stopped unexpectedly", containerName)
+						// Kill the logs command to stop tailing
+						if cmd.Process != nil {
+							_ = cmd.Process.Kill()
+						}
+						healthyChan <- false
+						return
+					}
+
+					// After 2 seconds, start checking if port 8080 is accessible
+					if time.Since(startTime) > 2*time.Second {
+						// Try to connect to port 8080
+						conn, err := net.Dial("tcp", "localhost:8080")
+						if err == nil {
+							conn.Close()
+							outputChan <- "✅ Container is healthy and port 8080 is accessible"
+							healthyChan <- true
+							return
+						}
+					}
+
+					// Timeout after maxWaitTime
+					if time.Since(startTime) > maxWaitTime {
+						outputChan <- fmt.Sprintf("⚠️ Container health check timed out after %v", maxWaitTime)
+						// Kill the logs command to stop tailing
+						if cmd.Process != nil {
+							_ = cmd.Process.Kill()
+						}
+						healthyChan <- false
+						return
+					}
+
+					time.Sleep(checkInterval)
+				}
+			}()
+
+			// Wait for either the command to exit or health check to complete
+			select {
+			case healthy := <-healthyChan:
+				if healthy {
+					// Container is healthy, signal success
+					time.Sleep(500 * time.Millisecond) // Brief delay to show success message
+					doneChan <- true
+					if cmd.Process != nil {
+						_ = cmd.Process.Kill() // Stop following logs
+					}
+				} else {
+					// Container failed health check, signal failure
+					doneChan <- false
+				}
+			case <-time.After(60 * time.Second):
+				// Overall timeout
+				outputChan <- "❌ Container startup timed out after 60 seconds"
+				doneChan <- false
+				if cmd.Process != nil {
+					_ = cmd.Process.Kill()
+				}
+			}
+		}()
+
+		// Return a message that will trigger the streaming reader with health monitoring
+		return StartStreamingContainerLogsReader{OutputChan: outputChan, DoneChan: doneChan, ContainerName: containerName}
+	}
+}
+
+// StartStreamingContainerLogsReader message to start streaming container logs
+type StartStreamingContainerLogsReader struct {
+	OutputChan    <-chan string
+	DoneChan      <-chan bool
+	ContainerName string
+}
+
+// ContainerLogsOutputMsg represents a line of container log output
+type ContainerLogsOutputMsg struct {
+	Line       string
+	OutputChan <-chan string
+	DoneChan   <-chan bool
+}
+
+// ContainerHealthyMsg indicates the container is healthy and ready
+type ContainerHealthyMsg struct {
+	ContainerName string
+}
+
+// StreamingContainerLogsReader reads from container logs channels and sends output messages
+func StreamingContainerLogsReader(outputChan <-chan string, doneChan <-chan bool) tea.Cmd {
+	return func() tea.Msg {
+		debugLog("StreamingContainerLogsReader: waiting for message...")
+		select {
+		case line, ok := <-outputChan:
+			if !ok {
+				// Channel closed, check if we got a done signal or if it was an error
+				select {
+				case healthy := <-doneChan:
+					if healthy {
+						debugLog("StreamingContainerLogsReader: channel closed with healthy signal")
+						return ContainerHealthyMsg{}
+					} else {
+						debugLog("StreamingContainerLogsReader: channel closed with unhealthy signal")
+						return ContainerHealthCheckFailedMsg{Error: "Container failed during startup - check logs below for details"}
+					}
+				default:
+					debugLog("StreamingContainerLogsReader: channel closed without done signal, container failed")
+					return ContainerHealthCheckFailedMsg{Error: "Container failed during startup - check logs below for details"}
+				}
+			}
+			// Only send non-empty lines to avoid cluttering output
+			if strings.TrimSpace(line) != "" {
+				debugLog("StreamingContainerLogsReader: got log line: %s", line)
+				return ContainerLogsOutputMsg{Line: line, OutputChan: outputChan, DoneChan: doneChan}
+			}
+		case healthy := <-doneChan:
+			if healthy {
+				debugLog("StreamingContainerLogsReader: got healthy signal")
+				return ContainerHealthyMsg{}
+			} else {
+				debugLog("StreamingContainerLogsReader: got unhealthy signal")
+				return ContainerHealthCheckFailedMsg{Error: "Container failed during startup - check logs below for details"}
+			}
+		case <-time.After(100 * time.Millisecond):
+			// Timeout to prevent blocking, continue reading
+			debugLog("StreamingContainerLogsReader: timeout, continuing")
+		}
+		// Continue reading (but don't send empty lines)
+		return ContainerLogsOutputMsg{Line: "", OutputChan: outputChan, DoneChan: doneChan}
 	}
 }

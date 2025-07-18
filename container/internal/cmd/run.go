@@ -175,8 +175,8 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 		// Start the container
 		fmt.Printf("Starting container '%s'...\n", name)
-		if err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, sshEnabled); err != nil {
-			return fmt.Errorf("failed to start container: %w", err)
+		if cmd, err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, sshEnabled); err != nil {
+			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
 		fmt.Printf("Container started successfully!\n")
 	}

@@ -56,7 +56,7 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool) error {
+func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool) ([]string, error) {
 	args := []string{
 		"run",
 		"--rm",
@@ -122,10 +122,10 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	cmd := exec.CommandContext(ctx, string(cs.runtime), args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to run container: %w\nOutput: %s", err, string(output))
+		return []string{}, fmt.Errorf("failed to run container: %w\nOutput: %s", err, string(output))
 	}
 
-	return nil
+	return append([]string{string(cs.runtime)}, args...), nil
 }
 
 // ImageExists checks if a container image exists locally
