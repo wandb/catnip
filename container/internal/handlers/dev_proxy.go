@@ -23,6 +23,7 @@ func ProxyToVite(c *fiber.Ctx) error {
 			port = "5173"
 		}
 		viteServer = "http://localhost:" + port
+		fmt.Println("Vite server:", viteServer)
 	}
 
 	// Build the target URL
