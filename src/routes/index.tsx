@@ -25,7 +25,7 @@ function Index() {
       "Branch:",
       selectedBranch,
       "Speed:",
-      selectedSpeed
+      selectedSpeed,
     );
   };
 
@@ -81,7 +81,9 @@ function Index() {
             >
               <StyledDropdownItem value="main">main</StyledDropdownItem>
               <StyledDropdownItem value="develop">develop</StyledDropdownItem>
-              <StyledDropdownItem value="feature/new">feature/new</StyledDropdownItem>
+              <StyledDropdownItem value="feature/new">
+                feature/new
+              </StyledDropdownItem>
             </StyledDropdown>
 
             <StyledDropdown
@@ -106,7 +108,7 @@ function Index() {
             </Button>
           </div>
         </form>
-        
+
         <div className="mt-12">
           <PortsDisplay />
         </div>

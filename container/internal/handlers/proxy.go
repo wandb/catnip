@@ -6,13 +6,76 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"golang.org/x/net/html"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/services"
 )
+
+// rewriteHTMLAbsolutePaths rewrites absolute paths in HTML src/href attributes to use the proxy base path.
+func rewriteHTMLAbsolutePaths(htmlContent string, basePath string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		log.Printf("❌ Failed to parse HTML: %v", err)
+		return htmlContent
+	}
+
+	rewriteNodeURLs(doc, basePath)
+
+	var buf bytes.Buffer
+	err = html.Render(&buf, doc)
+	if err != nil {
+		log.Printf("❌ Failed to render modified HTML: %v", err)
+		return htmlContent
+	}
+
+	return buf.String()
+}
+
+// rewriteNodeURLs recursively walks nodes and rewrites absolute src/href URLs
+func rewriteNodeURLs(n *html.Node, basePath string) {
+	if n.Type == html.ElementNode {
+		switch n.Data {
+		case "script", "img", "iframe":
+			rewriteAttribute(n, "src", basePath)
+		case "link", "a", "form":
+			rewriteAttribute(n, "href", basePath)
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		rewriteNodeURLs(c, basePath)
+	}
+}
+
+// rewriteAttribute modifies the given attribute if it's an absolute URL starting with /
+func rewriteAttribute(n *html.Node, attrName string, basePath string) {
+	for i, attr := range n.Attr {
+		if attr.Key == attrName && isRewritable(attr.Val, basePath) {
+			newVal := basePath + strings.TrimPrefix(attr.Val, "/")
+			// Preserve query strings or fragments
+			if u, err := url.Parse(attr.Val); err == nil {
+				newVal = basePath + strings.TrimPrefix(u.Path, "/")
+				if u.RawQuery != "" {
+					newVal += "?" + u.RawQuery
+				}
+				if u.Fragment != "" {
+					newVal += "#" + u.Fragment
+				}
+			}
+			n.Attr[i].Val = newVal
+		}
+	}
+}
+
+// isRewritable determines if a URL is an absolute path that should be rewritten
+func isRewritable(val string, basePath string) bool {
+	return strings.HasPrefix(val, "/") && !strings.HasPrefix(val, basePath)
+}
 
 // ProxyHandler handles reverse proxy requests to detected services
 type ProxyHandler struct {
@@ -119,7 +182,9 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Copy response headers
 	for name, values := range resp.Header {
 		for _, value := range values {
-			c.Response().Header.Add(name, value)
+			if name != "Access-Control-Allow-Origin" && name != "Access-Control-Allow-Credentials" {
+				c.Response().Header.Add(name, value)
+			}
 		}
 	}
 
@@ -152,6 +217,9 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 // modifyHTMLContent injects base tag and JavaScript to handle SPA routing
 func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 	basePath := fmt.Sprintf("/%d/", port)
+
+	// Rewrite absolute paths in HTML content
+	content = rewriteHTMLAbsolutePaths(content, basePath)
 
 	// Inject base tag and early variable declaration
 	baseTag := fmt.Sprintf(`<base href="%s">`, basePath)
