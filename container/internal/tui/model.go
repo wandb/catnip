@@ -64,6 +64,8 @@ type Model struct {
 	devMode        bool
 	refreshFlag    bool
 	customPorts    []string
+	sshEnabled     bool
+	version        string
 
 	// Current state
 	currentView   ViewType
@@ -116,12 +118,12 @@ type Model struct {
 }
 
 // NewModel creates a new application model with initialized views
-func NewModel(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string) *Model {
-	return NewModelWithInitialization(containerService, containerName, gitRoot, containerImage, devMode, refreshFlag, customPorts)
+func NewModel(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string) *Model {
+	return NewModelWithInitialization(containerService, containerName, gitRoot, containerImage, devMode, refreshFlag, customPorts, sshEnabled, version)
 }
 
 // NewModelWithInitialization creates a new application model with initialization parameters
-func NewModelWithInitialization(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string) *Model {
+func NewModelWithInitialization(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string) *Model {
 	m := &Model{
 		containerService: containerService,
 		containerName:    containerName,
@@ -130,6 +132,8 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 		devMode:          devMode,
 		refreshFlag:      refreshFlag,
 		customPorts:      customPorts,
+		sshEnabled:       sshEnabled,
+		version:          version,
 		currentView:      InitializationView,
 		containerInfo:    make(map[string]interface{}),
 		repositoryInfo:   make(map[string]interface{}),
