@@ -242,7 +242,7 @@ func streamReader(reader io.Reader, outputChan chan<- string) {
 }
 
 // StartContainerCmd starts the container after initialization
-func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string) tea.Cmd {
+func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -253,7 +253,7 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 		}
 
 		// Start the container
-		if err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode); err != nil {
+		if err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled); err != nil {
 			return ContainerStartFailedMsg{Error: err.Error()}
 		}
 

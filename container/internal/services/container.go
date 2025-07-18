@@ -56,7 +56,7 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool) error {
+func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool) error {
 	args := []string{
 		"run",
 		"--rm",
@@ -80,6 +80,15 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	args = append(args, "-e", "CATNIP_SESSION=catnip")
 	if user := os.Getenv("USER"); user != "" {
 		args = append(args, "-e", fmt.Sprintf("CATNIP_USERNAME=%s", user))
+	}
+
+	// Mount SSH public key if SSH is enabled
+	if sshEnabled {
+		args = append(args, "-e", "CATNIP_SSH_ENABLED=true")
+		publicKeyPath := expandPath("~/.ssh/catnip_remote.pub")
+		if _, err := os.Stat(publicKeyPath); err == nil {
+			args = append(args, "-v", fmt.Sprintf("%s:/home/catnip/.ssh/catnip_remote.pub:ro", publicKeyPath))
+		}
 	}
 
 	// Dev mode specific mounts

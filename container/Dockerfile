@@ -105,6 +105,7 @@ RUN apt-get update && apt-get install -y \
     netcat-openbsd \
     telnet \
     openssh-client \
+    openssh-server \
     rsync \
     just \
     python3-pip \
@@ -138,6 +139,11 @@ RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi && \
 # Create global workspace directory
 RUN mkdir -p /workspace && \
     chown catnip:catnip /workspace
+
+# Create .ssh directory for catnip user with proper permissions
+RUN mkdir -p /home/catnip/.ssh && \
+    chown catnip:catnip /home/catnip/.ssh && \
+    chmod 700 /home/catnip/.ssh
 
 # Set up global environment variables and PATH
 ENV CATNIP_ROOT="/opt/catnip"
@@ -212,20 +218,37 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
 
 # Install cursor tunnel
 ENV CURSOR_URL_AMD64="https://api2.cursor.sh/updates/download-latest?os=cli-linux-x64" \
-    CURSOR_URL_ARM64="https://api2.cursor.sh/updates/download-latest?os=cli-linux-arm64"
+    CURSOR_URL_ARM64="https://api2.cursor.sh/updates/download-latest?os=cli-linux-arm64" \
+    VSCODE_URL_AMD64="https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-x64" \
+    VSCODE_URL_ARM64="https://code.visualstudio.com/sha/download?build=stable&os=cli-alpine-arm64"
 
+# Disabling for now as it seems to have broken ssh remote access in cursor
+#RUN set -e; \
+#    case "$TARGETPLATFORM" in \
+#      "linux/amd64") url="$CURSOR_URL_AMD64" ;; \
+#      "linux/arm64") url="$CURSOR_URL_ARM64" ;; \
+#      *)  echo "❌ unsupported arch $TARGETPLATFORM, defaulting to amd64"; \
+#          url="$CURSOR_URL_AMD64" ;; \
+#    esac; \
+#    echo "Fetching Cursor CLI from $url"; \
+#    curl -Lf "$url" -o /tmp/cursor.tgz; \
+#    tar -xzf /tmp/cursor.tgz -C "$CATNIP_ROOT/bin"; \
+#    rm -f /tmp/cursor.tgz; \
+#    chmod +x "$CATNIP_ROOT/bin/cursor"
+
+# Install VS Code tunnel
 RUN set -e; \
     case "$TARGETPLATFORM" in \
-      "linux/amd64") url="$CURSOR_URL_AMD64" ;; \
-      "linux/arm64") url="$CURSOR_URL_ARM64" ;; \
+      "linux/amd64") url="$VSCODE_URL_AMD64" ;; \
+      "linux/arm64") url="$VSCODE_URL_ARM64" ;; \
       *)  echo "❌ unsupported arch $TARGETPLATFORM, defaulting to amd64"; \
-          url="$CURSOR_URL_AMD64" ;; \
+          url="$VSCODE_URL_AMD64" ;; \
     esac; \
-    echo "Fetching Cursor CLI from $url"; \
-    curl -Lf "$url" -o /tmp/cursor.tgz; \
-    tar -xzf /tmp/cursor.tgz -C "$CATNIP_ROOT/bin"; \
-    rm -f /tmp/cursor.tgz; \
-    chmod +x "$CATNIP_ROOT/bin/cursor"
+    echo "Fetching VS Code CLI from $url"; \
+    curl -Lf "$url" -o /tmp/vscode.tgz; \
+    tar -xzf /tmp/vscode.tgz -C "$CATNIP_ROOT/bin"; \
+    rm -f /tmp/vscode.tgz; \
+    chmod +x "$CATNIP_ROOT/bin/code"
 
 # Install Starship prompt
 RUN curl -sS https://starship.rs/install.sh | sh -s -- -y

@@ -51,16 +51,20 @@ type App struct {
 	containerImage string
 	devMode        bool
 	refreshFlag    bool
+	sshEnabled     bool
+	version        string
 }
 
 // NewApp creates a new application instance
-func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string) *App {
+func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string) *App {
 	return &App{
 		containerService: containerService,
 		containerName:    containerName,
 		containerImage:   containerImage,
 		devMode:          devMode,
 		refreshFlag:      refreshFlag,
+		sshEnabled:       sshEnabled,
+		version:          version,
 	}
 }
 
@@ -87,7 +91,7 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
 
 	// Create the model - always with initialization
-	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts)
+	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version)
 
 	// Set up the detailed model state
 	m.logo = logo
@@ -140,7 +144,7 @@ func (m Model) View() string {
 
 	// Header
 	headerStyle := components.HeaderStyle.Width(m.width-2).Padding(0, 1)
-	header := headerStyle.Render(fmt.Sprintf("🐱 Catnip - %s", m.containerName))
+	header := headerStyle.Render(fmt.Sprintf("🐱 Catnip - %s", m.version))
 
 	// Footer
 	footer := m.renderFooter()

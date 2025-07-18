@@ -10,6 +10,8 @@ if [ -n "$CATNIP_USERNAME" ] && [ "$CATNIP_USERNAME" != "catnip" ]; then
     usermod -l "$CATNIP_USERNAME" catnip 2>/dev/null || true
     # Update the group name too
     groupmod -n "$CATNIP_USERNAME" catnip 2>/dev/null || true
+    # Unlock the account for SSH (set password to * which allows key auth only)
+    usermod -p '*' "$CATNIP_USERNAME" 2>/dev/null || true
     # Export for starship and other tools
     export USER="$CATNIP_USERNAME"
     export USERNAME="$CATNIP_USERNAME"
@@ -96,6 +98,52 @@ fi
 
 # Ensure workspace has proper ownership
 chown -R 1000:1000 "${WORKSPACE}" 2>/dev/null || true
+
+# Configure and start SSH server if enabled
+if [ "$CATNIP_SSH_ENABLED" = "true" ] && [ -f "/home/catnip/.ssh/catnip_remote.pub" ]; then
+    echo "🔑 Configuring SSH server..."
+    
+    # Create SSH host keys if they don't exist
+    if [ ! -f "/etc/ssh/ssh_host_rsa_key" ]; then
+        ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N '' >/dev/null 2>&1
+    fi
+    if [ ! -f "/etc/ssh/ssh_host_ecdsa_key" ]; then
+        ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N '' >/dev/null 2>&1
+    fi
+    if [ ! -f "/etc/ssh/ssh_host_ed25519_key" ]; then
+        ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N '' >/dev/null 2>&1
+    fi
+    
+    # Copy the public key to authorized_keys
+    gosu 1000:1000 cp /home/catnip/.ssh/catnip_remote.pub /home/catnip/.ssh/authorized_keys
+    gosu 1000:1000 chmod 600 /home/catnip/.ssh/authorized_keys
+    
+    # Determine the actual username
+    ACTUAL_USERNAME="${CATNIP_USERNAME:-catnip}"
+    
+    # Configure SSH daemon with proper home directory
+    cat > /etc/ssh/sshd_config.d/99-catnip.conf <<EOF
+Port 2222
+PubkeyAuthentication yes
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+UsePAM no
+AllowUsers ${ACTUAL_USERNAME}
+X11Forwarding yes
+PermitUserEnvironment yes
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server
+AuthorizedKeysFile /home/catnip/.ssh/authorized_keys
+EOF
+    
+    # Create run directory for sshd
+    mkdir -p /run/sshd
+    chmod 755 /run/sshd
+    
+    # Start SSH daemon
+    echo "🚀 Starting SSH server on port 2222 for user ${ACTUAL_USERNAME}..."
+    /usr/sbin/sshd -D -e &
+fi
 
 # Change to catnip user if running as root
 if [ "$EUID" -eq 0 ]; then
