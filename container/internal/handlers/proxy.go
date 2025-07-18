@@ -6,13 +6,76 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"golang.org/x/net/html"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/services"
 )
+
+// rewriteHTMLAbsolutePaths rewrites absolute paths in HTML src/href attributes to use the proxy base path.
+func rewriteHTMLAbsolutePaths(htmlContent string, basePath string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		log.Printf("❌ Failed to parse HTML: %v", err)
+		return htmlContent
+	}
+
+	rewriteNodeURLs(doc, basePath)
+
+	var buf bytes.Buffer
+	err = html.Render(&buf, doc)
+	if err != nil {
+		log.Printf("❌ Failed to render modified HTML: %v", err)
+		return htmlContent
+	}
+
+	return buf.String()
+}
+
+// rewriteNodeURLs recursively walks nodes and rewrites absolute src/href URLs
+func rewriteNodeURLs(n *html.Node, basePath string) {
+	if n.Type == html.ElementNode {
+		switch n.Data {
+		case "script", "img", "iframe":
+			rewriteAttribute(n, "src", basePath)
+		case "link", "a", "form":
+			rewriteAttribute(n, "href", basePath)
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		rewriteNodeURLs(c, basePath)
+	}
+}
+
+// rewriteAttribute modifies the given attribute if it's an absolute URL starting with /
+func rewriteAttribute(n *html.Node, attrName string, basePath string) {
+	for i, attr := range n.Attr {
+		if attr.Key == attrName && isRewritable(attr.Val, basePath) {
+			newVal := basePath + strings.TrimPrefix(attr.Val, "/")
+			// Preserve query strings or fragments
+			if u, err := url.Parse(attr.Val); err == nil {
+				newVal = basePath + strings.TrimPrefix(u.Path, "/")
+				if u.RawQuery != "" {
+					newVal += "?" + u.RawQuery
+				}
+				if u.Fragment != "" {
+					newVal += "#" + u.Fragment
+				}
+			}
+			n.Attr[i].Val = newVal
+		}
+	}
+}
+
+// isRewritable determines if a URL is an absolute path that should be rewritten
+func isRewritable(val string, basePath string) bool {
+	return strings.HasPrefix(val, "/") && !strings.HasPrefix(val, basePath)
+}
 
 // ProxyHandler handles reverse proxy requests to detected services
 type ProxyHandler struct {
@@ -119,7 +182,9 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Copy response headers
 	for name, values := range resp.Header {
 		for _, value := range values {
-			c.Response().Header.Add(name, value)
+			if name != "Access-Control-Allow-Origin" && name != "Access-Control-Allow-Credentials" {
+				c.Response().Header.Add(name, value)
+			}
 		}
 	}
 
@@ -152,6 +217,9 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 // modifyHTMLContent injects base tag and JavaScript to handle SPA routing
 func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 	basePath := fmt.Sprintf("/%d/", port)
+
+	// Rewrite absolute paths in HTML content
+	content = rewriteHTMLAbsolutePaths(content, basePath)
 
 	// Inject base tag and early variable declaration
 	baseTag := fmt.Sprintf(`<base href="%s">`, basePath)
@@ -193,17 +261,112 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
         }
         return originalReplaceState.call(history, state, title, url);
     };
-    
-    // Fix relative links on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        const links = document.querySelectorAll('a[href^="/"]');
-        links.forEach(function(link) {
+
+    function rewriteAttribute(el, attr) {
+        const val = el[attr];
+        if (!val || typeof val !== 'string') return;
+
+        const originPrefix = location.origin + '/';
+        if (val.startsWith(originPrefix)) {
+            const relative = val.replace(location.origin, '');
+            if (!relative.startsWith(basePath)) {
+                el[attr] = basePath.slice(0, -1) + relative;
+            }
+        }
+    }
+
+    function rewriteStaticResources() {
+        // Anchor tags
+        document.querySelectorAll('a[href^="/"]').forEach(link => {
             const href = link.getAttribute('href');
             if (href && !href.startsWith(basePath)) {
                 link.setAttribute('href', basePath.slice(0, -1) + href);
             }
         });
+
+        // Static <script>, <link>, <img>
+        document.querySelectorAll('script[src], link[href], img[src]').forEach(el => {
+            if (el.tagName === 'SCRIPT' || el.tagName === 'IMG') {
+                rewriteAttribute(el, 'src');
+            } else if (el.tagName === 'LINK') {
+                rewriteAttribute(el, 'href');
+            }
+        });
+    }
+
+    function watchForDynamicInsertions() {
+        const observer = new MutationObserver(mutations => {
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (!(node instanceof HTMLElement)) return;
+
+                    if (node.tagName === 'SCRIPT' || node.tagName === 'IMG') {
+                        rewriteAttribute(node, 'src');
+                    } else if (node.tagName === 'LINK') {
+                        rewriteAttribute(node, 'href');
+                    } else if (node.tagName === 'A') {
+                        const href = node.getAttribute('href');
+                        if (href && href.startsWith('/') && !href.startsWith(basePath)) {
+                            node.setAttribute('href', basePath.slice(0, -1) + href);
+                        }
+                    }
+                });
+            });
+        });
+
+        observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    function patchFetchAndXHR() {
+        // Patch fetch
+        const originalFetch = window.fetch;
+        window.fetch = function(resource, init) {
+            if (typeof resource === 'string' && resource.startsWith('/') && !resource.startsWith(basePath)) {
+                resource = basePath.slice(0, -1) + resource;
+            } else if (resource instanceof Request && resource.url.startsWith(location.origin + '/')) {
+                const relative = resource.url.replace(location.origin, '');
+                if (!relative.startsWith(basePath)) {
+                    resource = new Request(basePath.slice(0, -1) + relative, resource);
+                }
+            }
+            return originalFetch(resource, init);
+        };
+
+        // Patch XMLHttpRequest
+        const originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url, ...args) {
+            if (typeof url === 'string' && url.startsWith('/') && !url.startsWith(basePath)) {
+                url = basePath.slice(0, -1) + url;
+            } else if (url.startsWith(location.origin + '/')) {
+                const relative = url.replace(location.origin, '');
+                if (!relative.startsWith(basePath)) {
+                    url = basePath.slice(0, -1) + relative;
+                }
+            }
+            return originalOpen.call(this, method, url, ...args);
+        };
+    }
+
+    // Initialize on DOMContentLoaded
+    document.addEventListener('DOMContentLoaded', function() {
+        rewriteStaticResources();
+        watchForDynamicInsertions();
+        patchFetchAndXHR();
     });
+
+    /**
+     * 🚧 Things NOT Yet Handled:
+     *
+     * - new Image().src = "/foo.jpg" → you'd need to patch the Image constructor
+     * - new EventSource("/stream") → would need to wrap EventSource
+     * - import("/module.js") dynamic imports cannot be intercepted easily at runtime
+     * - CSS url(/assets/foo.png) — rewriting stylesheet contents is out-of-scope unless you proxy/transform CSS
+     * - WebSocket URLs like ws://example.com/...
+     * - Form actions (<form action="/post">) if used
+     */
 
     // Iframe resizer functionality
     let isInIframe = false;

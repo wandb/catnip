@@ -67,8 +67,9 @@ type ResizeMsg struct {
 
 // ControlMsg represents control commands
 type ControlMsg struct {
-	Type string `json:"type"`
-	Data string `json:"data,omitempty"`
+	Type   string `json:"type"`
+	Data   string `json:"data,omitempty"`
+	Submit bool   `json:"submit,omitempty"`
 }
 
 // sanitizeTitle ensures the extracted title is safe and conforms to expected formats
@@ -314,6 +315,28 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 					if data, err := json.Marshal(completeMsg); err == nil {
 						_ = session.writeToConnection(conn, websocket.TextMessage, data)
+					}
+					continue
+				case "prompt":
+					// Handle prompt injection for Claude TUI
+					if controlMsg.Data != "" {
+						log.Printf("📝 Injecting prompt into PTY: %q (submit: %v)", controlMsg.Data, controlMsg.Submit)
+						if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
+							log.Printf("❌ Failed to write prompt to PTY: %v", err)
+						}
+
+						// If submit is true, send a carriage return after a small delay
+						// This mimics how a user would type and then press Enter
+						if controlMsg.Submit {
+							go func() {
+								// Small delay to let the TUI process the prompt text
+								time.Sleep(100 * time.Millisecond)
+								log.Printf("↩️ Sending carriage return (\\r) to execute prompt")
+								if _, err := session.PTY.Write([]byte("\r")); err != nil {
+									log.Printf("❌ Failed to write carriage return to PTY: %v", err)
+								}
+							}()
+						}
 					}
 					continue
 				}

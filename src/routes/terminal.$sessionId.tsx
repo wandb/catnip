@@ -121,7 +121,6 @@ function TerminalPage() {
     ws.onmessage = async (event) => {
       let data: string | Uint8Array | undefined;
       const rePaint = () => {
-        fitAddon.current?.fit();
         console.log("✅ Buffer replay complete, fitting terminal");
         fitAddon.current?.fit();
       };
@@ -153,6 +152,26 @@ function TerminalPage() {
             // Now fit to actual window size and send resize
             console.log("🔍 Terminal ready");
             terminalReady.current = true;
+
+            // Check if we have a prompt to send
+            if (search.prompt && search.agent === "claude") {
+              console.log("📝 Scheduling prompt injection...");
+              setTimeout(() => {
+                console.log("📝 Sending prompt to Claude:", search.prompt);
+                wsRef.current?.send(
+                  JSON.stringify({
+                    type: "prompt",
+                    data: search.prompt,
+                    submit: true,
+                  }),
+                );
+              }, 1000); // Wait a second for Claude UI to fully load
+            }
+            setTimeout(() => {
+              const dims = { cols: instance.cols, rows: instance.rows };
+              console.log("Post load resize message...", dims);
+              wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+            }, 100);
             return;
           }
         } catch (_e) {
@@ -287,7 +306,7 @@ function TerminalPage() {
             fitAddon.current?.fit();
           }
         }
-      }, 250);
+      }, 500);
     });
 
     const disposer = instance?.onData((data: string) => {

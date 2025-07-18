@@ -27,12 +27,12 @@ func NewPortsHandler(monitor *services.PortMonitor) *PortsHandler {
 // @Router /v1/ports [get]
 func (h *PortsHandler) GetPorts(c *fiber.Ctx) error {
 	services := h.monitor.GetServices()
-	
+
 	// Convert to a more user-friendly format
 	result := make(map[string]interface{})
 	result["ports"] = services
 	result["count"] = len(services)
-	
+
 	return c.JSON(result)
 }
 
@@ -53,12 +53,12 @@ func (h *PortsHandler) GetPortInfo(c *fiber.Ctx) error {
 			"error": "Invalid port number",
 		})
 	}
-	
+
 	services := h.monitor.GetServices()
 	if service, exists := services[port]; exists {
 		return c.JSON(service)
 	}
-	
+
 	return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 		"error": "Port not found",
 	})

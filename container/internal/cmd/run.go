@@ -3,9 +3,14 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -14,6 +19,7 @@ import (
 	"github.com/vanpelt/catnip/internal/gitutil"
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui"
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/term"
 )
 
@@ -45,13 +51,14 @@ Use the **--refresh** flag to:
 }
 
 var (
-	image   string
-	name    string
-	detach  bool
-	noTUI   bool
-	ports   []string
-	dev     bool
-	refresh bool
+	image      string
+	name       string
+	detach     bool
+	noTUI      bool
+	ports      []string
+	dev        bool
+	refresh    bool
+	sshEnabled bool
 )
 
 func init() {
@@ -64,6 +71,7 @@ func init() {
 	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"8080:8080"}, "Port mappings")
 	runCmd.Flags().BoolVar(&dev, "dev", false, "Run in development mode with dev image and node_modules volume")
 	runCmd.Flags().BoolVar(&refresh, "refresh", false, "Force refresh: rebuild dev image with 'just build-dev' or pull production image from registry")
+	runCmd.Flags().BoolVar(&sshEnabled, "ssh", false, "Enable SSH server on port 2222")
 }
 
 // cleanVersionForProduction removes the -dev suffix and v prefix from version string
@@ -82,6 +90,24 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// No flag validation needed for --refresh as it works with both dev and production modes
+
+	// Handle SSH setup if enabled
+	if sshEnabled {
+		if err := setupSSH(); err != nil {
+			return fmt.Errorf("failed to setup SSH: %w", err)
+		}
+		// Add SSH port to ports if not already present
+		sshPortPresent := false
+		for _, p := range ports {
+			if strings.HasPrefix(p, "2222:") || strings.HasSuffix(p, ":2222") {
+				sshPortPresent = true
+				break
+			}
+		}
+		if !sshPortPresent {
+			ports = append(ports, "2222:2222")
+		}
+	}
 
 	// Handle interrupt signals
 	sigChan := make(chan os.Signal, 1)
@@ -124,7 +150,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		containerImage = "catnip-dev:dev"
 	} else if image == "" {
 		// Use versioned image for production
-		cleanVersion := cleanVersionForProduction(version)
+		cleanVersion := cleanVersionForProduction(GetVersion())
 		containerImage = fmt.Sprintf("wandb/catnip:%s", cleanVersion)
 	}
 
@@ -149,8 +175,8 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 		// Start the container
 		fmt.Printf("Starting container '%s'...\n", name)
-		if err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev); err != nil {
-			return fmt.Errorf("failed to start container: %w", err)
+		if cmd, err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, sshEnabled); err != nil {
+			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
 		fmt.Printf("Container started successfully!\n")
 	}
@@ -176,7 +202,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Start the TUI - it will handle all initialization and container management
-	tuiApp := tui.NewApp(containerService, name, gitRoot, containerImage, dev, refresh, ports)
+	tuiApp := tui.NewApp(containerService, name, gitRoot, containerImage, dev, refresh, ports, sshEnabled, GetVersion())
 	if err := tuiApp.Run(ctx, gitRoot, ports); err != nil {
 		// Clean up container on TUI error
 		fmt.Printf("Stopping container '%s'...\n", name)
@@ -304,4 +330,121 @@ func runDockerPullDirect(ctx context.Context, containerService *services.Contain
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// setupSSH generates SSH key pair if needed and updates SSH config
+func setupSSH() error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	sshDir := filepath.Join(homeDir, ".ssh")
+	privateKeyPath := filepath.Join(sshDir, "catnip_remote")
+	publicKeyPath := filepath.Join(sshDir, "catnip_remote.pub")
+
+	// Create .ssh directory if it doesn't exist
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return fmt.Errorf("failed to create .ssh directory: %w", err)
+	}
+
+	// Check if SSH key already exists
+	if _, err := os.Stat(privateKeyPath); err == nil {
+		fmt.Printf("Using existing SSH key: %s\n", privateKeyPath)
+	} else {
+		// Generate SSH key pair
+		fmt.Println("Generating SSH key pair for Catnip...")
+		privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+		if err != nil {
+			return fmt.Errorf("failed to generate private key: %w", err)
+		}
+
+		// Save private key
+		privateKeyPEM := &pem.Block{
+			Type:  "RSA PRIVATE KEY",
+			Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
+		}
+		privateKeyFile, err := os.OpenFile(privateKeyPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+		if err != nil {
+			return fmt.Errorf("failed to create private key file: %w", err)
+		}
+		defer privateKeyFile.Close()
+
+		if err := pem.Encode(privateKeyFile, privateKeyPEM); err != nil {
+			return fmt.Errorf("failed to write private key: %w", err)
+		}
+
+		// Generate SSH public key
+		pub, err := ssh.NewPublicKey(&privateKey.PublicKey)
+		if err != nil {
+			return fmt.Errorf("failed to generate public key: %w", err)
+		}
+
+		// Get current user for comment
+		currentUser, _ := user.Current()
+		comment := fmt.Sprintf("catnip@%s", currentUser.Username)
+		publicKeyData := fmt.Sprintf("%s %s\n", strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))), comment)
+
+		// Save public key
+		if err := os.WriteFile(publicKeyPath, []byte(publicKeyData), 0644); err != nil {
+			return fmt.Errorf("failed to write public key: %w", err)
+		}
+
+		fmt.Printf("SSH key pair generated: %s\n", privateKeyPath)
+	}
+
+	// Update SSH config
+	if err := updateSSHConfig(homeDir); err != nil {
+		return fmt.Errorf("failed to update SSH config: %w", err)
+	}
+
+	return nil
+}
+
+// updateSSHConfig adds or updates the catnip host entry in ~/.ssh/config
+func updateSSHConfig(homeDir string) error {
+	configPath := filepath.Join(homeDir, ".ssh", "config")
+
+	// Read existing config
+	content, err := os.ReadFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read SSH config: %w", err)
+	}
+
+	// Check if catnip host already exists
+	if strings.Contains(string(content), "Host catnip") {
+		fmt.Println("SSH config already contains catnip host entry")
+		return nil
+	}
+
+	// Get current username
+	currentUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	// Prepare catnip host entry
+	catnipEntry := fmt.Sprintf(`
+Host catnip
+  HostName 127.0.0.1
+  Port 2222
+  User %s
+  IdentityFile ~/.ssh/catnip_remote
+  StrictHostKeyChecking no
+  UserKnownHostsFile /dev/null
+`, currentUser.Username)
+
+	// Append to config
+	configFile, err := os.OpenFile(configPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open SSH config: %w", err)
+	}
+	defer configFile.Close()
+
+	if _, err := configFile.WriteString(catnipEntry); err != nil {
+		return fmt.Errorf("failed to write SSH config: %w", err)
+	}
+
+	fmt.Println("Updated SSH config with catnip host entry")
+	return nil
 }

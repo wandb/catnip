@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui/components"
 )
 
@@ -61,18 +62,20 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		v.completed = true
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts)
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
 
 	case InitializationCompleteWithOutputMsg:
 		v.completed = true
 		v.output = append(v.output, msg.Output...)
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts)
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
 
 	case InitializationFailedMsg:
 		v.failed = true
 		v.status = fmt.Sprintf("Initialization failed: %s", msg.Error)
+		// Stop the spinner when failed
+		v.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red color
 
 	case InitializationStatusMsg:
 		v.status = msg.Status
@@ -88,7 +91,7 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 
 		if msg.StartContainer {
 			// Need to start container
-			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts)
+			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
 		}
 
 		// Trigger the appropriate streaming command based on the action
@@ -140,15 +143,45 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		return m, StreamingOutputReader(msg.OutputChan, msg.DoneChan)
 
 	case ContainerStartedMsg:
-		v.status = "Container started successfully!"
-		// Switch to overview after a brief delay to show the success message
-		return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
-			return SwitchViewMsg{ViewType: OverviewView}
-		})
+		v.status = "Container started, checking health..."
+		// Start monitoring container health instead of switching to overview
+		return m, MonitorContainerHealthCmd(msg.ContainerService, msg.ContainerName)
 
 	case ContainerStartFailedMsg:
 		v.failed = true
 		v.status = fmt.Sprintf("Failed to start container: %s", msg.Error)
+
+	case ContainerHealthCheckFailedMsg:
+		v.failed = true
+		v.status = fmt.Sprintf("Container health check failed: %s", msg.Error)
+
+	case StartStreamingContainerLogsCmd:
+		v.status = "Monitoring container startup..."
+		return m, ExecuteStreamingContainerLogsCmd(msg.Command, msg.ContainerName, msg.ContainerService)
+
+	case StartStreamingContainerLogsReader:
+		return m, StreamingContainerLogsReader(msg.OutputChan, msg.DoneChan)
+
+	case ContainerLogsOutputMsg:
+		// Only add non-empty lines to prevent scrolling away errors
+		if strings.TrimSpace(msg.Line) != "" {
+			debugLog("InitializationView: received container log output: %s", msg.Line)
+			v.output = append(v.output, msg.Line)
+			// Update viewport content
+			v.viewport.SetContent(strings.Join(v.output, "\n"))
+			// Auto-scroll to bottom
+			v.viewport.GotoBottom()
+		}
+		// Continue streaming by returning the next read command
+		return m, StreamingContainerLogsReader(msg.OutputChan, msg.DoneChan)
+
+	case ContainerHealthyMsg:
+		v.completed = true
+		v.status = "Container is healthy and ready!"
+		// Switch to overview after a brief delay to show the success message
+		return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
+			return SwitchViewMsg{ViewType: OverviewView}
+		})
 
 	case SwitchViewMsg:
 		if msg.ViewType != InitializationView {
@@ -183,7 +216,21 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 	if v.completed {
 		content.WriteString(statusStyle.Render("✅ " + v.status))
 	} else if v.failed {
-		content.WriteString(statusStyle.Render("❌ " + v.status))
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			MarginBottom(1)
+		content.WriteString(errorStyle.Render("❌ " + v.status))
+
+		// Only show generic help for non-container failures
+		if !strings.Contains(v.status, "Container") {
+			// Add helpful guidance for failed initialization
+			helpStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("240")).
+				Italic(true).
+				MarginBottom(1)
+			content.WriteString("\n")
+			content.WriteString(helpStyle.Render("Check the output below for details. Press 'q' to exit or restart the application to try again."))
+		}
 	} else {
 		content.WriteString(statusStyle.Render(v.spinner.View() + " " + v.status))
 	}
@@ -284,7 +331,10 @@ type InitializationContinueStreamingMsg struct {
 type SwitchViewMsg struct {
 	ViewType ViewType
 }
-type ContainerStartedMsg struct{}
+type ContainerStartedMsg struct {
+	ContainerName    string
+	ContainerService *services.ContainerService
+}
 type ContainerStartFailedMsg struct {
 	Error string
 }

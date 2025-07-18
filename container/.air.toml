@@ -7,7 +7,7 @@ tmp_dir = "tmp"
   bin = "./tmp/catnip"
   cmd = "just swagger && go build -buildvcs=false -o ./tmp/catnip ./cmd/server"
   delay = 1000
-  exclude_dir = ["assets", "tmp", "vendor", "testdata", "docs", "bin", "dist"]
+  exclude_dir = ["assets", "tmp", "vendor", "testdata", "docs", "bin", "dist", "internal/tui"]
   exclude_file = []
   exclude_regex = ["_test.go"]
   exclude_unchanged = false
