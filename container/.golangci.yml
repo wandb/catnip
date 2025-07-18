@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 10m
   issues-exit-code: 1
@@ -6,7 +8,11 @@ run:
 
 output:
   formats:
-    - text
+    text:
+      path: stdout
+      colors: true
+      print-linter-name: true
+      print-issued-lines: true
   show-stats: true
 
 linters:
