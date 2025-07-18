@@ -181,6 +181,14 @@ func (s *GitService) isLocalRepo(repoID string) bool {
 	return strings.HasPrefix(repoID, "local/")
 }
 
+// getSourceRef returns the appropriate source reference for a worktree
+func (s *GitService) getSourceRef(worktree *models.Worktree) string {
+	if s.isLocalRepo(worktree.RepoID) {
+		return fmt.Sprintf("live/%s", worktree.SourceBranch)
+	}
+	return fmt.Sprintf("origin/%s", worktree.SourceBranch)
+}
+
 // execCommand executes any command with standard environment
 func (s *GitService) execCommand(command string, args ...string) *exec.Cmd {
 	cmd := exec.Command(command, args...)
@@ -1334,12 +1342,7 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 	s.fetchLatestReference(worktree)
 
 	// Determine source reference based on repo type
-	var sourceRef string
-	if s.isLocalRepo(worktree.RepoID) {
-		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
-	} else {
-		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
-	}
+	sourceRef := s.getSourceRef(worktree)
 
 	// Count commits ahead (our commits)
 	if count, err := s.getCommitCount(worktree.Path, sourceRef, "HEAD"); err == nil {
@@ -1358,37 +1361,78 @@ func (s *GitService) fetchLatestReference(worktree *models.Worktree) {
 		// Get the local repo path
 		repo, exists := s.repositories[worktree.RepoID]
 		if exists {
-			// Fetch latest from local main repo
-			_ = s.fetchBranch(worktree.Path, FetchStrategy{
-				Branch:      worktree.SourceBranch,
-				Remote:      repo.Path,
-				RemoteName:  "live",
-				IsLocalRepo: true,
-			})
+			// Optimized fetch for local repos - only fetch if actually needed
+			_ = s.fetchLocalBranch(worktree.Path, repo.Path, worktree.SourceBranch)
 		}
 	} else {
-		// Fetch latest from origin for regular repos
-		_ = s.fetchBranch(worktree.Path, FetchStrategy{
-			Branch: worktree.SourceBranch,
-		})
+		// Fetch latest from origin for regular repos with aggressive optimizations
+		_ = s.fetchBranchFast(worktree.Path, worktree.SourceBranch)
 	}
 }
 
-// UpdateWorktreeStatus updates commit count and dirty status for a worktree
-func (s *GitService) UpdateWorktreeStatus(worktreeID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	worktree, exists := s.worktrees[worktreeID]
-	if !exists {
-		return fmt.Errorf("worktree %s not found", worktreeID)
+// fetchBranchFast performs a highly optimized fetch for status updates
+func (s *GitService) fetchBranchFast(repoPath, branch string) error {
+	// Build highly optimized fetch command for status checking
+	args := []string{
+		"fetch",
+		"origin",
+		fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch),
+		"--depth", "1", // Only fetch the latest commit
+		"--no-tags",               // Skip tags to reduce transfer
+		"--quiet",                 // Reduce output noise
+		"--no-recurse-submodules", // Skip submodules
 	}
 
-	// Update dirty status
-	worktree.IsDirty = s.isDirty(worktree.Path)
+	// Execute optimized fetch
+	output, err := s.runGitCommand(repoPath, args...)
+	if err != nil {
+		return fmt.Errorf("failed to fetch branch optimized: %v\n%s", err, output)
+	}
 
-	// Update commit count and commits behind
-	s.updateWorktreeStatusInternal(worktree)
+	return nil
+}
+
+// fetchLocalBranch performs a highly optimized fetch for local repos
+func (s *GitService) fetchLocalBranch(worktreePath, mainRepoPath, branch string) error {
+	// First, check if we even need to fetch by comparing commit hashes
+	// Get the current commit hash of the remote branch in our worktree
+	currentRemoteHash, err := s.runGitCommand(worktreePath, "rev-parse", fmt.Sprintf("live/%s", branch))
+	if err != nil {
+		// If we don't have the remote ref yet, we need to fetch
+		return s.fetchLocalBranchInternal(worktreePath, mainRepoPath, branch)
+	}
+
+	// Get the latest commit hash from the main repo
+	latestHash, err := s.runGitCommand(mainRepoPath, "rev-parse", branch)
+	if err != nil {
+		return fmt.Errorf("failed to get latest commit from main repo: %v", err)
+	}
+
+	// Compare hashes - if they're the same, no need to fetch
+	if strings.TrimSpace(string(currentRemoteHash)) == strings.TrimSpace(string(latestHash)) {
+		return nil // No changes, skip fetch
+	}
+
+	// Only fetch if there are actual changes
+	return s.fetchLocalBranchInternal(worktreePath, mainRepoPath, branch)
+}
+
+// fetchLocalBranchInternal performs minimal fetch for local repos when needed
+func (s *GitService) fetchLocalBranchInternal(worktreePath, mainRepoPath, branch string) error {
+	// Highly optimized fetch for local repos - only fetch the specific branch tip
+	args := []string{
+		"fetch",
+		mainRepoPath,
+		fmt.Sprintf("%s:refs/remotes/live/%s", branch, branch),
+		"--depth", "1", // Only fetch the latest commit
+		"--quiet", // Reduce output noise
+	}
+
+	// Execute minimal fetch
+	output, err := s.runGitCommand(worktreePath, args...)
+	if err != nil {
+		return fmt.Errorf("failed to fetch local branch minimal: %v\n%s", err, output)
+	}
 
 	return nil
 }
@@ -1430,7 +1474,6 @@ func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy st
 		}); err != nil {
 			return fmt.Errorf("failed to fetch from main repo: %v", err)
 		}
-		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
 	} else {
 		// Fetch from origin
 		if err := s.fetchBranch(worktree.Path, FetchStrategy{
@@ -1438,8 +1481,10 @@ func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy st
 		}); err != nil {
 			return fmt.Errorf("failed to fetch from origin: %v", err)
 		}
-		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
 	}
+
+	// Get the appropriate source reference after fetching
+	sourceRef = s.getSourceRef(worktree)
 
 	// Apply the sync strategy
 	if err := s.applySyncStrategy(worktree, strategy, sourceRef); err != nil {
@@ -1447,7 +1492,7 @@ func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy st
 	}
 
 	// Update worktree status
-	_ = s.UpdateWorktreeStatus(worktree.ID)
+	s.updateWorktreeStatusInternal(worktree)
 
 	log.Printf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
 	return nil
@@ -1832,7 +1877,6 @@ func (s *GitService) checkConflictsInternal(worktree *models.Worktree, operation
 		}); err != nil {
 			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
 		}
-		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
 	} else {
 		// Fetch from origin to ensure we have latest changes
 		if err := s.fetchBranch(worktree.Path, FetchStrategy{
@@ -1840,8 +1884,10 @@ func (s *GitService) checkConflictsInternal(worktree *models.Worktree, operation
 		}); err != nil {
 			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
 		}
-		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
 	}
+
+	// Get the appropriate source reference after fetching
+	sourceRef = s.getSourceRef(worktree)
 
 	// Try a dry-run merge to detect conflicts
 	output, err := s.runGitCommand(worktree.Path, "merge-tree", "HEAD", sourceRef)
@@ -2242,8 +2288,12 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 		return nil, fmt.Errorf("worktree not found: %s", worktreeID)
 	}
 
+	// Ensure we have the latest reference to the source branch
+	s.fetchLatestReference(worktree)
+	sourceRef := s.getSourceRef(worktree)
+
 	// Find the merge base (fork point) between this worktree and its source branch
-	mergeBaseCmd := s.execGitCommand(worktree.Path, "merge-base", "HEAD", worktree.SourceBranch)
+	mergeBaseCmd := s.execGitCommand(worktree.Path, "merge-base", "HEAD", sourceRef)
 
 	mergeBaseOutput, err := mergeBaseCmd.Output()
 	if err != nil {
@@ -2343,10 +2393,25 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 			found := false
 			for i := range fileDiffs {
 				if fileDiffs[i].FilePath == filePath {
-					// Mark as having unstaged changes
-					if fileDiffs[i].ChangeType == "modified" {
+					// Update the existing entry to show it has unstaged changes
+					if fileDiffs[i].ChangeType == "added" {
+						fileDiffs[i].ChangeType = "added + modified (unstaged)"
+					} else {
 						fileDiffs[i].ChangeType = "modified (unstaged)"
 					}
+
+					// Update content to show working directory state
+					if newContent, err := os.ReadFile(filepath.Join(worktree.Path, filePath)); err == nil {
+						fileDiffs[i].NewContent = string(newContent)
+					}
+
+					// Update diff to show unstaged changes
+					diffCmd := s.execGitCommand(worktree.Path, "diff", "--", filePath)
+					if diffOutput, err := diffCmd.Output(); err == nil {
+						fileDiffs[i].DiffText = string(diffOutput)
+					}
+
+					fileDiffs[i].IsExpanded = true
 					found = true
 					break
 				}
