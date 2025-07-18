@@ -166,7 +166,9 @@ ENV NVM_DIR="${CATNIP_ROOT}/nvm"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${RUST_VERSION} && \
     mv /root/.cargo ${CATNIP_ROOT}/cargo && \
     mv /root/.rustup ${CATNIP_ROOT}/rustup && \
-    chown -R catnip:catnip ${CATNIP_ROOT}/cargo ${CATNIP_ROOT}/rustup
+    chown -R catnip:catnip ${CATNIP_ROOT}/cargo ${CATNIP_ROOT}/rustup && \
+    sed -i "s|/root/\.cargo|${CATNIP_ROOT}/cargo|g" /root/.bashrc /root/.profile && \
+    sed -i "s|\$HOME/\.nvm|\$NVM_DIR|g" /root/.bashrc
 ENV CARGO_HOME="${CATNIP_ROOT}/cargo"
 ENV RUSTUP_HOME="${CATNIP_ROOT}/rustup"
 
