@@ -163,9 +163,10 @@ function TerminalPage() {
                   JSON.stringify({
                     type: "prompt",
                     data: search.prompt,
+                    submit: true,
                   }),
                 );
-              }, 2000); // Wait 2 seconds for Claude UI to fully load
+              }, 1000); // Wait a second for Claude UI to fully load
             }
             return;
           }

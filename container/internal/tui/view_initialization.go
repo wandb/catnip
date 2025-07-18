@@ -73,6 +73,8 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 	case InitializationFailedMsg:
 		v.failed = true
 		v.status = fmt.Sprintf("Initialization failed: %s", msg.Error)
+		// Stop the spinner when failed
+		v.spinner.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // Red color
 
 	case InitializationStatusMsg:
 		v.status = msg.Status
@@ -183,7 +185,18 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 	if v.completed {
 		content.WriteString(statusStyle.Render("✅ " + v.status))
 	} else if v.failed {
-		content.WriteString(statusStyle.Render("❌ " + v.status))
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			MarginBottom(1)
+		content.WriteString(errorStyle.Render("❌ " + v.status))
+
+		// Add helpful guidance for failed initialization
+		helpStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Italic(true).
+			MarginBottom(1)
+		content.WriteString("\n")
+		content.WriteString(helpStyle.Render("Check the output above for details. Press 'q' to exit or restart the application to try again."))
 	} else {
 		content.WriteString(statusStyle.Render(v.spinner.View() + " " + v.status))
 	}

@@ -193,17 +193,112 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
         }
         return originalReplaceState.call(history, state, title, url);
     };
-    
-    // Fix relative links on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        const links = document.querySelectorAll('a[href^="/"]');
-        links.forEach(function(link) {
+
+    function rewriteAttribute(el, attr) {
+        const val = el[attr];
+        if (!val || typeof val !== 'string') return;
+
+        const originPrefix = location.origin + '/';
+        if (val.startsWith(originPrefix)) {
+            const relative = val.replace(location.origin, '');
+            if (!relative.startsWith(basePath)) {
+                el[attr] = basePath.slice(0, -1) + relative;
+            }
+        }
+    }
+
+    function rewriteStaticResources() {
+        // Anchor tags
+        document.querySelectorAll('a[href^="/"]').forEach(link => {
             const href = link.getAttribute('href');
             if (href && !href.startsWith(basePath)) {
                 link.setAttribute('href', basePath.slice(0, -1) + href);
             }
         });
+
+        // Static <script>, <link>, <img>
+        document.querySelectorAll('script[src], link[href], img[src]').forEach(el => {
+            if (el.tagName === 'SCRIPT' || el.tagName === 'IMG') {
+                rewriteAttribute(el, 'src');
+            } else if (el.tagName === 'LINK') {
+                rewriteAttribute(el, 'href');
+            }
+        });
+    }
+
+    function watchForDynamicInsertions() {
+        const observer = new MutationObserver(mutations => {
+            mutations.forEach(mutation => {
+                mutation.addedNodes.forEach(node => {
+                    if (!(node instanceof HTMLElement)) return;
+
+                    if (node.tagName === 'SCRIPT' || node.tagName === 'IMG') {
+                        rewriteAttribute(node, 'src');
+                    } else if (node.tagName === 'LINK') {
+                        rewriteAttribute(node, 'href');
+                    } else if (node.tagName === 'A') {
+                        const href = node.getAttribute('href');
+                        if (href && href.startsWith('/') && !href.startsWith(basePath)) {
+                            node.setAttribute('href', basePath.slice(0, -1) + href);
+                        }
+                    }
+                });
+            });
+        });
+
+        observer.observe(document.documentElement, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    function patchFetchAndXHR() {
+        // Patch fetch
+        const originalFetch = window.fetch;
+        window.fetch = function(resource, init) {
+            if (typeof resource === 'string' && resource.startsWith('/') && !resource.startsWith(basePath)) {
+                resource = basePath.slice(0, -1) + resource;
+            } else if (resource instanceof Request && resource.url.startsWith(location.origin + '/')) {
+                const relative = resource.url.replace(location.origin, '');
+                if (!relative.startsWith(basePath)) {
+                    resource = new Request(basePath.slice(0, -1) + relative, resource);
+                }
+            }
+            return originalFetch(resource, init);
+        };
+
+        // Patch XMLHttpRequest
+        const originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url, ...args) {
+            if (typeof url === 'string' && url.startsWith('/') && !url.startsWith(basePath)) {
+                url = basePath.slice(0, -1) + url;
+            } else if (url.startsWith(location.origin + '/')) {
+                const relative = url.replace(location.origin, '');
+                if (!relative.startsWith(basePath)) {
+                    url = basePath.slice(0, -1) + relative;
+                }
+            }
+            return originalOpen.call(this, method, url, ...args);
+        };
+    }
+
+    // Initialize on DOMContentLoaded
+    document.addEventListener('DOMContentLoaded', function() {
+        rewriteStaticResources();
+        watchForDynamicInsertions();
+        patchFetchAndXHR();
     });
+
+    /**
+     * 🚧 Things NOT Yet Handled:
+     *
+     * - new Image().src = "/foo.jpg" → you'd need to patch the Image constructor
+     * - new EventSource("/stream") → would need to wrap EventSource
+     * - import("/module.js") dynamic imports cannot be intercepted easily at runtime
+     * - CSS url(/assets/foo.png) — rewriting stylesheet contents is out-of-scope unless you proxy/transform CSS
+     * - WebSocket URLs like ws://example.com/...
+     * - Form actions (<form action="/post">) if used
+     */
 
     // Iframe resizer functionality
     let isInIframe = false;

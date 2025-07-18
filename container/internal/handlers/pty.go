@@ -67,8 +67,9 @@ type ResizeMsg struct {
 
 // ControlMsg represents control commands
 type ControlMsg struct {
-	Type string `json:"type"`
-	Data string `json:"data,omitempty"`
+	Type   string `json:"type"`
+	Data   string `json:"data,omitempty"`
+	Submit bool   `json:"submit,omitempty"`
 }
 
 // sanitizeTitle ensures the extracted title is safe and conforms to expected formats
@@ -319,9 +320,22 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				case "prompt":
 					// Handle prompt injection for Claude TUI
 					if controlMsg.Data != "" {
-						log.Printf("📝 Injecting prompt into PTY: %q", controlMsg.Data)
+						log.Printf("📝 Injecting prompt into PTY: %q (submit: %v)", controlMsg.Data, controlMsg.Submit)
 						if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
 							log.Printf("❌ Failed to write prompt to PTY: %v", err)
+						}
+
+						// If submit is true, send a carriage return after a small delay
+						// This mimics how a user would type and then press Enter
+						if controlMsg.Submit {
+							go func() {
+								// Small delay to let the TUI process the prompt text
+								time.Sleep(100 * time.Millisecond)
+								log.Printf("↩️ Sending carriage return (\\r) to execute prompt")
+								if _, err := session.PTY.Write([]byte("\r")); err != nil {
+									log.Printf("❌ Failed to write carriage return to PTY: %v", err)
+								}
+							}()
 						}
 					}
 					continue
@@ -340,6 +354,23 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		}
 
 		// Write data to PTY
+		// Debug: log what we're actually receiving from xterm.js
+		if len(data) <= 10 { // Only log short sequences to avoid spam
+			logData := make([]string, len(data))
+			for i, b := range data {
+				if b == '\r' {
+					logData[i] = "\\r"
+				} else if b == '\n' {
+					logData[i] = "\\n"
+				} else if b < 32 || b > 126 {
+					logData[i] = fmt.Sprintf("\\x%02x", b)
+				} else {
+					logData[i] = string(b)
+				}
+			}
+			log.Printf("🔍 PTY input: %s", strings.Join(logData, ""))
+		}
+
 		if _, err := session.PTY.Write(data); err != nil {
 			log.Printf("❌ PTY write error: %v", err)
 			break
