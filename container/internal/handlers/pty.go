@@ -354,23 +354,6 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		}
 
 		// Write data to PTY
-		// Debug: log what we're actually receiving from xterm.js
-		if len(data) <= 10 { // Only log short sequences to avoid spam
-			logData := make([]string, len(data))
-			for i, b := range data {
-				if b == '\r' {
-					logData[i] = "\\r"
-				} else if b == '\n' {
-					logData[i] = "\\n"
-				} else if b < 32 || b > 126 {
-					logData[i] = fmt.Sprintf("\\x%02x", b)
-				} else {
-					logData[i] = string(b)
-				}
-			}
-			log.Printf("🔍 PTY input: %s", strings.Join(logData, ""))
-		}
-
 		if _, err := session.PTY.Write(data); err != nil {
 			log.Printf("❌ PTY write error: %v", err)
 			break

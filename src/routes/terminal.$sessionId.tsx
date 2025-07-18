@@ -302,7 +302,7 @@ function TerminalPage() {
             fitAddon.current?.fit();
           }
         }
-      }, 250);
+      }, 500);
     });
 
     const disposer = instance?.onData((data: string) => {
