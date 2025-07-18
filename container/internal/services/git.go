@@ -3037,8 +3037,8 @@ func (s *GitService) RenameBranch(worktreeID, newBranchName string) (*models.Wor
 		return nil, fmt.Errorf("worktree %s not found", worktreeID)
 	}
 
-	// Sanitize the branch name
-	sanitizedBranchName := s.sanitizeBranchName(newBranchName)
+	// Sanitize the branch name with project prefix
+	sanitizedBranchName := s.sanitizeBranchNameWithProject(worktree.RepoID, newBranchName)
 	if sanitizedBranchName == "" {
 		return nil, fmt.Errorf("invalid branch name after sanitization")
 	}
@@ -3059,20 +3059,18 @@ func (s *GitService) RenameBranch(worktreeID, newBranchName string) (*models.Wor
 		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
 	}
 
-	// Check if the target branch already exists
-	if s.branchExists(worktree.Path, sanitizedBranchName, false) {
-		return nil, fmt.Errorf("branch %s already exists", sanitizedBranchName)
-	}
+	// Check if the target branch already exists and handle conflicts
+	finalBranchName := s.resolveBranchNameConflict(worktree.Path, sanitizedBranchName)
 
 	// Rename the branch using git branch -m
-	if err := s.execGitCommand(worktree.Path, "branch", "-m", worktree.Branch, sanitizedBranchName).Run(); err != nil {
+	if err := s.execGitCommand(worktree.Path, "branch", "-m", worktree.Branch, finalBranchName).Run(); err != nil {
 		return nil, fmt.Errorf("failed to rename branch: %v", err)
 	}
 
 	// Update the worktree struct
 	s.mu.Lock()
-	worktree.Branch = sanitizedBranchName
-	worktree.Name = sanitizedBranchName // Update the name to match the new branch
+	worktree.Branch = finalBranchName
+	worktree.Name = finalBranchName // Update the name to match the new branch
 	s.mu.Unlock()
 
 	// Save the updated state
@@ -3080,9 +3078,60 @@ func (s *GitService) RenameBranch(worktreeID, newBranchName string) (*models.Wor
 		log.Printf("⚠️  Failed to save state after branch rename: %v", err)
 	}
 
-	log.Printf("✅ Successfully renamed branch to %s in worktree %s", sanitizedBranchName, worktreeID)
+	log.Printf("✅ Successfully renamed branch to %s in worktree %s", finalBranchName, worktreeID)
 
 	return worktree, nil
+}
+
+// sanitizeBranchNameWithProject sanitizes a string to be used as a git branch name with project prefix
+func (s *GitService) sanitizeBranchNameWithProject(repoID, title string) string {
+	// Extract project name from repo_id
+	projectName := s.extractProjectName(repoID)
+
+	// Sanitize the title part
+	sanitizedTitle := s.sanitizeBranchName(title)
+
+	// Combine as project/branch
+	return fmt.Sprintf("%s/%s", projectName, sanitizedTitle)
+}
+
+// extractProjectName extracts the project name from repo_id, removing "local" prefix if present
+func (s *GitService) extractProjectName(repoID string) string {
+	// Remove "local/" prefix if present
+	if strings.HasPrefix(repoID, "local/") {
+		return strings.TrimPrefix(repoID, "local/")
+	}
+
+	// For GitHub repos like "owner/repo", use just the repo name
+	if strings.Contains(repoID, "/") {
+		parts := strings.Split(repoID, "/")
+		return parts[len(parts)-1] // Return the last part (repo name)
+	}
+
+	return repoID
+}
+
+// resolveBranchNameConflict checks if a branch name exists and adds a random suffix if needed
+func (s *GitService) resolveBranchNameConflict(repoPath, branchName string) string {
+	// If branch doesn't exist, return original name
+	if !s.branchExists(repoPath, branchName, false) {
+		return branchName
+	}
+
+	// Generate a random 6-digit suffix and try again
+	suffix, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(1000000))
+	candidateName := branchName + fmt.Sprintf("-%06d", suffix.Int64())
+
+	if !s.branchExists(repoPath, candidateName, false) {
+		log.Printf("🔄 Branch %s already exists, using %s instead", branchName, candidateName)
+		return candidateName
+	}
+
+	// Fallback: use timestamp if all random attempts fail
+	timestamp := fmt.Sprintf("-%d", time.Now().Unix()%1000000)
+	finalName := branchName + timestamp
+	log.Printf("🔄 Multiple conflicts for %s, using timestamp suffix: %s", branchName, finalName)
+	return finalName
 }
 
 // sanitizeBranchName sanitizes a string to be used as a git branch name
@@ -3111,9 +3160,9 @@ func (s *GitService) sanitizeBranchName(title string) string {
 		sanitized = strings.ReplaceAll(sanitized, "--", "-")
 	}
 
-	// Limit length to 250 characters (git limit is 255, leave some buffer)
-	if len(sanitized) > 250 {
-		sanitized = sanitized[:250]
+	// Limit length to 200 characters (leave room for project prefix)
+	if len(sanitized) > 200 {
+		sanitized = sanitized[:200]
 		sanitized = strings.TrimSuffix(sanitized, "-") // Remove trailing hyphen if truncated
 	}
 
