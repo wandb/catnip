@@ -324,7 +324,7 @@
         },
         "/v1/git/worktrees": {
             "get": {
-                "description": "Returns a list of all worktrees for the current repository",
+                "description": "Returns a list of all worktrees for the current repository. By default, this is fast and does not check remote status. Use checkRemote=true for latest remote status.",
                 "produces": [
                     "application/json"
                 ],
@@ -332,6 +332,14 @@
                     "git"
                 ],
                 "summary": "List all worktrees",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Whether to check remote status (slower but more accurate)",
+                        "name": "checkRemote",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",

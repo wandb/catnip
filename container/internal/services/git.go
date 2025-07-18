@@ -1,6 +1,8 @@
 package services
 
 import (
+	"bufio"
+	"bytes"
 	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -9,12 +11,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vanpelt/catnip/internal/cache"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -147,7 +151,7 @@ func (s *GitService) cleanupUnusedBranches() {
 			}
 
 			// Delete the branch (local)
-			cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", branchName)
+			cmd = s.execGitCommand(repo.Path, "branch", "-D", branchName)
 			if err := cmd.Run(); err == nil {
 				deletedInRepo++
 				totalDeleted++
@@ -169,9 +173,12 @@ func (s *GitService) cleanupUnusedBranches() {
 
 // GitService manages multiple Git repositories and their worktrees
 type GitService struct {
-	repositories map[string]*models.Repository // key: repoID (e.g., "owner/repo")
-	worktrees    map[string]*models.Worktree   // key: worktree ID
-	mu           sync.RWMutex
+	repositories   map[string]*models.Repository // key: repoID (e.g., "owner/repo")
+	worktrees      map[string]*models.Worktree   // key: worktree ID
+	conflictCache  *cache.ConflictCache          // Specialized conflict cache
+	mu             sync.RWMutex
+	stopCleanup    chan struct{} // Channel to stop background cleanup
+	cleanupStopped chan struct{} // Channel to signal cleanup has stopped
 }
 
 // Helper functions for standardized command execution
@@ -539,8 +546,11 @@ func (s *GitService) isDirty(worktreePath string) bool {
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
 	s := &GitService{
-		repositories: make(map[string]*models.Repository),
-		worktrees:    make(map[string]*models.Worktree),
+		repositories:   make(map[string]*models.Repository),
+		worktrees:      make(map[string]*models.Worktree),
+		conflictCache:  cache.NewConflictCacheWithDefaults(),
+		stopCleanup:    make(chan struct{}),
+		cleanupStopped: make(chan struct{}),
 	}
 
 	// Ensure workspace directory exists
@@ -562,6 +572,8 @@ func NewGitService() *GitService {
 	} else {
 		log.Printf("🔧 Skipping branch cleanup in dev mode")
 	}
+
+	s.startCacheCleanup()
 
 	return s
 }
@@ -721,6 +733,11 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 
 // ListWorktrees returns all worktrees
 func (s *GitService) ListWorktrees() []*models.Worktree {
+	return s.ListWorktreesWithRemoteCheck(false)
+}
+
+// ListWorktreesWithRemoteCheck returns all worktrees with optional remote checking
+func (s *GitService) ListWorktreesWithRemoteCheck(checkRemote bool) []*models.Worktree {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -730,7 +747,7 @@ func (s *GitService) ListWorktrees() []*models.Worktree {
 		wt.IsDirty = s.isDirty(wt.Path)
 
 		// Update commit count and commits behind
-		s.updateWorktreeStatusInternal(wt)
+		s.updateWorktreeStatusInternal(wt, checkRemote)
 
 		worktrees = append(worktrees, wt)
 	}
@@ -1282,10 +1299,13 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 		}
 	}
 
-	// Step 6: Remove from memory
+	// Step 6: Clear conflict cache for this worktree
+	s.clearConflictCache(worktreeID)
+
+	// Step 7: Remove from memory
 	delete(s.worktrees, worktreeID)
 
-	// Step 7: Save state
+	// Step 8: Save state
 	_ = s.saveState()
 
 	log.Printf("✅ Completed comprehensive cleanup for worktree %s", worktree.Name)
@@ -1325,13 +1345,15 @@ func (s *GitService) cleanupActiveSessions(worktreePath string) {
 }
 
 // updateWorktreeStatusInternal updates commit count and commits behind for a worktree (internal, no mutex)
-func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
+func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree, checkRemote bool) {
 	if worktree.SourceBranch == "" || worktree.SourceBranch == worktree.Branch {
 		return
 	}
 
-	// Fetch latest reference
-	s.fetchLatestReference(worktree)
+	// Fetch latest reference only if requested
+	if checkRemote {
+		s.fetchLatestReference(worktree)
+	}
 
 	// Determine source reference based on repo type
 	var sourceRef string
@@ -1388,7 +1410,7 @@ func (s *GitService) UpdateWorktreeStatus(worktreeID string) error {
 	worktree.IsDirty = s.isDirty(worktree.Path)
 
 	// Update commit count and commits behind
-	s.updateWorktreeStatusInternal(worktree)
+	s.updateWorktreeStatusInternal(worktree, true) // Check remote for explicit status updates
 
 	return nil
 }
@@ -1808,70 +1830,8 @@ func (s *GitService) CheckSyncConflicts(worktreeID string) (*models.MergeConflic
 		return nil, fmt.Errorf("worktree %s not found", worktreeID)
 	}
 
-	return s.checkConflictsInternal(worktree, "sync")
-}
-
-// checkConflictsInternal consolidated conflict checking logic
-func (s *GitService) checkConflictsInternal(worktree *models.Worktree, operation string) (*models.MergeConflictError, error) {
-	// Determine source reference based on repo type and fetch latest changes
-	var sourceRef string
-
-	if s.isLocalRepo(worktree.RepoID) {
-		// Get the local repo path
-		repo, exists := s.repositories[worktree.RepoID]
-		if !exists {
-			return nil, fmt.Errorf("local repository %s not found", worktree.RepoID)
-		}
-
-		// Fetch from the local main repo to ensure we have latest changes
-		if err := s.fetchBranch(worktree.Path, FetchStrategy{
-			Branch:      worktree.SourceBranch,
-			Remote:      repo.Path,
-			RemoteName:  "live",
-			IsLocalRepo: true,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
-		}
-		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
-	} else {
-		// Fetch from origin to ensure we have latest changes
-		if err := s.fetchBranch(worktree.Path, FetchStrategy{
-			Branch: worktree.SourceBranch,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
-		}
-		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
-	}
-
-	// Try a dry-run merge to detect conflicts
-	output, err := s.runGitCommand(worktree.Path, "merge-tree", "HEAD", sourceRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check for conflicts: %v", err)
-	}
-
-	// Check if merge-tree output indicates conflicts
-	outputStr := string(output)
-	if s.hasConflictMarkers(outputStr) {
-		// Parse conflicted files from merge-tree output
-		conflictFiles := s.parseConflictFiles(outputStr)
-
-		return &models.MergeConflictError{
-			Operation:     operation,
-			WorktreeName:  worktree.Name,
-			WorktreePath:  worktree.Path,
-			ConflictFiles: conflictFiles,
-			Message:       fmt.Sprintf("%s would cause conflicts in worktree '%s'", operation, worktree.Name),
-		}, nil
-	}
-
-	return nil, nil
-}
-
-// hasConflictMarkers checks if the output contains conflict markers
-func (s *GitService) hasConflictMarkers(output string) bool {
-	return strings.Contains(output, "<<<<<<< ") ||
-		strings.Contains(output, "======= ") ||
-		strings.Contains(output, ">>>>>>> ")
+	// Use optimized conflict checking
+	return s.optimizedMergeTreeCheck(worktree, "sync")
 }
 
 // CheckMergeConflicts checks if merging a worktree to main would cause conflicts
@@ -1889,100 +1849,26 @@ func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConfli
 		return nil, fmt.Errorf("merge conflict check only supported for local repositories")
 	}
 
-	// Get the local repo
-	repo, exists := s.repositories[worktree.RepoID]
-	if !exists {
-		return nil, fmt.Errorf("local repository %s not found", worktree.RepoID)
-	}
-
-	// Create a temporary branch in the main repo to test the merge
-	tempBranch := fmt.Sprintf("temp-merge-check-%d", time.Now().Unix())
-
-	// Push the worktree branch to temp branch in main repo
-	cmd := s.execGitCommand(worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, tempBranch))
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to push temp branch for conflict check: %v", err)
-	}
-
-	// Clean up temp branch when done
-	defer func() {
-		cmd := s.execGitCommand(repo.Path, "branch", "-D", tempBranch)
-		_ = cmd.Run() // Ignore errors
-	}()
-
-	// Try a dry-run merge to detect conflicts
-	cmd = s.execGitCommand(repo.Path, "merge-tree",
-		worktree.SourceBranch,
-		tempBranch)
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to check merge conflicts: %v", err)
-	}
-
-	// Check if merge-tree output indicates conflicts
-	outputStr := string(output)
-	if strings.Contains(outputStr, "<<<<<<< ") || strings.Contains(outputStr, "======= ") || strings.Contains(outputStr, ">>>>>>> ") {
-		// Parse conflicted files from merge-tree output
-		conflictFiles := s.parseConflictFiles(outputStr)
-
-		return &models.MergeConflictError{
-			Operation:     "merge",
-			WorktreeName:  worktree.Name,
-			WorktreePath:  worktree.Path,
-			ConflictFiles: conflictFiles,
-			Message:       fmt.Sprintf("Merge would cause conflicts in worktree '%s'", worktree.Name),
-		}, nil
-	}
-
-	return nil, nil
-}
-
-// parseConflictFiles extracts file names from merge-tree conflict output
-func (s *GitService) parseConflictFiles(output string) []string {
-	var conflictFiles []string
-	lines := strings.Split(output, "\n")
-
-	for _, line := range lines {
-		// Look for conflict markers that indicate file paths
-		if strings.HasPrefix(line, "<<<<<<< ") {
-			// Extract file path from conflict marker context
-			// This is a simplified approach - merge-tree output format can vary
-			continue
-		}
-		// Look for "CONFLICT" lines that often contain file paths
-		if strings.Contains(line, "CONFLICT") && strings.Contains(line, "in ") {
-			parts := strings.Split(line, " in ")
-			if len(parts) > 1 {
-				file := strings.TrimSpace(parts[len(parts)-1])
-				if file != "" && !contains(conflictFiles, file) {
-					conflictFiles = append(conflictFiles, file)
-				}
-			}
-		}
-	}
-
-	// Fallback: if we couldn't parse files, indicate conflicts exist
-	if len(conflictFiles) == 0 && (strings.Contains(output, "<<<<<<< ") || strings.Contains(output, "CONFLICT")) {
-		conflictFiles = []string{"(multiple files)"}
-	}
-
-	return conflictFiles
-}
-
-// contains checks if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+	// Use optimized conflict checking
+	return s.optimizedMergeTreeCheck(worktree, "merge")
 }
 
 // Stop stops the Git service
 func (s *GitService) Stop() {
-	// No background services to stop
+	log.Printf("🛑 Stopping Git service...")
+
+	// Signal cleanup goroutine to stop
+	close(s.stopCleanup)
+
+	// Wait for cleanup to finish
+	<-s.cleanupStopped
+
+	// Close the cache
+	if err := s.conflictCache.Close(); err != nil {
+		log.Printf("⚠️ Error closing conflict cache: %v", err)
+	}
+
+	log.Printf("✅ Git service stopped")
 }
 
 // GitAddCommitGetHash performs git add, commit, and returns the commit hash
@@ -2016,6 +1902,19 @@ func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, 
 	}
 
 	hash := strings.TrimSpace(string(output))
+
+	// Invalidate conflict cache for any worktree that matches this workspace
+	s.mu.RLock()
+	for id, worktree := range s.worktrees {
+		if worktree.Path == workspaceDir {
+			s.mu.RUnlock()
+			s.clearConflictCache(id)
+			s.mu.RLock()
+			break
+		}
+	}
+	s.mu.RUnlock()
+
 	return hash, nil
 }
 
@@ -3012,3 +2911,290 @@ func (s *GitService) checkExistingPR(worktree *models.Worktree, ownerRepo string
 	log.Printf("✅ Found existing PR #%d for branch %s", existingPR.Number, worktree.Branch)
 	return nil
 }
+
+// clearConflictCache removes stale cache entries
+func (s *GitService) clearConflictCache(worktreeID string) {
+	s.conflictCache.Clear(worktreeID + ":")
+}
+
+// getConflictCacheKey generates a cache key for conflict checks
+func (s *GitService) getConflictCacheKey(worktreeID, operation string) string {
+	return s.conflictCache.FormatKey(worktreeID, operation)
+}
+
+// checkConflictCache checks if we have a valid cached result
+func (s *GitService) checkConflictCache(worktree *models.Worktree, operation string) (*models.MergeConflictError, bool) {
+	key := s.getConflictCacheKey(worktree.ID, operation)
+
+	// Check if cache is still valid (commits haven't changed)
+	sourceCommit, err := s.getSourceCommitHash(worktree)
+	if err != nil {
+		return nil, false
+	}
+
+	if !s.conflictCache.IsValid(key, worktree.CommitHash, sourceCommit) {
+		return nil, false
+	}
+
+	// Get the cached result
+	return s.conflictCache.GetConflictResult(key)
+}
+
+// cacheConflictResult caches a conflict check result
+func (s *GitService) cacheConflictResult(worktree *models.Worktree, operation string, result *models.MergeConflictError) {
+	sourceCommit, err := s.getSourceCommitHash(worktree)
+	if err != nil {
+		return // Don't cache if we can't get source commit
+	}
+
+	key := s.getConflictCacheKey(worktree.ID, operation)
+	s.conflictCache.SetConflictResult(key, worktree.CommitHash, sourceCommit, result)
+}
+
+// startCacheCleanup starts a background goroutine for cache maintenance
+func (s *GitService) startCacheCleanup() {
+	go func() {
+		defer close(s.cleanupStopped)
+
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// Clean up expired entries
+				s.conflictCache.Cleanup(10 * time.Minute)
+
+				// Log cache statistics
+				stats := s.conflictCache.Stats()
+				if stats.Size > 0 {
+					log.Printf("🧹 Cache cleanup: %d entries remaining (hit rate: %.2f%%)",
+						stats.Size, stats.HitRate*100)
+				}
+			case <-s.stopCleanup:
+				log.Printf("🛑 Cache cleanup goroutine stopping")
+				return
+			}
+		}
+	}()
+}
+
+// getSourceCommitHash gets the current commit hash of the source branch
+func (s *GitService) getSourceCommitHash(worktree *models.Worktree) (string, error) {
+	if s.isLocalRepo(worktree.RepoID) {
+		repo, exists := s.repositories[worktree.RepoID]
+		if !exists {
+			return "", fmt.Errorf("repository not found")
+		}
+		// Get commit hash from main repo
+		output, err := s.runGitCommand(repo.Path, "rev-parse", worktree.SourceBranch)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	} else {
+		// Get commit hash from origin reference
+		output, err := s.runGitCommand(worktree.Path, "rev-parse", fmt.Sprintf("origin/%s", worktree.SourceBranch))
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(string(output)), nil
+	}
+}
+
+// optimizedMergeTreeCheck performs an optimized merge-tree conflict check
+func (s *GitService) optimizedMergeTreeCheck(worktree *models.Worktree, operation string) (*models.MergeConflictError, error) {
+	// Check cache first
+	if cached, found := s.checkConflictCache(worktree, operation); found {
+		return cached, nil
+	}
+
+	var sourceRef string
+	var needsFetch bool
+
+	if s.isLocalRepo(worktree.RepoID) {
+		repo, exists := s.repositories[worktree.RepoID]
+		if !exists {
+			return nil, fmt.Errorf("local repository %s not found", worktree.RepoID)
+		}
+
+		// For local repos, check if we need to fetch by comparing timestamps
+		needsFetch = s.shouldFetchFromLocalRepo(worktree, repo)
+		if needsFetch {
+			if err := s.fetchBranch(worktree.Path, FetchStrategy{
+				Branch:      worktree.SourceBranch,
+				Remote:      repo.Path,
+				RemoteName:  "live",
+				IsLocalRepo: true,
+			}); err != nil {
+				return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
+			}
+		}
+		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
+	} else {
+		// For remote repos, only fetch if we don't have the reference
+		if !s.hasRemoteRef(worktree.Path, fmt.Sprintf("origin/%s", worktree.SourceBranch)) {
+			if err := s.fetchBranch(worktree.Path, FetchStrategy{
+				Branch: worktree.SourceBranch,
+			}); err != nil {
+				return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
+			}
+		}
+		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
+	}
+
+	// Use optimized merge-tree check
+	var result *models.MergeConflictError
+	if operation == "merge" {
+		result = s.checkMergeConflictsOptimized(worktree, sourceRef)
+	} else {
+		result = s.checkSyncConflictsOptimized(worktree, sourceRef)
+	}
+
+	// Cache the result
+	s.cacheConflictResult(worktree, operation, result)
+
+	return result, nil
+}
+
+// shouldFetchFromLocalRepo checks if we should fetch from the local repo
+func (s *GitService) shouldFetchFromLocalRepo(worktree *models.Worktree, repo *models.Repository) bool {
+	// Compare last modification times as a heuristic
+	worktreeGitDir := filepath.Join(worktree.Path, ".git")
+	repoGitDir := filepath.Join(repo.Path, "refs", "heads", worktree.SourceBranch)
+
+	worktreeStat, err1 := os.Stat(worktreeGitDir)
+	repoStat, err2 := os.Stat(repoGitDir)
+
+	if err1 != nil || err2 != nil {
+		return true // Fetch if we can't determine, better safe than sorry
+	}
+
+	// If main repo is newer, we need to fetch
+	return repoStat.ModTime().After(worktreeStat.ModTime())
+}
+
+// hasRemoteRef checks if a remote reference exists
+func (s *GitService) hasRemoteRef(repoPath, ref string) bool {
+	cmd := s.execGitCommand(repoPath, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/remotes/%s", ref))
+	return cmd.Run() == nil
+}
+
+// checkMergeConflictsOptimized performs optimized merge conflict checking
+func (s *GitService) checkMergeConflictsOptimized(worktree *models.Worktree, sourceRef string) *models.MergeConflictError {
+	// Use three-way merge-tree (Git 2.38+) for more accurate results
+	cmd := s.execGitCommand(worktree.Path, "merge-tree", "--write-tree", sourceRef, "HEAD")
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		// Fall back to traditional merge-tree if new version not available
+		return s.checkConflictsTraditional(worktree, sourceRef, "merge")
+	}
+
+	// Check if there are conflicts in the output
+	if s.hasConflictMarkersOptimized(string(output)) {
+		conflictFiles := s.parseConflictFilesOptimized(string(output))
+		return &models.MergeConflictError{
+			Operation:     "merge",
+			WorktreeName:  worktree.Name,
+			WorktreePath:  worktree.Path,
+			ConflictFiles: conflictFiles,
+			Message:       fmt.Sprintf("Merge would cause conflicts in worktree '%s'", worktree.Name),
+		}
+	}
+
+	return nil
+}
+
+// checkSyncConflictsOptimized performs optimized sync conflict checking
+func (s *GitService) checkSyncConflictsOptimized(worktree *models.Worktree, sourceRef string) *models.MergeConflictError {
+	// For sync, we're merging sourceRef into HEAD
+	cmd := s.execGitCommand(worktree.Path, "merge-tree", "--write-tree", "HEAD", sourceRef)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		// Fall back to traditional merge-tree
+		return s.checkConflictsTraditional(worktree, sourceRef, "sync")
+	}
+
+	if s.hasConflictMarkersOptimized(string(output)) {
+		conflictFiles := s.parseConflictFilesOptimized(string(output))
+		return &models.MergeConflictError{
+			Operation:     "sync",
+			WorktreeName:  worktree.Name,
+			WorktreePath:  worktree.Path,
+			ConflictFiles: conflictFiles,
+			Message:       fmt.Sprintf("Sync would cause conflicts in worktree '%s'", worktree.Name),
+		}
+	}
+
+	return nil
+}
+
+// checkConflictsTraditional falls back to traditional merge-tree for older Git versions
+func (s *GitService) checkConflictsTraditional(worktree *models.Worktree, sourceRef, operation string) *models.MergeConflictError {
+	cmd := s.execGitCommand(worktree.Path, "merge-tree", "HEAD", sourceRef)
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		return nil // No conflicts if merge-tree fails
+	}
+
+	if s.hasConflictMarkersOptimized(string(output)) {
+		conflictFiles := s.parseConflictFilesOptimized(string(output))
+		return &models.MergeConflictError{
+			Operation:     operation,
+			WorktreeName:  worktree.Name,
+			WorktreePath:  worktree.Path,
+			ConflictFiles: conflictFiles,
+			Message:       fmt.Sprintf("%s would cause conflicts in worktree '%s'", operation, worktree.Name),
+		}
+	}
+
+	return nil
+}
+
+// hasConflictMarkersOptimized optimized conflict marker detection
+func (s *GitService) hasConflictMarkersOptimized(output string) bool {
+	// Use bytes.Contains for better performance on large outputs
+	outputBytes := []byte(output)
+	return bytes.Contains(outputBytes, []byte("<<<<<<< ")) ||
+		bytes.Contains(outputBytes, []byte("======= ")) ||
+		bytes.Contains(outputBytes, []byte(">>>>>>> ")) ||
+		bytes.Contains(outputBytes, []byte("CONFLICT"))
+}
+
+// parseConflictFilesOptimized optimized conflict file parsing
+func (s *GitService) parseConflictFilesOptimized(output string) []string {
+	conflictFiles := make([]string, 0)
+	seenFiles := make(map[string]bool)
+
+	// Use a scanner for better memory efficiency on large outputs
+	scanner := bufio.NewScanner(strings.NewReader(output))
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Look for CONFLICT lines that contain file paths
+		if strings.Contains(line, "CONFLICT") {
+			// Extract file path using regex for better accuracy
+			if matches := conflictFileRegex.FindStringSubmatch(line); len(matches) > 1 {
+				file := strings.TrimSpace(matches[1])
+				if file != "" && !seenFiles[file] {
+					conflictFiles = append(conflictFiles, file)
+					seenFiles[file] = true
+				}
+			}
+		}
+	}
+
+	// Fallback for when we can't parse specific files
+	if len(conflictFiles) == 0 && s.hasConflictMarkersOptimized(output) {
+		conflictFiles = []string{"(multiple files)"}
+	}
+
+	return conflictFiles
+}
+
+// Pre-compiled regex for conflict file extraction
+var conflictFileRegex = regexp.MustCompile(`CONFLICT.*?(?:in|at|with)\s+([^\s]+)`)

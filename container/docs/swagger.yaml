@@ -920,7 +920,14 @@ paths:
       - git
   /v1/git/worktrees:
     get:
-      description: Returns a list of all worktrees for the current repository
+      description: Returns a list of all worktrees for the current repository. By
+        default, this is fast and does not check remote status. Use checkRemote=true
+        for latest remote status.
+      parameters:
+      - description: Whether to check remote status (slower but more accurate)
+        in: query
+        name: checkRemote
+        type: boolean
       produces:
       - application/json
       responses:

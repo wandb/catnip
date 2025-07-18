@@ -144,13 +144,18 @@ func (h *GitHandler) GetStatus(c *fiber.Ctx) error {
 
 // ListWorktrees returns all worktrees
 // @Summary List all worktrees
-// @Description Returns a list of all worktrees for the current repository
+// @Description Returns a list of all worktrees for the current repository. By default, this is fast and does not check remote status. Use checkRemote=true for latest remote status.
 // @Tags git
 // @Produce json
+// @Param checkRemote query bool false "Whether to check remote status (slower but more accurate)"
 // @Success 200 {array} models.Worktree
 // @Router /v1/git/worktrees [get]
 func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
-	worktrees := h.gitService.ListWorktrees()
+	// Parse query parameter for remote checking
+	checkRemote := c.QueryBool("checkRemote", false)
+
+	// Get worktrees with appropriate options
+	worktrees := h.gitService.ListWorktreesWithRemoteCheck(checkRemote)
 
 	// Enhance worktrees with session information
 	for _, worktree := range worktrees {
