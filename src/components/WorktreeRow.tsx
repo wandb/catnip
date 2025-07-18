@@ -144,7 +144,7 @@ interface StatusBadgesProps {
 
 function StatusBadges({
   worktree,
-  hasConflicts,
+  _hasConflicts,
   claudeSession,
   repositoryUrl,
   prStatus,

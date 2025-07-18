@@ -135,7 +135,7 @@ function GitPage() {
         secondaryAction: {
           label: "Let Claude Help",
           onClick: () => {
-            navigate({
+            void navigate({
               to: "/terminal/$sessionId",
               params: { sessionId },
               search: {
