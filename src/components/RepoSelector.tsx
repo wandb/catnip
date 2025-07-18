@@ -14,13 +14,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Check,
-  ChevronsUpDown,
-  RefreshCw,
-} from "lucide-react";
+import { Check, ChevronsUpDown, RefreshCw } from "lucide-react";
 import type { LocalRepository, Repository } from "@/lib/git-api";
-
 
 interface RepoSelectorProps {
   value: string;
@@ -29,6 +24,7 @@ interface RepoSelectorProps {
   currentRepositories: Record<string, LocalRepository>;
   loading: boolean;
   placeholder?: string;
+  autoExpand?: boolean;
 }
 
 export function RepoSelector({
@@ -38,6 +34,7 @@ export function RepoSelector({
   currentRepositories,
   loading,
   placeholder = "Select repository or enter URL...",
+  autoExpand: _autoExpand = false,
 }: RepoSelectorProps) {
   const [open, setOpen] = useState(false);
 
@@ -90,13 +87,18 @@ export function RepoSelector({
                     >
                       <Check
                         className={`mr-2 h-4 w-4 ${
-                          value === (repo.id.startsWith("local/") ? repo.id : repo.url) ? "opacity-100" : "opacity-0"
+                          value ===
+                          (repo.id.startsWith("local/") ? repo.id : repo.url)
+                            ? "opacity-100"
+                            : "opacity-0"
                         }`}
                       />
                       <div className="flex-1">
                         <div className="font-medium">{repo.id}</div>
                         <div className="text-sm text-muted-foreground">
-                          {repo.id.startsWith("local/") ? "Local repository (mounted)" : repo.url}
+                          {repo.id.startsWith("local/")
+                            ? "Local repository (mounted)"
+                            : repo.url}
                         </div>
                       </div>
                     </CommandItem>

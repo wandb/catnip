@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,8 +20,13 @@ import { copyRemoteCommand } from "@/lib/git-utils";
 import { type LocalRepository } from "@/lib/git-api";
 import { useGitState } from "@/hooks/useGitState";
 import { useGitActions } from "@/hooks/useGitActions";
+import { useHighlight } from "@/hooks/useHighlight";
 
 function GitPage() {
+  const location = useLocation();
+  const fromWorkspace = (location.state as any)?.fromWorkspace === true;
+  const { highlightClassName } = useHighlight(fromWorkspace);
+
   const {
     gitStatus,
     worktrees,
@@ -187,6 +192,58 @@ function GitPage() {
         <h1 className="text-3xl font-bold">Source Code Management</h1>
       </div>
 
+      {/* GitHub URL Input */}
+      <Card className={highlightClassName}>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Checkout Repository</CardTitle>
+              <CardDescription>
+                Select from your repositories or enter a GitHub URL
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={void fetchRepositories}
+              disabled={reposLoading}
+              title="Refresh GitHub repositories"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${reposLoading ? "animate-spin" : ""}`}
+              />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="github-url">GitHub Repository URL</Label>
+              <RepoSelector
+                value={githubUrl}
+                onValueChange={setGithubUrl}
+                repositories={repositories}
+                currentRepositories={gitStatus.repositories ?? {}}
+                loading={reposLoading}
+                placeholder="Select repository or enter URL..."
+                autoExpand={fromWorkspace}
+              />
+            </div>
+            <Button
+              onClick={() => void handleCheckout(githubUrl)}
+              disabled={!githubUrl || checkoutLoading}
+              className="mt-5.5"
+            >
+              {checkoutLoading ? (
+                <RefreshCw className="animate-spin" size={16} />
+              ) : (
+                "Checkout"
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Worktrees Table */}
       <Card>
         <CardHeader>
@@ -255,8 +312,11 @@ function GitPage() {
                             <div className="h-3 w-16 bg-muted rounded"></div>
                             <div className="h-3 w-20 bg-muted rounded"></div>
                           </div>
+                          <div className="flex items-center gap-4 mt-2">
+                            <div className="h-3 w-32 bg-muted rounded"></div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 pb-10">
                           <div className="h-8 w-24 bg-muted rounded"></div>
                           <div className="h-8 w-16 bg-muted rounded"></div>
                           <div className="h-8 w-8 bg-muted rounded"></div>
@@ -270,57 +330,6 @@ function GitPage() {
               )}
             </>
           )}
-        </CardContent>
-      </Card>
-
-      {/* GitHub URL Input */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Checkout Repository</CardTitle>
-              <CardDescription>
-                Select from your repositories or enter a GitHub URL
-              </CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={void fetchRepositories}
-              disabled={reposLoading}
-              title="Refresh GitHub repositories"
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${reposLoading ? "animate-spin" : ""}`}
-              />
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <div className="flex-1 space-y-2">
-              <Label htmlFor="github-url">GitHub Repository URL</Label>
-              <RepoSelector
-                value={githubUrl}
-                onValueChange={setGithubUrl}
-                repositories={repositories}
-                currentRepositories={gitStatus.repositories ?? {}}
-                loading={reposLoading}
-                placeholder="Select repository or enter URL..."
-              />
-            </div>
-            <Button
-              onClick={() => void handleCheckout(githubUrl)}
-              disabled={!githubUrl || checkoutLoading}
-              className="mt-5.5"
-            >
-              {checkoutLoading ? (
-                <RefreshCw className="animate-spin" size={16} />
-              ) : (
-                "Checkout"
-              )}
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
