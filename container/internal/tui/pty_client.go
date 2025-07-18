@@ -10,12 +10,12 @@ import (
 )
 
 type PTYClient struct {
-	conn       *websocket.Conn
-	sessionID  string
-	mu         sync.Mutex
-	onMessage  func([]byte)
-	onError    func(error)
-	done       chan struct{}
+	conn      *websocket.Conn
+	sessionID string
+	mu        sync.Mutex
+	onMessage func([]byte)
+	onError   func(error)
+	done      chan struct{}
 }
 
 type ResizeMessage struct {
@@ -66,7 +66,7 @@ func (p *PTYClient) Connect(baseURL string) error {
 
 func (p *PTYClient) readLoop() {
 	defer close(p.done)
-	
+
 	for {
 		messageType, message, err := p.conn.ReadMessage()
 		if err != nil {

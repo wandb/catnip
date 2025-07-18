@@ -16,14 +16,10 @@ import { ErrorAlert } from "@/components/ErrorAlert";
 import { WorktreeRow } from "@/components/WorktreeRow";
 import { PullRequestDialog } from "@/components/PullRequestDialog";
 import { GitBranch, Copy, RefreshCw, Loader2 } from "lucide-react";
-import { toast } from "sonner";
-import {
-  copyRemoteCommand,
-  showPreviewToast,
-  parseGitUrl,
-} from "@/lib/git-utils";
-import { gitApi, type LocalRepository } from "@/lib/git-api";
+import { copyRemoteCommand } from "@/lib/git-utils";
+import { type LocalRepository } from "@/lib/git-api";
 import { useGitState } from "@/hooks/useGitState";
+import { useGitActions } from "@/hooks/useGitActions";
 
 function GitPage() {
   const {
@@ -45,17 +41,8 @@ function GitPage() {
     mergingWorktrees,
     loadingNewWorktrees,
     fetchRepositories,
-    fetchActiveSessions,
     fetchPrStatuses,
     refreshAll,
-    // New incremental update functions
-    backgroundRefreshGitStatus,
-    addNewWorktrees,
-    refreshWorktree,
-    removeWorktree,
-    setCheckoutLoading,
-    setSyncingWorktree,
-    setMergingWorktree,
   } = useGitState();
 
   const [githubUrl, setGithubUrl] = useState("");
@@ -100,132 +87,35 @@ function GitPage() {
     isUpdate: false,
   });
 
+  const {
+    checkoutRepository,
+    deleteWorktree,
+    syncWorktree,
+    mergeWorktreeToMain,
+    createWorktreePreview,
+  } = useGitActions();
+
   const handleCheckout = async (url: string) => {
-    setCheckoutLoading(true);
-    try {
-      const parsedUrl = parseGitUrl(url);
-      if (!parsedUrl) {
-        setErrorAlert({
-          open: true,
-          title: "Invalid URL",
-          description: `Unknown repository URL format: ${url}`,
-        });
-        return;
-      }
-
-      const { org, repo } = parsedUrl;
-      const response = await fetch(`/v1/git/checkout/${org}/${repo}`, {
-        method: "POST",
-      });
-
-      if (response.ok) {
-        // Stop loading immediately when checkout succeeds
-        setCheckoutLoading(false);
-
-        const message =
-          parsedUrl.type === "local"
-            ? "Local repository checked out successfully"
-            : "Repository checked out successfully";
-        toast.success(message);
-
-        // Clear the input if successful
-        setGithubUrl("");
-
-        // Do background updates without blocking UI
-        Promise.all([addNewWorktrees(), backgroundRefreshGitStatus()]).catch(
-          console.error,
-        );
-
-        return; // Early return to avoid finally block
-      } else {
-        const errorData = (await response.json()) as { error?: string };
-        console.error("Failed to checkout repository:", errorData);
-        setErrorAlert({
-          open: true,
-          title: "Checkout Failed",
-          description: `Failed to checkout repository: ${errorData.error ?? "Unknown error"}`,
-        });
-      }
-    } catch (error) {
-      console.error("Failed to checkout repository:", error);
-      setErrorAlert({
-        open: true,
-        title: "Checkout Failed",
-        description: `Failed to checkout repository: ${String(error)}`,
-      });
-    } finally {
-      // Only runs if there was an error (early return above on success)
-      setCheckoutLoading(false);
+    const success = await checkoutRepository(url, setErrorAlert);
+    if (success) {
+      setGithubUrl("");
     }
   };
 
-  const deleteWorktree = async (id: string) => {
-    try {
-      await gitApi.deleteWorktree(id);
-      // Remove from state immediately
-      removeWorktree(id);
-      await fetchActiveSessions();
-    } catch (error) {
-      console.error("Failed to delete worktree:", error);
-    }
+  const syncWorktreeWrapper = async (id: string) => {
+    void syncWorktree(id, setErrorAlert);
   };
 
-  const syncWorktree = async (id: string) => {
-    setSyncingWorktree(id, true);
-    try {
-      const success = await gitApi.syncWorktree(id, { setErrorAlert });
-
-      // Stop loading immediately when sync succeeds
-      setSyncingWorktree(id, false);
-
-      if (success) {
-        // Do background refresh without blocking UI
-        refreshWorktree(id, { includeDiffs: true }).catch(console.error);
-        return; // Early return to avoid finally block
-      }
-    } catch (error) {
-      console.error("Failed to sync worktree:", error);
-    } finally {
-      // Only runs if there was an error (early return above on success)
-      setSyncingWorktree(id, false);
-    }
-  };
-
-  const mergeWorktreeToMain = async (
+  const mergeWorktreeWrapper = async (
     id: string,
-    worktreeName: string,
+    name: string,
     squash = true,
   ) => {
-    setMergingWorktree(id, true);
-    try {
-      const success = await gitApi.mergeWorktree(id, worktreeName, squash, {
-        setErrorAlert,
-      });
-
-      // Stop loading immediately when merge succeeds
-      setMergingWorktree(id, false);
-
-      if (success) {
-        // Do background refreshes without blocking UI
-        Promise.all([
-          refreshWorktree(id, { includeDiffs: true }),
-          backgroundRefreshGitStatus(),
-        ]).catch(console.error);
-        return; // Early return to avoid finally block
-      }
-    } catch (error) {
-      console.error("Failed to merge worktree:", error);
-    } finally {
-      // Only runs if there was an error (early return above on success)
-      setMergingWorktree(id, false);
-    }
+    void mergeWorktreeToMain(id, name, setErrorAlert, squash);
   };
 
-  const createWorktreePreview = async (id: string, branchName: string) => {
-    const success = await gitApi.createWorktreePreview(id, { setErrorAlert });
-    if (success) {
-      showPreviewToast(branchName);
-    }
+  const createPreviewWrapper = async (id: string, branchName: string) => {
+    void createWorktreePreview(id, branchName, setErrorAlert);
   };
 
   const toggleDiff = (worktreeId: string) => {
@@ -248,7 +138,7 @@ function GitPage() {
       open: true,
       title: "Merge to Main",
       description: description,
-      onConfirm: () => void mergeWorktreeToMain(id, name),
+      onConfirm: () => void mergeWorktreeWrapper(id, name),
       variant: hasConflicts ? "destructive" : "default",
     });
   };
@@ -315,10 +205,10 @@ function GitPage() {
                         openDiffWorktreeId={openDiffWorktreeId}
                         setPrDialog={setPrDialog}
                         onToggleDiff={toggleDiff}
-                        onSync={() => void syncWorktree(worktree.id)}
+                        onSync={() => void syncWorktreeWrapper(worktree.id)}
                         onMerge={onMerge}
                         onCreatePreview={() =>
-                          void createWorktreePreview(
+                          void createPreviewWrapper(
                             worktree.id,
                             worktree.branch,
                           )
