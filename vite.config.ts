@@ -42,5 +42,5 @@ export default defineConfig({
   },
   clearScreen: false,
   // Might need this for the proxy to work...
-  base: process.env.CATNIP_DEV ? `/${process.env.VITE_PORT}` : undefined, // or whatever path your proxy uses for the socket
+  // base: process.env.CATNIP_DEV ? `/${process.env.VITE_PORT}` : undefined, // or whatever path your proxy uses for the socket
 });
