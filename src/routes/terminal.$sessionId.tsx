@@ -121,7 +121,6 @@ function TerminalPage() {
     ws.onmessage = async (event) => {
       let data: string | Uint8Array | undefined;
       const rePaint = () => {
-        fitAddon.current?.fit();
         console.log("✅ Buffer replay complete, fitting terminal");
         fitAddon.current?.fit();
       };
@@ -168,6 +167,11 @@ function TerminalPage() {
                 );
               }, 1000); // Wait a second for Claude UI to fully load
             }
+            setTimeout(() => {
+              const dims = { cols: instance.cols, rows: instance.rows };
+              console.log("Post load resize message...", dims);
+              wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+            }, 100);
             return;
           }
         } catch (_e) {
