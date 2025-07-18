@@ -737,8 +737,8 @@ func (s *GitService) ListWorktrees() []*models.Worktree {
 		// Update dirty status
 		wt.IsDirty = s.isDirty(wt.Path)
 
-		// Update commit count and commits behind
-		s.updateWorktreeStatusInternal(wt)
+		// Update commit count and commits behind without fetching
+		s.updateWorktreeStatusInternal(wt, false)
 
 		worktrees = append(worktrees, wt)
 	}
@@ -1333,13 +1333,15 @@ func (s *GitService) cleanupActiveSessions(worktreePath string) {
 }
 
 // updateWorktreeStatusInternal updates commit count and commits behind for a worktree (internal, no mutex)
-func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
+func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree, shouldFetch bool) {
 	if worktree.SourceBranch == "" || worktree.SourceBranch == worktree.Branch {
 		return
 	}
 
-	// Fetch latest reference
-	s.fetchLatestReference(worktree)
+	// Fetch latest reference only if requested
+	if shouldFetch {
+		s.fetchLatestReference(worktree)
+	}
 
 	// Determine source reference based on repo type
 	sourceRef := s.getSourceRef(worktree)
@@ -1545,8 +1547,8 @@ func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy st
 		return err
 	}
 
-	// Update worktree status
-	s.updateWorktreeStatusInternal(worktree)
+	// Update worktree status (no need to fetch since we already did fetchFullHistory)
+	s.updateWorktreeStatusInternal(worktree, false)
 
 	log.Printf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
 	return nil
@@ -1599,6 +1601,9 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 	}
 
 	log.Printf("🔄 Merging worktree %s back to main repository", worktree.Name)
+
+	// Ensure we have full history for merge operations
+	s.fetchFullHistory(worktree)
 
 	// First, push the worktree branch to the main repo
 	cmd := s.execGitCommand(worktree.Path, "push", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, worktree.Branch))
