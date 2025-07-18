@@ -922,7 +922,7 @@ paths:
     get:
       description: Returns a list of all worktrees for the current repository
       parameters:
-      - description: 'Skip fetch for faster response (default: true)'
+      - description: 'Enable fetch for latest remote state (default: false)'
         in: query
         name: fetch
         type: boolean
@@ -1162,6 +1162,123 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.ConflictCheckResponse'
       summary: Check sync conflicts
+      tags:
+      - git
+  /v1/git/worktrees/batch/diff:
+    post:
+      consumes:
+      - application/json
+      description: Returns the diff for multiple worktrees against their source branches
+      parameters:
+      - description: Worktree IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            worktree_ids:
+              items:
+                type: string
+              type: array
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/internal_handlers.WorktreeDiffResponse'
+            type: object
+      summary: Get batch worktree diff
+      tags:
+      - git
+  /v1/git/worktrees/batch/merge/check:
+    post:
+      consumes:
+      - application/json
+      description: Checks if merging multiple worktrees to main would cause conflicts
+      parameters:
+      - description: Worktree IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            worktree_ids:
+              items:
+                type: string
+              type: array
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/internal_handlers.ConflictCheckResponse'
+            type: object
+      summary: Check batch merge conflicts
+      tags:
+      - git
+  /v1/git/worktrees/batch/pr:
+    post:
+      consumes:
+      - application/json
+      description: Gets information about pull requests for multiple worktrees in
+        a single request
+      parameters:
+      - description: Worktree IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            worktree_ids:
+              items:
+                type: string
+              type: array
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo'
+            type: object
+      summary: Get batch pull request info
+      tags:
+      - git
+  /v1/git/worktrees/batch/sync/check:
+    post:
+      consumes:
+      - application/json
+      description: Checks if syncing multiple worktrees would cause merge conflicts
+      parameters:
+      - description: Worktree IDs
+        in: body
+        name: body
+        required: true
+        schema:
+          properties:
+            worktree_ids:
+              items:
+                type: string
+              type: array
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/internal_handlers.ConflictCheckResponse'
+            type: object
+      summary: Check batch sync conflicts
       tags:
       - git
   /v1/ports:

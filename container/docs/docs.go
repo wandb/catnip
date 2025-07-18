@@ -338,7 +338,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "boolean",
-                        "description": "Skip fetch for faster response (default: true)",
+                        "description": "Enable fetch for latest remote state (default: false)",
                         "name": "fetch",
                         "in": "query"
                     }
@@ -350,6 +350,186 @@ const docTemplate = `{
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/git/worktrees/batch/diff": {
+            "post": {
+                "description": "Returns the diff for multiple worktrees against their source branches",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Get batch worktree diff",
+                "parameters": [
+                    {
+                        "description": "Worktree IDs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "worktree_ids": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/internal_handlers.WorktreeDiffResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/git/worktrees/batch/merge/check": {
+            "post": {
+                "description": "Checks if merging multiple worktrees to main would cause conflicts",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Check batch merge conflicts",
+                "parameters": [
+                    {
+                        "description": "Worktree IDs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "worktree_ids": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/git/worktrees/batch/pr": {
+            "post": {
+                "description": "Gets information about pull requests for multiple worktrees in a single request",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Get batch pull request info",
+                "parameters": [
+                    {
+                        "description": "Worktree IDs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "worktree_ids": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/git/worktrees/batch/sync/check": {
+            "post": {
+                "description": "Checks if syncing multiple worktrees would cause merge conflicts",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Check batch sync conflicts",
+                "parameters": [
+                    {
+                        "description": "Worktree IDs",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "worktree_ids": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
                             }
                         }
                     }

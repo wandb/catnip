@@ -147,20 +147,21 @@ func (h *GitHandler) GetStatus(c *fiber.Ctx) error {
 // @Description Returns a list of all worktrees for the current repository
 // @Tags git
 // @Produce json
-// @Param fetch query boolean false "Skip fetch for faster response (default: true)"
+// @Param fetch query boolean false "Enable fetch for latest remote state (default: false)"
 // @Success 200 {array} models.Worktree
 // @Router /v1/git/worktrees [get]
 func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
-	// Check if we should skip fetch for faster response
-	skipFetch := c.Query("fetch", "true") == "false"
+	// Check if we should fetch latest remote state
+	// Default is false (no fetch for faster response), set to true to force fetch
+	enableFetch := c.Query("fetch", "false") == "true"
 
 	var worktrees []*models.Worktree
-	if skipFetch {
-		// Fast path: no fetch, use local git state only
-		worktrees = h.gitService.ListWorktrees()
-	} else {
+	if enableFetch {
 		// Slower path: fetch latest remote state
 		worktrees = h.gitService.ListWorktreesWithFetch(false)
+	} else {
+		// Fast path: no fetch, use local git state only
+		worktrees = h.gitService.ListWorktrees()
 	}
 
 	// Enhance worktrees with session information
@@ -557,4 +558,140 @@ func (h *GitHandler) GetPullRequestInfo(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(prInfo)
+}
+
+// GetBatchPullRequestInfo gets information about pull requests for multiple worktrees
+// @Summary Get batch pull request info
+// @Description Gets information about pull requests for multiple worktrees in a single request
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param body body object{worktree_ids=[]string} true "Worktree IDs"
+// @Success 200 {object} map[string]models.PullRequestInfo
+// @Router /v1/git/worktrees/batch/pr [post]
+func (h *GitHandler) GetBatchPullRequestInfo(c *fiber.Ctx) error {
+	var req struct {
+		WorktreeIds []string `json:"worktree_ids"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if len(req.WorktreeIds) == 0 {
+		return c.JSON(map[string]interface{}{})
+	}
+
+	prInfos, err := h.gitService.GetBatchPullRequestInfo(req.WorktreeIds)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(prInfos)
+}
+
+// CheckBatchSyncConflicts checks if syncing multiple worktrees would cause conflicts
+// @Summary Check batch sync conflicts
+// @Description Checks if syncing multiple worktrees would cause merge conflicts
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param body body object{worktree_ids=[]string} true "Worktree IDs"
+// @Success 200 {object} map[string]ConflictCheckResponse
+// @Router /v1/git/worktrees/batch/sync/check [post]
+func (h *GitHandler) CheckBatchSyncConflicts(c *fiber.Ctx) error {
+	var req struct {
+		WorktreeIds []string `json:"worktree_ids"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if len(req.WorktreeIds) == 0 {
+		return c.JSON(map[string]interface{}{})
+	}
+
+	conflicts, err := h.gitService.CheckBatchSyncConflicts(req.WorktreeIds)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(conflicts)
+}
+
+// CheckBatchMergeConflicts checks if merging multiple worktrees would cause conflicts
+// @Summary Check batch merge conflicts
+// @Description Checks if merging multiple worktrees to main would cause conflicts
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param body body object{worktree_ids=[]string} true "Worktree IDs"
+// @Success 200 {object} map[string]ConflictCheckResponse
+// @Router /v1/git/worktrees/batch/merge/check [post]
+func (h *GitHandler) CheckBatchMergeConflicts(c *fiber.Ctx) error {
+	var req struct {
+		WorktreeIds []string `json:"worktree_ids"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if len(req.WorktreeIds) == 0 {
+		return c.JSON(map[string]interface{}{})
+	}
+
+	conflicts, err := h.gitService.CheckBatchMergeConflicts(req.WorktreeIds)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(conflicts)
+}
+
+// GetBatchWorktreeDiff returns the diff for multiple worktrees against their source branches
+// @Summary Get batch worktree diff
+// @Description Returns the diff for multiple worktrees against their source branches
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param body body object{worktree_ids=[]string} true "Worktree IDs"
+// @Success 200 {object} map[string]WorktreeDiffResponse
+// @Router /v1/git/worktrees/batch/diff [post]
+func (h *GitHandler) GetBatchWorktreeDiff(c *fiber.Ctx) error {
+	var req struct {
+		WorktreeIds []string `json:"worktree_ids"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if len(req.WorktreeIds) == 0 {
+		return c.JSON(map[string]interface{}{})
+	}
+
+	diffs, err := h.gitService.GetBatchWorktreeDiff(req.WorktreeIds)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(diffs)
 }

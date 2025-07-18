@@ -3037,6 +3037,115 @@ func (s *GitService) checkExistingPR(worktree *models.Worktree, ownerRepo string
 	return nil
 }
 
+// GetBatchPullRequestInfo gets information about existing pull requests for multiple worktrees
+func (s *GitService) GetBatchPullRequestInfo(worktreeIDs []string) (map[string]*models.PullRequestInfo, error) {
+	result := make(map[string]*models.PullRequestInfo)
+
+	// Process each worktree ID
+	for _, worktreeID := range worktreeIDs {
+		prInfo, err := s.GetPullRequestInfo(worktreeID)
+		if err != nil {
+			log.Printf("⚠️ Failed to get PR info for worktree %s: %v", worktreeID, err)
+			// Continue with other worktrees even if one fails
+			continue
+		}
+
+		if prInfo != nil {
+			result[worktreeID] = prInfo
+		}
+	}
+
+	return result, nil
+}
+
+// CheckBatchSyncConflicts checks if syncing multiple worktrees would cause conflicts
+func (s *GitService) CheckBatchSyncConflicts(worktreeIDs []string) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	for _, worktreeID := range worktreeIDs {
+		conflictErr, err := s.CheckSyncConflicts(worktreeID)
+		if err != nil {
+			log.Printf("⚠️ Failed to check sync conflicts for worktree %s: %v", worktreeID, err)
+			result[worktreeID] = map[string]interface{}{
+				"error": err.Error(),
+			}
+			continue
+		}
+
+		if conflictErr != nil {
+			result[worktreeID] = map[string]interface{}{
+				"has_conflicts":  true,
+				"operation":      conflictErr.Operation,
+				"worktree_name":  conflictErr.WorktreeName,
+				"conflict_files": conflictErr.ConflictFiles,
+				"message":        conflictErr.Message,
+			}
+		} else {
+			result[worktreeID] = map[string]interface{}{
+				"has_conflicts": false,
+				"message":       "No conflicts detected for sync operation",
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// CheckBatchMergeConflicts checks if merging multiple worktrees would cause conflicts
+func (s *GitService) CheckBatchMergeConflicts(worktreeIDs []string) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	for _, worktreeID := range worktreeIDs {
+		conflictErr, err := s.CheckMergeConflicts(worktreeID)
+		if err != nil {
+			log.Printf("⚠️ Failed to check merge conflicts for worktree %s: %v", worktreeID, err)
+			result[worktreeID] = map[string]interface{}{
+				"error": err.Error(),
+			}
+			continue
+		}
+
+		if conflictErr != nil {
+			result[worktreeID] = map[string]interface{}{
+				"has_conflicts":  true,
+				"operation":      conflictErr.Operation,
+				"worktree_name":  conflictErr.WorktreeName,
+				"conflict_files": conflictErr.ConflictFiles,
+				"message":        conflictErr.Message,
+			}
+		} else {
+			result[worktreeID] = map[string]interface{}{
+				"has_conflicts": false,
+				"message":       "No conflicts detected for merge operation",
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// GetBatchWorktreeDiff gets diff information for multiple worktrees
+func (s *GitService) GetBatchWorktreeDiff(worktreeIDs []string) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	for _, worktreeID := range worktreeIDs {
+		diffData, err := s.GetWorktreeDiff(worktreeID)
+		if err != nil {
+			log.Printf("⚠️ Failed to get diff for worktree %s: %v", worktreeID, err)
+			result[worktreeID] = map[string]interface{}{
+				"error": err.Error(),
+			}
+			continue
+		}
+
+		if diffData != nil {
+			result[worktreeID] = diffData
+		}
+	}
+
+	return result, nil
+}
+
 // getCombinedWorktreeStatus gets dirty status, ahead/behind counts in minimal git commands
 func (s *GitService) getCombinedWorktreeStatus(worktree *models.Worktree) {
 	// Skip if no source branch or same as current branch
@@ -3058,7 +3167,6 @@ func (s *GitService) getCombinedWorktreeStatus(worktree *models.Worktree) {
 	cmd := s.execGitCommand(worktree.Path, "status", "--porcelain=v2", "--branch")
 	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("🔍 Status error: %v", err)
 		// Fallback to individual commands if v2 format fails
 		s.getCombinedWorktreeStatusFallback(worktree, sourceRef)
 		return

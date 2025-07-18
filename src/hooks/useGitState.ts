@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  startTransition,
+} from "react";
 import {
   gitApi,
   type GitStatus,
@@ -137,57 +143,6 @@ export function useGitState() {
       setState((prev) => ({ ...prev, activeSessions: data }));
     } catch (error) {
       console.error("Failed to fetch active sessions:", error);
-    }
-  };
-
-  const checkConflicts = async () => {
-    try {
-      const { syncConflicts, mergeConflicts } = await gitApi.checkAllConflicts(
-        state.worktrees,
-      );
-      setState((prev) => ({ ...prev, syncConflicts, mergeConflicts }));
-    } catch (error) {
-      console.error("Failed to check conflicts:", error);
-    }
-  };
-
-  const fetchDiffStats = async () => {
-    setState((prev) => ({ ...prev, diffStatsLoading: true }));
-    try {
-      const diffStats = await gitApi.fetchAllDiffStats(state.worktrees);
-      setState((prev) => ({ ...prev, diffStats }));
-    } catch (error) {
-      console.error("Failed to fetch diff stats:", error);
-    } finally {
-      setState((prev) => ({ ...prev, diffStatsLoading: false }));
-    }
-  };
-
-  // Fetch PR statuses for all worktrees
-  const fetchPrStatuses = async () => {
-    try {
-      if (state.worktrees.length === 0) {
-        setState((prev) => ({ ...prev, prStatuses: {} }));
-        return;
-      }
-
-      const prPromises = state.worktrees.map(async (worktree) => {
-        const prInfo = await gitApi.getPullRequestInfo(worktree.id);
-        return { worktreeId: worktree.id, prInfo };
-      });
-
-      const prResults = await Promise.all(prPromises);
-      const newPrStatuses: Record<string, PullRequestInfo | undefined> = {};
-
-      prResults.forEach(({ worktreeId, prInfo }) => {
-        if (prInfo) {
-          newPrStatuses[worktreeId] = prInfo;
-        }
-      });
-
-      setState((prev) => ({ ...prev, prStatuses: newPrStatuses }));
-    } catch (error) {
-      console.error("Failed to fetch PR statuses:", error);
     }
   };
 
@@ -332,12 +287,19 @@ export function useGitState() {
   };
 
   const refreshAll = async () => {
-    await Promise.all([
-      fetchGitStatus(),
-      fetchWorktrees(),
-      fetchClaudeSessions(),
-      fetchActiveSessions(),
-    ]);
+    // Prioritize critical data first to avoid blocking navigation
+    try {
+      // Phase 1: Load critical data first
+      await Promise.all([fetchGitStatus(), fetchWorktrees()]);
+
+      // Phase 2: Load secondary data after core data is available
+      startTransition(() => {
+        fetchClaudeSessions().catch(console.error);
+        fetchActiveSessions().catch(console.error);
+      });
+    } catch (error) {
+      console.error("Failed to refresh data:", error);
+    }
   };
 
   const setLoading = (loading: boolean) => {
@@ -347,13 +309,26 @@ export function useGitState() {
   // Compute overall loading state
   const computedLoading = state.loading || state.worktreesLoading;
 
-  // Initial fetch
+  // Initial fetch with request prioritization
   useEffect(() => {
-    void fetchGitStatus();
-    void fetchWorktrees();
-    void fetchRepositories();
-    void fetchClaudeSessions();
-    void fetchActiveSessions();
+    // Phase 1: Load critical data first (git status and worktrees)
+    const loadCriticalData = async () => {
+      try {
+        // Load git status and worktrees first - these are needed for navigation
+        await Promise.all([fetchGitStatus(), fetchWorktrees()]);
+
+        // Phase 2: Load secondary data after core data is available
+        startTransition(() => {
+          fetchRepositories().catch(console.error);
+          fetchClaudeSessions().catch(console.error);
+          fetchActiveSessions().catch(console.error);
+        });
+      } catch (error) {
+        console.error("Failed to load critical data:", error);
+      }
+    };
+
+    void loadCriticalData();
   }, []);
 
   // Smart effect: only fetch data for truly new worktrees, not on removals/updates
@@ -367,26 +342,38 @@ export function useGitState() {
         (id) => !previousIds.has(id),
       );
 
-      if (newWorktreeIds.length > 0) {
-        // Only fetch data for new worktrees
-        Promise.all([
-          checkConflicts(),
-          // Only fetch diff stats if this is the initial load (no previous worktrees)
-          // or if we have specific new worktrees to fetch for
-          previousIds.size === 0
-            ? fetchDiffStats()
-            : Promise.all(
-                newWorktreeIds.map((id) => updateWorktreeDiffStats(id)),
-              ),
-          fetchPrStatuses(),
-        ]).catch(console.error);
-      } else if (previousIds.size === 0) {
-        // Initial load with existing worktrees
-        Promise.all([
-          checkConflicts(),
-          fetchDiffStats(),
-          fetchPrStatuses(),
-        ]).catch(console.error);
+      if (newWorktreeIds.length > 0 || previousIds.size === 0) {
+        // Load data for new worktrees or initial load - use batch operations to avoid duplicates
+        startTransition(() => {
+          // Single batch operation to load all data efficiently
+          const targetWorktrees = state.worktrees.filter((wt) =>
+            newWorktreeIds.length > 0 ? newWorktreeIds.includes(wt.id) : true,
+          );
+
+          if (targetWorktrees.length > 0) {
+            Promise.all([
+              gitApi.checkAllConflicts(targetWorktrees),
+              gitApi.fetchAllDiffStats(targetWorktrees),
+              gitApi.fetchAllPullRequestInfo(targetWorktrees),
+            ])
+              .then(([conflicts, diffStats, prStatuses]) => {
+                setState((prev) => ({
+                  ...prev,
+                  syncConflicts: {
+                    ...prev.syncConflicts,
+                    ...conflicts.syncConflicts,
+                  },
+                  mergeConflicts: {
+                    ...prev.mergeConflicts,
+                    ...conflicts.mergeConflicts,
+                  },
+                  diffStats: { ...prev.diffStats, ...diffStats },
+                  prStatuses: { ...prev.prStatuses, ...prStatuses },
+                }));
+              })
+              .catch(console.error);
+          }
+        });
       }
 
       // Update the previous IDs reference
@@ -397,7 +384,9 @@ export function useGitState() {
   // Generate summaries for qualifying worktrees when they change
   useEffect(() => {
     if (state.worktrees.length > 0) {
-      void generateAllWorktreeSummaries();
+      startTransition(() => {
+        generateAllWorktreeSummaries().catch(console.error);
+      });
     }
   }, [state.worktrees]);
 
@@ -488,61 +477,63 @@ export function useGitState() {
     }));
   };
 
-  // Update conflicts for a specific worktree
-  const updateWorktreeConflicts = async (worktreeId: string) => {
-    try {
-      const [syncConflict, mergeConflict] = await Promise.all([
-        gitApi.checkSyncConflicts(worktreeId),
-        gitApi.checkMergeConflicts(worktreeId),
-      ]);
+  // Memoized batch operations to prevent duplicate expensive calls
+  const refreshBatchData = useCallback(
+    async (worktreeIds: string[]) => {
+      const worktreeList = state.worktrees.filter((wt) =>
+        worktreeIds.includes(wt.id),
+      );
 
-      setState((prev) => ({
-        ...prev,
-        syncConflicts: {
-          ...prev.syncConflicts,
-          ...(syncConflict && { [worktreeId]: syncConflict }),
-        },
-        mergeConflicts: {
-          ...prev.mergeConflicts,
-          ...(mergeConflict && { [worktreeId]: mergeConflict }),
-        },
-      }));
-    } catch (error) {
-      console.error(`Failed to update conflicts for ${worktreeId}:`, error);
-    }
-  };
+      if (worktreeList.length === 0) {
+        return;
+      }
 
-  // Update diff stats for a specific worktree
-  const updateWorktreeDiffStats = async (worktreeId: string) => {
-    try {
-      const diffStat = await gitApi.fetchWorktreeDiffStats(worktreeId);
-      setState((prev) => ({
-        ...prev,
-        diffStats: {
-          ...prev.diffStats,
-          [worktreeId]: diffStat || undefined,
-        },
-      }));
-    } catch (error) {
-      console.error(`Failed to update diff stats for ${worktreeId}:`, error);
-    }
-  };
+      try {
+        // Use batch operations for everything
+        const [conflicts, diffStats, prStatuses] = await Promise.all([
+          gitApi.checkAllConflicts(worktreeList),
+          gitApi.fetchAllDiffStats(worktreeList),
+          gitApi.fetchAllPullRequestInfo(worktreeList),
+        ]);
 
-  // Update PR status for a specific worktree
-  const updateWorktreePrStatus = async (worktreeId: string) => {
-    try {
-      const prInfo = await gitApi.getPullRequestInfo(worktreeId);
-      setState((prev) => ({
-        ...prev,
-        prStatuses: {
-          ...prev.prStatuses,
-          [worktreeId]: prInfo || undefined,
-        },
-      }));
-    } catch (error) {
-      console.error(`Failed to update PR status for ${worktreeId}:`, error);
-    }
-  };
+        setState((prev) => ({
+          ...prev,
+          syncConflicts: { ...prev.syncConflicts, ...conflicts.syncConflicts },
+          mergeConflicts: {
+            ...prev.mergeConflicts,
+            ...conflicts.mergeConflicts,
+          },
+          diffStats: { ...prev.diffStats, ...diffStats },
+          prStatuses: { ...prev.prStatuses, ...prStatuses },
+        }));
+      } catch (error) {
+        console.error(`Failed to refresh batch data for worktrees:`, error);
+      }
+    },
+    [state.worktrees],
+  );
+
+  // Individual update functions now just trigger batch refresh for efficiency
+  const updateWorktreeConflicts = useCallback(
+    async (worktreeId: string) => {
+      await refreshBatchData([worktreeId]);
+    },
+    [refreshBatchData],
+  );
+
+  const updateWorktreeDiffStats = useCallback(
+    async (worktreeId: string) => {
+      await refreshBatchData([worktreeId]);
+    },
+    [refreshBatchData],
+  );
+
+  const updateWorktreePrStatus = useCallback(
+    async (worktreeId: string) => {
+      await refreshBatchData([worktreeId]);
+    },
+    [refreshBatchData],
+  );
 
   // Comprehensive refresh for a specific worktree (after sync/merge operations)
   const refreshWorktree = async (
@@ -597,17 +588,32 @@ export function useGitState() {
       // Stop loading as soon as we have the worktrees
       setLoadingNewWorktrees(false);
 
-      // Fetch additional data in background without loading indicator
+      // Fetch additional data in background without loading indicator - use single batch operation
       if (newWorktrees.length > 0) {
-        Promise.all(
-          newWorktrees.map(async (worktree) => {
-            await Promise.all([
-              updateWorktreeConflicts(worktree.id),
-              updateWorktreeDiffStats(worktree.id), // Fetch diffs for new worktrees
-              updateWorktreePrStatus(worktree.id),
-            ]);
-          }),
-        ).catch(console.error);
+        startTransition(() => {
+          // Single batch operation for all new worktrees
+          Promise.all([
+            gitApi.checkAllConflicts(newWorktrees),
+            gitApi.fetchAllDiffStats(newWorktrees),
+            gitApi.fetchAllPullRequestInfo(newWorktrees),
+          ])
+            .then(([conflicts, diffStats, prStatuses]) => {
+              setState((prev) => ({
+                ...prev,
+                syncConflicts: {
+                  ...prev.syncConflicts,
+                  ...conflicts.syncConflicts,
+                },
+                mergeConflicts: {
+                  ...prev.mergeConflicts,
+                  ...conflicts.mergeConflicts,
+                },
+                diffStats: { ...prev.diffStats, ...diffStats },
+                prStatuses: { ...prev.prStatuses, ...prStatuses },
+              }));
+            })
+            .catch(console.error);
+        });
       }
 
       return newWorktrees;
@@ -670,9 +676,6 @@ export function useGitState() {
     fetchRepositories,
     fetchClaudeSessions,
     fetchActiveSessions,
-    checkConflicts,
-    fetchDiffStats,
-    fetchPrStatuses,
     generateWorktreeSummaryForId,
     generateAllWorktreeSummaries,
     clearWorktreeSummary,
