@@ -1,5 +1,4 @@
 import { toast } from "sonner";
-import { createMergeConflictPrompt } from "./git-utils";
 
 export interface GitStatus {
   repositories?: Record<string, LocalRepository>;
@@ -23,6 +22,7 @@ export interface Worktree {
   commit_count: number;
   commits_behind: number;
   is_dirty: boolean;
+  has_conflicts: boolean;
   created_at: string;
   last_accessed: string;
   session_title?: TitleEntry;
@@ -83,7 +83,14 @@ export interface PullRequestInfo {
 }
 
 export interface ErrorHandler {
-  setErrorAlert: (alert: { open: boolean; title: string; description: string }) => void;
+  setErrorAlert: (alert: {
+    open: boolean;
+    title: string;
+    description: string;
+    worktreeName?: string;
+    conflictFiles?: string[];
+    operation?: string;
+  }) => void;
 }
 
 export const gitApi = {
@@ -112,7 +119,9 @@ export const gitApi = {
   },
 
   async fetchBranches(repoId: string): Promise<string[]> {
-    const response = await fetch(`/v1/git/branches/${encodeURIComponent(repoId)}`);
+    const response = await fetch(
+      `/v1/git/branches/${encodeURIComponent(repoId)}`,
+    );
     if (response.ok) {
       return await response.json();
     }
@@ -147,7 +156,9 @@ export const gitApi = {
 
   async checkSyncConflicts(worktreeId: string): Promise<any> {
     try {
-      const response = await fetch(`/v1/git/worktrees/${worktreeId}/sync/check`);
+      const response = await fetch(
+        `/v1/git/worktrees/${worktreeId}/sync/check`,
+      );
       if (response.ok) {
         return await response.json();
       }
@@ -160,13 +171,18 @@ export const gitApi = {
 
   async checkMergeConflicts(worktreeId: string): Promise<any> {
     try {
-      const response = await fetch(`/v1/git/worktrees/${worktreeId}/merge/check`);
+      const response = await fetch(
+        `/v1/git/worktrees/${worktreeId}/merge/check`,
+      );
       if (response.ok) {
         return await response.json();
       }
       return null;
     } catch (error) {
-      console.error(`Failed to check merge conflicts for ${worktreeId}:`, error);
+      console.error(
+        `Failed to check merge conflicts for ${worktreeId}:`,
+        error,
+      );
       return null;
     }
   },
@@ -187,7 +203,7 @@ export const gitApi = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ strategy: "rebase" }),
       });
-      
+
       if (response.ok) {
         toast.success("Successfully synced worktree");
         return true;
@@ -196,27 +212,22 @@ export const gitApi = {
         if (errorData.error === "merge_conflict") {
           const worktreeName = errorData.worktree_name;
           const conflictFiles = errorData.conflict_files || [];
-          const sessionId = encodeURIComponent(worktreeName);
-          const terminalUrl = `/terminal/${sessionId}`;
-          
-          const conflictText = conflictFiles.length > 0 
-            ? `Conflicts in: ${conflictFiles.join(", ")}`
-            : "Multiple files have conflicts";
-
-          const claudePrompt = createMergeConflictPrompt("sync", conflictFiles);
 
           errorHandler.setErrorAlert({
             open: true,
-            title: `Merge Conflict in ${worktreeName}`,
-            description: `${conflictText}\n\nOpen terminal to resolve: ${terminalUrl}\n\nSuggested Claude prompt: "${claudePrompt}"`
+            title: `Sync Conflict in ${worktreeName}`,
+            description: "", // Will be set by the enhanced handler
+            worktreeName,
+            conflictFiles,
+            operation: "rebase",
           });
           return false;
         }
-        
+
         errorHandler.setErrorAlert({
           open: true,
           title: "Sync Failed",
-          description: `Failed to sync worktree: ${errorData.error}`
+          description: `Failed to sync worktree: ${errorData.error}`,
         });
         return false;
       }
@@ -225,49 +236,53 @@ export const gitApi = {
       errorHandler.setErrorAlert({
         open: true,
         title: "Sync Failed",
-        description: `Failed to sync worktree: ${error}`
+        description: `Failed to sync worktree: ${error}`,
       });
       return false;
     }
   },
 
-  async mergeWorktree(id: string, worktreeName: string, squash: boolean, errorHandler: ErrorHandler): Promise<boolean> {
+  async mergeWorktree(
+    id: string,
+    worktreeName: string,
+    squash: boolean,
+    errorHandler: ErrorHandler,
+    autoCleanup = true,
+  ): Promise<boolean> {
     try {
-      const response = await fetch(`/v1/git/worktrees/${id}/merge`, {
+      const url = `/v1/git/worktrees/${id}/merge?auto_cleanup=${autoCleanup}`;
+      const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ squash }),
       });
-      
+
       if (response.ok) {
         const mergeType = squash ? "squash merged" : "merged";
-        toast.success(`Successfully ${mergeType} ${worktreeName} to main branch`);
+        toast.success(
+          `Successfully ${mergeType} ${worktreeName} to main branch`,
+        );
         return true;
       } else {
         const errorData = await response.json();
         if (errorData.error === "merge_conflict") {
           const conflictFiles = errorData.conflict_files || [];
-          const sessionId = encodeURIComponent(worktreeName);
-          const terminalUrl = `/terminal/${sessionId}`;
-          
-          const conflictText = conflictFiles.length > 0 
-            ? `Conflicts in: ${conflictFiles.join(", ")}`
-            : "Multiple files have conflicts";
-
-          const claudePrompt = createMergeConflictPrompt("merge", conflictFiles);
 
           errorHandler.setErrorAlert({
             open: true,
             title: `Merge Conflict in ${worktreeName}`,
-            description: `${conflictText}\n\nOpen terminal to resolve: ${terminalUrl}\n\nSuggested Claude prompt: "${claudePrompt}"`
+            description: "", // Will be set by the enhanced handler
+            worktreeName,
+            conflictFiles,
+            operation: "merge",
           });
           return false;
         }
-        
+
         errorHandler.setErrorAlert({
           open: true,
           title: "Merge Failed",
-          description: `Failed to merge worktree: ${errorData.error}`
+          description: `Failed to merge worktree: ${errorData.error}`,
         });
         return false;
       }
@@ -276,18 +291,21 @@ export const gitApi = {
       errorHandler.setErrorAlert({
         open: true,
         title: "Merge Failed",
-        description: `Failed to merge worktree: ${error}`
+        description: `Failed to merge worktree: ${error}`,
       });
       return false;
     }
   },
 
-  async createWorktreePreview(id: string, errorHandler: ErrorHandler): Promise<boolean> {
+  async createWorktreePreview(
+    id: string,
+    errorHandler: ErrorHandler,
+  ): Promise<boolean> {
     try {
       const response = await fetch(`/v1/git/worktrees/${id}/preview`, {
         method: "POST",
       });
-      
+
       if (response.ok) {
         return true;
       } else {
@@ -295,7 +313,7 @@ export const gitApi = {
         errorHandler.setErrorAlert({
           open: true,
           title: "Preview Failed",
-          description: `Failed to create preview: ${errorData.error}`
+          description: `Failed to create preview: ${errorData.error}`,
         });
         return false;
       }
@@ -304,13 +322,15 @@ export const gitApi = {
       errorHandler.setErrorAlert({
         open: true,
         title: "Preview Failed",
-        description: `Failed to create preview: ${error}`
+        description: `Failed to create preview: ${error}`,
       });
       return false;
     }
   },
 
-  async fetchBranchesForRepositories(repositories: Record<string, any>): Promise<Record<string, string[]>> {
+  async fetchBranchesForRepositories(
+    repositories: Record<string, any>,
+  ): Promise<Record<string, string[]>> {
     const branchPromises = Object.keys(repositories).map(async (repoId) => {
       const branches = await this.fetchBranches(repoId);
       return { repoId, branches };
@@ -324,7 +344,9 @@ export const gitApi = {
     return branchMap;
   },
 
-  async fetchWorktreeDiffStats(worktreeId: string): Promise<WorktreeDiffStats | null> {
+  async fetchWorktreeDiffStats(
+    worktreeId: string,
+  ): Promise<WorktreeDiffStats | null> {
     try {
       const response = await fetch(`/v1/git/worktrees/${worktreeId}/diff`);
       if (response.ok) {
@@ -369,7 +391,7 @@ export const gitApi = {
 
     const [syncResults, mergeResults] = await Promise.all([
       Promise.all(syncPromises),
-      Promise.all(mergePromises)
+      Promise.all(mergePromises),
     ]);
 
     const syncConflicts: Record<string, any> = {};
@@ -389,7 +411,9 @@ export const gitApi = {
     return { syncConflicts, mergeConflicts };
   },
 
-  async fetchAllDiffStats(worktrees: Worktree[]): Promise<Record<string, WorktreeDiffStats | undefined>> {
+  async fetchAllDiffStats(
+    worktrees: Worktree[],
+  ): Promise<Record<string, WorktreeDiffStats | undefined>> {
     if (worktrees.length === 0) {
       return {};
     }
@@ -401,7 +425,7 @@ export const gitApi = {
 
     const diffResults = await Promise.all(diffPromises);
     const diffStats: Record<string, WorktreeDiffStats> = {};
-    
+
     diffResults.forEach(({ worktreeId, data }) => {
       if (data) {
         diffStats[worktreeId] = data;
@@ -412,18 +436,23 @@ export const gitApi = {
   },
 
   // Enhanced PR management functions
-  async createPullRequest(worktreeId: string, title: string, body: string, errorHandler: ErrorHandler): Promise<boolean> {
+  async createPullRequest(
+    worktreeId: string,
+    title: string,
+    body: string,
+    errorHandler: ErrorHandler,
+  ): Promise<boolean> {
     try {
       const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, body }),
       });
-      
+
       if (response.ok) {
         const prData = await response.json();
         toast.success(
-          `Pull request created! PR #${prData.number}: ${prData.title}`
+          `Pull request created! PR #${prData.number}: ${prData.title}`,
         );
         return true;
       } else {
@@ -431,7 +460,7 @@ export const gitApi = {
         errorHandler.setErrorAlert({
           open: true,
           title: "Pull Request Failed",
-          description: `Failed to create pull request: ${errorData.error || 'Unknown error'}`
+          description: `Failed to create pull request: ${errorData.error || "Unknown error"}`,
         });
         return false;
       }
@@ -440,24 +469,29 @@ export const gitApi = {
       errorHandler.setErrorAlert({
         open: true,
         title: "Pull Request Failed",
-        description: `Failed to create pull request: ${error}`
+        description: `Failed to create pull request: ${error}`,
       });
       return false;
     }
   },
 
-  async updatePullRequest(worktreeId: string, title: string, body: string, errorHandler: ErrorHandler): Promise<boolean> {
+  async updatePullRequest(
+    worktreeId: string,
+    title: string,
+    body: string,
+    errorHandler: ErrorHandler,
+  ): Promise<boolean> {
     try {
       const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, body }),
       });
-      
+
       if (response.ok) {
         const prData = await response.json();
         toast.success(
-          `Pull request updated! PR #${prData.number}: ${prData.title}`
+          `Pull request updated! PR #${prData.number}: ${prData.title}`,
         );
         return true;
       } else {
@@ -465,7 +499,7 @@ export const gitApi = {
         errorHandler.setErrorAlert({
           open: true,
           title: "Pull Request Update Failed",
-          description: `Failed to update pull request: ${errorData.error || 'Unknown error'}`
+          description: `Failed to update pull request: ${errorData.error || "Unknown error"}`,
         });
         return false;
       }
@@ -474,13 +508,15 @@ export const gitApi = {
       errorHandler.setErrorAlert({
         open: true,
         title: "Pull Request Update Failed",
-        description: `Failed to update pull request: ${error}`
+        description: `Failed to update pull request: ${error}`,
       });
       return false;
     }
   },
 
-  async getPullRequestInfo(worktreeId: string): Promise<PullRequestInfo | null> {
+  async getPullRequestInfo(
+    worktreeId: string,
+  ): Promise<PullRequestInfo | null> {
     try {
       const response = await fetch(`/v1/git/worktrees/${worktreeId}/pr`);
       if (response.ok) {
@@ -491,5 +527,5 @@ export const gitApi = {
       console.error("Failed to get pull request info:", error);
       return null;
     }
-  }
+  },
 };

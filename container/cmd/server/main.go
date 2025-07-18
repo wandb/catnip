@@ -126,6 +126,7 @@ func main() {
 	v1.Get("/git/status", gitHandler.GetStatus)
 	v1.Get("/git/worktrees", gitHandler.ListWorktrees)
 	v1.Delete("/git/worktrees/:id", gitHandler.DeleteWorktree)
+	v1.Post("/git/worktrees/cleanup", gitHandler.CleanupMergedWorktrees)
 	v1.Post("/git/worktrees/:id/sync", gitHandler.SyncWorktree)
 	v1.Get("/git/worktrees/:id/sync/check", gitHandler.CheckSyncConflicts)
 	v1.Post("/git/worktrees/:id/merge", gitHandler.MergeWorktreeToMain)

@@ -21,6 +21,7 @@ import (
 type ClaudeService struct {
 	claudeConfigPath  string
 	claudeProjectsDir string
+	volumeProjectsDir string
 }
 
 // readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
@@ -71,10 +72,29 @@ func readJSONLines(filePath string, handler func([]byte) error) error {
 func NewClaudeService() *ClaudeService {
 	// Use catnip user's home directory explicitly
 	homeDir := "/home/catnip"
+	volumeDir := "/volume"
 	return &ClaudeService{
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
+		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 	}
+}
+
+// findProjectDirectory returns the path to the project directory if it exists in either location
+func (s *ClaudeService) findProjectDirectory(projectDirName string) string {
+	// Check local directory first
+	localDir := filepath.Join(s.claudeProjectsDir, projectDirName)
+	if _, err := os.Stat(localDir); err == nil {
+		return localDir
+	}
+
+	// Check volume directory
+	volumeDir := filepath.Join(s.volumeProjectsDir, projectDirName)
+	if _, err := os.Stat(volumeDir); err == nil {
+		return volumeDir
+	}
+
+	return ""
 }
 
 // GetWorktreeSessionSummary gets Claude session information for a worktree
@@ -89,6 +109,14 @@ func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.
 	projectMeta, exists := claudeConfig[worktreePath]
 	if !exists {
 		// Return nil instead of error for worktrees without Claude sessions
+		return nil, nil
+	}
+
+	// Check if the project directory exists in either location
+	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDir := s.findProjectDirectory(projectDirName)
+	if projectDir == "" {
+		// Project directory doesn't exist in either location, skip this session
 		return nil, nil
 	}
 
@@ -184,11 +212,10 @@ func (s *ClaudeService) getSessionTiming(worktreePath string) (*SessionTimingWit
 	// Convert worktree path to project directory name
 	// "/workspace/openui/debug-quokka" -> "-workspace-openui-debug-quokka"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDir := filepath.Join(s.claudeProjectsDir, projectDirName)
+	projectDir := s.findProjectDirectory(projectDirName)
 
-	// Check if the projects directory exists
-	if _, err := os.Stat(s.claudeProjectsDir); os.IsNotExist(err) {
-		return nil, fmt.Errorf("claude projects directory does not exist: %s", s.claudeProjectsDir)
+	if projectDir == "" {
+		return nil, fmt.Errorf("project directory not found for worktree: %s", worktreePath)
 	}
 
 	// Find the most recent session file
@@ -426,7 +453,11 @@ func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData 
 func (s *ClaudeService) GetAllSessionsForWorkspace(worktreePath string) ([]models.SessionListEntry, error) {
 	// Convert worktree path to project directory name
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDir := filepath.Join(s.claudeProjectsDir, projectDirName)
+	projectDir := s.findProjectDirectory(projectDirName)
+
+	if projectDir == "" {
+		return []models.SessionListEntry{}, nil
+	}
 
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
@@ -488,7 +519,13 @@ func (s *ClaudeService) GetAllSessionsForWorkspace(worktreePath string) ([]model
 func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]models.ClaudeSessionMessage, error) {
 	// Convert worktree path to project directory name
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	sessionFile := filepath.Join(s.claudeProjectsDir, projectDirName, sessionID+".jsonl")
+	projectDir := s.findProjectDirectory(projectDirName)
+
+	if projectDir == "" {
+		return nil, fmt.Errorf("project directory not found for worktree: %s", worktreePath)
+	}
+
+	sessionFile := filepath.Join(projectDir, sessionID+".jsonl")
 
 	var messages []models.ClaudeSessionMessage
 

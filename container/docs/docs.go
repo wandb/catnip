@@ -348,6 +348,27 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/git/worktrees/cleanup": {
+            "post": {
+                "description": "Removes worktrees that have been fully merged into their source branch",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Cleanup merged worktrees",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/worktrees/{id}": {
             "delete": {
                 "description": "Removes a worktree from the repository",
@@ -1432,6 +1453,11 @@ const docTemplate = `{
                     "description": "When this worktree was created",
                     "type": "string",
                     "example": "2024-01-15T14:00:00Z"
+                },
+                "has_conflicts": {
+                    "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
+                    "type": "boolean",
+                    "example": false
                 },
                 "id": {
                     "description": "Unique identifier for this worktree",
