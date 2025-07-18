@@ -367,8 +367,6 @@ func (s *SessionService) UpdateSessionTitle(workspaceDir, title, commitHash stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	fmt.Printf("🪧 Updating session title: %s for workspace: %s\n", title, workspaceDir)
-
 	session, exists := s.activeSessions[workspaceDir]
 	if !exists {
 		return fmt.Errorf("no active session found for workspace: %s", workspaceDir)
