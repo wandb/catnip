@@ -82,7 +82,6 @@ type Model struct {
 	logs           []string
 	filteredLogs   []string
 	ports          []PortInfo
-	logo           []string
 
 	// Health status and animation
 	appHealthy       bool

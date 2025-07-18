@@ -119,7 +119,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-family-mono: "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", "monospace";
+  --font-family-mono:
+    "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", "monospace";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -170,9 +171,30 @@
 
 /* Override xterm.js font to use our Nerd Font */
 .xterm-screen {
-  font-family: "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", monospace !important;
+  font-family:
+    "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", monospace !important;
 }
 
 .xterm-rows {
-  font-family: "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", monospace !important;
+  font-family:
+    "FiraCode Nerd Font Mono", "JetBrains Mono", "Monaco", monospace !important;
+}
+
+/* Custom prose class that inherits text color from parent */
+.prose-inherit {
+  color: inherit !important;
+}
+
+.prose-inherit h1,
+.prose-inherit h2,
+.prose-inherit h3,
+.prose-inherit h4,
+.prose-inherit h5,
+.prose-inherit h6,
+.prose-inherit p,
+.prose-inherit li,
+.prose-inherit strong,
+.prose-inherit em,
+.prose-inherit blockquote {
+  color: inherit !important;
 }

@@ -732,7 +732,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 	}
 
 	// Create new worktree with fun name
-	funName := generateSessionName()
+	funName := s.generateUniqueSessionName(repo.Path)
 	worktree, err := s.createWorktreeInternalForRepo(repo, branch, funName, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create worktree: %v", err)
@@ -781,7 +781,7 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 	go s.unshallowRepository(barePath, branch)
 
 	// Create initial worktree with fun name to avoid conflicts with local branches
-	funName := generateSessionName()
+	funName := s.generateUniqueSessionName(repository.Path)
 	worktree, err := s.createWorktreeInternalForRepo(repository, branch, funName, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create initial worktree: %v", err)
@@ -1122,7 +1122,7 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 	}
 
 	// Create new worktree with fun name
-	funName := generateSessionName()
+	funName := s.generateUniqueSessionName(localRepo.Path)
 
 	// Create worktree for local repo
 	worktree, err := s.createLocalRepoWorktree(localRepo, branch, funName)
@@ -2331,7 +2331,7 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 	}
 
 	// Create new worktree with fun name
-	funName := generateSessionName()
+	funName := s.generateUniqueSessionName(repo.Path)
 	// Creating worktree
 	worktree, err := s.createWorktreeInternalForRepo(repo, branch, funName, true)
 	if err != nil {

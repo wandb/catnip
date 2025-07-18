@@ -78,8 +78,8 @@ export function DiffViewer({
       const isWide = window.innerWidth >= 1024; // lg breakpoint (lowered from xl)
       setIsWideScreen(isWide);
 
-      // Default to split view on wide screens, unified on narrow screens
-      setSplitView(isWide);
+      // Default to unified view regardless of screen width
+      setSplitView(false);
     };
 
     checkScreenWidth();
@@ -423,7 +423,7 @@ export function DiffViewer({
                             oldValue=""
                             newValue={file.new_content ?? ""}
                             splitView={false}
-                            compareMethod={DiffMethod.WORDS}
+                            compareMethod={DiffMethod.LINES}
                             hideLineNumbers={false}
                             showDiffOnly={false}
                             useDarkTheme={document.documentElement.classList.contains(
@@ -544,7 +544,7 @@ export function DiffViewer({
                             oldValue={file.old_content}
                             newValue={file.new_content}
                             splitView={splitView}
-                            compareMethod={DiffMethod.WORDS}
+                            compareMethod={DiffMethod.LINES}
                             hideLineNumbers={false}
                             showDiffOnly={true}
                             useDarkTheme={document.documentElement.classList.contains(

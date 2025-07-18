@@ -1,92 +1,130 @@
-import type { TranscriptMessage } from '../lib/transcript-types'
-import { isToolCall, isToolResult, isTextContent } from '../lib/transcript-utils'
-import { ToolCall } from './ToolCall'
-import { ToolResult } from './ToolResult'
-import { TextContent } from './TextContent'
+import type { TranscriptMessage } from "../lib/transcript-types";
+import {
+  isToolCall,
+  isToolResult,
+  isTextContent,
+} from "../lib/transcript-utils";
+import { ToolCall } from "./ToolCall";
+import { ToolResult } from "./ToolResult";
+import { TextContent } from "./TextContent";
 
 interface MessageContentProps {
-  message: TranscriptMessage
-  allMessages?: TranscriptMessage[]
-  showOnlyText?: boolean
-  showOnlyTools?: boolean
+  message: TranscriptMessage;
+  allMessages?: TranscriptMessage[];
+  showOnlyText?: boolean;
+  showOnlyTools?: boolean;
+  inheritTextColor?: boolean;
 }
 
 // Helper function to find tool results for a given tool call
-function findToolResult(toolId: string, allMessages: TranscriptMessage[]): { content: string; isError: boolean } | undefined {
+function findToolResult(
+  toolId: string,
+  allMessages: TranscriptMessage[],
+): { content: string; isError: boolean } | undefined {
   for (const msg of allMessages) {
-    if (msg.type === 'user' && msg.message?.content && Array.isArray(msg.message.content)) {
+    if (
+      msg.type === "user" &&
+      msg.message?.content &&
+      Array.isArray(msg.message.content)
+    ) {
       for (const item of msg.message.content) {
-        if (item.type === 'tool_result' && item.tool_use_id === toolId) {
+        if (item.type === "tool_result" && item.tool_use_id === toolId) {
           return {
-            content: item.content || '',
-            isError: item.is_error || false
-          }
+            content: item.content || "",
+            isError: item.is_error || false,
+          };
         }
       }
     }
   }
-  return undefined
+  return undefined;
 }
 
-export function MessageContent({ message, allMessages = [], showOnlyText = false, showOnlyTools = false }: MessageContentProps) {
+export function MessageContent({
+  message,
+  allMessages = [],
+  showOnlyText = false,
+  showOnlyTools = false,
+  inheritTextColor = false,
+}: MessageContentProps) {
   // Handle assistant messages with structured content
-  if (message.type === 'assistant' && message.message?.content && Array.isArray(message.message.content)) {
+  if (
+    message.type === "assistant" &&
+    message.message?.content &&
+    Array.isArray(message.message.content)
+  ) {
     return (
       <div className="space-y-2">
         {message.message.content.map((item, index) => {
           if (isTextContent(item)) {
-            if (showOnlyTools) return null
-            return <TextContent key={index} content={item.text || ''} />
+            if (showOnlyTools) return null;
+            return (
+              <TextContent
+                key={index}
+                content={item.text || ""}
+                inheritTextColor={inheritTextColor}
+              />
+            );
           }
-          
+
           if (isToolCall(item)) {
-            if (showOnlyText) return null
-            const result = findToolResult(item.id || '', allMessages)
+            if (showOnlyText) return null;
+            const result = findToolResult(item.id || "", allMessages);
             return (
               <ToolCall
                 key={item.id || index}
-                toolId={item.id || ''}
-                toolName={item.name || ''}
+                toolId={item.id || ""}
+                toolName={item.name || ""}
                 toolInput={item.input || {}}
                 result={result}
               />
-            )
+            );
           }
-          
-          return null
+
+          return null;
         })}
       </div>
-    )
+    );
   }
 
   // Handle user messages with message.content (tool results) - only if not filtered out
-  if (message.type === 'user' && message.message?.content && Array.isArray(message.message.content)) {
+  if (
+    message.type === "user" &&
+    message.message?.content &&
+    Array.isArray(message.message.content)
+  ) {
     return (
       <div className="space-y-2">
         {message.message.content.map((item, index) => {
           // User messages have tool_result items with different structure
-          if (item.type === 'tool_result') {
-            if (showOnlyText) return null
+          if (item.type === "tool_result") {
+            if (showOnlyText) return null;
             return (
               <ToolResult
                 key={item.tool_use_id || index}
-                toolUseId={item.tool_use_id || ''}
-                content={item.content || ''}
+                toolUseId={item.tool_use_id || ""}
+                content={item.content || ""}
                 isError={item.is_error || false}
               />
-            )
+            );
           }
-          
+
           // Handle text content in user messages
           if (isTextContent(item)) {
-            if (showOnlyTools) return null
-            return <TextContent key={index} content={item.text || ''} />
+            if (showOnlyTools) return null;
+            return (
+              <TextContent
+                key={index}
+                content={item.text || ""}
+                inheritTextColor={inheritTextColor}
+              />
+            );
           }
-          
-          return null
+
+          return null;
         })}
       </div>
-    )
+    );
   }
 
   // Handle user messages (typically tool results) - fallback to content property
@@ -102,27 +140,35 @@ export function MessageContent({ message, allMessages = [], showOnlyText = false
                 content={item.content}
                 isError={item.is_error || false}
               />
-            )
+            );
           }
-          
-          return null
+
+          return null;
         })}
       </div>
-    )
+    );
   }
 
   // Handle simple string content (fallback)
-  if (typeof message.message?.content === 'string') {
-    return <TextContent content={message.message.content} />
+  if (typeof message.message?.content === "string") {
+    return (
+      <TextContent
+        content={message.message.content}
+        inheritTextColor={inheritTextColor}
+      />
+    );
   }
 
-  if (typeof message.content === 'string') {
-    return <TextContent content={message.content} />
+  if (typeof message.content === "string") {
+    return (
+      <TextContent
+        content={message.content}
+        inheritTextColor={inheritTextColor}
+      />
+    );
   }
 
   return (
-    <div className="text-muted-foreground italic">
-      No content available
-    </div>
-  )
+    <div className="text-muted-foreground italic">No content available</div>
+  );
 }
