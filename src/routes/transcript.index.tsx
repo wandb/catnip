@@ -1,56 +1,56 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Search, FileText } from 'lucide-react'
-import { ErrorDisplay } from '@/components/ErrorDisplay'
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Search, FileText } from "lucide-react";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
 
 interface Session {
-  sessionId: string
-  messageCount: number
-  startTime: string
-  lastActivity: string
+  sessionId: string;
+  messageCount: number;
+  startTime: string;
+  lastActivity: string;
 }
 
 function TranscriptIndex() {
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetchSessions()
-  }, [])
+    void fetchSessions();
+  }, []);
 
-  const fetchSessions = () => {
+  const fetchSessions = async () => {
     try {
-      // This would be the actual API call when the endpoint exists
-      // const response = await fetch('/v1/claude/sessions')
-      // const data = await response.json()
-      
-      // Mock data for now
-      const mockSessions: Session[] = [
-        {
-          sessionId: '5dd5fb40-6571-4cf3-a846-4e02a9c6dcad',
-          messageCount: 45,
-          startTime: '2025-07-10T23:08:24.376Z',
-          lastActivity: '2025-07-10T23:12:52.629Z'
-        }
-      ]
-      
-      setSessions(mockSessions)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch sessions')
-    } finally {
-      setLoading(false)
-    }
-  }
+      const response = await fetch("/v1/claude/sessions");
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
 
-  const filteredSessions = sessions.filter(session =>
-    session.sessionId.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+      // Convert the data to the expected format
+      const sessions: Session[] = data.map((session: any) => ({
+        sessionId: session.sessionId,
+        messageCount: session.messageCount,
+        startTime: session.startTime,
+        lastActivity: session.lastActivity,
+      }));
+
+      setSessions(sessions);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch sessions");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredSessions = sessions.filter((session) =>
+    session.sessionId.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
 
   if (loading) {
     return (
@@ -62,7 +62,7 @@ function TranscriptIndex() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   if (error) {
@@ -77,14 +77,16 @@ function TranscriptIndex() {
           />
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Claude Session Transcripts</h1>
+          <h1 className="text-3xl font-bold mb-2">
+            Claude Session Transcripts
+          </h1>
           <p className="text-muted-foreground">
             Browse and view detailed transcripts of Claude coding sessions
           </p>
@@ -105,13 +107,18 @@ function TranscriptIndex() {
             <Card>
               <CardContent className="p-6 text-center">
                 <div className="text-muted-foreground">
-                  {searchTerm ? 'No sessions match your search.' : 'No sessions available.'}
+                  {searchTerm
+                    ? "No sessions match your search."
+                    : "No sessions available."}
                 </div>
               </CardContent>
             </Card>
           ) : (
             filteredSessions.map((session) => (
-              <Card key={session.sessionId} className="hover:shadow-md transition-shadow">
+              <Card
+                key={session.sessionId}
+                className="hover:shadow-md transition-shadow"
+              >
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -124,9 +131,7 @@ function TranscriptIndex() {
                       to="/transcript/$sessionId"
                       params={{ sessionId: session.sessionId }}
                     >
-                      <Button size="sm">
-                        View Transcript
-                      </Button>
+                      <Button size="sm">View Transcript</Button>
                     </Link>
                   </CardTitle>
                 </CardHeader>
@@ -139,7 +144,8 @@ function TranscriptIndex() {
                       Started: {new Date(session.startTime).toLocaleString()}
                     </span>
                     <span>
-                      Last activity: {new Date(session.lastActivity).toLocaleString()}
+                      Last activity:{" "}
+                      {new Date(session.lastActivity).toLocaleString()}
                     </span>
                   </div>
                 </CardContent>
@@ -149,9 +155,9 @@ function TranscriptIndex() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-export const Route = createFileRoute('/transcript/')({
+export const Route = createFileRoute("/transcript/")({
   component: TranscriptIndex,
-})
+});

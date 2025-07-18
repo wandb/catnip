@@ -130,6 +130,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/claude/session/{sessionId}": {
+            "get": {
+                "description": "Returns complete session data for the transcript UI",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Get transcript session data",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID (UUID)",
+                        "name": "sessionId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TranscriptSessionData"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/session/{uuid}": {
             "get": {
                 "description": "Returns complete session data including all messages for a specific session UUID",
@@ -161,21 +190,21 @@ const docTemplate = `{
         },
         "/v1/claude/sessions": {
             "get": {
-                "description": "Returns Claude Code session metadata for all worktrees with Claude data",
+                "description": "Returns a list of Claude sessions with metadata for the transcript UI",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "claude"
                 ],
-                "summary": "Get all worktree session summaries",
+                "summary": "Get transcript sessions list",
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TranscriptSessionListEntry"
                             }
                         }
                     }
@@ -1401,6 +1430,60 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.TranscriptSessionData": {
+            "description": "Complete session data for transcript viewer",
+            "type": "object",
+            "properties": {
+                "endTime": {
+                    "description": "When the session ended",
+                    "type": "string",
+                    "example": "2024-01-15T16:45:30Z"
+                },
+                "messages": {
+                    "description": "All messages in the session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage"
+                    }
+                },
+                "sessionId": {
+                    "description": "Unique session identifier",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "startTime": {
+                    "description": "When the session started",
+                    "type": "string",
+                    "example": "2024-01-15T14:30:00Z"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.TranscriptSessionListEntry": {
+            "description": "Session entry for transcript list UI",
+            "type": "object",
+            "properties": {
+                "lastActivity": {
+                    "description": "When the session was last active",
+                    "type": "string",
+                    "example": "2025-07-10T23:12:52.629Z"
+                },
+                "messageCount": {
+                    "description": "Number of messages in the session",
+                    "type": "integer",
+                    "example": 45
+                },
+                "sessionId": {
+                    "description": "Unique session identifier",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "startTime": {
+                    "description": "When the session started",
+                    "type": "string",
+                    "example": "2025-07-10T23:08:24.376Z"
                 }
             }
         },

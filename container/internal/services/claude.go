@@ -715,3 +715,61 @@ func (s *ClaudeService) GetCompletion(req *models.CompletionRequest) (*models.Co
 		Truncated: false,
 	}, nil
 }
+
+// GetTranscriptSessions returns a list of Claude sessions formatted for the transcript UI
+func (s *ClaudeService) GetTranscriptSessions() ([]models.TranscriptSessionListEntry, error) {
+	// Get all session summaries
+	summaries, err := s.GetAllWorktreeSessionSummaries()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all summaries: %w", err)
+	}
+
+	var sessions []models.TranscriptSessionListEntry
+
+	// Convert each summary to transcript format
+	for _, summary := range summaries {
+		for _, session := range summary.AllSessions {
+			var messageCount int
+
+			// Try to get message count from session data
+			if sessionData, err := s.GetSessionByID(summary.WorktreePath, session.SessionId); err == nil {
+				messageCount = len(sessionData.Messages)
+			}
+
+			var startTime, lastActivity string
+			if session.StartTime != nil {
+				startTime = session.StartTime.Format("2006-01-02T15:04:05.000Z")
+			}
+			lastActivity = session.LastModified.Format("2006-01-02T15:04:05.000Z")
+
+			sessionEntry := models.TranscriptSessionListEntry{
+				SessionId:    session.SessionId,
+				MessageCount: messageCount,
+				StartTime:    startTime,
+				LastActivity: lastActivity,
+			}
+
+			sessions = append(sessions, sessionEntry)
+		}
+	}
+
+	return sessions, nil
+}
+
+// GetTranscriptSession returns full session data formatted for the transcript UI
+func (s *ClaudeService) GetTranscriptSession(sessionId string) (*models.TranscriptSessionData, error) {
+	sessionData, err := s.GetSessionByUUID(sessionId)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session data: %w", err)
+	}
+
+	// Convert to transcript format
+	transcriptData := &models.TranscriptSessionData{
+		SessionId: sessionId,
+		Messages:  sessionData.Messages,
+		StartTime: sessionData.SessionInfo.SessionStartTime,
+		EndTime:   sessionData.SessionInfo.SessionEndTime,
+	}
+
+	return transcriptData, nil
+}

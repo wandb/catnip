@@ -140,8 +140,8 @@ func main() {
 
 	// Claude routes
 	v1.Get("/claude/session", claudeHandler.GetWorktreeSessionSummary)
-	v1.Get("/claude/session/:uuid", claudeHandler.GetSessionByUUID)
-	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
+	v1.Get("/claude/session/:uuid", claudeHandler.GetTranscriptSession)
+	v1.Get("/claude/sessions", claudeHandler.GetTranscriptSessions)
 	v1.Post("/claude/completion", claudeHandler.GetClaudeCompletion)
 
 	// Session management routes

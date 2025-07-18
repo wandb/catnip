@@ -152,7 +152,14 @@ export function TranscriptViewer({
         throw new Error(`Failed to fetch transcript: ${response.statusText}`);
       }
 
-      const sessionData = await response.json();
+      const transcriptData = await response.json();
+
+      // Convert the transcript data to the expected format
+      const sessionData: TranscriptSession = {
+        messages: transcriptData.messages || [],
+        userPrompts: [],
+      };
+
       setData(sessionData);
     } catch (err) {
       setError(

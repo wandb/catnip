@@ -328,6 +328,47 @@ definitions:
       title:
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_models.TranscriptSessionData:
+    description: Complete session data for transcript viewer
+    properties:
+      endTime:
+        description: When the session ended
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      messages:
+        description: All messages in the session
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage'
+        type: array
+      sessionId:
+        description: Unique session identifier
+        example: abc123-def456-ghi789
+        type: string
+      startTime:
+        description: When the session started
+        example: "2024-01-15T14:30:00Z"
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.TranscriptSessionListEntry:
+    description: Session entry for transcript list UI
+    properties:
+      lastActivity:
+        description: When the session was last active
+        example: "2025-07-10T23:12:52.629Z"
+        type: string
+      messageCount:
+        description: Number of messages in the session
+        example: 45
+        type: integer
+      sessionId:
+        description: Unique session identifier
+        example: abc123-def456-ghi789
+        type: string
+      startTime:
+        description: When the session started
+        example: "2025-07-10T23:08:24.376Z"
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.Worktree:
     description: Git worktree with branch and status information
     properties:
@@ -737,6 +778,25 @@ paths:
       summary: Get worktree session summary
       tags:
       - claude
+  /v1/claude/session/{sessionId}:
+    get:
+      description: Returns complete session data for the transcript UI
+      parameters:
+      - description: Session ID (UUID)
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TranscriptSessionData'
+      summary: Get transcript session data
+      tags:
+      - claude
   /v1/claude/session/{uuid}:
     get:
       description: Returns complete session data including all messages for a specific
@@ -759,18 +819,18 @@ paths:
       - claude
   /v1/claude/sessions:
     get:
-      description: Returns Claude Code session metadata for all worktrees with Claude
-        data
+      description: Returns a list of Claude sessions with metadata for the transcript
+        UI
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            additionalProperties:
-              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
-            type: object
-      summary: Get all worktree session summaries
+            items:
+              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TranscriptSessionListEntry'
+            type: array
+      summary: Get transcript sessions list
       tags:
       - claude
   /v1/events:
