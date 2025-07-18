@@ -131,12 +131,19 @@ export function useGitActions(gitStateActions: GitStateActions) {
       description: string;
     }) => void,
     squash = true,
+    autoCleanup = true,
   ) => {
     setMergingWorktree(id, true);
     try {
-      const success = await gitApi.mergeWorktree(id, worktreeName, squash, {
-        setErrorAlert,
-      });
+      const success = await gitApi.mergeWorktree(
+        id,
+        worktreeName,
+        squash,
+        {
+          setErrorAlert,
+        },
+        autoCleanup,
+      );
       setMergingWorktree(id, false);
       if (success) {
         Promise.all([

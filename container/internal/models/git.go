@@ -66,6 +66,8 @@ type Worktree struct {
 	CommitsBehind int `json:"commits_behind" example:"2"`
 	// Whether there are uncommitted changes in the worktree
 	IsDirty bool `json:"is_dirty" example:"true"`
+	// Whether the worktree is in a conflicted state (rebase/merge conflicts)
+	HasConflicts bool `json:"has_conflicts" example:"false"`
 	// When this worktree was created
 	CreatedAt time.Time `json:"created_at" example:"2024-01-15T14:00:00Z"`
 	// When this worktree was last accessed

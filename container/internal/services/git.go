@@ -554,6 +554,53 @@ func (s *GitService) isDirty(worktreePath string) bool {
 	return len(strings.TrimSpace(string(output))) > 0
 }
 
+// hasConflicts checks if a worktree is in a conflicted state (rebase/merge in progress)
+func (s *GitService) hasConflicts(worktreePath string) bool {
+	// Check for rebase in progress
+	if _, err := os.Stat(filepath.Join(worktreePath, ".git", "rebase-apply")); err == nil {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(worktreePath, ".git", "rebase-merge")); err == nil {
+		return true
+	}
+
+	// Check for merge in progress
+	if _, err := os.Stat(filepath.Join(worktreePath, ".git", "MERGE_HEAD")); err == nil {
+		return true
+	}
+
+	// Check for cherry-pick in progress
+	if _, err := os.Stat(filepath.Join(worktreePath, ".git", "CHERRY_PICK_HEAD")); err == nil {
+		return true
+	}
+
+	// Check for unmerged files in git status
+	output, err := s.runGitCommand(worktreePath, "status", "--porcelain")
+	if err != nil {
+		return false
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if len(line) >= 2 {
+			// Check for conflict markers in status (UU, AA, DD, etc.)
+			firstChar := line[0]
+			secondChar := line[1]
+			if (firstChar == 'U' && secondChar == 'U') || // both modified
+				(firstChar == 'A' && secondChar == 'A') || // both added
+				(firstChar == 'D' && secondChar == 'D') || // both deleted
+				(firstChar == 'A' && secondChar == 'U') || // added by us, modified by them
+				(firstChar == 'U' && secondChar == 'A') || // modified by us, added by them
+				(firstChar == 'D' && secondChar == 'U') || // deleted by us, modified by them
+				(firstChar == 'U' && secondChar == 'D') { // modified by us, deleted by them
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
 	s := &GitService{
@@ -744,8 +791,9 @@ func (s *GitService) ListWorktrees() []*models.Worktree {
 
 	worktrees := make([]*models.Worktree, 0, len(s.worktrees))
 	for _, wt := range s.worktrees {
-		// Update dirty status
+		// Update dirty status and conflict status
 		wt.IsDirty = s.isDirty(wt.Path)
+		wt.HasConflicts = s.hasConflicts(wt.Path)
 
 		// Update commit count and commits behind
 		s.updateWorktreeStatusInternal(wt)
@@ -1158,6 +1206,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 		CommitCount:   commitCount,
 		CommitsBehind: 0, // Will be calculated later
 		IsDirty:       false,
+		HasConflicts:  false,
 		CreatedAt:     time.Now(),
 		LastAccessed:  time.Now(),
 	}
@@ -1303,11 +1352,150 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	// Step 6: Remove from memory
 	delete(s.worktrees, worktreeID)
 
-	// Step 7: Save state
+	// Step 7: Run git garbage collection to clean up dangling objects
+	gcCmd := s.execGitCommand(repo.Path, "gc", "--prune=now")
+	if err := gcCmd.Run(); err != nil {
+		log.Printf("⚠️ Failed to run garbage collection after worktree deletion: %v", err)
+	} else {
+		log.Printf("✅ Ran garbage collection to clean up dangling objects")
+	}
+
+	// Step 8: Save state
 	_ = s.saveState()
 
 	log.Printf("✅ Completed comprehensive cleanup for worktree %s", worktree.Name)
 	return nil
+}
+
+// CleanupMergedWorktrees removes worktrees that have been fully merged into their source branch
+func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var cleanedUp []string
+	var errors []error
+
+	log.Printf("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(s.worktrees))
+
+	for worktreeID, worktree := range s.worktrees {
+		log.Printf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
+			worktree.Name, worktree.IsDirty, worktree.HasConflicts, worktree.CommitCount, worktree.SourceBranch)
+
+		// Skip if worktree has uncommitted changes or conflicts
+		if worktree.IsDirty {
+			log.Printf("⏭️  Skipping cleanup of dirty worktree: %s", worktree.Name)
+			continue
+		}
+		if worktree.HasConflicts {
+			log.Printf("⏭️  Skipping cleanup of conflicted worktree: %s", worktree.Name)
+			continue
+		}
+
+		// Skip if worktree has commits ahead of source
+		if worktree.CommitCount > 0 {
+			log.Printf("⏭️  Skipping cleanup of worktree with %d commits ahead: %s", worktree.CommitCount, worktree.Name)
+			continue
+		}
+
+		// Check if the worktree branch exists in the source repo
+		repo, exists := s.repositories[worktree.RepoID]
+		if !exists {
+			continue
+		}
+
+		// For local repos, check if the worktree branch no longer exists or if it matches the source branch
+		isLocal := s.isLocalRepo(worktree.RepoID)
+		var isMerged bool
+
+		if isLocal {
+			log.Printf("🔍 Checking local worktree %s: branch=%s, source=%s", worktree.Name, worktree.Branch, worktree.SourceBranch)
+
+			// For local repos, check if the branch exists in the main repo
+			// If it doesn't exist, it was likely deleted after merge
+			branchExistsCmd := s.execGitCommand(repo.Path, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", worktree.Branch))
+			branchExists := branchExistsCmd.Run() == nil
+
+			if !branchExists {
+				log.Printf("✅ Branch %s no longer exists in main repo (likely merged and deleted)", worktree.Branch)
+				isMerged = true
+			} else {
+				// Branch still exists, check if it's merged
+				mergedCmd := s.execGitCommand(repo.Path, "branch", "--merged", worktree.SourceBranch)
+				output, err := mergedCmd.Output()
+				if err != nil {
+					log.Printf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
+					continue
+				}
+
+				mergedBranches := strings.Split(string(output), "\n")
+				for _, branch := range mergedBranches {
+					// Handle both regular branches and worktree branches (marked with +)
+					branch = strings.TrimSpace(branch)
+					branch = strings.TrimPrefix(branch, "*") // Current branch indicator
+					branch = strings.TrimPrefix(branch, "+") // Worktree branch indicator
+					branch = strings.TrimSpace(branch)
+					if branch == worktree.Branch {
+						isMerged = true
+						log.Printf("✅ Found %s in merged branches list", worktree.Branch)
+						break
+					}
+				}
+			}
+		} else {
+			// Regular repo logic (existing code)
+			log.Printf("🔍 Checking if branch %s is merged into %s in repo %s", worktree.Branch, worktree.SourceBranch, repo.Path)
+			mergedCmd := s.execGitCommand(repo.Path, "branch", "--merged", worktree.SourceBranch)
+			output, err := mergedCmd.Output()
+			if err != nil {
+				log.Printf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
+				continue
+			}
+
+			// Check if our branch appears in the merged branches list
+			mergedBranches := strings.Split(string(output), "\n")
+			log.Printf("📋 Merged branches into %s: %d branches found", worktree.SourceBranch, len(mergedBranches))
+
+			for _, branch := range mergedBranches {
+				// Handle both regular branches and worktree branches (marked with +)
+				branch = strings.TrimSpace(branch)
+				branch = strings.TrimPrefix(branch, "*") // Current branch indicator
+				branch = strings.TrimPrefix(branch, "+") // Worktree branch indicator
+				branch = strings.TrimSpace(branch)
+				if branch == worktree.Branch {
+					isMerged = true
+					log.Printf("✅ Found %s in merged branches list", worktree.Branch)
+					break
+				}
+			}
+		}
+
+		if !isMerged {
+			log.Printf("❌ Branch %s not eligible for cleanup", worktree.Branch)
+		}
+
+		if isMerged {
+			log.Printf("🧹 Found merged worktree to cleanup: %s", worktree.Name)
+
+			// Use the existing deletion logic but don't hold the mutex
+			s.mu.Unlock()
+			if cleanupErr := s.DeleteWorktree(worktreeID); cleanupErr != nil {
+				errors = append(errors, fmt.Errorf("failed to cleanup worktree %s: %v", worktree.Name, cleanupErr))
+			} else {
+				cleanedUp = append(cleanedUp, worktree.Name)
+			}
+			s.mu.Lock()
+		}
+	}
+
+	if len(cleanedUp) > 0 {
+		log.Printf("✅ Cleaned up %d merged worktrees: %s", len(cleanedUp), strings.Join(cleanedUp, ", "))
+	}
+
+	if len(errors) > 0 {
+		return len(cleanedUp), cleanedUp, fmt.Errorf("cleanup completed with %d errors: %v", len(errors), errors)
+	}
+
+	return len(cleanedUp), cleanedUp, nil
 }
 
 // cleanupActiveSessions attempts to cleanup any active terminal sessions for this worktree
@@ -1402,8 +1590,9 @@ func (s *GitService) UpdateWorktreeStatus(worktreeID string) error {
 		return fmt.Errorf("worktree %s not found", worktreeID)
 	}
 
-	// Update dirty status
+	// Update dirty status and conflict status
 	worktree.IsDirty = s.isDirty(worktree.Path)
+	worktree.HasConflicts = s.hasConflicts(worktree.Path)
 
 	// Update commit count and commits behind
 	s.updateWorktreeStatusInternal(worktree)
@@ -2178,6 +2367,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		CommitHash:   strings.TrimSpace(string(commitOutput)),
 		CommitCount:  commitCount,
 		IsDirty:      false,
+		HasConflicts: false,
 		CreatedAt:    time.Now(),
 		LastAccessed: time.Now(),
 	}

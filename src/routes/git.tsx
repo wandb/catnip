@@ -1,4 +1,8 @@
-import { createFileRoute, useLocation } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +28,7 @@ import { useHighlight } from "@/hooks/useHighlight";
 
 function GitPage() {
   const location = useLocation();
+  const navigate = useNavigate();
   const fromWorkspace = (location.state as any)?.fromWorkspace === true;
   const { highlightClassName } = useHighlight(fromWorkspace);
 
@@ -79,6 +84,11 @@ function GitPage() {
     open: boolean;
     title: string;
     description: string;
+    secondaryAction?: {
+      label: string;
+      onClick: () => void;
+      variant?: "default" | "destructive";
+    };
   }>({
     open: false,
     title: "",
@@ -101,6 +111,51 @@ function GitPage() {
     isUpdate: false,
   });
 
+  // Enhanced error alert handler that can include Claude assistance for conflicts
+  const setErrorAlertWithClaudeAction = (alert: {
+    open: boolean;
+    title: string;
+    description: string;
+    worktreeName?: string;
+    conflictFiles?: string[];
+    operation?: string;
+  }) => {
+    if (alert.worktreeName && alert.conflictFiles && alert.operation) {
+      // This is a conflict - add Claude assistance
+      const sessionId = encodeURIComponent(alert.worktreeName);
+      const conflictText =
+        alert.conflictFiles.length > 0
+          ? `Conflicts detected in: ${alert.conflictFiles.join(", ")}`
+          : "Multiple files have conflicts";
+
+      setErrorAlert({
+        open: alert.open,
+        title: alert.title,
+        description: `${conflictText}\n\nDon't worry! Claude can help resolve these conflicts automatically.`,
+        secondaryAction: {
+          label: "Let Claude Help",
+          onClick: () => {
+            navigate({
+              to: "/terminal/$sessionId",
+              params: { sessionId },
+              search: {
+                agent: "claude",
+                prompt: `Please help me resolve these conflicts and complete the ${alert.operation}. Ask me for confirmation before completing the ${alert.operation}.`,
+              },
+            });
+          },
+        },
+      });
+    } else {
+      // Regular error
+      setErrorAlert({
+        open: alert.open,
+        title: alert.title,
+        description: alert.description,
+      });
+    }
+  };
+
   const {
     checkoutRepository,
     deleteWorktree,
@@ -119,14 +174,16 @@ function GitPage() {
   });
 
   const handleCheckout = async (url: string) => {
-    const success = await checkoutRepository(url, setErrorAlert);
+    const success = await checkoutRepository(url, {
+      setErrorAlert: setErrorAlertWithClaudeAction,
+    });
     if (success) {
       setGithubUrl("");
     }
   };
 
   const syncWorktreeWrapper = async (id: string) => {
-    void syncWorktree(id, setErrorAlert);
+    void syncWorktree(id, { setErrorAlert: setErrorAlertWithClaudeAction });
   };
 
   const mergeWorktreeWrapper = async (
@@ -134,11 +191,18 @@ function GitPage() {
     name: string,
     squash = true,
   ) => {
-    void mergeWorktreeToMain(id, name, setErrorAlert, squash);
+    void mergeWorktreeToMain(
+      id,
+      name,
+      { setErrorAlert: setErrorAlertWithClaudeAction },
+      squash,
+    );
   };
 
   const createPreviewWrapper = async (id: string, branchName: string) => {
-    void createWorktreePreview(id, branchName, setErrorAlert);
+    void createWorktreePreview(id, branchName, {
+      setErrorAlert: setErrorAlertWithClaudeAction,
+    });
   };
 
   const toggleDiff = (worktreeId: string) => {
@@ -456,6 +520,7 @@ function GitPage() {
         onOpenChange={(open) => setErrorAlert((prev) => ({ ...prev, open }))}
         title={errorAlert.title}
         description={errorAlert.description}
+        secondaryAction={errorAlert.secondaryAction}
       />
 
       {/* Pull Request Dialog */}

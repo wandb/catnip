@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   AlertTriangle,
+  Bot,
   ChevronDown,
   Eye,
   FileText,
@@ -177,14 +178,16 @@ function StatusBadges({
           {badgeContent}
         </Badge>
       )}
-      {hasConflicts && (
+      {worktree.has_conflicts ? (
         <Badge variant="destructive" className="text-xs">
           <AlertTriangle size={12} className="mr-1" />
           Conflicts
         </Badge>
-      )}
-      {worktree.is_dirty ? (
-        <Badge variant="destructive" className="text-xs">
+      ) : worktree.is_dirty ? (
+        <Badge
+          variant="secondary"
+          className="text-xs bg-orange-100 text-orange-800 border-orange-200"
+        >
           Dirty
         </Badge>
       ) : (
@@ -310,6 +313,24 @@ function WorktreeActionDropdown({
           Sync with {worktree.source_branch}
           {isSyncing && <span className="ml-2 text-xs">Syncing...</span>}
         </DropdownMenuItem>
+
+        {worktree.has_conflicts && (
+          <DropdownMenuItem asChild>
+            <Link
+              to="/terminal/$sessionId"
+              params={{ sessionId: encodeURIComponent(worktree.name) }}
+              search={{
+                agent: "claude",
+                prompt:
+                  "Please help me resolve these conflicts and complete the rebase. Ask me for confirmation before completing the rebase.",
+              }}
+              className="flex items-center gap-2 text-blue-600"
+            >
+              <Bot size={16} />
+              Auto Resolve Conflicts
+            </Link>
+          </DropdownMenuItem>
+        )}
 
         <DropdownMenuSeparator />
 
@@ -692,7 +713,8 @@ export function WorktreeRow({
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
   const hasConflicts = Boolean(
-    syncConflicts[worktree.id]?.has_conflicts ??
+    worktree.has_conflicts ||
+      syncConflicts[worktree.id]?.has_conflicts ||
       mergeConflicts[worktree.id]?.has_conflicts,
   );
   const summary = worktreeSummaries[worktree.id];

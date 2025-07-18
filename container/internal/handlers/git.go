@@ -343,9 +343,48 @@ func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.JSON(fiber.Map{
+	// Parse auto_cleanup parameter (default to false for safety)
+	autoCleanup := c.QueryBool("auto_cleanup", false)
+
+	response := fiber.Map{
 		"message": "Worktree merged to main successfully",
 		"id":      worktreeID,
+	}
+
+	// Automatically clean up the worktree after successful merge if requested
+	if autoCleanup {
+		if cleanupErr := h.gitService.DeleteWorktree(worktreeID); cleanupErr != nil {
+			// Don't fail the response, just warn about cleanup failure
+			response["cleanup_warning"] = "Merge succeeded but worktree cleanup failed: " + cleanupErr.Error()
+		} else {
+			response["cleanup"] = "Worktree automatically deleted after successful merge"
+		}
+	}
+
+	return c.JSON(response)
+}
+
+// CleanupMergedWorktrees removes worktrees that have been fully merged
+// @Summary Cleanup merged worktrees
+// @Description Removes worktrees that have been fully merged into their source branch
+// @Tags git
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/git/worktrees/cleanup [post]
+func (h *GitHandler) CleanupMergedWorktrees(c *fiber.Ctx) error {
+	cleanedCount, cleanedNames, err := h.gitService.CleanupMergedWorktrees()
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error":         err.Error(),
+			"cleaned_count": cleanedCount,
+			"cleaned_names": cleanedNames,
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message":       "Merged worktrees cleanup completed successfully",
+		"cleaned_count": cleanedCount,
+		"cleaned_names": cleanedNames,
 	})
 }
 

@@ -1,13 +1,14 @@
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Bot } from "lucide-react";
 
 interface ErrorAlertProps {
   open: boolean;
@@ -15,14 +16,20 @@ interface ErrorAlertProps {
   title: string;
   description: string;
   actionLabel?: string;
+  secondaryAction?: {
+    label: string;
+    onClick: () => void;
+    variant?: "default" | "destructive";
+  };
 }
 
-export function ErrorAlert({ 
-  open, 
-  onOpenChange, 
-  title, 
-  description, 
-  actionLabel = "OK" 
+export function ErrorAlert({
+  open,
+  onOpenChange,
+  title,
+  description,
+  actionLabel = "OK",
+  secondaryAction,
 }: ErrorAlertProps) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -37,9 +44,21 @@ export function ErrorAlert({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogAction onClick={() => onOpenChange(false)}>
+          {secondaryAction && (
+            <AlertDialogAction
+              onClick={() => {
+                onOpenChange(false);
+                secondaryAction.onClick();
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-2"
+            >
+              <Bot size={16} />
+              {secondaryAction.label}
+            </AlertDialogAction>
+          )}
+          <AlertDialogCancel onClick={() => onOpenChange(false)}>
             {actionLabel}
-          </AlertDialogAction>
+          </AlertDialogCancel>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -353,6 +353,10 @@ definitions:
         description: When this worktree was created
         example: "2024-01-15T14:00:00Z"
         type: string
+      has_conflicts:
+        description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
+        example: false
+        type: boolean
       id:
         description: Unique identifier for this worktree
         example: abc123-def456-ghi789
@@ -1157,6 +1161,21 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.ConflictCheckResponse'
       summary: Check sync conflicts
+      tags:
+      - git
+  /v1/git/worktrees/cleanup:
+    post:
+      description: Removes worktrees that have been fully merged into their source
+        branch
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Cleanup merged worktrees
       tags:
       - git
   /v1/ports:
