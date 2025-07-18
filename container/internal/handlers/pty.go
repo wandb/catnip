@@ -999,8 +999,11 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 	// Get the previous title before updating
 	previousTitle := h.sessionService.GetPreviousTitle(session.WorkDir)
 
-	// Only commit if we have a previous title (new title marks start of new work)
-	if previousTitle != "" {
+	// If this is the very first title update, rename the branch
+	if previousTitle == "" {
+		h.renameBranchForFirstTitle(session, title)
+	} else {
+		// Only commit if we have a previous title (new title marks start of new work)
 		h.commitPreviousWork(session, previousTitle)
 	}
 
@@ -1014,6 +1017,30 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 
 	// Reset checkpoint state for new title
 	session.checkpointManager.Reset()
+}
+
+// renameBranchForFirstTitle renames the branch to a sanitized version of the first title
+func (h *PTYHandler) renameBranchForFirstTitle(session *Session, title string) {
+	if h.gitService == nil {
+		log.Printf("⚠️  GitService is nil, skipping branch rename")
+		return
+	}
+
+	// Find the worktree by path
+	worktree, err := h.gitService.GetWorktreeByPath(session.WorkDir)
+	if err != nil {
+		log.Printf("⚠️  Could not find worktree for path %s: %v", session.WorkDir, err)
+		return
+	}
+
+	// Rename the branch using the git service
+	updatedWorktree, err := h.gitService.RenameBranch(worktree.ID, title)
+	if err != nil {
+		log.Printf("⚠️  Failed to rename branch for first title '%s': %v", title, err)
+		return
+	}
+
+	log.Printf("✅ Successfully renamed branch to '%s' for first title", updatedWorktree.Branch)
 }
 
 // commitPreviousWork commits the previous work with the given title and updates the commit hash

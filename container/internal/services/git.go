@@ -3012,3 +3012,119 @@ func (s *GitService) checkExistingPR(worktree *models.Worktree, ownerRepo string
 	log.Printf("✅ Found existing PR #%d for branch %s", existingPR.Number, worktree.Branch)
 	return nil
 }
+
+// GetWorktreeByPath finds a worktree by its working directory path
+func (s *GitService) GetWorktreeByPath(workDir string) (*models.Worktree, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, worktree := range s.worktrees {
+		if worktree.Path == workDir {
+			return worktree, nil
+		}
+	}
+
+	return nil, fmt.Errorf("worktree not found for path: %s", workDir)
+}
+
+// RenameBranch renames a branch in the specified worktree
+func (s *GitService) RenameBranch(worktreeID, newBranchName string) (*models.Worktree, error) {
+	s.mu.RLock()
+	worktree, exists := s.worktrees[worktreeID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("worktree %s not found", worktreeID)
+	}
+
+	// Sanitize the branch name
+	sanitizedBranchName := s.sanitizeBranchName(newBranchName)
+	if sanitizedBranchName == "" {
+		return nil, fmt.Errorf("invalid branch name after sanitization")
+	}
+
+	// Check if the new branch name is the same as the current one
+	if worktree.Branch == sanitizedBranchName {
+		return worktree, nil // No change needed
+	}
+
+	log.Printf("🔄 Renaming branch from %s to %s in worktree %s", worktree.Branch, sanitizedBranchName, worktreeID)
+
+	// Get the repository
+	s.mu.RLock()
+	_, repoExists := s.repositories[worktree.RepoID]
+	s.mu.RUnlock()
+
+	if !repoExists {
+		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
+	}
+
+	// Check if the target branch already exists
+	if s.branchExists(worktree.Path, sanitizedBranchName, false) {
+		return nil, fmt.Errorf("branch %s already exists", sanitizedBranchName)
+	}
+
+	// Rename the branch using git branch -m
+	if err := s.execGitCommand(worktree.Path, "branch", "-m", worktree.Branch, sanitizedBranchName).Run(); err != nil {
+		return nil, fmt.Errorf("failed to rename branch: %v", err)
+	}
+
+	// Update the worktree struct
+	s.mu.Lock()
+	worktree.Branch = sanitizedBranchName
+	worktree.Name = sanitizedBranchName // Update the name to match the new branch
+	s.mu.Unlock()
+
+	// Save the updated state
+	if err := s.saveState(); err != nil {
+		log.Printf("⚠️  Failed to save state after branch rename: %v", err)
+	}
+
+	log.Printf("✅ Successfully renamed branch to %s in worktree %s", sanitizedBranchName, worktreeID)
+
+	return worktree, nil
+}
+
+// sanitizeBranchName sanitizes a string to be used as a git branch name
+func (s *GitService) sanitizeBranchName(title string) string {
+	// Convert to lowercase
+	result := strings.ToLower(title)
+
+	// Replace spaces and special characters with hyphens
+	result = strings.ReplaceAll(result, " ", "-")
+	result = strings.ReplaceAll(result, "_", "-")
+
+	// Remove or replace invalid characters for git branch names
+	// Valid characters: a-z, A-Z, 0-9, -, ., /
+	sanitized := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.' || r == '/' {
+			return r
+		}
+		return '-'
+	}, result)
+
+	// Remove leading/trailing hyphens and dots
+	sanitized = strings.Trim(sanitized, "-.")
+
+	// Collapse multiple consecutive hyphens into one
+	for strings.Contains(sanitized, "--") {
+		sanitized = strings.ReplaceAll(sanitized, "--", "-")
+	}
+
+	// Limit length to 250 characters (git limit is 255, leave some buffer)
+	if len(sanitized) > 250 {
+		sanitized = sanitized[:250]
+		sanitized = strings.TrimSuffix(sanitized, "-") // Remove trailing hyphen if truncated
+	}
+
+	// Ensure it doesn't start with a hyphen or dot
+	sanitized = strings.TrimPrefix(sanitized, "-")
+	sanitized = strings.TrimPrefix(sanitized, ".")
+
+	// Ensure it's not empty
+	if sanitized == "" {
+		sanitized = "feature-branch"
+	}
+
+	return sanitized
+}
