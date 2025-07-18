@@ -30,24 +30,40 @@ interface WorkspaceCardProps {
 
 export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
   const [prompt, setPrompt] = useState("");
+  const [isAnimating, setIsAnimating] = useState(false);
   const navigate = useNavigate();
 
-  const handlePromptSubmit = (e: React.FormEvent) => {
+  const navigateToClaude = (e: React.SyntheticEvent) => {
     e.preventDefault();
     if (prompt.trim()) {
-      void navigate({
-        to: "/terminal/$sessionId",
-        params: { sessionId: encodeURIComponent(worktree.name) },
-        search: {
-          agent: "claude",
-          prompt: prompt,
-        },
-      });
+      setIsAnimating(true);
+      setTimeout(() => {
+        void navigate({
+          to: "/terminal/$sessionId",
+          params: { sessionId: encodeURIComponent(worktree.name) },
+          search: {
+            agent: "claude",
+            prompt: prompt,
+          },
+        });
+      }, 250);
+    }
+  };
+
+  const handlePromptSubmit = (e: React.FormEvent) => {
+    navigateToClaude(e);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && e.shiftKey) {
+      navigateToClaude(e);
     }
   };
 
   return (
-    <div className="w-[350px] h-[350px] border rounded-lg bg-card hover:bg-muted flex flex-col justify-between p-4 transition-colors relative group">
+    <div
+      className={`w-[350px] h-[350px] border rounded-lg bg-card hover:bg-muted flex flex-col justify-between p-4 transition-all duration-150 relative group ${isAnimating ? "scale-105 shadow-lg" : ""}`}
+    >
       {/* Header with title and actions */}
       <div className="space-y-3">
         <div className="flex items-start justify-between">
@@ -106,6 +122,7 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
             placeholder="Ask Claude to help with this workspace..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={handleKeyDown}
             className="text-sm resize-none min-h-[40px] max-h-[80px]"
             rows={1}
             style={{
