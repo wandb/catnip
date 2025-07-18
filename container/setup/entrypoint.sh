@@ -118,6 +118,12 @@ if [ "$CATNIP_SSH_ENABLED" = "true" ] && [ -f "/home/catnip/.ssh/catnip_remote.p
     # Copy the public key to authorized_keys
     gosu 1000:1000 cp /home/catnip/.ssh/catnip_remote.pub /home/catnip/.ssh/authorized_keys
     gosu 1000:1000 chmod 600 /home/catnip/.ssh/authorized_keys
+
+    # Set some custom ports for manual ssh sessions
+    gosu 1000:1000cat > /home/catnip/.ssh/environment <<EOF
+PORT=3000
+PORTZ=[3001,3002,3003,3004,3005]
+    EOF
     
     # Determine the actual username
     ACTUAL_USERNAME="${CATNIP_USERNAME:-catnip}"
@@ -127,6 +133,7 @@ if [ "$CATNIP_SSH_ENABLED" = "true" ] && [ -f "/home/catnip/.ssh/catnip_remote.p
 Port 2222
 PubkeyAuthentication yes
 PasswordAuthentication no
+PermitUserEnvironment yes
 ChallengeResponseAuthentication no
 UsePAM no
 AllowUsers ${ACTUAL_USERNAME}

@@ -40,6 +40,133 @@ func generateSessionName() string {
 	return fmt.Sprintf("%s-%s", verb, noun)
 }
 
+// isVerbNounBranch checks if a branch name matches our verb-noun pattern
+func isVerbNounBranch(branchName string) bool {
+	parts := strings.Split(branchName, "-")
+	if len(parts) != 2 {
+		return false
+	}
+
+	// Check if first part is a verb
+	verbFound := false
+	for _, verb := range verbs {
+		if parts[0] == verb {
+			verbFound = true
+			break
+		}
+	}
+	if !verbFound {
+		return false
+	}
+
+	// Check if second part is a noun
+	for _, noun := range nouns {
+		if parts[1] == noun {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanupUnusedBranches removes verb-noun branches that have no commits
+func (s *GitService) cleanupUnusedBranches() {
+	log.Printf("🧹 Starting cleanup of unused verb-noun branches...")
+
+	s.mu.RLock()
+	repos := make([]*models.Repository, 0, len(s.repositories))
+	for _, repo := range s.repositories {
+		repos = append(repos, repo)
+	}
+	s.mu.RUnlock()
+
+	totalDeleted := 0
+
+	for _, repo := range repos {
+		// List all branches in the bare repository
+		cmd := exec.Command("git", "-C", repo.Path, "branch", "-a")
+		output, err := cmd.Output()
+		if err != nil {
+			log.Printf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
+			continue
+		}
+
+		branches := strings.Split(strings.TrimSpace(string(output)), "\n")
+		deletedInRepo := 0
+
+		for _, branch := range branches {
+			// Clean up branch name
+			branchName := strings.TrimSpace(branch)
+			branchName = strings.TrimPrefix(branchName, "*")
+			branchName = strings.TrimPrefix(branchName, "+")
+			branchName = strings.TrimSpace(branchName)
+			branchName = strings.TrimPrefix(branchName, "remotes/origin/")
+
+			// Skip if not a verb-noun branch
+			if !isVerbNounBranch(branchName) {
+				continue
+			}
+
+			// Check if branch has any commits different from its parent
+			// First, try to find the merge-base with main/master
+			var baseRef string
+			for _, ref := range []string{"main", "master"} {
+				cmd = exec.Command("git", "-C", repo.Path, "rev-parse", "--verify", ref)
+				if err := cmd.Run(); err == nil {
+					baseRef = ref
+					break
+				}
+			}
+
+			if baseRef == "" {
+				continue // Skip if we can't find a base branch
+			}
+
+			// Check if branch exists locally
+			cmd = exec.Command("git", "-C", repo.Path, "rev-parse", "--verify", branchName)
+			if err := cmd.Run(); err != nil {
+				continue // Branch doesn't exist locally
+			}
+
+			// Count commits ahead of base
+			cmd = exec.Command("git", "-C", repo.Path, "rev-list", "--count", fmt.Sprintf("%s..%s", baseRef, branchName))
+			output, err := cmd.Output()
+			if err != nil {
+				continue // Skip on error
+			}
+
+			commitCount, err := strconv.Atoi(strings.TrimSpace(string(output)))
+			if err != nil || commitCount > 0 {
+				continue // Skip if there are commits or error parsing
+			}
+
+			// Also check if there's an active worktree using this branch
+			worktreeCmd := exec.Command("git", "-C", repo.Path, "worktree", "list", "--porcelain")
+			worktreeOutput, err := worktreeCmd.Output()
+			if err == nil && strings.Contains(string(worktreeOutput), fmt.Sprintf("branch refs/heads/%s", branchName)) {
+				continue // Skip if branch is currently checked out in a worktree
+			}
+
+			// Delete the branch (local)
+			cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", branchName)
+			if err := cmd.Run(); err == nil {
+				deletedInRepo++
+				totalDeleted++
+				log.Printf("🗑️  Deleted unused branch: %s in %s", branchName, repo.ID)
+			}
+		}
+
+		if deletedInRepo > 0 {
+			log.Printf("✅ Cleaned up %d unused branches in %s", deletedInRepo, repo.ID)
+		}
+	}
+
+	if totalDeleted > 0 {
+		log.Printf("🧹 Cleanup complete: removed %d unused verb-noun branches", totalDeleted)
+	} else {
+		log.Printf("✅ No unused verb-noun branches found")
+	}
+}
+
 // GitService manages multiple Git repositories and their worktrees
 type GitService struct {
 	repositories map[string]*models.Repository // key: repoID (e.g., "owner/repo")
@@ -428,6 +555,13 @@ func NewGitService() *GitService {
 
 	// Detect and load any local repositories in /live
 	s.detectLocalRepos()
+
+	// Clean up unused verb-noun branches (skip in dev mode to avoid deleting active branches)
+	if os.Getenv("CATNIP_DEV") != "true" {
+		s.cleanupUnusedBranches()
+	} else {
+		log.Printf("🔧 Skipping branch cleanup in dev mode")
+	}
 
 	return s
 }
@@ -1939,6 +2073,13 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	cmd := exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", name, worktreePath, source)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// Check if the error is because branch already exists
+		if strings.Contains(string(output), "already exists") {
+			log.Printf("⚠️  Branch %s already exists, trying a new name...", name)
+			// Generate a new name and try again (recursive call with max depth)
+			newName := generateSessionName()
+			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
+		}
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
 	}
 

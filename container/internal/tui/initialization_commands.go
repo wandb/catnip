@@ -124,9 +124,15 @@ func StreamingOutputReader(outputChan <-chan string, doneChan <-chan bool) tea.C
 		select {
 		case line, ok := <-outputChan:
 			if !ok {
-				// Channel closed, command finished
-				debugLog("StreamingOutputReader: channel closed, completing")
-				return InitializationCompleteMsg{}
+				// Channel closed, check if we got a done signal or if it was an error
+				select {
+				case <-doneChan:
+					debugLog("StreamingOutputReader: channel closed with done signal, completing")
+					return InitializationCompleteMsg{}
+				default:
+					debugLog("StreamingOutputReader: channel closed without done signal, assuming failure")
+					return InitializationFailedMsg{Error: "Command failed - check output above for details"}
+				}
 			}
 			if line != "" {
 				// Send the output line with continuation info
@@ -217,12 +223,14 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 
 			if err != nil {
 				outputChan <- fmt.Sprintf("Build failed with error: %v", err)
+				// Don't signal completion on error - this will keep us on the initialization page
+				debugLog("ExecuteStreamingBuildCmd: build failed, not signaling completion")
+				return
 			} else {
 				outputChan <- "✅ Build completed successfully!"
+				debugLog("ExecuteStreamingBuildCmd: sending done signal")
+				doneChan <- true
 			}
-
-			debugLog("ExecuteStreamingBuildCmd: sending done signal")
-			doneChan <- true
 		}()
 
 		// Return a message that will trigger the streaming reader command
