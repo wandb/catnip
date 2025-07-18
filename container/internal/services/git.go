@@ -40,6 +40,24 @@ func generateSessionName() string {
 	return fmt.Sprintf("%s-%s", verb, noun)
 }
 
+// generateUniqueSessionName generates a unique session name that doesn't already exist as a branch
+func (s *GitService) generateUniqueSessionName(repoPath string) string {
+	maxAttempts := 100 // Prevent infinite loops
+	for i := 0; i < maxAttempts; i++ {
+		name := generateSessionName()
+		// Check if branch exists locally
+		if !s.branchExists(repoPath, name, false) {
+			return name
+		}
+		log.Printf("⚠️  Branch %s already exists, trying another name... (attempt %d/%d)", name, i+1, maxAttempts)
+	}
+
+	// Fallback: append timestamp to ensure uniqueness
+	fallbackName := fmt.Sprintf("%s-%d", generateSessionName(), time.Now().Unix())
+	log.Printf("⚠️  After %d attempts, falling back to timestamp-based name: %s", maxAttempts, fallbackName)
+	return fallbackName
+}
+
 // isVerbNounBranch checks if a branch name matches our verb-noun pattern
 func isVerbNounBranch(branchName string) bool {
 	parts := strings.Split(branchName, "-")
@@ -2076,8 +2094,8 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		// Check if the error is because branch already exists
 		if strings.Contains(string(output), "already exists") {
 			log.Printf("⚠️  Branch %s already exists, trying a new name...", name)
-			// Generate a new name and try again (recursive call with max depth)
-			newName := generateSessionName()
+			// Generate a unique name that doesn't already exist
+			newName := s.generateUniqueSessionName(repo.Path)
 			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
 		}
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
