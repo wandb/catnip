@@ -18,6 +18,7 @@ require (
 	github.com/spf13/cobra v1.9.1
 	github.com/swaggo/swag v1.16.3
 	github.com/valyala/fasthttp v1.58.0
+	golang.org/x/crypto v0.40.0
 	golang.org/x/term v0.33.0
 )
 
@@ -69,7 +70,6 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.5.2 // indirect
 	github.com/yuin/goldmark-emoji v1.0.1 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
