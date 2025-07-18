@@ -34,6 +34,9 @@ export function useGitActions(gitStateActions: GitStateActions) {
       open: boolean;
       title: string;
       description: string;
+      worktreeName?: string;
+      conflictFiles?: string[];
+      operation?: string;
     }) => void,
   ) => {
     setCheckoutLoading(true);
@@ -103,6 +106,9 @@ export function useGitActions(gitStateActions: GitStateActions) {
       open: boolean;
       title: string;
       description: string;
+      worktreeName?: string;
+      conflictFiles?: string[];
+      operation?: string;
     }) => void,
   ) => {
     setSyncingWorktree(id, true);
@@ -129,6 +135,9 @@ export function useGitActions(gitStateActions: GitStateActions) {
       open: boolean;
       title: string;
       description: string;
+      worktreeName?: string;
+      conflictFiles?: string[];
+      operation?: string;
     }) => void,
     squash = true,
     autoCleanup = true,
@@ -168,6 +177,9 @@ export function useGitActions(gitStateActions: GitStateActions) {
       open: boolean;
       title: string;
       description: string;
+      worktreeName?: string;
+      conflictFiles?: string[];
+      operation?: string;
     }) => void,
   ) => {
     const success = await gitApi.createWorktreePreview(id, { setErrorAlert });
