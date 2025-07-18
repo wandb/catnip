@@ -2111,16 +2111,17 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 		return s.handleLocalRepoWorktree(repo.ID, branch)
 	}
 
-	// Check if the requested branch exists in the bare repo
-	if !s.branchExists(repo.Path, branch, true) {
-		log.Printf("🔄 Branch %s not found, fetching from remote", branch)
-		if err := s.fetchBranch(repo.Path, FetchStrategy{
-			Branch:         branch,
-			Depth:          1,
-			UpdateLocalRef: true,
-		}); err != nil {
+	// Always fetch the latest state for checkout operations (full history)
+	log.Printf("🔄 Fetching latest state for branch %s", branch)
+	if err := s.fetchBranch(repo.Path, FetchStrategy{
+		Branch:         branch,
+		UpdateLocalRef: true,
+	}); err != nil {
+		// If fetch fails, check if branch exists locally and proceed if so
+		if !s.branchExists(repo.Path, branch, true) {
 			return nil, nil, fmt.Errorf("failed to fetch branch %s: %v", branch, err)
 		}
+		log.Printf("⚠️ Fetch failed but branch exists locally, proceeding with checkout")
 	}
 
 	// Create new worktree with fun name
