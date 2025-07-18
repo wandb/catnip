@@ -1,17 +1,23 @@
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface TextContentProps {
-  content: string
+  content: string;
+  inheritTextColor?: boolean;
 }
 
-export function TextContent({ content }: TextContentProps) {
+export function TextContent({
+  content,
+  inheritTextColor = false,
+}: TextContentProps) {
   if (!content.trim()) {
-    return null
+    return null;
   }
 
   return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
+    <div
+      className={`prose prose-sm max-w-none ${inheritTextColor ? "prose-inherit" : "dark:prose-invert"}`}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -21,12 +27,18 @@ export function TextContent({ content }: TextContentProps) {
             </h1>
           ),
           h2: ({ children, ...props }) => (
-            <h2 className="text-lg font-semibold mb-3 mt-5 first:mt-0" {...props}>
+            <h2
+              className="text-lg font-semibold mb-3 mt-5 first:mt-0"
+              {...props}
+            >
               {children}
             </h2>
           ),
           h3: ({ children, ...props }) => (
-            <h3 className="text-base font-medium mb-2 mt-4 first:mt-0" {...props}>
+            <h3
+              className="text-base font-medium mb-2 mt-4 first:mt-0"
+              {...props}
+            >
               {children}
             </h3>
           ),
@@ -56,7 +68,10 @@ export function TextContent({ content }: TextContentProps) {
             </ul>
           ),
           ol: ({ children, ...props }) => (
-            <ol className="mb-3 last:mb-0 pl-6 list-decimal space-y-1" {...props}>
+            <ol
+              className="mb-3 last:mb-0 pl-6 list-decimal space-y-1"
+              {...props}
+            >
               {children}
             </ol>
           ),
@@ -76,32 +91,41 @@ export function TextContent({ content }: TextContentProps) {
             </em>
           ),
           blockquote: ({ children, ...props }) => (
-            <blockquote className="border-l-4 border-muted-foreground/20 pl-4 italic my-4" {...props}>
+            <blockquote
+              className="border-l-4 border-muted-foreground/20 pl-4 italic my-4"
+              {...props}
+            >
               {children}
             </blockquote>
           ),
           pre: ({ children, ...props }) => (
-            <pre className="bg-muted p-3 rounded-md overflow-x-auto mb-3 last:mb-0 text-sm" {...props}>
+            <pre
+              className="bg-muted p-3 rounded-md overflow-x-auto mb-3 last:mb-0 text-sm"
+              {...props}
+            >
               {children}
             </pre>
           ),
           code: ({ children, className, ...props }) => {
-            const match = /language-(\w+)/.exec(className || '')
-            const isInline = !match
+            const match = /language-(\w+)/.exec(className || "");
+            const isInline = !match;
             return isInline ? (
-              <code className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
+              <code
+                className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono"
+                {...props}
+              >
                 {children}
               </code>
             ) : (
               <code className={className} {...props}>
                 {children}
               </code>
-            )
+            );
           },
         }}
       >
         {content}
       </ReactMarkdown>
     </div>
-  )
+  );
 }

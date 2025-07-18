@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log"
 	"net/http"
@@ -18,6 +19,12 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui/components"
 )
+
+//go:embed logo.ascii
+var embeddedLogo string
+
+//go:embed logo-small.ascii
+var embeddedSmallLogo string
 
 var debugLogger *log.Logger
 var debugEnabled bool
@@ -84,17 +91,11 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	logsViewport := viewport.New(80, 20)
 	shellViewport := viewport.New(80, 24)
 
-	// Load logo
-	logo := loadLogo()
-
 	// Initialize SSE client
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
 
 	// Create the model - always with initialization
 	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version)
-
-	// Set up the detailed model state
-	m.logo = logo
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport
@@ -195,29 +196,21 @@ func (m Model) renderFooter() string {
 
 // Helper functions that are still needed
 
-// loadLogo reads the ASCII logo from the public directory
-func loadLogo() []string {
-	// Try to find the logo file
-	possiblePaths := []string{
-		"public/logo.ascii",
-		"../public/logo.ascii",
-		"../../public/logo.ascii",
-		"../../../public/logo.ascii",
+// loadLogo reads the ASCII logo from the embedded string with fallback based on width
+func loadLogo(width int) []string {
+	var logoContent string
+
+	// Use smaller logo for medium widths, no logo for small widths
+	if width < 100 {
+		return []string{} // No logo for very narrow terminals
+	} else if width <= 140 {
+		logoContent = embeddedSmallLogo // Small logo for medium terminals (100-140)
+	} else {
+		logoContent = embeddedLogo // Full logo for wide terminals (>140)
 	}
 
-	for _, path := range possiblePaths {
-		if content, err := os.ReadFile(path); err == nil {
-			lines := strings.Split(string(content), "\n")
-			// Remove any trailing empty lines
-			for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-				lines = lines[:len(lines)-1]
-			}
-			return lines
-		}
-	}
-
-	// If we can't find the logo, return empty
-	return []string{}
+	lines := strings.Split(logoContent, "\n")
+	return lines
 }
 
 // isAppReady checks if the app is ready by hitting the /health endpoint
