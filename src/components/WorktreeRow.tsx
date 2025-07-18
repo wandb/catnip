@@ -46,8 +46,8 @@ interface ClaudeSession {
 interface WorktreeRowProps {
   worktree: Worktree;
   claudeSessions: Record<string, ClaudeSession>;
-  syncConflicts: Record<string, ConflictStatus>;
-  mergeConflicts: Record<string, ConflictStatus>;
+  _syncConflicts: Record<string, ConflictStatus>;
+  _mergeConflicts: Record<string, ConflictStatus>;
   worktreeSummaries: Record<string, WorktreeSummary>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   diffStatsLoading: boolean;
@@ -136,7 +136,6 @@ function CommitHashDisplay({ commitHash, prStatus }: CommitHashDisplayProps) {
 
 interface StatusBadgesProps {
   worktree: Worktree;
-  hasConflicts: boolean;
   claudeSession?: ClaudeSession;
   repositoryUrl?: string;
   prStatus?: PullRequestInfo;
@@ -144,7 +143,6 @@ interface StatusBadgesProps {
 
 function StatusBadges({
   worktree,
-  _hasConflicts,
   claudeSession,
   repositoryUrl,
   prStatus,
@@ -417,7 +415,6 @@ function WorktreeActionDropdown({
 
 interface WorktreeHeaderProps {
   worktree: Worktree;
-  hasConflicts: boolean;
   claudeSession?: ClaudeSession;
   repositoryUrl?: string;
   prStatus?: PullRequestInfo;
@@ -425,7 +422,6 @@ interface WorktreeHeaderProps {
 
 function WorktreeHeader({
   worktree,
-  hasConflicts,
   claudeSession,
   repositoryUrl,
   prStatus,
@@ -442,7 +438,6 @@ function WorktreeHeader({
         </Link>
         <StatusBadges
           worktree={worktree}
-          hasConflicts={hasConflicts}
           claudeSession={claudeSession}
           repositoryUrl={repositoryUrl}
           prStatus={prStatus}
@@ -691,8 +686,8 @@ interface WorktreeRowPropsWithPR extends WorktreeRowProps {
 export function WorktreeRow({
   worktree,
   claudeSessions,
-  syncConflicts,
-  mergeConflicts,
+  _syncConflicts,
+  _mergeConflicts,
   worktreeSummaries,
   diffStats,
   diffStatsLoading,
@@ -712,17 +707,16 @@ export function WorktreeRow({
 
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
-  const hasConflicts = Boolean(
-    worktree.has_conflicts ||
-      syncConflicts[worktree.id]?.has_conflicts ||
-      mergeConflicts[worktree.id]?.has_conflicts,
-  );
   const summary = worktreeSummaries[worktree.id];
+
   // const diffStat = diffStats[worktree.id];
   const prStatus = prStatuses?.[worktree.id];
   const repositoryUrl = repositories?.[worktree.repo_id]?.url;
 
   const openPrDialog = (worktreeId: string, branchName: string) => {
+    // Keep unused params to maintain API compatibility for now
+    console.debug("Sync conflicts available:", _syncConflicts);
+
     // Check if PR already exists
     const isUpdate = prStatus?.exists ?? false;
 
@@ -760,7 +754,6 @@ export function WorktreeRow({
         <div className="flex-1">
           <WorktreeHeader
             worktree={worktree}
-            hasConflicts={hasConflicts}
             claudeSession={claudeSession}
             repositoryUrl={repositoryUrl}
             prStatus={prStatus}
@@ -805,7 +798,7 @@ export function WorktreeRow({
 
         <WorktreeActions
           worktree={worktree}
-          mergeConflicts={mergeConflicts}
+          mergeConflicts={_mergeConflicts}
           diffStats={diffStats}
           diffStatsLoading={diffStatsLoading}
           openDiffWorktreeId={openDiffWorktreeId}

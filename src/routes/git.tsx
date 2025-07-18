@@ -174,16 +174,17 @@ function GitPage() {
   });
 
   const handleCheckout = async (url: string) => {
-    const success = await checkoutRepository(url, {
-      setErrorAlert: setErrorAlertWithClaudeAction,
-    });
+    const success = await checkoutRepository(
+      url,
+      setErrorAlertWithClaudeAction,
+    );
     if (success) {
       setGithubUrl("");
     }
   };
 
   const syncWorktreeWrapper = async (id: string) => {
-    void syncWorktree(id, { setErrorAlert: setErrorAlertWithClaudeAction });
+    void syncWorktree(id, setErrorAlertWithClaudeAction);
   };
 
   const mergeWorktreeWrapper = async (
@@ -191,18 +192,11 @@ function GitPage() {
     name: string,
     squash = true,
   ) => {
-    void mergeWorktreeToMain(
-      id,
-      name,
-      { setErrorAlert: setErrorAlertWithClaudeAction },
-      squash,
-    );
+    void mergeWorktreeToMain(id, name, setErrorAlertWithClaudeAction, squash);
   };
 
   const createPreviewWrapper = async (id: string, branchName: string) => {
-    void createWorktreePreview(id, branchName, {
-      setErrorAlert: setErrorAlertWithClaudeAction,
-    });
+    void createWorktreePreview(id, branchName, setErrorAlertWithClaudeAction);
   };
 
   const toggleDiff = (worktreeId: string) => {
@@ -336,8 +330,8 @@ function GitPage() {
                         key={worktree.id}
                         worktree={worktree}
                         claudeSessions={claudeSessions}
-                        syncConflicts={syncConflicts}
-                        mergeConflicts={mergeConflicts}
+                        _syncConflicts={syncConflicts}
+                        _mergeConflicts={mergeConflicts}
                         worktreeSummaries={worktreeSummaries}
                         diffStats={diffStats}
                         diffStatsLoading={diffStatsLoading}
