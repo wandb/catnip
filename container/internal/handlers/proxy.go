@@ -119,7 +119,10 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Copy response headers
 	for name, values := range resp.Header {
 		for _, value := range values {
-			c.Response().Header.Add(name, value)
+			// Don't copy CORS headers
+			if name != "Access-Control-Allow-Origin" && name != "Access-Control-Allow-Credentials" {
+				c.Response().Header.Add(name, value)
+			}
 		}
 	}
 
