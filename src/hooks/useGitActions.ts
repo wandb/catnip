@@ -1,9 +1,22 @@
 import { toast } from "sonner";
 import { gitApi } from "@/lib/git-api";
 import { parseGitUrl, showPreviewToast } from "@/lib/git-utils";
-import { useGitState } from "./useGitState";
 
-export function useGitActions() {
+interface GitStateActions {
+  addNewWorktrees: () => Promise<any[]>;
+  backgroundRefreshGitStatus: () => Promise<void>;
+  refreshWorktree: (
+    id: string,
+    options?: { includeDiffs?: boolean },
+  ) => Promise<void>;
+  removeWorktree: (id: string) => void;
+  fetchActiveSessions: () => Promise<void>;
+  setCheckoutLoading: (loading: boolean) => void;
+  setSyncingWorktree: (id: string, syncing: boolean) => void;
+  setMergingWorktree: (id: string, merging: boolean) => void;
+}
+
+export function useGitActions(gitStateActions: GitStateActions) {
   const {
     addNewWorktrees,
     backgroundRefreshGitStatus,
@@ -13,7 +26,7 @@ export function useGitActions() {
     setCheckoutLoading,
     setSyncingWorktree,
     setMergingWorktree,
-  } = useGitState();
+  } = gitStateActions;
 
   const checkoutRepository = async (
     url: string,

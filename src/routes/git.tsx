@@ -43,6 +43,15 @@ function GitPage() {
     fetchRepositories,
     fetchPrStatuses,
     refreshAll,
+    // Functions needed by useGitActions
+    addNewWorktrees,
+    backgroundRefreshGitStatus,
+    refreshWorktree,
+    removeWorktree,
+    fetchActiveSessions,
+    setCheckoutLoading,
+    setSyncingWorktree,
+    setMergingWorktree,
   } = useGitState();
 
   const [githubUrl, setGithubUrl] = useState("");
@@ -93,7 +102,16 @@ function GitPage() {
     syncWorktree,
     mergeWorktreeToMain,
     createWorktreePreview,
-  } = useGitActions();
+  } = useGitActions({
+    addNewWorktrees,
+    backgroundRefreshGitStatus,
+    refreshWorktree,
+    removeWorktree,
+    fetchActiveSessions,
+    setCheckoutLoading,
+    setSyncingWorktree,
+    setMergingWorktree,
+  });
 
   const handleCheckout = async (url: string) => {
     const success = await checkoutRepository(url, setErrorAlert);

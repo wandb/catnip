@@ -5,8 +5,29 @@ import { useGitState } from "@/hooks/useGitState";
 import { useGitActions } from "@/hooks/useGitActions";
 
 function Index() {
-  const { worktrees, loading } = useGitState();
-  const { deleteWorktree } = useGitActions();
+  const {
+    worktrees,
+    loading,
+    // Functions needed by useGitActions
+    addNewWorktrees,
+    backgroundRefreshGitStatus,
+    refreshWorktree,
+    removeWorktree,
+    fetchActiveSessions,
+    setCheckoutLoading,
+    setSyncingWorktree,
+    setMergingWorktree,
+  } = useGitState();
+  const { deleteWorktree } = useGitActions({
+    addNewWorktrees,
+    backgroundRefreshGitStatus,
+    refreshWorktree,
+    removeWorktree,
+    fetchActiveSessions,
+    setCheckoutLoading,
+    setSyncingWorktree,
+    setMergingWorktree,
+  });
 
   const handleDelete = (id: string, name: string) => {
     if (confirm(`Are you sure you want to delete workspace "${name}"?`)) {
