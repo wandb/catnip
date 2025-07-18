@@ -1355,18 +1355,36 @@ func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree) {
 	}
 }
 
-// fetchLatestReference fetches the latest reference for a worktree
+// fetchLatestReference fetches the latest reference for a worktree (shallow fetch for status)
 func (s *GitService) fetchLatestReference(worktree *models.Worktree) {
+	s.fetchLatestReferenceWithDepth(worktree, true)
+}
+
+// fetchFullHistory fetches the full history for a worktree (needed for PR/push operations)
+func (s *GitService) fetchFullHistory(worktree *models.Worktree) {
+	s.fetchLatestReferenceWithDepth(worktree, false)
+}
+
+// fetchLatestReferenceWithDepth fetches the latest reference with optional shallow fetch
+func (s *GitService) fetchLatestReferenceWithDepth(worktree *models.Worktree, shallow bool) {
 	if s.isLocalRepo(worktree.RepoID) {
 		// Get the local repo path
 		repo, exists := s.repositories[worktree.RepoID]
 		if exists {
-			// Optimized fetch for local repos - only fetch if actually needed
-			_ = s.fetchLocalBranch(worktree.Path, repo.Path, worktree.SourceBranch)
+			// Local repos: use shallow or full fetch based on need
+			if shallow {
+				_ = s.fetchLocalBranch(worktree.Path, repo.Path, worktree.SourceBranch)
+			} else {
+				_ = s.fetchLocalBranchFull(worktree.Path, repo.Path, worktree.SourceBranch)
+			}
 		}
 	} else {
-		// Fetch latest from origin for regular repos with aggressive optimizations
-		_ = s.fetchBranchFast(worktree.Path, worktree.SourceBranch)
+		// Remote repos: use shallow or full fetch based on need
+		if shallow {
+			_ = s.fetchBranchFast(worktree.Path, worktree.SourceBranch)
+		} else {
+			_ = s.fetchBranchFull(worktree.Path, worktree.SourceBranch)
+		}
 	}
 }
 
@@ -1387,6 +1405,25 @@ func (s *GitService) fetchBranchFast(repoPath, branch string) error {
 	output, err := s.runGitCommand(repoPath, args...)
 	if err != nil {
 		return fmt.Errorf("failed to fetch branch optimized: %v\n%s", err, output)
+	}
+
+	return nil
+}
+
+// fetchBranchFull performs a full fetch for operations that need complete history
+func (s *GitService) fetchBranchFull(repoPath, branch string) error {
+	// Build full fetch command for operations that need history
+	args := []string{
+		"fetch",
+		"origin",
+		fmt.Sprintf("+refs/heads/%s:refs/remotes/origin/%s", branch, branch),
+		"--quiet", // Reduce output noise
+	}
+
+	// Execute full fetch
+	output, err := s.runGitCommand(repoPath, args...)
+	if err != nil {
+		return fmt.Errorf("failed to fetch branch full: %v\n%s", err, output)
 	}
 
 	return nil
@@ -1437,6 +1474,51 @@ func (s *GitService) fetchLocalBranchInternal(worktreePath, mainRepoPath, branch
 	return nil
 }
 
+// fetchLocalBranchFull performs a full fetch for local repos (needed for PR/push operations)
+func (s *GitService) fetchLocalBranchFull(worktreePath, mainRepoPath, branch string) error {
+	// First, check if we even need to fetch by comparing commit hashes
+	// Get the current commit hash of the remote branch in our worktree
+	currentRemoteHash, err := s.runGitCommand(worktreePath, "rev-parse", fmt.Sprintf("live/%s", branch))
+	if err != nil {
+		// If we don't have the remote ref yet, we need to fetch
+		return s.fetchLocalBranchInternalFull(worktreePath, mainRepoPath, branch)
+	}
+
+	// Get the latest commit hash from the main repo
+	latestHash, err := s.runGitCommand(mainRepoPath, "rev-parse", branch)
+	if err != nil {
+		return fmt.Errorf("failed to get latest commit from main repo: %v", err)
+	}
+
+	// Compare hashes - if they're the same, no need to fetch
+	if strings.TrimSpace(string(currentRemoteHash)) == strings.TrimSpace(string(latestHash)) {
+		return nil // No changes, skip fetch
+	}
+
+	// Only fetch if there are actual changes
+	return s.fetchLocalBranchInternalFull(worktreePath, mainRepoPath, branch)
+}
+
+// fetchLocalBranchInternalFull performs full fetch for local repos when needed
+func (s *GitService) fetchLocalBranchInternalFull(worktreePath, mainRepoPath, branch string) error {
+	// Full fetch for local repos - fetch complete history
+	args := []string{
+		"fetch",
+		mainRepoPath,
+		fmt.Sprintf("%s:refs/remotes/live/%s", branch, branch),
+		"--quiet", // Reduce output noise
+		// Note: No --depth flag for full history
+	}
+
+	// Execute full fetch
+	output, err := s.runGitCommand(worktreePath, args...)
+	if err != nil {
+		return fmt.Errorf("failed to fetch local branch full: %v\n%s", err, output)
+	}
+
+	return nil
+}
+
 // SyncWorktree syncs a worktree with its source branch
 func (s *GitService) SyncWorktree(worktreeID string, strategy string) error {
 	s.mu.RLock()
@@ -1452,39 +1534,11 @@ func (s *GitService) SyncWorktree(worktreeID string, strategy string) error {
 
 // syncWorktreeInternal consolidated sync logic for both local and regular repos
 func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy string) error {
-	// Determine sync parameters based on repo type
-	isLocal := s.isLocalRepo(worktree.RepoID)
-	var sourceRef string
+	// Ensure we have full history for sync operations
+	s.fetchFullHistory(worktree)
 
-	if isLocal {
-		// Get the local repo path
-		repo, exists := s.repositories[worktree.RepoID]
-		if !exists {
-			return fmt.Errorf("local repository %s not found", worktree.RepoID)
-		}
-
-		log.Printf("🔄 Syncing local worktree %s from local main repo", worktree.Name)
-
-		// Fetch from the local main repo
-		if err := s.fetchBranch(worktree.Path, FetchStrategy{
-			Branch:      worktree.SourceBranch,
-			Remote:      repo.Path,
-			RemoteName:  "live",
-			IsLocalRepo: true,
-		}); err != nil {
-			return fmt.Errorf("failed to fetch from main repo: %v", err)
-		}
-	} else {
-		// Fetch from origin
-		if err := s.fetchBranch(worktree.Path, FetchStrategy{
-			Branch: worktree.SourceBranch,
-		}); err != nil {
-			return fmt.Errorf("failed to fetch from origin: %v", err)
-		}
-	}
-
-	// Get the appropriate source reference after fetching
-	sourceRef = s.getSourceRef(worktree)
+	// Get the appropriate source reference (fetch already done by fetchFullHistory)
+	sourceRef := s.getSourceRef(worktree)
 
 	// Apply the sync strategy
 	if err := s.applySyncStrategy(worktree, strategy, sourceRef); err != nil {
@@ -1858,36 +1912,11 @@ func (s *GitService) CheckSyncConflicts(worktreeID string) (*models.MergeConflic
 
 // checkConflictsInternal consolidated conflict checking logic
 func (s *GitService) checkConflictsInternal(worktree *models.Worktree, operation string) (*models.MergeConflictError, error) {
-	// Determine source reference based on repo type and fetch latest changes
-	var sourceRef string
+	// Ensure we have full history for accurate conflict detection
+	s.fetchFullHistory(worktree)
 
-	if s.isLocalRepo(worktree.RepoID) {
-		// Get the local repo path
-		repo, exists := s.repositories[worktree.RepoID]
-		if !exists {
-			return nil, fmt.Errorf("local repository %s not found", worktree.RepoID)
-		}
-
-		// Fetch from the local main repo to ensure we have latest changes
-		if err := s.fetchBranch(worktree.Path, FetchStrategy{
-			Branch:      worktree.SourceBranch,
-			Remote:      repo.Path,
-			RemoteName:  "live",
-			IsLocalRepo: true,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
-		}
-	} else {
-		// Fetch from origin to ensure we have latest changes
-		if err := s.fetchBranch(worktree.Path, FetchStrategy{
-			Branch: worktree.SourceBranch,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to fetch for conflict check: %v", err)
-		}
-	}
-
-	// Get the appropriate source reference after fetching
-	sourceRef = s.getSourceRef(worktree)
+	// Get the appropriate source reference
+	sourceRef := s.getSourceRef(worktree)
 
 	// Try a dry-run merge to detect conflicts
 	output, err := s.runGitCommand(worktree.Path, "merge-tree", "HEAD", sourceRef)
@@ -2288,16 +2317,24 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*WorktreeDiffResponse, 
 		return nil, fmt.Errorf("worktree not found: %s", worktreeID)
 	}
 
-	// Ensure we have the latest reference to the source branch
-	s.fetchLatestReference(worktree)
+	// Try to get diff without fetching first (much faster for local changes)
 	sourceRef := s.getSourceRef(worktree)
 
-	// Find the merge base (fork point) between this worktree and its source branch
+	// Attempt to find merge base with existing references
 	mergeBaseCmd := s.execGitCommand(worktree.Path, "merge-base", "HEAD", sourceRef)
-
 	mergeBaseOutput, err := mergeBaseCmd.Output()
+
+	// If merge base fails, try fetching the latest reference and retry
 	if err != nil {
-		return nil, fmt.Errorf("failed to find merge base: %v", err)
+		log.Printf("🔄 Merge base not found with existing refs, fetching latest reference for diff")
+		s.fetchLatestReference(worktree)
+		sourceRef = s.getSourceRef(worktree)
+
+		mergeBaseCmd = s.execGitCommand(worktree.Path, "merge-base", "HEAD", sourceRef)
+		mergeBaseOutput, err = mergeBaseCmd.Output()
+		if err != nil {
+			return nil, fmt.Errorf("failed to find merge base: %v", err)
+		}
 	}
 
 	forkCommit := strings.TrimSpace(string(mergeBaseOutput))
@@ -2560,6 +2597,9 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string) (*models.
 
 // createPullRequestInternal consolidated PR creation/update logic
 func (s *GitService) createPullRequestInternal(worktree *models.Worktree, repo *models.Repository, title, body string, isUpdate bool) (*models.PullRequestResponse, error) {
+	// Ensure we have full history for PR operations
+	s.fetchFullHistory(worktree)
+
 	// Get remote URL and owner/repo
 	ownerRepo, pushTarget, err := s.getRepoInfo(worktree, repo)
 	if err != nil {
