@@ -15,13 +15,14 @@ import (
 
 // InitializationViewImpl handles the initial setup screen
 type InitializationViewImpl struct {
-	spinner       spinner.Model
-	status        string
-	output        []string
-	viewport      viewport.Model
-	completed     bool
-	failed        bool
-	currentAction string
+	spinner          spinner.Model
+	status           string
+	output           []string
+	viewport         viewport.Model
+	terminalEmulator *TerminalEmulator
+	completed        bool
+	failed           bool
+	currentAction    string
 }
 
 // NewInitializationView creates a new initialization view
@@ -33,10 +34,11 @@ func NewInitializationView() *InitializationViewImpl {
 	vp := viewport.New(80, 20) // Will be resized properly later
 
 	return &InitializationViewImpl{
-		spinner:  s,
-		status:   "Checking container image...",
-		output:   []string{},
-		viewport: vp,
+		spinner:          s,
+		status:           "Checking container image...",
+		output:           []string{},
+		viewport:         vp,
+		terminalEmulator: nil,
 	}
 }
 
@@ -132,6 +134,27 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		debugLog("InitializationView: received continue streaming message")
 		return m, StreamingOutputReader(msg.OutputChan, msg.DoneChan)
 
+	case InitializationTTYOutputMsg:
+		// Handle raw PTY output with terminal emulator
+		if v.terminalEmulator == nil {
+			width := v.viewport.Width - 2
+			if width <= 0 {
+				width = 80
+			}
+			height := v.viewport.Height
+			if height <= 0 {
+				height = 24
+			}
+			v.terminalEmulator = NewTerminalEmulator(width, height)
+		}
+		v.terminalEmulator.Write(msg.Data)
+		v.viewport.SetContent(v.terminalEmulator.Render())
+		v.viewport.GotoBottom()
+		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
+
+	case InitializationContinueTTYMsg:
+		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
+
 	case StartStreamingBuildCmd:
 		// Start streaming the build command
 		debugLog("InitializationView: starting streaming build command")
@@ -141,6 +164,10 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		// Start the streaming reader
 		debugLog("InitializationView: starting streaming reader")
 		return m, StreamingOutputReader(msg.OutputChan, msg.DoneChan)
+
+	case StartStreamingTTYReader:
+		debugLog("InitializationView: starting streaming TTY reader")
+		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
 
 	case ContainerStartedMsg:
 		v.status = "Container started, checking health..."
@@ -238,7 +265,7 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 	content.WriteString("\n\n")
 
 	// Output section
-	if len(v.output) > 0 {
+	if len(v.output) > 0 || v.terminalEmulator != nil {
 		// Calculate available height for output
 		maxHeight := m.height - 10 // Leave room for header, status, and border
 		if maxHeight < 10 {
@@ -326,6 +353,22 @@ type InitializationOutputMsg struct {
 
 type InitializationContinueStreamingMsg struct {
 	OutputChan <-chan string
+	DoneChan   <-chan bool
+}
+
+type InitializationTTYOutputMsg struct {
+	Data       []byte
+	OutputChan <-chan []byte
+	DoneChan   <-chan bool
+}
+
+type InitializationContinueTTYMsg struct {
+	OutputChan <-chan []byte
+	DoneChan   <-chan bool
+}
+
+type StartStreamingTTYReader struct {
+	OutputChan <-chan []byte
 	DoneChan   <-chan bool
 }
 type SwitchViewMsg struct {

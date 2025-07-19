@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/creack/pty"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -153,6 +155,34 @@ func StreamingOutputReader(outputChan <-chan string, doneChan <-chan bool) tea.C
 	}
 }
 
+// StreamingTTYReader reads from a byte channel and sends PTY output messages
+func StreamingTTYReader(outputChan <-chan []byte, doneChan <-chan bool) tea.Cmd {
+	return func() tea.Msg {
+		debugLog("StreamingTTYReader: waiting for message...")
+		select {
+		case data, ok := <-outputChan:
+			if !ok {
+				select {
+				case <-doneChan:
+					debugLog("StreamingTTYReader: channel closed with done signal")
+					return InitializationCompleteMsg{}
+				default:
+					debugLog("StreamingTTYReader: channel closed without done signal")
+					return InitializationFailedMsg{Error: "Command failed - check output above for details"}
+				}
+			}
+			if len(data) > 0 {
+				return InitializationTTYOutputMsg{Data: data, OutputChan: outputChan, DoneChan: doneChan}
+			}
+		case <-doneChan:
+			debugLog("StreamingTTYReader: got done signal")
+			return InitializationCompleteMsg{}
+		case <-time.After(100 * time.Millisecond):
+		}
+		return InitializationContinueTTYMsg{OutputChan: outputChan, DoneChan: doneChan}
+	}
+}
+
 // InitializationCompleteWithOutputMsg represents completion with output lines
 type InitializationCompleteWithOutputMsg struct {
 	Output []string
@@ -172,71 +202,52 @@ type StartStreamingReader struct {
 // ExecuteStreamingBuildCmd executes a command with real-time streaming output
 func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 	return func() tea.Msg {
-		// Create channels for streaming output
-		outputChan := make(chan string, 100)
+		outputChan := make(chan []byte, 100)
 		doneChan := make(chan bool, 1)
 
-		// Start a goroutine to execute the command and stream output
 		go func() {
 			defer close(outputChan)
 			defer close(doneChan)
 
-			debugLog("ExecuteStreamingBuildCmd: starting command execution")
+			debugLog("ExecuteStreamingBuildCmd: starting command execution with PTY")
 
-			// Set up environment for better output with TTY support
 			cmd.Env = append(os.Environ(),
 				"TERM=xterm-256color",
 				"DOCKER_BUILDKIT=1",
 				"FORCE_COLOR=1",
 				"CLICOLOR_FORCE=1")
 
-			// Create pipes for stdout and stderr
-			stdout, err := cmd.StdoutPipe()
+			ptmx, err := pty.Start(cmd)
 			if err != nil {
-				debugLog("ExecuteStreamingBuildCmd: failed to create stdout pipe: %v", err)
-				outputChan <- fmt.Sprintf("Error: Failed to create stdout pipe: %v", err)
+				outputChan <- []byte(fmt.Sprintf("Error: Failed to start command: %v", err))
 				doneChan <- true
 				return
 			}
+			defer func() { _ = ptmx.Close() }()
 
-			stderr, err := cmd.StderrPipe()
-			if err != nil {
-				debugLog("ExecuteStreamingBuildCmd: failed to create stderr pipe: %v", err)
-				outputChan <- fmt.Sprintf("Error: Failed to create stderr pipe: %v", err)
-				doneChan <- true
+			buf := make([]byte, 1024)
+			for {
+				n, rErr := ptmx.Read(buf)
+				if n > 0 {
+					data := make([]byte, n)
+					copy(data, buf[:n])
+					outputChan <- data
+				}
+				if rErr != nil {
+					break
+				}
+			}
+
+			if err := cmd.Wait(); err != nil {
+				outputChan <- []byte(fmt.Sprintf("Build failed with error: %v", err))
 				return
 			}
 
-			// Start the command
-			if err := cmd.Start(); err != nil {
-				debugLog("ExecuteStreamingBuildCmd: failed to start command: %v", err)
-				outputChan <- fmt.Sprintf("Error: Failed to start command: %v", err)
-				doneChan <- true
-				return
-			}
-
-			// Start goroutines to read stdout and stderr
-			go streamReader(stdout, outputChan)
-			go streamReader(stderr, outputChan)
-
-			// Wait for the command to complete
-			err = cmd.Wait()
-			debugLog("ExecuteStreamingBuildCmd: command completed with error: %v", err)
-
-			if err != nil {
-				outputChan <- fmt.Sprintf("Build failed with error: %v", err)
-				// Don't signal completion on error - this will keep us on the initialization page
-				debugLog("ExecuteStreamingBuildCmd: build failed, not signaling completion")
-				return
-			} else {
-				outputChan <- "✅ Build completed successfully!"
-				debugLog("ExecuteStreamingBuildCmd: sending done signal")
-				doneChan <- true
-			}
+			outputChan <- []byte("✅ Build completed successfully!\n")
+			doneChan <- true
 		}()
 
-		// Return a message that will trigger the streaming reader command
-		return StartStreamingReader{OutputChan: outputChan, DoneChan: doneChan}
+		return StartStreamingTTYReader{OutputChan: outputChan, DoneChan: doneChan}
 	}
 }
 
