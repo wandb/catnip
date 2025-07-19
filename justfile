@@ -160,7 +160,7 @@ info:
 # Release management (defaults to minor version bump)
 release *ARGS="":
     @echo "🚀 Creating release..."
-    npx tsx scripts/release.ts {{ARGS}}
+    pnpm tsx scripts/release.ts {{ARGS}}
 
 # Development mode - runs both frontend and backend with proper port allocation
 dev:
