@@ -96,8 +96,6 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 
 	// Create the model - always with initialization
 	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version)
-
-	// Set up the detailed model state
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport

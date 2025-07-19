@@ -338,28 +338,6 @@ func (v *OverviewViewImpl) renderWithASCIIView(m *Model, content string) string 
 	return result
 }
 
-func (v *OverviewViewImpl) stripAnsi(s string) string {
-	// Simple regex-like approach to remove ANSI sequences
-	var result strings.Builder
-	inEscape := false
-
-	for _, r := range s {
-		if r == '\033' { // ESC character
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if r == 'm' { // End of color sequence
-				inEscape = false
-			}
-			continue
-		}
-		result.WriteRune(r)
-	}
-
-	return result.String()
-}
-
 func (v *OverviewViewImpl) openBrowser(url string) error {
 	var cmd *exec.Cmd
 
