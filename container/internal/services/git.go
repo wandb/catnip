@@ -19,18 +19,25 @@ import (
 )
 
 const (
-	workspaceDir = "/workspace"
-	gitStateDir  = "/workspace/.git-state"
-	liveDir      = "/live"
-	devRepoPath  = "/live/catnip" // Kept for backwards compatibility
+	workspaceDir    = "/workspace"
+	gitStateDir     = "/workspace/.git-state"
+	liveDir         = "/live"
+	devRepoPath     = "/live/catnip" // Kept for backwards compatibility
+	branchNamespace = "catnip"
 )
 
 // Fun session name generation (matches frontend and worker)
-var verbs = []string{"warp", "pixelate", "compile", "encrypt", "vectorize", "hydrate", "fork",
-	"spawn", "dockerize", "cache", "teleport", "refactor", "quantize", "stream", "debug"}
+var verbs = []string{
+	"blend", "shift", "trace", "blink", "fetch",
+	"merge", "clean", "build", "split", "draft",
+	"slide", "forge", "knock", "print", "smash",
+}
 
-var nouns = []string{"otter", "kraken", "wombat", "quokka", "nebula", "photon", "quasar",
-	"badger", "pangolin", "goblin", "cyborg", "ninja", "gizmo", "raptor", "penguin"}
+var nouns = []string{
+	"otter", "krill", "whale", "manta", "cubit",
+	"pixel", "quark", "raven", "tiger", "hydra",
+	"panda", "squid", "gnome", "shard", "spore",
+}
 
 func generateSessionName() string {
 	verbIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(verbs))))
@@ -40,35 +47,61 @@ func generateSessionName() string {
 	return fmt.Sprintf("%s-%s", verb, noun)
 }
 
+// branchPrefix returns the prefix used for branch names
+func branchPrefix() string {
+	return branchNamespace + "/"
+}
+
+// useCustomRef determines if we should use custom refs (live mode)
+func useCustomRef() bool {
+	return os.Getenv("CATNIP_DEV") != "true"
+}
+
+// refExists checks whether a specific ref exists in the repository
+func refExists(repoPath, ref string) bool {
+	cmd := exec.Command("git", "-C", repoPath, "show-ref", "--verify", "--quiet", ref)
+	return cmd.Run() == nil
+}
+
+// branchRef returns the full ref path for a branch name (without prefix)
+func (s *GitService) branchRef(name string) string {
+	if useCustomRef() {
+		return fmt.Sprintf("refs/%s/%s", branchNamespace, name)
+	}
+	return fmt.Sprintf("refs/heads/%s%s", branchPrefix(), name)
+}
+
 // generateUniqueSessionName generates a unique session name that doesn't already exist as a branch
 func (s *GitService) generateUniqueSessionName(repoPath string) string {
 	maxAttempts := 100 // Prevent infinite loops
 	for i := 0; i < maxAttempts; i++ {
-		name := generateSessionName()
-		// Check if branch exists locally
-		if !s.branchExists(repoPath, name, false) {
+		base := generateSessionName()
+		name := fmt.Sprintf("%s-%s", base, time.Now().Format("0102"))
+		fullRef := s.branchRef(name)
+		if !refExists(repoPath, fullRef) {
 			return name
 		}
 		log.Printf("⚠️  Branch %s already exists, trying another name... (attempt %d/%d)", name, i+1, maxAttempts)
 	}
 
-	// Fallback: append timestamp to ensure uniqueness
-	fallbackName := fmt.Sprintf("%s-%d", generateSessionName(), time.Now().Unix())
-	log.Printf("⚠️  After %d attempts, falling back to timestamp-based name: %s", maxAttempts, fallbackName)
+	fallbackName := fmt.Sprintf("%s-%s", generateSessionName(), time.Now().Format("0102"))
+	log.Printf("⚠️  After %d attempts, falling back to name: %s", maxAttempts, fallbackName)
 	return fallbackName
 }
 
 // isVerbNounBranch checks if a branch name matches our verb-noun pattern
 func isVerbNounBranch(branchName string) bool {
+	branchName = strings.TrimPrefix(branchName, branchPrefix())
 	parts := strings.Split(branchName, "-")
-	if len(parts) != 2 {
+	if len(parts) != 3 {
 		return false
 	}
 
-	// Check if first part is a verb
+	verb, noun, datePart := parts[0], parts[1], parts[2]
+
 	verbFound := false
-	for _, verb := range verbs {
-		if parts[0] == verb {
+	for _, v := range verbs {
+		if v == verb {
 			verbFound = true
 			break
 		}
@@ -77,13 +110,18 @@ func isVerbNounBranch(branchName string) bool {
 		return false
 	}
 
-	// Check if second part is a noun
-	for _, noun := range nouns {
-		if parts[1] == noun {
-			return true
+	nounFound := false
+	for _, n := range nouns {
+		if n == noun {
+			nounFound = true
+			break
 		}
 	}
-	return false
+	if !nounFound {
+		return false
+	}
+
+	return len(datePart) == 4
 }
 
 // cleanupUnusedBranches removes verb-noun branches that have no commits
@@ -100,15 +138,25 @@ func (s *GitService) cleanupUnusedBranches() {
 	totalDeleted := 0
 
 	for _, repo := range repos {
-		// List all branches in the bare repository
-		cmd := exec.Command("git", "-C", repo.Path, "branch", "-a")
-		output, err := cmd.Output()
-		if err != nil {
-			log.Printf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
-			continue
+		var branches []string
+		var cmd *exec.Cmd
+		if useCustomRef() {
+			cmd := exec.Command("git", "-C", repo.Path, "for-each-ref", "--format=%(refname)", fmt.Sprintf("refs/%s", branchNamespace))
+			output, err := cmd.Output()
+			if err != nil {
+				log.Printf("⚠️  Failed to list custom refs for %s: %v", repo.ID, err)
+				continue
+			}
+			branches = strings.Split(strings.TrimSpace(string(output)), "\n")
+		} else {
+			cmd := exec.Command("git", "-C", repo.Path, "branch", "-a")
+			output, err := cmd.Output()
+			if err != nil {
+				log.Printf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
+				continue
+			}
+			branches = strings.Split(strings.TrimSpace(string(output)), "\n")
 		}
-
-		branches := strings.Split(strings.TrimSpace(string(output)), "\n")
 		deletedInRepo := 0
 
 		for _, branch := range branches {
@@ -118,6 +166,10 @@ func (s *GitService) cleanupUnusedBranches() {
 			branchName = strings.TrimPrefix(branchName, "+")
 			branchName = strings.TrimSpace(branchName)
 			branchName = strings.TrimPrefix(branchName, "remotes/origin/")
+
+			if useCustomRef() {
+				branchName = strings.TrimPrefix(branchName, fmt.Sprintf("refs/%s/", branchNamespace))
+			}
 
 			// Skip if not a verb-noun branch
 			if !isVerbNounBranch(branchName) {
@@ -139,14 +191,24 @@ func (s *GitService) cleanupUnusedBranches() {
 				continue // Skip if we can't find a base branch
 			}
 
-			// Check if branch exists locally
-			cmd = exec.Command("git", "-C", repo.Path, "rev-parse", "--verify", branchName)
-			if err := cmd.Run(); err != nil {
-				continue // Branch doesn't exist locally
+			var verifyCmd *exec.Cmd
+			if useCustomRef() {
+				verifyCmd = exec.Command("git", "-C", repo.Path, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/%s/%s", branchNamespace, branchName))
+			} else {
+				verifyCmd = exec.Command("git", "-C", repo.Path, "rev-parse", "--verify", branchName)
+			}
+			if err := verifyCmd.Run(); err != nil {
+				continue // Branch doesn't exist
 			}
 
 			// Count commits ahead of base
-			cmd = exec.Command("git", "-C", repo.Path, "rev-list", "--count", fmt.Sprintf("%s..%s", baseRef, branchName))
+			var countCmd *exec.Cmd
+			if useCustomRef() {
+				countCmd = exec.Command("git", "-C", repo.Path, "rev-list", "--count", fmt.Sprintf("%s..refs/%s/%s", baseRef, branchNamespace, branchName))
+			} else {
+				countCmd = exec.Command("git", "-C", repo.Path, "rev-list", "--count", fmt.Sprintf("%s..%s", baseRef, branchName))
+			}
+			cmd = countCmd
 			output, err := cmd.Output()
 			if err != nil {
 				continue // Skip on error
@@ -160,12 +222,20 @@ func (s *GitService) cleanupUnusedBranches() {
 			// Also check if there's an active worktree using this branch
 			worktreeCmd := exec.Command("git", "-C", repo.Path, "worktree", "list", "--porcelain")
 			worktreeOutput, err := worktreeCmd.Output()
-			if err == nil && strings.Contains(string(worktreeOutput), fmt.Sprintf("branch refs/heads/%s", branchName)) {
+			activeRef := fmt.Sprintf("branch refs/heads/%s", branchName)
+			if useCustomRef() {
+				activeRef = fmt.Sprintf("branch refs/%s/%s", branchNamespace, branchName)
+			}
+			if err == nil && strings.Contains(string(worktreeOutput), activeRef) {
 				continue // Skip if branch is currently checked out in a worktree
 			}
 
 			// Delete the branch (local)
-			cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", branchName)
+			if useCustomRef() {
+				cmd = exec.Command("git", "-C", repo.Path, "update-ref", "-d", fmt.Sprintf("refs/%s/%s", branchNamespace, branchName))
+			} else {
+				cmd = exec.Command("git", "-C", repo.Path, "branch", "-D", branchName)
+			}
 			if err := cmd.Run(); err == nil {
 				deletedInRepo++
 				totalDeleted++
@@ -358,7 +428,13 @@ func (s *GitService) pushBranch(worktree *models.Worktree, repo *models.Reposito
 	if strategy.SetUpstream {
 		args = append(args, "-u")
 	}
-	args = append(args, strategy.Remote, strategy.Branch)
+
+	if useCustomRef() {
+		refspec := fmt.Sprintf("refs/%s/%s:refs/heads/%s", branchNamespace, strings.TrimPrefix(strategy.Branch, branchPrefix()), strategy.Branch)
+		args = append(args, strategy.Remote, refspec)
+	} else {
+		args = append(args, strategy.Remote, strategy.Branch)
+	}
 
 	// Execute push
 	output, err := s.runGitCommand(worktree.Path, args...)
@@ -1147,16 +1223,38 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	// Create worktree path with repo directory prefix
 	worktreePath := filepath.Join(workspaceDir, dirName, name)
 
+	branchName := branchPrefix() + name
+
 	// Create worktree directory first
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create worktree directory: %v", err)
 	}
 
 	// Create worktree with new branch using the fun name
-	cmd := s.execGitCommand(repo.Path, "worktree", "add", "-b", name, worktreePath, branch)
+	var cmd *exec.Cmd
+	if useCustomRef() {
+		cmd = s.execGitCommand(repo.Path, "worktree", "add", "--detach", worktreePath, branch)
+	} else {
+		cmd = s.execGitCommand(repo.Path, "worktree", "add", "-b", branchName, worktreePath, branch)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
+	}
+
+	if useCustomRef() {
+		headOutput, err := s.runGitCommand(worktreePath, "rev-parse", "HEAD")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HEAD commit: %v", err)
+		}
+		headHash := strings.TrimSpace(string(headOutput))
+		ref := fmt.Sprintf("refs/%s/%s", branchNamespace, name)
+		if _, err := s.runGitCommand(repo.Path, "update-ref", ref, headHash); err != nil {
+			return nil, fmt.Errorf("failed to create ref: %v", err)
+		}
+		if err := s.execGitCommand(worktreePath, "symbolic-ref", "HEAD", ref).Run(); err != nil {
+			return nil, fmt.Errorf("failed to set HEAD: %v", err)
+		}
 	}
 
 	// Add the "live" remote to the worktree pointing back to the main repo
@@ -1208,7 +1306,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 		RepoID:        repo.ID,
 		Name:          displayName,
 		Path:          worktreePath,
-		Branch:        name,
+		Branch:        branchName,
 		SourceBranch:  sourceBranch,
 		CommitHash:    strings.TrimSpace(string(commitOutput)),
 		CommitCount:   commitCount,
@@ -1420,7 +1518,11 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 
 			// For local repos, check if the branch exists in the main repo
 			// If it doesn't exist, it was likely deleted after merge
-			branchExistsCmd := s.execGitCommand(repo.Path, "show-ref", "--verify", "--quiet", fmt.Sprintf("refs/heads/%s", worktree.Branch))
+			verifyRef := fmt.Sprintf("refs/heads/%s", worktree.Branch)
+			if useCustomRef() {
+				verifyRef = fmt.Sprintf("refs/%s/%s", branchNamespace, strings.TrimPrefix(worktree.Branch, branchPrefix()))
+			}
+			branchExistsCmd := s.execGitCommand(repo.Path, "show-ref", "--verify", "--quiet", verifyRef)
 			branchExists := branchExistsCmd.Run() == nil
 
 			if !branchExists {
@@ -2356,8 +2458,14 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	// All worktrees use repo/branch pattern for consistency
 	worktreePath := filepath.Join(workspaceDir, repoName, name)
 
-	// Create worktree with new branch using the fun name
-	cmd := exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", name, worktreePath, source)
+	branchName := branchPrefix() + name
+
+	var cmd *exec.Cmd
+	if useCustomRef() {
+		cmd = exec.Command("git", "-C", repo.Path, "worktree", "add", "--detach", worktreePath, source)
+	} else {
+		cmd = exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", branchName, worktreePath, source)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Check if the error is because branch already exists
@@ -2368,6 +2476,22 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
 		}
 		return nil, fmt.Errorf("failed to create worktree: %v\n%s", err, output)
+	}
+
+	// For custom refs, create and set the ref
+	if useCustomRef() {
+		headOutput, err := s.runGitCommand(worktreePath, "rev-parse", "HEAD")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get HEAD commit: %v", err)
+		}
+		headHash := strings.TrimSpace(string(headOutput))
+		ref := fmt.Sprintf("refs/%s/%s", branchNamespace, name)
+		if _, err := s.runGitCommand(repo.Path, "update-ref", ref, headHash); err != nil {
+			return nil, fmt.Errorf("failed to create ref: %v", err)
+		}
+		if err := s.execGitCommand(worktreePath, "symbolic-ref", "HEAD", ref).Run(); err != nil {
+			return nil, fmt.Errorf("failed to set HEAD: %v", err)
+		}
 	}
 
 	// Get current commit hash
@@ -2442,7 +2566,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		RepoID:       repo.ID,
 		Name:         displayName,
 		Path:         worktreePath,
-		Branch:       name,
+		Branch:       branchName,
 		SourceBranch: sourceBranch,
 		CommitHash:   strings.TrimSpace(string(commitOutput)),
 		CommitCount:  commitCount,
