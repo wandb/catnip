@@ -110,8 +110,11 @@ func (v *OverviewViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model
 
 // Render generates the overview view content
 func (v *OverviewViewImpl) Render(m *Model) string {
-	// Check if we have enough width for the logo (70 cols + 70 for content = 140+ total)
-	showLogo := m.width >= 150 && len(m.logo) > 0
+	debugLog("OverviewView.Render() called with width: %d, height: %d", m.width, m.height)
+
+	// Check if we have enough width for the logo (110 is minimum)
+	showLogo := m.width >= 110
+	debugLog("showLogo: %t (width >= 110)", showLogo)
 
 	var sections []string
 
@@ -239,7 +242,7 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 
 	// Combine content and logo side by side
 	contentText := strings.Join(sections, "\n")
-	return v.renderWithLogo(m, contentText)
+	return v.renderWithASCIIView(m, contentText)
 }
 
 // Helper methods
@@ -294,53 +297,45 @@ func (v *OverviewViewImpl) createNewShellSessionWithCmd(m *Model) (*Model, tea.C
 	return m, createAndConnectShell(sessionID, terminalWidth, m.shellViewport.Height)
 }
 
-func (v *OverviewViewImpl) renderWithLogo(m *Model, content string) string {
-	contentLines := strings.Split(content, "\n")
-	logoLines := m.logo
+func (v *OverviewViewImpl) renderWithASCIIView(m *Model, content string) string {
+	// Load the appropriate logo based on current width
+	logo := loadLogo(m.width)
 
-	// Calculate available space
-	contentWidth := 70 // Reserve 70 columns for content
-
-	// Pad content lines to the specified width
-	for i, line := range contentLines {
-		// Strip any existing color codes for width calculation
-		stripped := v.stripAnsi(line)
-		if len(stripped) < contentWidth {
-			contentLines[i] = line + strings.Repeat(" ", contentWidth-len(stripped))
-		} else if len(stripped) > contentWidth {
-			contentLines[i] = line[:contentWidth]
-		}
+	// If no logo should be shown, just return content
+	if len(logo) == 0 {
+		return content
 	}
 
-	// Ensure we have enough content lines to match logo height
-	maxLines := len(logoLines)
-	if len(contentLines) < maxLines {
-		for len(contentLines) < maxLines {
-			contentLines = append(contentLines, strings.Repeat(" ", contentWidth))
-		}
+	// Calculate column widths - content gets 40% of space
+	contentWidth := (m.width * 40) / 100 // Content gets 40% of space
+	if contentWidth < 40 {
+		contentWidth = 40 // Minimum content width
+	}
+	logoWidth := m.width - contentWidth - 4 // Logo gets remainder minus padding
+
+	if logoWidth < 20 {
+		// If logo column is too narrow, just return content only
+		return content
 	}
 
-	// Combine content and logo
-	var result []string
-	for i := 0; i < maxLines; i++ {
-		contentLine := ""
-		if i < len(contentLines) {
-			contentLine = contentLines[i]
-		} else {
-			contentLine = strings.Repeat(" ", contentWidth)
-		}
+	// Render the ASCII art with proper spacing
+	logoContent := strings.Join(logo, "\n")
 
-		logoLine := ""
-		if i < len(logoLines) {
-			logoLine = logoLines[i]
-		}
+	// Create content column with proper styling and width constraint
+	contentColumn := lipgloss.NewStyle().
+		Width(contentWidth).
+		Align(lipgloss.Left).
+		Render(content)
 
-		// Add some spacing between content and logo
-		combined := contentLine + "  " + logoLine
-		result = append(result, combined)
-	}
+	// Use lipgloss JoinHorizontal but keep logo raw (logoContent already defined above)
+	result := lipgloss.JoinHorizontal(
+		lipgloss.Top, // Align to top
+		contentColumn,
+		strings.Repeat(" ", 4), // 4 spaces between columns
+		logoContent,            // Raw ASCII art with original ANSI codes
+	)
 
-	return strings.Join(result, "\n")
+	return result
 }
 
 func (v *OverviewViewImpl) stripAnsi(s string) string {
