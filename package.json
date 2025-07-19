@@ -16,7 +16,7 @@
     "format:check": "prettier --check .",
     "format:changed": "{ git diff --cached --name-only; git diff --name-only; git ls-files --others --exclude-standard; } | grep -E '\\.(ts|tsx|js|jsx|json|css|md)$' | xargs prettier --write",
     "preview": "pnpm run build && vite preview",
-    "deploy": "pnpm run build && wrangler deploy",
+    "deploy:prod": "pnpm run build && wrangler deploy --env production",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {

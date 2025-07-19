@@ -15,13 +15,14 @@ import (
 
 // InitializationViewImpl handles the initial setup screen
 type InitializationViewImpl struct {
-	spinner       spinner.Model
-	status        string
-	output        []string
-	viewport      viewport.Model
-	completed     bool
-	failed        bool
-	currentAction string
+	spinner          spinner.Model
+	status           string
+	output           []string
+	viewport         viewport.Model
+	terminalEmulator *TerminalEmulator
+	completed        bool
+	failed           bool
+	currentAction    string
 }
 
 // NewInitializationView creates a new initialization view
@@ -33,10 +34,11 @@ func NewInitializationView() *InitializationViewImpl {
 	vp := viewport.New(80, 20) // Will be resized properly later
 
 	return &InitializationViewImpl{
-		spinner:  s,
-		status:   "Checking container image...",
-		output:   []string{},
-		viewport: vp,
+		spinner:          s,
+		status:           "Checking container image...",
+		output:           []string{},
+		viewport:         vp,
+		terminalEmulator: nil,
 	}
 }
 
@@ -132,6 +134,27 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		debugLog("InitializationView: received continue streaming message")
 		return m, StreamingOutputReader(msg.OutputChan, msg.DoneChan)
 
+	case InitializationTTYOutputMsg:
+		// Handle raw PTY output with terminal emulator
+		if v.terminalEmulator == nil {
+			width := v.viewport.Width - 2
+			if width <= 0 {
+				width = 80
+			}
+			height := v.viewport.Height
+			if height <= 0 {
+				height = 24
+			}
+			v.terminalEmulator = NewTerminalEmulator(width, height)
+		}
+		v.terminalEmulator.Write(msg.Data)
+		v.viewport.SetContent(v.terminalEmulator.Render())
+		v.viewport.GotoBottom()
+		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
+
+	case InitializationContinueTTYMsg:
+		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
+
 	case StartStreamingBuildCmd:
 		// Start streaming the build command
 		debugLog("InitializationView: starting streaming build command")
@@ -142,6 +165,10 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		debugLog("InitializationView: starting streaming reader")
 		return m, StreamingOutputReader(msg.OutputChan, msg.DoneChan)
 
+	case StartStreamingTTYReader:
+		debugLog("InitializationView: starting streaming TTY reader")
+		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
+
 	case ContainerStartedMsg:
 		v.status = "Container started, checking health..."
 		// Start monitoring container health instead of switching to overview
@@ -149,10 +176,20 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 
 	case ContainerStartFailedMsg:
 		v.failed = true
-		v.status = fmt.Sprintf("Failed to start container: %s", msg.Error)
+		v.completed = false // Ensure completed is false when failed
+		// Extract only the first line for the header status
+		errorLines := strings.Split(msg.Error, "\n")
+		v.status = fmt.Sprintf("Failed to start container: %s", errorLines[0])
+		// Format the error details nicely for viewport
+		v.output = v.formatErrorOutput(msg.Error)
+		// Update viewport content
+		v.viewport.SetContent(strings.Join(v.output, "\n"))
+		// Auto-scroll to bottom
+		v.viewport.GotoBottom()
 
 	case ContainerHealthCheckFailedMsg:
 		v.failed = true
+		v.completed = false // Ensure completed is false when failed
 		v.status = fmt.Sprintf("Container health check failed: %s", msg.Error)
 
 	case StartStreamingContainerLogsCmd:
@@ -213,9 +250,7 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 		Foreground(lipgloss.Color(components.ColorText)).
 		MarginBottom(1)
 
-	if v.completed {
-		content.WriteString(statusStyle.Render("✅ " + v.status))
-	} else if v.failed {
+	if v.failed {
 		errorStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("196")).
 			MarginBottom(1)
@@ -231,6 +266,8 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 			content.WriteString("\n")
 			content.WriteString(helpStyle.Render("Check the output below for details. Press 'q' to exit or restart the application to try again."))
 		}
+	} else if v.completed {
+		content.WriteString(statusStyle.Render("✅ " + v.status))
 	} else {
 		content.WriteString(statusStyle.Render(v.spinner.View() + " " + v.status))
 	}
@@ -238,7 +275,7 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 	content.WriteString("\n\n")
 
 	// Output section
-	if len(v.output) > 0 {
+	if len(v.output) > 0 || v.terminalEmulator != nil {
 		// Calculate available height for output
 		maxHeight := m.height - 10 // Leave room for header, status, and border
 		if maxHeight < 10 {
@@ -279,6 +316,123 @@ func (v *InitializationViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, te
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+// formatErrorOutput formats error messages with nice boxes and highlighting
+func (v *InitializationViewImpl) formatErrorOutput(errorMsg string) []string {
+	lines := strings.Split(errorMsg, "\n")
+	var formatted []string
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Command:") {
+			// Format command in a nice box
+			formatted = append(formatted, "")
+			formatted = append(formatted, "\033[36m╭─ Command\033[0m")
+
+			// Extract command part after "Command: "
+			cmdPart := strings.TrimSpace(strings.TrimPrefix(line, "Command:"))
+			if cmdPart != "" {
+				// Word wrap long commands with line continuation characters
+				// Use viewport width, but ensure minimum of 60 chars
+				maxWidth := v.viewport.Width - 6 // Account for border and padding
+				if maxWidth < 60 {
+					maxWidth = 60
+				}
+				wrappedLines := v.wrapCommand(cmdPart, maxWidth)
+				for i, wrappedLine := range wrappedLines {
+					if i == len(wrappedLines)-1 {
+						// Last line, no continuation
+						formatted = append(formatted, fmt.Sprintf("\033[36m│\033[0m \033[90m%s\033[0m", wrappedLine))
+					} else {
+						// Add continuation character
+						formatted = append(formatted, fmt.Sprintf("\033[36m│\033[0m \033[90m%s \\\033[0m", wrappedLine))
+					}
+				}
+			}
+			formatted = append(formatted, "\033[36m╰─\033[0m")
+			formatted = append(formatted, "")
+		} else if strings.HasPrefix(line, "Output:") {
+			// Format output section
+			formatted = append(formatted, "\033[33m╭─ Output\033[0m")
+		} else if line != "" {
+			// Regular line, but check if it's after Output: section
+			if len(formatted) > 0 && strings.Contains(strings.Join(formatted[maxInt(0, len(formatted)-5):], ""), "Output") {
+				// This is output content, format it with proper indentation
+				formatted = append(formatted, fmt.Sprintf("\033[33m│\033[0m %s", line))
+			} else {
+				// Regular error line
+				formatted = append(formatted, line)
+			}
+		}
+	}
+
+	// Close output box if it was opened
+	if len(formatted) > 0 && strings.Contains(strings.Join(formatted, ""), "╭─ Output") {
+		formatted = append(formatted, "\033[33m╰─\033[0m")
+	}
+
+	return formatted
+}
+
+// wrapCommand wraps a long command into multiple lines with proper shell continuation
+func (v *InitializationViewImpl) wrapCommand(cmd string, maxWidth int) []string {
+	// Account for the box drawing characters and indentation: "│ " = 2 chars
+	// Account for the continuation character " \" = 2 chars when needed
+	effectiveWidth := maxWidth - 4 // Leave room for "│ " and potential " \"
+
+	if len(cmd) <= effectiveWidth {
+		return []string{cmd}
+	}
+
+	var lines []string
+	words := strings.Fields(cmd)
+	currentLine := ""
+
+	for _, word := range words {
+		// Check if adding this word would exceed the line length
+		testLine := currentLine
+		if testLine != "" {
+			testLine += " "
+		}
+		testLine += word
+
+		if len(testLine) <= effectiveWidth {
+			// Word fits, add it to current line
+			currentLine = testLine
+		} else {
+			// Word doesn't fit, start new line
+			if currentLine != "" {
+				lines = append(lines, currentLine)
+			}
+
+			// Check if the word itself is too long for a line
+			if len(word) > effectiveWidth {
+				// Split the word across multiple lines
+				for len(word) > effectiveWidth {
+					lines = append(lines, word[:effectiveWidth])
+					word = word[effectiveWidth:]
+				}
+				currentLine = word
+			} else {
+				currentLine = word
+			}
+		}
+	}
+
+	// Add the last line if it has content
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
+}
+
+// maxInt returns the maximum of two integers
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // HandleResize processes window resize messages
@@ -326,6 +480,22 @@ type InitializationOutputMsg struct {
 
 type InitializationContinueStreamingMsg struct {
 	OutputChan <-chan string
+	DoneChan   <-chan bool
+}
+
+type InitializationTTYOutputMsg struct {
+	Data       []byte
+	OutputChan <-chan []byte
+	DoneChan   <-chan bool
+}
+
+type InitializationContinueTTYMsg struct {
+	OutputChan <-chan []byte
+	DoneChan   <-chan bool
+}
+
+type StartStreamingTTYReader struct {
+	OutputChan <-chan []byte
 	DoneChan   <-chan bool
 }
 type SwitchViewMsg struct {
