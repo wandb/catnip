@@ -24,6 +24,12 @@ if (args.includes("--help") || args.includes("-h")) {
 USAGE:
     pnpm tsx scripts/release.ts [OPTIONS]
 
+SAFETY CHECKS:
+    • Ensures you're in a git repository with clean working tree
+    • Warns if not on 'main' branch and prompts for confirmation  
+    • Checks if local main is up-to-date with remote main
+    • Shows commit info (SHA, date, message) for release confirmation
+
 OPTIONS:
     --major                    Create major release (x+1.0.0)
     --minor                    Create minor release (x.y+1.0)
@@ -157,6 +163,71 @@ async function main(): Promise<void> {
       "❌ Uncommitted changes detected. Please commit or stash changes first.",
     );
     process.exit(1);
+  }
+
+  // Check current branch and HEAD status
+  const currentBranch = run("git branch --show-current");
+  const currentCommit = run("git rev-parse HEAD");
+  const currentCommitShort = run("git rev-parse --short HEAD");
+  const currentCommitDate = run("git log -1 --format=%cd --date=short");
+  const currentCommitMessage = run("git log -1 --format=%s");
+
+  // Check if we're on main branch
+  if (currentBranch !== "main") {
+    console.warn(`⚠️  You are on branch '${currentBranch}', not 'main'`);
+
+    const continueFromBranch = await confirm({
+      message: `Do you want to release from branch '${currentBranch}'?`,
+      default: false,
+    });
+
+    if (!continueFromBranch) {
+      console.log("💡 Switch to main branch: git checkout main");
+      process.exit(0);
+    }
+  }
+
+  // Check if we're up to date with remote main (only if on main)
+  if (currentBranch === "main") {
+    try {
+      // Fetch latest to ensure we have up-to-date remote info
+      run("git fetch origin main");
+
+      const remoteMainCommit = run("git rev-parse origin/main");
+
+      if (currentCommit !== remoteMainCommit) {
+        const remoteCommitShort = run("git rev-parse --short origin/main");
+        const remoteCommitDate = run(
+          "git log -1 --format=%cd --date=short origin/main",
+        );
+        const remoteCommitMessage = run("git log -1 --format=%s origin/main");
+
+        console.warn(`⚠️  Your local main is not up to date with remote main:`);
+        console.warn(
+          `   Local:  ${currentCommitShort} (${currentCommitDate}) ${currentCommitMessage}`,
+        );
+        console.warn(
+          `   Remote: ${remoteCommitShort} (${remoteCommitDate}) ${remoteCommitMessage}`,
+        );
+
+        const continueFromOldCommit = await confirm({
+          message: `Do you want to release from commit ${currentCommitShort} instead of the latest remote main?`,
+          default: false,
+        });
+
+        if (!continueFromOldCommit) {
+          console.log("💡 Update your main branch: git pull origin main");
+          process.exit(0);
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️  Could not check remote main (${error}). Continuing...`);
+    }
+  } else {
+    // For non-main branches, show current commit info
+    console.log(
+      `📍 Releasing from: ${currentCommitShort} (${currentCommitDate}) ${currentCommitMessage}`,
+    );
   }
 
   // Get current version
