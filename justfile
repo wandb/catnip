@@ -221,6 +221,38 @@ dev:
     # Wait for either process to exit
     wait
 
+# Upgrade container image to latest version and update wrangler.jsonc
+upgrade-image:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Get latest version from git tags
+    VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.1.0")
+    echo "🏷️  Latest version: $VERSION"
+    
+    # Push container to Cloudflare registry
+    echo "🚀 Pushing wandb/catnip:$VERSION to Cloudflare registry..."
+    wrangler containers push wandb/catnip:$VERSION
+    
+    # Get the new registry URL
+    NEW_IMAGE_URL="registry.cloudflare.com/0081e9dfbeb0e1a212ec5101e3c8768a/wandb/catnip:$VERSION"
+    echo "📝 New image URL: $NEW_IMAGE_URL"
+    
+    # Update wrangler.jsonc with new image URL
+    echo "🔄 Updating wrangler.jsonc..."
+    
+    # Create a temporary file for the updated content
+    TMP_FILE=$(mktemp)
+    
+    # Use sed to replace all image URLs in wrangler.jsonc
+    sed "s|registry\.cloudflare\.com/0081e9dfbeb0e1a212ec5101e3c8768a/wandb/catnip:[^\"]*|$NEW_IMAGE_URL|g" wrangler.jsonc > "$TMP_FILE"
+    
+    # Replace the original file
+    mv "$TMP_FILE" wrangler.jsonc
+    
+    echo "✅ Updated container image references in wrangler.jsonc to version $VERSION"
+    echo "🔍 Review changes with: git diff wrangler.jsonc"
+
 # Default recipe
 default:
     @just --list
