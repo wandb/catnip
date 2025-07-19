@@ -119,13 +119,16 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 
 	args = append(args, image)
 
+	// Store the full command before execution for error reporting
+	fullCmd := append([]string{string(cs.runtime)}, args...)
+
 	cmd := exec.CommandContext(ctx, string(cs.runtime), args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return []string{}, fmt.Errorf("failed to run container: %w\nOutput: %s", err, string(output))
+		return fullCmd, fmt.Errorf("failed to run container: %w\nOutput: %s", err, string(output))
 	}
 
-	return append([]string{string(cs.runtime)}, args...), nil
+	return fullCmd, nil
 }
 
 // ImageExists checks if a container image exists locally

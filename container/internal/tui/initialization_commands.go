@@ -275,7 +275,24 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 
 		// Start the container
 		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled); err != nil {
-			return ContainerStartFailedMsg{Error: fmt.Sprintf("Failed to start container: %v\nCommand: %s", err, strings.Join(cmd, " "))}
+			// Parse the error to extract the base error and output
+			errStr := err.Error()
+			cmdStr := strings.Join(cmd, " ")
+
+			// Check if the error already contains "Output:" section
+			if strings.Contains(errStr, "\nOutput:") {
+				// Replace the error format to put Command first
+				parts := strings.Split(errStr, "\nOutput:")
+				baseErr := parts[0]
+				output := ""
+				if len(parts) > 1 {
+					output = parts[1]
+				}
+				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s\nOutput:%s", baseErr, cmdStr, output)}
+			} else {
+				// Simple error without output
+				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s", errStr, cmdStr)}
+			}
 		}
 
 		// Container started, now monitor its health
