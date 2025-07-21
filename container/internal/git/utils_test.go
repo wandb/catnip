@@ -109,12 +109,6 @@ func TestIsCatnipBranch(t *testing.T) {
 	}
 }
 
-func TestIsVerbNounBranch(t *testing.T) {
-	// Test that the deprecated function still works
-	assert.True(t, IsVerbNounBranch("catnip/felix"))
-	assert.False(t, IsVerbNounBranch("feature/something"))
-}
-
 func TestParseGitHubURL(t *testing.T) {
 	testCases := []struct {
 		url           string

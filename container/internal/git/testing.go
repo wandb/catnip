@@ -155,6 +155,41 @@ func (tr *TestRepository) CheckoutBranch(branchName string) error {
 	return nil
 }
 
+// RenameBranch renames a branch from oldName to newName
+func (tr *TestRepository) RenameBranch(oldName, newName string) error {
+	// Get the current HEAD of the old branch
+	oldRef, err := tr.repo.Reference(plumbing.ReferenceName("refs/heads/"+oldName), true)
+	if err != nil {
+		return fmt.Errorf("failed to get reference for branch %s: %w", oldName, err)
+	}
+
+	// Create new branch reference pointing to the same hash
+	newRef := plumbing.NewHashReference(plumbing.ReferenceName("refs/heads/"+newName), oldRef.Hash())
+	err = tr.repo.Storer.SetReference(newRef)
+	if err != nil {
+		return fmt.Errorf("failed to create branch %s: %w", newName, err)
+	}
+
+	// Update HEAD if we're renaming the current branch
+	head, err := tr.repo.Head()
+	if err == nil && head.Name() == plumbing.ReferenceName("refs/heads/"+oldName) {
+		// Update HEAD to point to the new branch
+		headRef := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.ReferenceName("refs/heads/"+newName))
+		err = tr.repo.Storer.SetReference(headRef)
+		if err != nil {
+			return fmt.Errorf("failed to update HEAD to new branch %s: %w", newName, err)
+		}
+	}
+
+	// Remove the old branch reference
+	err = tr.repo.Storer.RemoveReference(plumbing.ReferenceName("refs/heads/" + oldName))
+	if err != nil {
+		return fmt.Errorf("failed to remove old branch %s: %w", oldName, err)
+	}
+
+	return nil
+}
+
 // AddRemote adds a remote to the repository
 func (tr *TestRepository) AddRemote(name, url string) error {
 	_, err := tr.repo.CreateRemote(&config.RemoteConfig{
@@ -185,8 +220,14 @@ func CreateTestRepositoryWithHistory() (*TestRepository, error) {
 		return nil, err
 	}
 
-	// Create initial commit
+	// Create initial commit on master (go-git default)
 	err = repo.CommitFile("README.md", "# Test Repository\n\nThis is a test.", "Initial commit")
+	if err != nil {
+		return nil, err
+	}
+
+	// Rename master branch to main
+	err = repo.RenameBranch("master", "main")
 	if err != nil {
 		return nil, err
 	}
@@ -213,13 +254,13 @@ func CreateTestRepositoryWithHistory() (*TestRepository, error) {
 		return nil, err
 	}
 
-	// Switch back to master (go-git default)
-	err = repo.CheckoutBranch("master")
+	// Switch back to main
+	err = repo.CheckoutBranch("main")
 	if err != nil {
 		return nil, err
 	}
 
-	// Add another commit to master
+	// Add another commit to main
 	err = repo.CommitFile("main.txt", "Main branch changes", "Update main branch")
 	if err != nil {
 		return nil, err
@@ -247,6 +288,12 @@ func CreateTestRepositoryWithConflicts() (*TestRepository, error) {
 		return nil, err
 	}
 
+	// Rename master branch to main
+	err = repo.RenameBranch("master", "main")
+	if err != nil {
+		return nil, err
+	}
+
 	// Create branch A
 	err = repo.CreateBranch("branch-a")
 	if err != nil {
@@ -264,8 +311,8 @@ func CreateTestRepositoryWithConflicts() (*TestRepository, error) {
 		return nil, err
 	}
 
-	// Switch back to master and create branch B
-	err = repo.CheckoutBranch("master")
+	// Switch back to main and create branch B
+	err = repo.CheckoutBranch("main")
 	if err != nil {
 		return nil, err
 	}

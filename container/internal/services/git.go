@@ -18,11 +18,23 @@ import (
 )
 
 const (
-	workspaceDir = "/workspace"
-	gitStateDir  = "/workspace/.git-state"
-	liveDir      = "/live"
-	devRepoPath  = "/live/catnip" // Kept for backwards compatibility
+	defaultWorkspaceDir = "/workspace"
+	liveDir             = "/live"
+	devRepoPath         = "/live/catnip" // Kept for backwards compatibility
 )
+
+// getWorkspaceDir returns the workspace directory, configurable via CATNIP_WORKSPACE_DIR
+func getWorkspaceDir() string {
+	if dir := os.Getenv("CATNIP_WORKSPACE_DIR"); dir != "" {
+		return dir
+	}
+	return defaultWorkspaceDir
+}
+
+// getGitStateDir returns the git state directory based on workspace dir
+func getGitStateDir() string {
+	return filepath.Join(getWorkspaceDir(), ".git-state")
+}
 
 // generateUniqueSessionName generates a unique session name that doesn't already exist as a branch
 func (s *GitService) generateUniqueSessionName(repoPath string) string {
@@ -32,14 +44,14 @@ func (s *GitService) generateUniqueSessionName(repoPath string) string {
 	})
 }
 
-// isVerbNounBranch checks if a branch name matches our verb-noun pattern
-func isVerbNounBranch(branchName string) bool {
-	return git.IsVerbNounBranch(branchName)
+// isCatnipBranch checks if a branch name has a catnip/ prefix
+func isCatnipBranch(branchName string) bool {
+	return git.IsCatnipBranch(branchName)
 }
 
-// cleanupUnusedBranches removes verb-noun branches that have no commits
+// cleanupUnusedBranches removes catnip branches that have no commits
 func (s *GitService) cleanupUnusedBranches() {
-	log.Printf("🧹 Starting cleanup of unused verb-noun branches...")
+	log.Printf("🧹 Starting cleanup of unused catnip branches...")
 
 	s.mu.RLock()
 	repos := make([]*models.Repository, 0, len(s.repositories))
@@ -70,8 +82,8 @@ func (s *GitService) cleanupUnusedBranches() {
 			branchName = strings.TrimSpace(branchName)
 			branchName = strings.TrimPrefix(branchName, "remotes/origin/")
 
-			// Skip if not a verb-noun branch
-			if !isVerbNounBranch(branchName) {
+			// Skip if not a catnip branch
+			if !isCatnipBranch(branchName) {
 				continue
 			}
 
@@ -130,9 +142,9 @@ func (s *GitService) cleanupUnusedBranches() {
 	}
 
 	if totalDeleted > 0 {
-		log.Printf("🧹 Cleanup complete: removed %d unused verb-noun branches", totalDeleted)
+		log.Printf("🧹 Cleanup complete: removed %d unused catnip branches", totalDeleted)
 	} else {
-		log.Printf("✅ No unused verb-noun branches found")
+		log.Printf("✅ No unused catnip branches found")
 	}
 }
 
@@ -297,6 +309,11 @@ func (s *GitService) hasConflicts(worktreePath string) bool {
 
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
+	return NewGitServiceWithHelper(git.NewServiceHelper())
+}
+
+// NewGitServiceWithHelper creates a new Git service instance with injectable git operations
+func NewGitServiceWithHelper(helper *git.ServiceHelper) *GitService {
 	// Create the underlying git manager
 	manager := git.NewManager()
 
@@ -304,12 +321,12 @@ func NewGitService() *GitService {
 		repositories: make(map[string]*models.Repository),
 		worktrees:    make(map[string]*models.Worktree),
 		manager:      manager,
-		helper:       git.NewServiceHelper(), // NEW: Initialize helper
+		helper:       helper, // Use injected helper
 	}
 
 	// Ensure workspace directory exists
-	_ = os.MkdirAll(workspaceDir, 0755)
-	_ = os.MkdirAll(gitStateDir, 0755)
+	_ = os.MkdirAll(getWorkspaceDir(), 0755)
+	_ = os.MkdirAll(getGitStateDir(), 0755)
 
 	// Configure Git to use gh as credential helper if available
 	s.configureGitCredentials()
@@ -322,7 +339,7 @@ func NewGitService() *GitService {
 	// Detect and load any local repositories in /live
 	s.detectLocalRepos()
 
-	// Clean up unused verb-noun branches (skip in dev mode to avoid deleting active branches)
+	// Clean up unused catnip branches (skip in dev mode to avoid deleting active branches)
 	if os.Getenv("CATNIP_DEV") != "true" {
 		s.cleanupUnusedBranches()
 	} else {
@@ -346,12 +363,12 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 
 	repoURL := fmt.Sprintf("https://github.com/%s/%s.git", org, repo)
 	repoName := strings.ReplaceAll(repo, "/", "-")
-	barePath := filepath.Join(workspaceDir, fmt.Sprintf("%s.git", repoName))
+	barePath := filepath.Join(getWorkspaceDir(), fmt.Sprintf("%s.git", repoName))
 
 	// Check if a directory is already mounted at the repo location
-	if s.isRepoMounted(workspaceDir, repoName) {
+	if s.isRepoMounted(getWorkspaceDir(), repoName) {
 		return nil, nil, fmt.Errorf("a repository already exists at %s (possibly mounted)",
-			filepath.Join(workspaceDir, repoName))
+			filepath.Join(getWorkspaceDir(), repoName))
 	}
 
 	// Check if repository already exists in our map
@@ -518,7 +535,7 @@ func (s *GitService) GetStatus() *models.GitStatus {
 
 // updateCurrentSymlink updates the /workspace/current symlink
 func (s *GitService) updateCurrentSymlink(targetPath string) error {
-	currentPath := filepath.Join(workspaceDir, "current")
+	currentPath := filepath.Join(getWorkspaceDir(), "current")
 
 	// Remove existing symlink if it exists
 	os.Remove(currentPath)
@@ -540,11 +557,11 @@ func (s *GitService) saveState() error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(gitStateDir, "state.json"), data, 0644)
+	return os.WriteFile(filepath.Join(getGitStateDir(), "state.json"), data, 0644)
 }
 
 func (s *GitService) loadState() error {
-	data, err := os.ReadFile(filepath.Join(gitStateDir, "state.json"))
+	data, err := os.ReadFile(filepath.Join(getGitStateDir(), "state.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // No state to load
@@ -602,7 +619,7 @@ func (s *GitService) GetDefaultWorktreePath() string {
 		return mostRecentWorktree.Path
 	}
 
-	return workspaceDir // fallback
+	return getWorkspaceDir() // fallback
 }
 
 // configureGitCredentials sets up Git to use gh CLI for GitHub authentication
@@ -759,7 +776,7 @@ func (s *GitService) detectLocalRepos() {
 func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
 	// Check if any worktrees exist for this repo in /workspace
 	dirName := filepath.Base(strings.TrimPrefix(repoID, "local/"))
-	repoWorkspaceDir := filepath.Join(workspaceDir, dirName)
+	repoWorkspaceDir := filepath.Join(getWorkspaceDir(), dirName)
 
 	// Check if the repo workspace directory exists and has any worktrees
 	if entries, err := os.ReadDir(repoWorkspaceDir); err == nil {
@@ -780,9 +797,7 @@ func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
 
 // getLocalRepoDefaultBranch gets the current branch of a local repo
 func (s *GitService) getLocalRepoDefaultBranch(repoPath string) string {
-	cmd := s.execGitCommand(repoPath, "branch", "--show-current")
-
-	output, err := cmd.Output()
+	output, err := s.runGitCommand(repoPath, "branch", "--show-current")
 	if err != nil {
 		log.Printf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
 		return "main"
@@ -840,7 +855,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	// Create worktree path with repo directory prefix
 	// Extract workspace name (remove catnip/ prefix for filesystem paths)
 	workspaceName := git.ExtractWorkspaceName(name)
-	worktreePath := filepath.Join(workspaceDir, dirName, workspaceName)
+	worktreePath := filepath.Join(getWorkspaceDir(), dirName, workspaceName)
 
 	// Create worktree directory first
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
@@ -926,9 +941,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 
 // getLocalRepoBranches returns the local branches for a local repository
 func (s *GitService) getLocalRepoBranches(repoPath string) ([]string, error) {
-	cmd := s.execGitCommand(repoPath, "branch", "--format=%(refname:short)")
-
-	output, err := cmd.Output()
+	output, err := s.runGitCommand(repoPath, "branch", "--format=%(refname:short)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get local branches: %w", err)
 	}
@@ -2001,7 +2014,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	// All worktrees use repo/branch pattern for consistency
 	// Extract workspace name (remove catnip/ prefix for filesystem paths)
 	workspaceName := git.ExtractWorkspaceName(name)
-	worktreePath := filepath.Join(workspaceDir, repoName, workspaceName)
+	worktreePath := filepath.Join(getWorkspaceDir(), repoName, workspaceName)
 
 	// Create worktree with new branch using the fun name
 	cmd := exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", name, worktreePath, source)

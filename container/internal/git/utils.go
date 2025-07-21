@@ -151,12 +151,6 @@ func IsCatnipBranch(branchName string) bool {
 	return false
 }
 
-// IsVerbNounBranch is deprecated, use IsCatnipBranch instead
-// Keeping for backward compatibility
-func IsVerbNounBranch(branchName string) bool {
-	return IsCatnipBranch(branchName)
-}
-
 // ParseGitHubURL extracts owner and repo from a GitHub URL
 func ParseGitHubURL(url string) (owner, repo string, err error) {
 	// Handle SSH URLs

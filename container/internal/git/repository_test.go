@@ -23,27 +23,27 @@ func TestRepositoryOperations(t *testing.T) {
 	t.Run("GetDefaultBranch", func(t *testing.T) {
 		branch, err := repo.GetDefaultBranch()
 		require.NoError(t, err)
-		assert.Equal(t, "master", branch)
+		assert.Equal(t, "main", branch)
 	})
 
 	t.Run("ListBranches", func(t *testing.T) {
 		branches, err := repo.ListBranches()
 		require.NoError(t, err)
 
-		// Should have master and feature/test branches
-		assert.Contains(t, branches, "master")
+		// Should have main and feature/test branches
+		assert.Contains(t, branches, "main")
 		assert.Contains(t, branches, "feature/test")
 		assert.Len(t, branches, 2)
 	})
 
 	t.Run("BranchExists", func(t *testing.T) {
-		assert.True(t, repo.BranchExists("master"))
+		assert.True(t, repo.BranchExists("main"))
 		assert.True(t, repo.BranchExists("feature/test"))
 		assert.False(t, repo.BranchExists("nonexistent"))
 	})
 
 	t.Run("CreateBranch", func(t *testing.T) {
-		err := repo.CreateBranch("new-feature", "master")
+		err := repo.CreateBranch("new-feature", "main")
 		require.NoError(t, err)
 
 		assert.True(t, repo.BranchExists("new-feature"))
@@ -123,7 +123,7 @@ func TestRepositoryBranchOperations(t *testing.T) {
 		branches := []string{"feature-1", "feature-2", "hotfix"}
 
 		for _, branch := range branches {
-			err := repo.CreateBranch(branch, "master")
+			err := repo.CreateBranch(branch, "") // Use HEAD instead of "main"
 			require.NoError(t, err)
 			assert.True(t, repo.BranchExists(branch))
 		}

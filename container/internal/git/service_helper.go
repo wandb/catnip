@@ -25,6 +25,28 @@ func NewServiceHelper() *ServiceHelper {
 	}
 }
 
+// NewInMemoryServiceHelper creates a new service helper with in-memory git operations for testing
+func NewInMemoryServiceHelper() *ServiceHelper {
+	executor := NewInMemoryExecutor()
+
+	return &ServiceHelper{
+		Executor:      executor,
+		BranchOps:     NewBranchOperations(executor),
+		FetchExecutor: NewFetchExecutor(executor),
+		PushExecutor:  NewPushExecutor(executor),
+		StatusChecker: NewStatusChecker(executor),
+		URLManager:    NewURLManager(executor),
+	}
+}
+
+// GetInMemoryExecutor returns the underlying InMemoryExecutor if this helper uses one, nil otherwise
+func (h *ServiceHelper) GetInMemoryExecutor() *InMemoryExecutor {
+	if executor, ok := h.Executor.(*InMemoryExecutor); ok {
+		return executor
+	}
+	return nil
+}
+
 // Convenience methods for common operations
 
 // ExecuteGit runs a git command with working directory

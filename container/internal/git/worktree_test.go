@@ -13,7 +13,7 @@ func TestWorktreeOperations(t *testing.T) {
 	require.NoError(t, err)
 
 	// Convert to our Worktree interface
-	worktree, err := testRepo.ToWorktree("master")
+	worktree, err := testRepo.ToWorktree("main")
 	require.NoError(t, err)
 
 	t.Run("GetPath", func(t *testing.T) {
@@ -23,14 +23,14 @@ func TestWorktreeOperations(t *testing.T) {
 
 	t.Run("GetBranch", func(t *testing.T) {
 		branch := worktree.GetBranch()
-		assert.Equal(t, "master", branch)
+		assert.Equal(t, "main", branch)
 	})
 
 	t.Run("Status", func(t *testing.T) {
 		status, err := worktree.Status()
 		require.NoError(t, err)
 
-		assert.Equal(t, "master", status.Branch)
+		assert.Equal(t, "main", status.Branch)
 		assert.False(t, status.IsDirty) // Should be clean
 		assert.False(t, status.HasConflicts)
 		assert.Empty(t, status.UnstagedFiles)
@@ -63,7 +63,7 @@ func TestWorktreeFileOperations(t *testing.T) {
 	err = testRepo.CommitFile("README.md", "# Test", "Initial commit")
 	require.NoError(t, err)
 
-	worktree, err := testRepo.ToWorktree("master")
+	worktree, err := testRepo.ToWorktree("main")
 	require.NoError(t, err)
 
 	t.Run("AddAndCommit", func(t *testing.T) {
@@ -103,12 +103,12 @@ func TestWorktreeCheckout(t *testing.T) {
 	testRepo, err := CreateTestRepositoryWithHistory()
 	require.NoError(t, err)
 
-	worktree, err := testRepo.ToWorktree("master")
+	worktree, err := testRepo.ToWorktree("main")
 	require.NoError(t, err)
 
 	t.Run("CheckoutExistingBranch", func(t *testing.T) {
-		// Should start on master
-		assert.Equal(t, "master", worktree.GetBranch())
+		// Should start on main
+		assert.Equal(t, "main", worktree.GetBranch())
 
 		// Checkout feature branch
 		err := worktree.Checkout("feature/test")
@@ -116,11 +116,11 @@ func TestWorktreeCheckout(t *testing.T) {
 
 		assert.Equal(t, "feature/test", worktree.GetBranch())
 
-		// Checkout back to master
-		err = worktree.Checkout("master")
+		// Checkout back to main
+		err = worktree.Checkout("main")
 		require.NoError(t, err)
 
-		assert.Equal(t, "master", worktree.GetBranch())
+		assert.Equal(t, "main", worktree.GetBranch())
 	})
 
 	t.Run("CheckoutNonexistentBranch", func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestWorktreeDiff(t *testing.T) {
 	err = testRepo.CommitFile("file1.txt", "original content", "Initial commit")
 	require.NoError(t, err)
 
-	worktree, err := testRepo.ToWorktree("master")
+	worktree, err := testRepo.ToWorktree("main")
 	require.NoError(t, err)
 
 	t.Run("DiffWithChanges", func(t *testing.T) {
@@ -178,8 +178,8 @@ func TestWorktreeDiff(t *testing.T) {
 		featureWorktree, err := testRepo.ToWorktree("feature")
 		require.NoError(t, err)
 
-		// Compare with master (simplified implementation returns empty diff)
-		diff, err := featureWorktree.DiffWithBranch("master")
+		// Compare with main (simplified implementation returns empty diff)
+		diff, err := featureWorktree.DiffWithBranch("main")
 		require.NoError(t, err)
 
 		// Note: Our simplified go-git implementation returns empty diffs
@@ -194,15 +194,15 @@ func TestWorktreeMerge(t *testing.T) {
 	testRepo, err := CreateTestRepositoryWithHistory()
 	require.NoError(t, err)
 
-	worktree, err := testRepo.ToWorktree("master")
+	worktree, err := testRepo.ToWorktree("main")
 	require.NoError(t, err)
 
 	t.Run("MergeFeatureBranch", func(t *testing.T) {
-		// Switch to master if not already there
-		err := worktree.Checkout("master")
+		// Switch to main if not already there
+		err := worktree.Checkout("main")
 		require.NoError(t, err)
 
-		// Merge feature branch into master (expect error since not fully implemented)
+		// Merge feature branch into main (expect error since not fully implemented)
 		err = worktree.Merge("feature/test")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "merge operation not fully supported")
