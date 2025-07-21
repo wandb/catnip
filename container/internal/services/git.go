@@ -210,7 +210,7 @@ type PushStrategy struct {
 	RemoteURL    string // Remote URL (optional, for local repos)
 	SyncOnFail   bool   // Whether to sync with upstream on push failure
 	SetUpstream  bool   // Whether to set upstream (-u flag)
-	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS
+	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS (includes workflow detection)
 }
 
 // pushBranch unified push method with strategy pattern
@@ -2649,7 +2649,7 @@ func (s *GitService) pushBranchWithSync(worktree *models.Worktree, repo *models.
 	strategy := PushStrategy{
 		SetUpstream:  true,
 		SyncOnFail:   true,
-		ConvertHTTPS: true,
+		ConvertHTTPS: true, // This now includes automatic workflow detection
 	}
 
 	if s.isLocalRepo(worktree.RepoID) {

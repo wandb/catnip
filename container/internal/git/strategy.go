@@ -23,7 +23,7 @@ type PushStrategy struct {
 	RemoteURL    string // Remote URL (optional, for local repos)
 	SyncOnFail   bool   // Whether to sync with upstream on push failure
 	SetUpstream  bool   // Whether to set upstream (-u flag)
-	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS
+	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS (includes workflow detection)
 }
 
 // FetchExecutor handles fetch operations with strategy pattern
@@ -142,15 +142,17 @@ func (f *FetchExecutor) FetchBranchFull(repoPath, branch string) error {
 
 // PushExecutor handles push operations with strategy pattern
 type PushExecutor struct {
-	executor   CommandExecutor
-	urlManager *URLManager
+	executor         CommandExecutor
+	urlManager       *URLManager
+	workflowDetector *WorkflowChangeDetector
 }
 
 // NewPushExecutor creates a new push executor
 func NewPushExecutor(executor CommandExecutor) *PushExecutor {
 	return &PushExecutor{
-		executor:   executor,
-		urlManager: NewURLManager(executor),
+		executor:         executor,
+		urlManager:       NewURLManager(executor),
+		workflowDetector: NewWorkflowChangeDetector(executor),
 	}
 }
 
@@ -161,28 +163,21 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 		strategy.Remote = "origin"
 	}
 
-	// Handle remote URL setup if needed
-	if strategy.RemoteURL != "" || strategy.ConvertHTTPS {
-		targetURL := strategy.RemoteURL
-		if targetURL == "" && strategy.ConvertHTTPS {
-			// Get current URL and convert it
-			branchOps := NewBranchOperations(p.executor)
-			originalURL, err := branchOps.GetRemoteURL(worktreePath)
-			if err != nil {
-				return fmt.Errorf("failed to get remote URL: %v", err)
-			}
-			targetURL = originalURL
+	// Determine if we should use HTTPS - either explicitly requested or workflow files detected
+	shouldUseHTTPS := strategy.ConvertHTTPS
+	if !shouldUseHTTPS {
+		// Check for workflow file changes that would require HTTPS for OAuth scope
+		shouldUseHTTPS = p.workflowDetector.HasWorkflowChanges(worktreePath, strategy.Branch)
+		if shouldUseHTTPS {
+			log.Printf("🔧 Detected workflow file changes, using HTTPS for push to avoid OAuth scope issues")
 		}
+	}
 
-		if strategy.ConvertHTTPS {
-			targetURL = ConvertSSHToHTTPS(targetURL)
-		}
-
-		if err := p.urlManager.SetupRemoteURL(worktreePath, strategy.Remote, targetURL); err != nil {
+	// Handle explicit remote URL (for local repos only)
+	if strategy.RemoteURL != "" {
+		if err := p.urlManager.SetupRemoteURL(worktreePath, strategy.Remote, strategy.RemoteURL); err != nil {
 			return err
 		}
-
-		// Restore URL on exit
 		defer func() {
 			if err := p.urlManager.RestoreOriginalURL(worktreePath, strategy.Remote); err != nil {
 				log.Printf("⚠️ Failed to restore original URL: %v", err)
@@ -197,8 +192,18 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 	}
 	args = append(args, strategy.Remote, strategy.Branch)
 
-	// Execute push
-	output, err := p.executor.ExecuteGitWithWorkingDir(worktreePath, args...)
+	// Execute push with URL rewriting if HTTPS is needed (safer than modifying .git/config)
+	var output []byte
+	var err error
+	if shouldUseHTTPS {
+		// Use git config URL rewriting - works for SSH (converts) and HTTPS (no-op)
+		// This avoids OAuth scope issues and doesn't modify .git/config
+		gitArgs := append([]string{"-c", "url.https://github.com/.insteadOf=git@github.com:"}, args...)
+		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, gitArgs...)
+	} else {
+		// Normal push execution
+		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, args...)
+	}
 	if err != nil {
 		// Handle push rejection with sync retry if configured
 		if strategy.SyncOnFail && IsPushRejected(err, string(output)) {
