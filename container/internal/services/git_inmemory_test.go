@@ -579,6 +579,10 @@ func TestInMemoryExecutorDirectly(t *testing.T) {
 		err = repo.CommitFile("README.md", "# Test", "Initial commit")
 		require.NoError(t, err)
 
+		// Rename master to main for consistency
+		err = repo.RenameBranch("master", "main")
+		require.NoError(t, err)
+
 		executor.AddRepository("/test/direct", repo)
 
 		// Test git commands

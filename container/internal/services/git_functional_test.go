@@ -363,7 +363,8 @@ func TestGitServiceCleanupOperationsFunctional(t *testing.T) {
 
 	t.Run("CleanupMergedWorktrees", func(t *testing.T) {
 		// Should not error even with no worktrees
-		_, _, _ = service.CleanupMergedWorktrees()
+		_, _, err := service.CleanupMergedWorktrees()
+		assert.NoError(t, err)
 
 		// Add some test worktrees
 		service.worktrees["test1"] = &models.Worktree{
@@ -380,7 +381,8 @@ func TestGitServiceCleanupOperationsFunctional(t *testing.T) {
 		}
 
 		// Should not error with worktrees (though cleanup may not work without real git repos)
-		_, _, _ = service.CleanupMergedWorktrees()
+		_, _, err = service.CleanupMergedWorktrees()
+		assert.NoError(t, err)
 	})
 
 	t.Run("CleanupUnusedBranches", func(t *testing.T) {
@@ -390,7 +392,8 @@ func TestGitServiceCleanupOperationsFunctional(t *testing.T) {
 
 	t.Run("TriggerManualSync", func(t *testing.T) {
 		// Should not error
-		_ = service.TriggerManualSync()
+		err := service.TriggerManualSync()
+		assert.NoError(t, err)
 	})
 
 	t.Run("Stop", func(t *testing.T) {

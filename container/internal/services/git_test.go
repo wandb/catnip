@@ -222,12 +222,14 @@ func TestGitServiceCleanupOperations(t *testing.T) {
 
 	t.Run("CleanupMergedWorktrees", func(t *testing.T) {
 		// Should not error even with no worktrees
-		_, _, _ = service.CleanupMergedWorktrees()
+		_, _, err := service.CleanupMergedWorktrees()
+		assert.NoError(t, err)
 	})
 
 	t.Run("TriggerManualSync", func(t *testing.T) {
 		// Should not error
-		_ = service.TriggerManualSync()
+		err := service.TriggerManualSync()
+		assert.NoError(t, err)
 	})
 
 	t.Run("Stop", func(t *testing.T) {
