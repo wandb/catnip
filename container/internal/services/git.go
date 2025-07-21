@@ -210,7 +210,7 @@ type PushStrategy struct {
 	RemoteURL    string // Remote URL (optional, for local repos)
 	SyncOnFail   bool   // Whether to sync with upstream on push failure
 	SetUpstream  bool   // Whether to set upstream (-u flag)
-	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS (includes workflow detection)
+	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS
 }
 
 // pushBranch unified push method with strategy pattern
@@ -2649,7 +2649,7 @@ func (s *GitService) pushBranchWithSync(worktree *models.Worktree, repo *models.
 	strategy := PushStrategy{
 		SetUpstream:  true,
 		SyncOnFail:   true,
-		ConvertHTTPS: true, // This now includes automatic workflow detection
+		ConvertHTTPS: true, // Convert SSH URLs to HTTPS
 	}
 
 	if s.isLocalRepo(worktree.RepoID) {
@@ -2811,7 +2811,7 @@ func (s *GitService) inferRemoteURL(repoPath string) (string, error) {
 	return "", fmt.Errorf("could not infer remote URL from repository")
 }
 
-// Removed setupRemoteOrigin - use s.helper.SetupRemoteURL directly
+// Removed setupRemoteOrigin - remote setup is now handled by URL manager with .insteadOf
 
 // GetPullRequestInfo gets information about an existing pull request for a worktree
 func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestInfo, error) {

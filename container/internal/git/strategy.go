@@ -142,17 +142,15 @@ func (f *FetchExecutor) FetchBranchFull(repoPath, branch string) error {
 
 // PushExecutor handles push operations with strategy pattern
 type PushExecutor struct {
-	executor         CommandExecutor
-	urlManager       *URLManager
-	workflowDetector *WorkflowChangeDetector
+	executor   CommandExecutor
+	urlManager *URLManager
 }
 
 // NewPushExecutor creates a new push executor
 func NewPushExecutor(executor CommandExecutor) *PushExecutor {
 	return &PushExecutor{
-		executor:         executor,
-		urlManager:       NewURLManager(executor),
-		workflowDetector: NewWorkflowChangeDetector(executor),
+		executor:   executor,
+		urlManager: NewURLManager(executor),
 	}
 }
 
@@ -161,28 +159,6 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 	// Set defaults
 	if strategy.Remote == "" {
 		strategy.Remote = "origin"
-	}
-
-	// Determine if we should use HTTPS - either explicitly requested or workflow files detected
-	shouldUseHTTPS := strategy.ConvertHTTPS
-	if !shouldUseHTTPS {
-		// Check for workflow file changes that would require HTTPS for OAuth scope
-		shouldUseHTTPS = p.workflowDetector.HasWorkflowChanges(worktreePath, strategy.Branch)
-		if shouldUseHTTPS {
-			log.Printf("🔧 Detected workflow file changes, using HTTPS for push to avoid OAuth scope issues")
-		}
-	}
-
-	// Handle explicit remote URL (for local repos only)
-	if strategy.RemoteURL != "" {
-		if err := p.urlManager.SetupRemoteURL(worktreePath, strategy.Remote, strategy.RemoteURL); err != nil {
-			return err
-		}
-		defer func() {
-			if err := p.urlManager.RestoreOriginalURL(worktreePath, strategy.Remote); err != nil {
-				log.Printf("⚠️ Failed to restore original URL: %v", err)
-			}
-		}()
 	}
 
 	// Build push command
@@ -195,7 +171,7 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 	// Execute push with URL rewriting if HTTPS is needed (safer than modifying .git/config)
 	var output []byte
 	var err error
-	if shouldUseHTTPS {
+	if strategy.ConvertHTTPS {
 		// Use git config URL rewriting - works for SSH (converts) and HTTPS (no-op)
 		// This avoids OAuth scope issues and doesn't modify .git/config
 		gitArgs := append([]string{"-c", "url.https://github.com/.insteadOf=git@github.com:"}, args...)
