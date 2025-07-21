@@ -1,11 +1,9 @@
 package services
 
 import (
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log"
-	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -25,65 +24,17 @@ const (
 	devRepoPath  = "/live/catnip" // Kept for backwards compatibility
 )
 
-// Fun session name generation (matches frontend and worker)
-var verbs = []string{"warp", "pixelate", "compile", "encrypt", "vectorize", "hydrate", "fork",
-	"spawn", "dockerize", "cache", "teleport", "refactor", "quantize", "stream", "debug"}
-
-var nouns = []string{"otter", "kraken", "wombat", "quokka", "nebula", "photon", "quasar",
-	"badger", "pangolin", "goblin", "cyborg", "ninja", "gizmo", "raptor", "penguin"}
-
-func generateSessionName() string {
-	verbIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(verbs))))
-	nounIndex, _ := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(len(nouns))))
-	verb := verbs[verbIndex.Int64()]
-	noun := nouns[nounIndex.Int64()]
-	return fmt.Sprintf("%s-%s", verb, noun)
-}
-
 // generateUniqueSessionName generates a unique session name that doesn't already exist as a branch
 func (s *GitService) generateUniqueSessionName(repoPath string) string {
-	maxAttempts := 100 // Prevent infinite loops
-	for i := 0; i < maxAttempts; i++ {
-		name := generateSessionName()
-		// Check if branch exists locally
-		if !s.branchExists(repoPath, name, false) {
-			return name
-		}
-		log.Printf("⚠️  Branch %s already exists, trying another name... (attempt %d/%d)", name, i+1, maxAttempts)
-	}
-
-	// Fallback: append timestamp to ensure uniqueness
-	fallbackName := fmt.Sprintf("%s-%d", generateSessionName(), time.Now().Unix())
-	log.Printf("⚠️  After %d attempts, falling back to timestamp-based name: %s", maxAttempts, fallbackName)
-	return fallbackName
+	// Use the shared function with GitService's branch checking logic
+	return git.GenerateUniqueSessionName(func(name string) bool {
+		return s.branchExists(repoPath, name, false)
+	})
 }
 
 // isVerbNounBranch checks if a branch name matches our verb-noun pattern
 func isVerbNounBranch(branchName string) bool {
-	parts := strings.Split(branchName, "-")
-	if len(parts) != 2 {
-		return false
-	}
-
-	// Check if first part is a verb
-	verbFound := false
-	for _, verb := range verbs {
-		if parts[0] == verb {
-			verbFound = true
-			break
-		}
-	}
-	if !verbFound {
-		return false
-	}
-
-	// Check if second part is a noun
-	for _, noun := range nouns {
-		if parts[1] == noun {
-			return true
-		}
-	}
-	return false
+	return git.IsVerbNounBranch(branchName)
 }
 
 // cleanupUnusedBranches removes verb-noun branches that have no commits
@@ -189,6 +140,7 @@ func (s *GitService) cleanupUnusedBranches() {
 type GitService struct {
 	repositories map[string]*models.Repository // key: repoID (e.g., "owner/repo")
 	worktrees    map[string]*models.Worktree   // key: worktree ID
+	manager      git.Manager                   // Delegate for core git operations
 	mu           sync.RWMutex
 }
 
@@ -611,9 +563,13 @@ func (s *GitService) hasConflicts(worktreePath string) bool {
 
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
+	// Create the underlying git manager
+	manager := git.NewManager()
+
 	s := &GitService{
 		repositories: make(map[string]*models.Repository),
 		worktrees:    make(map[string]*models.Worktree),
+		manager:      manager,
 	}
 
 	// Ensure workspace directory exists
@@ -623,8 +579,10 @@ func NewGitService() *GitService {
 	// Configure Git to use gh as credential helper if available
 	s.configureGitCredentials()
 
-	// Load existing state if available
-	_ = s.loadState()
+	// Load existing state (repositories and worktrees) from previous sessions
+	if err := s.loadState(); err != nil {
+		log.Printf("⚠️ Failed to load GitService state: %v", err)
+	}
 
 	// Detect and load any local repositories in /live
 	s.detectLocalRepos()
@@ -1145,7 +1103,9 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	dirName := filepath.Base(repo.Path)
 
 	// Create worktree path with repo directory prefix
-	worktreePath := filepath.Join(workspaceDir, dirName, name)
+	// Extract workspace name (remove catnip/ prefix for filesystem paths)
+	workspaceName := git.ExtractWorkspaceName(name)
+	worktreePath := filepath.Join(workspaceDir, dirName, workspaceName)
 
 	// Create worktree directory first
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
@@ -1200,8 +1160,8 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 		}
 	}
 
-	// Create display name with repo directory prefix
-	displayName := fmt.Sprintf("%s/%s", dirName, name)
+	// Create display name with repo directory prefix (use already extracted workspaceName from line 1102)
+	displayName := fmt.Sprintf("%s/%s", dirName, workspaceName)
 
 	worktree := &models.Worktree{
 		ID:            id,
@@ -2354,7 +2314,9 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	repoName := repoParts[len(repoParts)-1]
 
 	// All worktrees use repo/branch pattern for consistency
-	worktreePath := filepath.Join(workspaceDir, repoName, name)
+	// Extract workspace name (remove catnip/ prefix for filesystem paths)
+	workspaceName := git.ExtractWorkspaceName(name)
+	worktreePath := filepath.Join(workspaceDir, repoName, workspaceName)
 
 	// Create worktree with new branch using the fun name
 	cmd := exec.Command("git", "-C", repo.Path, "worktree", "add", "-b", name, worktreePath, source)
@@ -2434,8 +2396,8 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	repoParts = strings.Split(repo.ID, "/")
 	repoName = repoParts[len(repoParts)-1]
 
-	// Create display name with repo name prefix
-	displayName := fmt.Sprintf("%s/%s", repoName, name)
+	// Create display name with repo name prefix (use already extracted workspaceName from line 2313)
+	displayName := fmt.Sprintf("%s/%s", repoName, workspaceName)
 
 	worktree := &models.Worktree{
 		ID:           id,

@@ -12,8 +12,8 @@
   "r2_buckets": [
     {
       "binding": "CATNIP_ASSETS",
-      "bucket_name": "catnip"
-    }
+      "bucket_name": "catnip",
+    },
   ],
   "assets": {
     "binding": "ASSETS",
@@ -23,41 +23,41 @@
       "/", // Worker checks for Curl User-Agent to send install.sh
       "/v1/*", // Worker handles API routes
       "/*.git", // Worker handles git repositories
-      "/[0-9]*/*" // Worker handles port forwarding
-    ]
+      "/3*/*", // Worker handles port forwarding (currently only 3xxx)
+    ],
   },
   "routes": [
     { "pattern": "catnip.run/*", "zone_name": "catnip.run" },
-    { "pattern": "install.catnip.sh/*", "zone_name": "catnip.sh" }
+    { "pattern": "install.catnip.sh/*", "zone_name": "catnip.sh" },
   ],
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "containers": [
     {
       "class_name": "CatnipContainer",
       "max_instances": 40,
       "name": "catnip-container",
-      "image": "registry.cloudflare.com/0081e9dfbeb0e1a212ec5101e3c8768a/ghcr.io/wandb/catnip:0.1.0"
-    }
+      "image": "./Dockerfile",
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "class_name": "CatnipContainer",
-        "name": "CATNIP_CONTAINER"
+        "name": "CATNIP_CONTAINER",
       },
       {
         "class_name": "SessionStore",
-        "name": "SESSIONS"
-      }
-    ]
+        "name": "SESSIONS",
+      },
+    ],
   },
   "migrations": [
     {
       "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
-      "tag": "v1"
-    }
+      "tag": "v1",
+    },
   ],
   /**
    * Smart Placement
@@ -82,87 +82,91 @@
       "vars": {
         "GITHUB_APP_ID": "1594287", // Different App ID for QA
         "GITHUB_CLIENT_ID": "Iv23liQAclientid",
-        "ENVIRONMENT": "qa"
+        "ENVIRONMENT": "qa",
       },
       "r2_buckets": [
         {
           "binding": "CATNIP_ASSETS",
-          "bucket_name": "catnip"
-        }
+          "bucket_name": "catnip",
+        },
       ],
       "routes": [{ "pattern": "qa.catnip.run/*", "zone_name": "catnip.run" }],
       "durable_objects": {
         "bindings": [
           {
             "class_name": "CatnipContainer",
-            "name": "CATNIP_CONTAINER"
+            "name": "CATNIP_CONTAINER",
           },
           {
             "class_name": "SessionStore",
-            "name": "SESSIONS"
-          }
-        ]
+            "name": "SESSIONS",
+          },
+        ],
       },
       "containers": [
         {
           "class_name": "CatnipContainer",
           "max_instances": 40,
           "name": "catnip-container",
-          "image": "registry.cloudflare.com/0081e9dfbeb0e1a212ec5101e3c8768a/ghcr.io/wandb/catnip:0.1.0"
-        }
+          "image": "./Dockerfile",
+        },
       ],
       "migrations": [
         {
           "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
-          "tag": "v1"
-        }
-      ]
+          "tag": "v1",
+        },
+      ],
     },
     "production": {
       "name": "catnip",
       "vars": {
         "GITHUB_APP_ID": "1594285",
         "GITHUB_CLIENT_ID": "Iv23liz5Ry8r5913ZAhz",
-        "ENVIRONMENT": "production"
+        "ENVIRONMENT": "production",
       },
       "r2_buckets": [
         {
           "binding": "CATNIP_ASSETS",
-          "bucket_name": "catnip"
-        }
+          "bucket_name": "catnip",
+        },
       ],
       "routes": [
         { "pattern": "catnip.run/*", "zone_name": "catnip.run" },
-        { "pattern": "install.catnip.sh/*", "zone_name": "catnip.sh" }
+        { "pattern": "install.catnip.sh/*", "zone_name": "catnip.sh" },
       ],
       "durable_objects": {
         "bindings": [
           {
             "class_name": "CatnipContainer",
-            "name": "CATNIP_CONTAINER"
+            "name": "CATNIP_CONTAINER",
           },
           {
             "class_name": "SessionStore",
-            "name": "SESSIONS"
-          }
-        ]
+            "name": "SESSIONS",
+          },
+        ],
       },
       "containers": [
         {
           "class_name": "CatnipContainer",
-          "max_instances": 40,
+          "max_instances": 10,
           "name": "catnip-container",
-          "image": "registry.cloudflare.com/0081e9dfbeb0e1a212ec5101e3c8768a/ghcr.io/wandb/catnip:0.1.0"
-        }
+          "image": "./Dockerfile",
+          "instance_type": "standard",
+        },
       ],
+      "observability": {
+        "enabled": true,
+      },
       "migrations": [
         {
           "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
-          "tag": "v1"
-        }
-      ]
-    }
-  }
+          "tag": "v1",
+        },
+      ],
+    },
+  },
   /**
    * Note: Use secrets to store sensitive data.
    * https://developers.cloudflare.com/workers/configuration/secrets/

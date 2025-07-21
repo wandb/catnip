@@ -11,7 +11,7 @@ export class CatnipContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "10m";
   environmentVariables = {
-    CATNIP_PROXY: "http://localhost:8787",
+    CATNIP_PROXY: "https://catnip.run",
   };
 }
 
@@ -520,15 +520,7 @@ export function createApp(env: Env) {
     if (shouldRouteToContainer(url.pathname)) {
       const userId = c.get("userId") || "default";
       const container = await getContainer(c.env.CATNIP_CONTAINER, userId);
-      const containerUrl = new URL(c.req.url);
-      containerUrl.host = `container:8080`;
-      return container.fetch(
-        new Request(containerUrl, {
-          method: c.req.method,
-          headers: c.req.raw.headers,
-          body: c.req.raw.body,
-        }),
-      );
+      return container.fetch(c.req.raw);
     }
 
     // All other requests go to static assets

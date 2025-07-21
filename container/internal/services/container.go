@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/vanpelt/catnip/internal/gitutil"
+	"github.com/vanpelt/catnip/internal/git"
 )
 
 type ContainerRuntime string
@@ -97,7 +97,7 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	}
 
 	// Check if we're in a git repository and determine mount strategy
-	gitRoot, isGitRepo := gitutil.FindGitRoot(workDir)
+	gitRoot, isGitRepo := git.FindGitRoot(workDir)
 	if isGitRepo {
 		// Use git repository basename for mount path
 		basename := filepath.Base(gitRoot)
@@ -297,9 +297,9 @@ func (cs *ContainerService) GetRepositoryInfo(ctx context.Context, workDir strin
 	start := time.Now()
 	containerDebugLog("GetRepositoryInfo() starting - workDir: %s", workDir)
 
-	containerDebugLog("GetRepositoryInfo() calling gitutil.FindGitRoot - elapsed: %v", time.Since(start))
-	gitRoot, isGitRepo := gitutil.FindGitRoot(workDir)
-	containerDebugLog("GetRepositoryInfo() gitutil.FindGitRoot returned - isGitRepo: %t, elapsed: %v", isGitRepo, time.Since(start))
+	containerDebugLog("GetRepositoryInfo() calling git.FindGitRoot - elapsed: %v", time.Since(start))
+	gitRoot, isGitRepo := git.FindGitRoot(workDir)
+	containerDebugLog("GetRepositoryInfo() git.FindGitRoot returned - isGitRepo: %t, elapsed: %v", isGitRepo, time.Since(start))
 
 	info := map[string]interface{}{
 		"is_git_repo": isGitRepo,
