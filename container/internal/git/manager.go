@@ -33,7 +33,7 @@ func NewManager() Manager {
 	manager := &ManagerImpl{
 		repositories: make(map[string]*models.Repository),
 		worktrees:    make(map[string]*models.Worktree),
-		executor:     NewGitCommandExecutor(),
+		executor:     NewGoGitCommandExecutor(), // Use go-git by default
 		stateManager: NewStateManager(stateFile),
 	}
 

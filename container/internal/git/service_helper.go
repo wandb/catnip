@@ -13,7 +13,21 @@ type ServiceHelper struct {
 
 // NewServiceHelper creates a new service helper with all components
 func NewServiceHelper() *ServiceHelper {
-	executor := NewGitCommandExecutor()
+	executor := NewGoGitCommandExecutor() // Use go-git by default
+
+	return &ServiceHelper{
+		Executor:      executor,
+		BranchOps:     NewBranchOperations(executor),
+		FetchExecutor: NewFetchExecutor(executor),
+		PushExecutor:  NewPushExecutor(executor),
+		StatusChecker: NewStatusChecker(executor),
+		URLManager:    NewURLManager(executor),
+	}
+}
+
+// NewShellServiceHelper creates a new service helper using shell git commands
+func NewShellServiceHelper() *ServiceHelper {
+	executor := NewGitCommandExecutor() // Use shell git
 
 	return &ServiceHelper{
 		Executor:      executor,
