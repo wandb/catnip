@@ -140,6 +140,14 @@ func testGitOperationsWithInMemory(t *testing.T, service *GitService, executor *
 }
 
 func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, executor *git.InMemoryExecutor) {
+	// Clear any existing state from previous test runs
+	for k := range service.worktrees {
+		delete(service.worktrees, k)
+	}
+	for k := range service.repositories {
+		delete(service.repositories, k)
+	}
+
 	// Create test repositories and add them to service state
 	repo1, err := git.CreateTestRepositoryWithHistory()
 	require.NoError(t, err)
@@ -260,6 +268,11 @@ func TestGitServiceInMemoryAdvanced(t *testing.T) {
 
 	t.Run("ServiceOperationsWithInMemory", func(t *testing.T) {
 		// Test that service-level operations work with in-memory backend
+
+		// Clear any existing state from previous test runs
+		for k := range service.repositories {
+			delete(service.repositories, k)
+		}
 
 		// Add repository to service state
 		mockRepo := &models.Repository{

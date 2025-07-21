@@ -28,9 +28,57 @@ jobs:
       - name: Download dependencies
         run: go mod download
         working-directory: container
+        
+      - name: Install gotestfmt for better test output (optional)
+        run: go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
+        continue-on-error: true
 
       - name: Run tests with coverage
-        run: go test -v -coverprofile=coverage.out -covermode=atomic ./...
+        run: |
+          set +e  # Don't exit on test failures, we want to process the output
+          go test -json -coverprofile=coverage.out -covermode=atomic ./... > test_results.json 2>&1
+          TEST_EXIT_CODE=$?
+          
+          # Parse JSON output and show a summary
+          echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+          
+          # Count passed/failed tests
+          PASSED=$(jq -r 'select(.Action == "pass") | select(.Test) | .Test' test_results.json 2>/dev/null | wc -l || echo "0")
+          FAILED=$(jq -r 'select(.Action == "fail") | select(.Test) | .Test' test_results.json 2>/dev/null | wc -l || echo "0")
+          SKIPPED=$(jq -r 'select(.Action == "skip") | select(.Test) | .Test' test_results.json 2>/dev/null | wc -l || echo "0")
+          
+          echo "- ✅ **Passed:** $PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "- ❌ **Failed:** $FAILED" >> $GITHUB_STEP_SUMMARY  
+          echo "- ⏭️ **Skipped:** $SKIPPED" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show failed tests with details if any
+          if [ "$FAILED" -gt 0 ]; then
+            echo "### ❌ Failed Tests" >> $GITHUB_STEP_SUMMARY
+            jq -r 'select(.Action == "fail") | select(.Test) | "- **" + .Package + "/" + .Test + "**"' test_results.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Show failure details
+            echo "### Failure Details" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            jq -r 'select(.Action == "output") | select(.Output | contains("FAIL:") or contains("Error:") or contains("panic:")) | .Output' test_results.json 2>/dev/null >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            
+            # Create GitHub annotations for failures
+            jq -r 'select(.Action == "fail") | select(.Test) | "::error title=Test Failed::" + .Package + "/" + .Test' test_results.json 2>/dev/null || true
+          fi
+          
+          # Also output in a more readable format to console
+          if command -v gotestfmt >/dev/null 2>&1; then
+            cat test_results.json | gotestfmt
+          else
+            # Fallback: show compact output
+            jq -r 'select(.Action == "pass") | select(.Package) | select(.Test | not) | "✅ " + .Package' test_results.json 2>/dev/null || true
+            jq -r 'select(.Action == "fail") | select(.Package) | select(.Test | not) | "❌ " + .Package' test_results.json 2>/dev/null || true
+            jq -r 'select(.Action == "fail") | select(.Test) | "  ❌ " + .Test' test_results.json 2>/dev/null || true
+          fi
+          
+          exit $TEST_EXIT_CODE
         working-directory: container
 
       - name: Display coverage summary
