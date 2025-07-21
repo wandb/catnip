@@ -19,8 +19,8 @@ func TestCommitSyncService(t *testing.T) {
 	// Create test workspace
 	tempDir := t.TempDir()
 	oldWorkspace := os.Getenv("WORKSPACE_DIR")
-	os.Setenv("WORKSPACE_DIR", tempDir)
-	defer os.Setenv("WORKSPACE_DIR", oldWorkspace)
+	require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
 
 	// Create required directories
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
