@@ -635,6 +635,74 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/git/worktrees/{id}/rename-branch": {
+            "post": {
+                "description": "Renames a branch in the specified worktree",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Rename a branch",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Rename branch request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.RenameBranchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Branch renamed successfully",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Worktree not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/worktrees/{id}/sync": {
             "post": {
                 "description": "Syncs a worktree with its source branch using merge or rebase strategy",
@@ -1766,6 +1834,17 @@ const docTemplate = `{
                     "description": "Whether the repository is private",
                     "type": "boolean",
                     "example": false
+                }
+            }
+        },
+        "internal_handlers.RenameBranchRequest": {
+            "description": "Request body for renaming a branch",
+            "type": "object",
+            "properties": {
+                "new_branch_name": {
+                    "description": "New branch name",
+                    "type": "string",
+                    "example": "feature-my-new-feature"
                 }
             }
         },

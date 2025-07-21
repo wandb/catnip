@@ -136,6 +136,7 @@ func main() {
 	v1.Post("/git/worktrees/:id/pr", gitHandler.CreatePullRequest)
 	v1.Put("/git/worktrees/:id/pr", gitHandler.UpdatePullRequest)
 	v1.Get("/git/worktrees/:id/pr", gitHandler.GetPullRequestInfo)
+	v1.Post("/git/worktrees/:id/rename-branch", gitHandler.RenameBranch)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
 

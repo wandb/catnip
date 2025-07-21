@@ -585,6 +585,14 @@ definitions:
         example: false
         type: boolean
     type: object
+  internal_handlers.RenameBranchRequest:
+    description: Request body for renaming a branch
+    properties:
+      new_branch_name:
+        description: New branch name
+        example: feature-my-new-feature
+        type: string
+    type: object
   internal_handlers.SSEMessage:
     properties:
       event:
@@ -1113,6 +1121,51 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
       summary: Create worktree preview
+      tags:
+      - git
+  /v1/git/worktrees/{id}/rename-branch:
+    post:
+      consumes:
+      - application/json
+      description: Renames a branch in the specified worktree
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Rename branch request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.RenameBranchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Branch renamed successfully
+          schema:
+            $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Worktree not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rename a branch
       tags:
       - git
   /v1/git/worktrees/{id}/sync:

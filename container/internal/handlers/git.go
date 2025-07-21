@@ -586,3 +586,52 @@ func (h *GitHandler) GetPullRequestInfo(c *fiber.Ctx) error {
 
 	return c.JSON(prInfo)
 }
+
+// RenameBranch handles renaming a branch
+// @Summary Rename a branch
+// @Description Renames a branch in the specified worktree
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param request body RenameBranchRequest true "Rename branch request"
+// @Success 200 {object} WorktreeOperationResponse "Branch renamed successfully"
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 404 {object} map[string]string "Worktree not found"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /v1/git/worktrees/{id}/rename-branch [post]
+func (h *GitHandler) RenameBranch(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	var req RenameBranchRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if req.NewBranchName == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "New branch name is required",
+		})
+	}
+
+	updatedWorktree, err := h.gitService.RenameBranch(worktreeID, req.NewBranchName)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(WorktreeOperationResponse{
+		Message: "Branch renamed successfully",
+		ID:      updatedWorktree.ID,
+	})
+}
+
+// RenameBranchRequest represents the request body for renaming a branch
+// @Description Request body for renaming a branch
+type RenameBranchRequest struct {
+	// New branch name
+	NewBranchName string `json:"new_branch_name" example:"feature-my-new-feature"`
+}
