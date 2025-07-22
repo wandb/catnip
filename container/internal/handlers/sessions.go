@@ -11,6 +11,7 @@ import (
 type SessionsHandler struct {
 	sessionService *services.SessionService
 	claudeService  *services.ClaudeService
+	geminiService  *services.GeminiService
 }
 
 // SessionsResponse represents the response containing all sessions
@@ -42,10 +43,11 @@ type DeleteSessionResponse struct {
 }
 
 // NewSessionsHandler creates a new sessions handler
-func NewSessionsHandler(sessionService *services.SessionService, claudeService *services.ClaudeService) *SessionsHandler {
+func NewSessionsHandler(sessionService *services.SessionService, claudeService *services.ClaudeService, geminiService *services.GeminiService) *SessionsHandler {
 	return &SessionsHandler{
 		sessionService: sessionService,
 		claudeService:  claudeService,
+		geminiService:  geminiService,
 	}
 }
 
@@ -81,7 +83,6 @@ func (h *SessionsHandler) GetAllSessions(c *fiber.Ctx) error {
 // @Param workspace path string true "Workspace directory path"
 // @Param full query boolean false "Include full session data with messages and user prompts"
 // @Success 200 {object} ActiveSessionInfo "Basic session info when full=false"
-// @Success 200 {object} models.FullSessionData "Full session data when full=true"
 // @Router /v1/sessions/workspace/{workspace} [get]
 func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 	workspace := c.Params("workspace")
@@ -162,7 +163,7 @@ func (h *SessionsHandler) DeleteSession(c *fiber.Ctx) error {
 // @Produce json
 // @Param workspace path string true "Workspace directory path"
 // @Param sessionId path string true "Session ID (UUID)"
-// @Success 200 {object} models.FullSessionData
+// @Success 200 {object} github_com_vanpelt_catnip_internal_models.FullSessionData
 // @Router /v1/sessions/workspace/{workspace}/session/{sessionId} [get]
 func (h *SessionsHandler) GetSessionById(c *fiber.Ctx) error {
 	workspace := c.Params("workspace")
