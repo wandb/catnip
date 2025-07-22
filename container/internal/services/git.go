@@ -178,7 +178,9 @@ func (s *GitService) runGitCommand(workingDir string, args ...string) ([]byte, e
 // getSourceRef returns the appropriate source reference for a worktree
 func (s *GitService) getSourceRef(worktree *models.Worktree) string {
 	if s.isLocalRepo(worktree.RepoID) {
-		return fmt.Sprintf("live/%s", worktree.SourceBranch)
+		// For local repos, use the local branch directly since it's the source of truth
+		// The live remote can become stale and doesn't represent the current state
+		return worktree.SourceBranch
 	}
 	return fmt.Sprintf("origin/%s", worktree.SourceBranch)
 }

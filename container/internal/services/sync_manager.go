@@ -30,7 +30,9 @@ func (sm *SyncManager) SyncWorktree(worktree *models.Worktree, strategy string, 
 	// Get the appropriate source reference
 	var sourceRef string
 	if isLocalRepo {
-		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
+		// For local repos, use the local branch directly since it's the source of truth
+		// The live remote can become stale and doesn't represent the current state
+		sourceRef = worktree.SourceBranch
 	} else {
 		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
 	}
@@ -198,7 +200,9 @@ func (sm *SyncManager) checkConflictsInternal(worktree *models.Worktree, operati
 	// Get the appropriate source reference
 	var sourceRef string
 	if isLocalRepo {
-		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
+		// For local repos, use the local branch directly since it's the source of truth
+		// The live remote can become stale and doesn't represent the current state
+		sourceRef = worktree.SourceBranch
 	} else {
 		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
 	}

@@ -181,7 +181,9 @@ func (wm *WorktreeManager) UpdateWorktreeStatus(worktree *models.Worktree, shoul
 	// Determine source reference based on repo type
 	var sourceRef string
 	if isLocalRepo {
-		sourceRef = fmt.Sprintf("live/%s", worktree.SourceBranch)
+		// For local repos, use the local branch directly since it's the source of truth
+		// The live remote can become stale and doesn't represent the current state
+		sourceRef = worktree.SourceBranch
 	} else {
 		sourceRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
 	}
