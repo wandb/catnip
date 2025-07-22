@@ -98,7 +98,6 @@ func main() {
 
 	// Initialize services
 	claudeService := services.NewClaudeService()
-	geminiService := services.NewGeminiService()
 
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService)
@@ -106,8 +105,7 @@ func main() {
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, ptyHandler.GetSessionService())
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
-	geminiHandler := handlers.NewGeminiHandler(geminiService)
-	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService, geminiService)
+	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService)
 	portsHandler := handlers.NewPortsHandler(portMonitor)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
@@ -146,11 +144,6 @@ func main() {
 	v1.Get("/claude/session/:uuid", claudeHandler.GetSessionByUUID)
 	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
 	v1.Post("/claude/completion", claudeHandler.GetClaudeCompletion)
-
-	// Gemini routes
-	v1.Get("/gemini/sessions", geminiHandler.GetAllWorktreeSessionSummaries)
-	v1.Get("/gemini/session/:uuid", geminiHandler.GetSessionByUUID)
-	v1.Get("/gemini/session/:uuid/messages", geminiHandler.GetSessionMessages)
 
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)
