@@ -309,6 +309,7 @@ func (s *GitService) hasConflicts(worktreePath string) bool {
 
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
+	fmt.Println("🐛 [DEBUG] NewGitService called - debug logging is active!")
 	return NewGitServiceWithHelper(git.NewServiceHelper())
 }
 

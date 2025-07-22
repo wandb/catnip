@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,11 +19,16 @@ func NewStatusChecker(executor CommandExecutor) *StatusChecker {
 
 // IsDirty checks if a worktree has uncommitted changes
 func (s *StatusChecker) IsDirty(worktreePath string) bool {
+	fmt.Printf("[StatusChecker] IsDirty called for: %s\n", worktreePath)
 	output, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "status", "--porcelain")
 	if err != nil {
+		fmt.Printf("[StatusChecker] Error: %v\n", err)
 		return false
 	}
-	return len(strings.TrimSpace(string(output))) > 0
+	fmt.Printf("[StatusChecker] Output: '%s'\n", string(output))
+	isDirty := len(strings.TrimSpace(string(output))) > 0
+	fmt.Printf("[StatusChecker] Result: %v\n", isDirty)
+	return isDirty
 }
 
 // HasConflicts checks if a worktree is in a conflicted state (rebase/merge in progress)

@@ -26,7 +26,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.AuthStartResponse"
+                            "$ref": "#/definitions/handlers.AuthStartResponse"
                         }
                     }
                 }
@@ -43,7 +43,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.AuthStatusResponse"
+                            "$ref": "#/definitions/handlers.AuthStatusResponse"
                         }
                     }
                 }
@@ -69,7 +69,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionRequest"
+                            "$ref": "#/definitions/models.CompletionRequest"
                         }
                     }
                 ],
@@ -77,7 +77,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionResponse"
+                            "$ref": "#/definitions/models.CompletionResponse"
                         }
                     },
                     "400": {
@@ -124,7 +124,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
+                            "$ref": "#/definitions/models.ClaudeSessionSummary"
                         }
                     }
                 }
@@ -153,7 +153,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+                            "$ref": "#/definitions/models.FullSessionData"
                         }
                     }
                 }
@@ -175,7 +175,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
-                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
+                                "$ref": "#/definitions/models.ClaudeSessionSummary"
                             }
                         }
                     }
@@ -199,7 +199,7 @@ const docTemplate = `{
                     "200": {
                         "description": "SSE stream of events",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.SSEMessage"
+                            "$ref": "#/definitions/handlers.SSEMessage"
                         }
                     }
                 }
@@ -276,7 +276,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.CheckoutResponse"
+                            "$ref": "#/definitions/handlers.CheckoutResponse"
                         }
                     }
                 }
@@ -298,7 +298,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/internal_handlers.GitHubRepository"
+                                "$ref": "#/definitions/handlers.GitHubRepository"
                             }
                         }
                     }
@@ -319,7 +319,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.GitStatus"
+                            "$ref": "#/definitions/models.GitStatus"
                         }
                     }
                 }
@@ -341,7 +341,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+                                "$ref": "#/definitions/models.Worktree"
                             }
                         }
                     }
@@ -392,7 +392,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+                            "$ref": "#/definitions/handlers.WorktreeOperationResponse"
                         }
                     }
                 }
@@ -421,7 +421,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeDiffResponse"
+                            "$ref": "#/definitions/handlers.WorktreeDiffResponse"
                         }
                     }
                 }
@@ -464,7 +464,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+                            "$ref": "#/definitions/handlers.WorktreeOperationResponse"
                         }
                     }
                 }
@@ -493,7 +493,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
+                            "$ref": "#/definitions/handlers.ConflictCheckResponse"
                         }
                     }
                 }
@@ -522,7 +522,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo"
+                            "$ref": "#/definitions/models.PullRequestInfo"
                         }
                     }
                 }
@@ -553,7 +553,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
+                            "$ref": "#/definitions/handlers.CreatePullRequestRequest"
                         }
                     }
                 ],
@@ -561,7 +561,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
+                            "$ref": "#/definitions/models.PullRequestResponse"
                         }
                     }
                 }
@@ -592,7 +592,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.CreatePullRequestRequest"
+                            "$ref": "#/definitions/handlers.CreatePullRequestRequest"
                         }
                     }
                 ],
@@ -600,7 +600,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse"
+                            "$ref": "#/definitions/models.PullRequestResponse"
                         }
                     }
                 }
@@ -629,7 +629,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+                            "$ref": "#/definitions/handlers.WorktreeOperationResponse"
                         }
                     }
                 }
@@ -673,7 +673,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+                            "$ref": "#/definitions/handlers.WorktreeOperationResponse"
                         }
                     }
                 }
@@ -702,7 +702,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.ConflictCheckResponse"
+                            "$ref": "#/definitions/handlers.ConflictCheckResponse"
                         }
                     }
                 }
@@ -758,7 +758,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Port information",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_services.ServiceInfo"
+                            "$ref": "#/definitions/services.ServiceInfo"
                         }
                     },
                     "404": {
@@ -813,7 +813,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.SessionsResponse"
+                            "$ref": "#/definitions/handlers.SessionsResponse"
                         }
                     }
                 }
@@ -833,7 +833,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.SessionsResponse"
+                            "$ref": "#/definitions/handlers.SessionsResponse"
                         }
                     }
                 }
@@ -868,7 +868,7 @@ const docTemplate = `{
                     "200": {
                         "description": "Full session data when full=true",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+                            "$ref": "#/definitions/models.FullSessionData"
                         }
                     }
                 }
@@ -895,7 +895,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.DeleteSessionResponse"
+                            "$ref": "#/definitions/handlers.DeleteSessionResponse"
                         }
                     }
                 }
@@ -931,7 +931,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+                            "$ref": "#/definitions/models.FullSessionData"
                         }
                     }
                 }
@@ -963,19 +963,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.UploadResponse"
+                            "$ref": "#/definitions/handlers.UploadResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.UploadResponse"
+                            "$ref": "#/definitions/handlers.UploadResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/internal_handlers.UploadResponse"
+                            "$ref": "#/definitions/handlers.UploadResponse"
                         }
                     }
                 }
@@ -983,7 +983,339 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry": {
+        "handlers.ActiveSessionInfo": {
+            "description": "Active session information with timing and Claude session details",
+            "type": "object",
+            "properties": {
+                "claude_session_uuid": {
+                    "description": "Unique identifier for the Claude session",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "ended_at": {
+                    "description": "When the session ended (if not active)",
+                    "type": "string",
+                    "example": "2024-01-15T18:30:00Z"
+                },
+                "resumed_at": {
+                    "description": "When the session was resumed (if applicable)",
+                    "type": "string",
+                    "example": "2024-01-15T16:00:00Z"
+                },
+                "started_at": {
+                    "description": "When the session was initially started",
+                    "type": "string",
+                    "example": "2024-01-15T14:30:00Z"
+                },
+                "title": {
+                    "description": "Title of the session",
+                    "type": "string",
+                    "example": "Updating README.md"
+                }
+            }
+        },
+        "handlers.AppEvent": {
+            "type": "object",
+            "properties": {
+                "payload": {},
+                "type": {
+                    "$ref": "#/definitions/handlers.EventType"
+                }
+            }
+        },
+        "handlers.AuthStartResponse": {
+            "description": "Response when starting GitHub device flow authentication",
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Device verification code to enter on GitHub",
+                    "type": "string",
+                    "example": "1234-5678"
+                },
+                "status": {
+                    "description": "Current authentication status",
+                    "type": "string",
+                    "example": "waiting"
+                },
+                "url": {
+                    "description": "GitHub device activation URL",
+                    "type": "string",
+                    "example": "https://github.com/login/device"
+                }
+            }
+        },
+        "handlers.AuthStatusResponse": {
+            "description": "Response containing the current authentication status",
+            "type": "object",
+            "properties": {
+                "error": {
+                    "description": "Error message if authentication failed",
+                    "type": "string",
+                    "example": "authentication timeout"
+                },
+                "status": {
+                    "description": "Authentication status: pending, waiting, success, or error",
+                    "type": "string",
+                    "example": "success"
+                }
+            }
+        },
+        "handlers.CheckoutResponse": {
+            "description": "Response containing repository and worktree information after checkout",
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Success message",
+                    "type": "string",
+                    "example": "Repository checked out successfully"
+                },
+                "repository": {
+                    "description": "Repository information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.Repository"
+                        }
+                    ]
+                },
+                "worktree": {
+                    "description": "Created worktree information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.Worktree"
+                        }
+                    ]
+                }
+            }
+        },
+        "handlers.ConflictCheckResponse": {
+            "description": "Response containing conflict information for sync/merge operations",
+            "type": "object",
+            "properties": {
+                "conflict_files": {
+                    "description": "List of files with conflicts",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[\"src/main.go\"",
+                        " \"README.md\"]"
+                    ]
+                },
+                "has_conflicts": {
+                    "description": "Whether conflicts were detected",
+                    "type": "boolean",
+                    "example": true
+                },
+                "message": {
+                    "description": "Status message",
+                    "type": "string",
+                    "example": "No conflicts detected"
+                },
+                "operation": {
+                    "description": "Operation type (sync/merge)",
+                    "type": "string",
+                    "example": "sync"
+                },
+                "worktree_name": {
+                    "description": "Name of the worktree",
+                    "type": "string",
+                    "example": "feature-branch"
+                }
+            }
+        },
+        "handlers.CreatePullRequestRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.DeleteSessionResponse": {
+            "description": "Response confirming session deletion",
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Confirmation message",
+                    "type": "string",
+                    "example": "Session deleted successfully"
+                },
+                "workspace": {
+                    "description": "Workspace path that was deleted",
+                    "type": "string",
+                    "example": "/workspace/my-project"
+                }
+            }
+        },
+        "handlers.EventType": {
+            "type": "string",
+            "enum": [
+                "port:opened",
+                "port:closed",
+                "git:dirty",
+                "git:clean",
+                "process:started",
+                "process:stopped",
+                "container:status",
+                "heartbeat"
+            ],
+            "x-enum-varnames": [
+                "PortOpenedEvent",
+                "PortClosedEvent",
+                "GitDirtyEvent",
+                "GitCleanEvent",
+                "ProcessStartedEvent",
+                "ProcessStoppedEvent",
+                "ContainerStatusEvent",
+                "HeartbeatEvent"
+            ]
+        },
+        "handlers.GitHubRepository": {
+            "description": "GitHub repository information from the GitHub API",
+            "type": "object",
+            "properties": {
+                "clone_url": {
+                    "description": "Git clone URL",
+                    "type": "string",
+                    "example": "https://github.com/anthropics/claude-code.git"
+                },
+                "description": {
+                    "description": "Repository description",
+                    "type": "string",
+                    "example": "AI coding assistant"
+                },
+                "full_name": {
+                    "description": "Full repository name (org/repo)",
+                    "type": "string",
+                    "example": "anthropics/claude-code"
+                },
+                "html_url": {
+                    "description": "Repository URL",
+                    "type": "string",
+                    "example": "https://github.com/anthropics/claude-code"
+                },
+                "id": {
+                    "description": "GitHub repository ID",
+                    "type": "integer",
+                    "example": 123456789
+                },
+                "name": {
+                    "description": "Repository name",
+                    "type": "string",
+                    "example": "claude-code"
+                },
+                "private": {
+                    "description": "Whether the repository is private",
+                    "type": "boolean",
+                    "example": false
+                }
+            }
+        },
+        "handlers.SSEMessage": {
+            "type": "object",
+            "properties": {
+                "event": {
+                    "$ref": "#/definitions/handlers.AppEvent"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handlers.SessionsResponse": {
+            "description": "Map of workspace paths to session information",
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/handlers.ActiveSessionInfo"
+            }
+        },
+        "handlers.UploadResponse": {
+            "description": "Response containing upload status and file location",
+            "type": "object",
+            "properties": {
+                "filePath": {
+                    "description": "Path where the uploaded file was saved",
+                    "type": "string",
+                    "example": "/tmp/uploads/document.pdf"
+                },
+                "message": {
+                    "description": "Status message or error details",
+                    "type": "string",
+                    "example": "File uploaded successfully"
+                },
+                "success": {
+                    "description": "Whether the upload succeeded",
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "handlers.WorktreeDiffResponse": {
+            "description": "Response containing git diff information for a worktree",
+            "type": "object",
+            "properties": {
+                "additions": {
+                    "description": "Number of lines added",
+                    "type": "integer",
+                    "example": 25
+                },
+                "deletions": {
+                    "description": "Number of lines deleted",
+                    "type": "integer",
+                    "example": 10
+                },
+                "diff": {
+                    "description": "Raw git diff output",
+                    "type": "string",
+                    "example": "diff --git a/main.go b/main.go..."
+                },
+                "files_changed": {
+                    "description": "List of changed files",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "[\"main.go\"",
+                        " \"README.md\"]"
+                    ]
+                },
+                "summary": {
+                    "description": "Diff summary",
+                    "type": "string",
+                    "example": "2 files changed, 25 insertions(+), 10 deletions(-)"
+                }
+            }
+        },
+        "handlers.WorktreeOperationResponse": {
+            "description": "Response for worktree operations like delete, sync, merge, preview",
+            "type": "object",
+            "properties": {
+                "id": {
+                    "description": "Worktree ID",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "message": {
+                    "description": "Operation result message",
+                    "type": "string",
+                    "example": "Worktree deleted successfully"
+                },
+                "strategy": {
+                    "description": "Strategy used for sync operations",
+                    "type": "string",
+                    "example": "rebase"
+                }
+            }
+        },
+        "models.ClaudeHistoryEntry": {
             "type": "object",
             "properties": {
                 "display": {
@@ -995,7 +1327,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage": {
+        "models.ClaudeSessionMessage": {
             "type": "object",
             "properties": {
                 "cwd": {
@@ -1034,7 +1366,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary": {
+        "models.ClaudeSessionSummary": {
             "description": "Claude Code session summary with metrics and timing information",
             "type": "object",
             "properties": {
@@ -1042,7 +1374,7 @@ const docTemplate = `{
                     "description": "List of all available sessions for this worktree",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
+                        "$ref": "#/definitions/models.SessionListEntry"
                     }
                 },
                 "currentSessionId": {
@@ -1107,7 +1439,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.CompletionMessage": {
+        "models.CompletionMessage": {
             "description": "A message in the conversation context",
             "type": "object",
             "properties": {
@@ -1123,7 +1455,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.CompletionRequest": {
+        "models.CompletionRequest": {
             "description": "Request payload for Claude completion API",
             "type": "object",
             "properties": {
@@ -1131,7 +1463,7 @@ const docTemplate = `{
                     "description": "Optional conversation context",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionMessage"
+                        "$ref": "#/definitions/models.CompletionMessage"
                     }
                 },
                 "max_tokens": {
@@ -1156,7 +1488,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.CompletionResponse": {
+        "models.CompletionResponse": {
             "description": "Response from Claude completion API",
             "type": "object",
             "properties": {
@@ -1178,13 +1510,13 @@ const docTemplate = `{
                     "description": "Number of tokens used in the request",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionUsage"
+                            "$ref": "#/definitions/models.CompletionUsage"
                         }
                     ]
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.CompletionUsage": {
+        "models.CompletionUsage": {
             "description": "Token usage information for completion",
             "type": "object",
             "properties": {
@@ -1205,7 +1537,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.FullSessionData": {
+        "models.FullSessionData": {
             "description": "Complete session data with all messages and metadata",
             "type": "object",
             "properties": {
@@ -1213,7 +1545,7 @@ const docTemplate = `{
                     "description": "All sessions available for this workspace",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
+                        "$ref": "#/definitions/models.SessionListEntry"
                     }
                 },
                 "messageCount": {
@@ -1224,14 +1556,14 @@ const docTemplate = `{
                     "description": "Full conversation history (only when full=true)",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage"
+                        "$ref": "#/definitions/models.ClaudeSessionMessage"
                     }
                 },
                 "sessionInfo": {
                     "description": "Basic session information",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
+                            "$ref": "#/definitions/models.ClaudeSessionSummary"
                         }
                     ]
                 },
@@ -1239,12 +1571,12 @@ const docTemplate = `{
                     "description": "User prompts from ~/.claude.json (only when full=true)",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry"
+                        "$ref": "#/definitions/models.ClaudeHistoryEntry"
                     }
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.GitStatus": {
+        "models.GitStatus": {
             "description": "Current git status including repository information",
             "type": "object",
             "properties": {
@@ -1252,7 +1584,7 @@ const docTemplate = `{
                     "description": "All loaded repositories mapped by repository ID",
                     "type": "object",
                     "additionalProperties": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
+                        "$ref": "#/definitions/models.Repository"
                     }
                 },
                 "worktree_count": {
@@ -1262,7 +1594,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.PullRequestInfo": {
+        "models.PullRequestInfo": {
             "description": "Information about an existing pull request for a worktree",
             "type": "object",
             "properties": {
@@ -1298,7 +1630,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.PullRequestResponse": {
+        "models.PullRequestResponse": {
             "description": "Response containing pull request information after creation",
             "type": "object",
             "properties": {
@@ -1339,7 +1671,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.Repository": {
+        "models.Repository": {
             "description": "Git repository information and metadata",
             "type": "object",
             "properties": {
@@ -1380,7 +1712,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.SessionListEntry": {
+        "models.SessionListEntry": {
             "description": "Session list entry with basic metadata",
             "type": "object",
             "properties": {
@@ -1411,7 +1743,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.TitleEntry": {
+        "models.TitleEntry": {
             "type": "object",
             "properties": {
                 "commit_hash": {
@@ -1425,7 +1757,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.Worktree": {
+        "models.Worktree": {
             "description": "Git worktree with branch and status information",
             "type": "object",
             "properties": {
@@ -1493,7 +1825,7 @@ const docTemplate = `{
                     "description": "Current session title (from terminal title escape sequences)",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry"
+                            "$ref": "#/definitions/models.TitleEntry"
                         }
                     ]
                 },
@@ -1501,7 +1833,7 @@ const docTemplate = `{
                     "description": "History of session titles",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry"
+                        "$ref": "#/definitions/models.TitleEntry"
                     }
                 },
                 "source_branch": {
@@ -1511,7 +1843,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_services.ServiceInfo": {
+        "services.ServiceInfo": {
             "type": "object",
             "properties": {
                 "command": {
@@ -1534,338 +1866,6 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
-                }
-            }
-        },
-        "internal_handlers.ActiveSessionInfo": {
-            "description": "Active session information with timing and Claude session details",
-            "type": "object",
-            "properties": {
-                "claude_session_uuid": {
-                    "description": "Unique identifier for the Claude session",
-                    "type": "string",
-                    "example": "abc123-def456-ghi789"
-                },
-                "ended_at": {
-                    "description": "When the session ended (if not active)",
-                    "type": "string",
-                    "example": "2024-01-15T18:30:00Z"
-                },
-                "resumed_at": {
-                    "description": "When the session was resumed (if applicable)",
-                    "type": "string",
-                    "example": "2024-01-15T16:00:00Z"
-                },
-                "started_at": {
-                    "description": "When the session was initially started",
-                    "type": "string",
-                    "example": "2024-01-15T14:30:00Z"
-                },
-                "title": {
-                    "description": "Title of the session",
-                    "type": "string",
-                    "example": "Updating README.md"
-                }
-            }
-        },
-        "internal_handlers.AppEvent": {
-            "type": "object",
-            "properties": {
-                "payload": {},
-                "type": {
-                    "$ref": "#/definitions/internal_handlers.EventType"
-                }
-            }
-        },
-        "internal_handlers.AuthStartResponse": {
-            "description": "Response when starting GitHub device flow authentication",
-            "type": "object",
-            "properties": {
-                "code": {
-                    "description": "Device verification code to enter on GitHub",
-                    "type": "string",
-                    "example": "1234-5678"
-                },
-                "status": {
-                    "description": "Current authentication status",
-                    "type": "string",
-                    "example": "waiting"
-                },
-                "url": {
-                    "description": "GitHub device activation URL",
-                    "type": "string",
-                    "example": "https://github.com/login/device"
-                }
-            }
-        },
-        "internal_handlers.AuthStatusResponse": {
-            "description": "Response containing the current authentication status",
-            "type": "object",
-            "properties": {
-                "error": {
-                    "description": "Error message if authentication failed",
-                    "type": "string",
-                    "example": "authentication timeout"
-                },
-                "status": {
-                    "description": "Authentication status: pending, waiting, success, or error",
-                    "type": "string",
-                    "example": "success"
-                }
-            }
-        },
-        "internal_handlers.CheckoutResponse": {
-            "description": "Response containing repository and worktree information after checkout",
-            "type": "object",
-            "properties": {
-                "message": {
-                    "description": "Success message",
-                    "type": "string",
-                    "example": "Repository checked out successfully"
-                },
-                "repository": {
-                    "description": "Repository information",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Repository"
-                        }
-                    ]
-                },
-                "worktree": {
-                    "description": "Created worktree information",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
-                        }
-                    ]
-                }
-            }
-        },
-        "internal_handlers.ConflictCheckResponse": {
-            "description": "Response containing conflict information for sync/merge operations",
-            "type": "object",
-            "properties": {
-                "conflict_files": {
-                    "description": "List of files with conflicts",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "[\"src/main.go\"",
-                        " \"README.md\"]"
-                    ]
-                },
-                "has_conflicts": {
-                    "description": "Whether conflicts were detected",
-                    "type": "boolean",
-                    "example": true
-                },
-                "message": {
-                    "description": "Status message",
-                    "type": "string",
-                    "example": "No conflicts detected"
-                },
-                "operation": {
-                    "description": "Operation type (sync/merge)",
-                    "type": "string",
-                    "example": "sync"
-                },
-                "worktree_name": {
-                    "description": "Name of the worktree",
-                    "type": "string",
-                    "example": "feature-branch"
-                }
-            }
-        },
-        "internal_handlers.CreatePullRequestRequest": {
-            "type": "object",
-            "properties": {
-                "body": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string"
-                }
-            }
-        },
-        "internal_handlers.DeleteSessionResponse": {
-            "description": "Response confirming session deletion",
-            "type": "object",
-            "properties": {
-                "message": {
-                    "description": "Confirmation message",
-                    "type": "string",
-                    "example": "Session deleted successfully"
-                },
-                "workspace": {
-                    "description": "Workspace path that was deleted",
-                    "type": "string",
-                    "example": "/workspace/my-project"
-                }
-            }
-        },
-        "internal_handlers.EventType": {
-            "type": "string",
-            "enum": [
-                "port:opened",
-                "port:closed",
-                "git:dirty",
-                "git:clean",
-                "process:started",
-                "process:stopped",
-                "container:status",
-                "heartbeat"
-            ],
-            "x-enum-varnames": [
-                "PortOpenedEvent",
-                "PortClosedEvent",
-                "GitDirtyEvent",
-                "GitCleanEvent",
-                "ProcessStartedEvent",
-                "ProcessStoppedEvent",
-                "ContainerStatusEvent",
-                "HeartbeatEvent"
-            ]
-        },
-        "internal_handlers.GitHubRepository": {
-            "description": "GitHub repository information from the GitHub API",
-            "type": "object",
-            "properties": {
-                "clone_url": {
-                    "description": "Git clone URL",
-                    "type": "string",
-                    "example": "https://github.com/anthropics/claude-code.git"
-                },
-                "description": {
-                    "description": "Repository description",
-                    "type": "string",
-                    "example": "AI coding assistant"
-                },
-                "full_name": {
-                    "description": "Full repository name (org/repo)",
-                    "type": "string",
-                    "example": "anthropics/claude-code"
-                },
-                "html_url": {
-                    "description": "Repository URL",
-                    "type": "string",
-                    "example": "https://github.com/anthropics/claude-code"
-                },
-                "id": {
-                    "description": "GitHub repository ID",
-                    "type": "integer",
-                    "example": 123456789
-                },
-                "name": {
-                    "description": "Repository name",
-                    "type": "string",
-                    "example": "claude-code"
-                },
-                "private": {
-                    "description": "Whether the repository is private",
-                    "type": "boolean",
-                    "example": false
-                }
-            }
-        },
-        "internal_handlers.SSEMessage": {
-            "type": "object",
-            "properties": {
-                "event": {
-                    "$ref": "#/definitions/internal_handlers.AppEvent"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "integer"
-                }
-            }
-        },
-        "internal_handlers.SessionsResponse": {
-            "description": "Map of workspace paths to session information",
-            "type": "object",
-            "additionalProperties": {
-                "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
-            }
-        },
-        "internal_handlers.UploadResponse": {
-            "description": "Response containing upload status and file location",
-            "type": "object",
-            "properties": {
-                "filePath": {
-                    "description": "Path where the uploaded file was saved",
-                    "type": "string",
-                    "example": "/tmp/uploads/document.pdf"
-                },
-                "message": {
-                    "description": "Status message or error details",
-                    "type": "string",
-                    "example": "File uploaded successfully"
-                },
-                "success": {
-                    "description": "Whether the upload succeeded",
-                    "type": "boolean",
-                    "example": true
-                }
-            }
-        },
-        "internal_handlers.WorktreeDiffResponse": {
-            "description": "Response containing git diff information for a worktree",
-            "type": "object",
-            "properties": {
-                "additions": {
-                    "description": "Number of lines added",
-                    "type": "integer",
-                    "example": 25
-                },
-                "deletions": {
-                    "description": "Number of lines deleted",
-                    "type": "integer",
-                    "example": 10
-                },
-                "diff": {
-                    "description": "Raw git diff output",
-                    "type": "string",
-                    "example": "diff --git a/main.go b/main.go..."
-                },
-                "files_changed": {
-                    "description": "List of changed files",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "example": [
-                        "[\"main.go\"",
-                        " \"README.md\"]"
-                    ]
-                },
-                "summary": {
-                    "description": "Diff summary",
-                    "type": "string",
-                    "example": "2 files changed, 25 insertions(+), 10 deletions(-)"
-                }
-            }
-        },
-        "internal_handlers.WorktreeOperationResponse": {
-            "description": "Response for worktree operations like delete, sync, merge, preview",
-            "type": "object",
-            "properties": {
-                "id": {
-                    "description": "Worktree ID",
-                    "type": "string",
-                    "example": "abc123-def456-ghi789"
-                },
-                "message": {
-                    "description": "Operation result message",
-                    "type": "string",
-                    "example": "Worktree deleted successfully"
-                },
-                "strategy": {
-                    "description": "Strategy used for sync operations",
-                    "type": "string",
-                    "example": "rebase"
                 }
             }
         }

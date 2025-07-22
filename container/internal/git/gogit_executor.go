@@ -102,8 +102,11 @@ func (e *GoGitCommandExecutor) getRepository(repoPath string) (*gogit.Repository
 		return repo, nil
 	}
 
-	// Try to open existing repository
-	repo, err := gogit.PlainOpen(absPath)
+	// Try to open existing repository with full worktree support
+	repo, err := gogit.PlainOpenWithOptions(absPath, &gogit.PlainOpenOptions{
+		DetectDotGit:          true,
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to open repository at %s: %w", absPath, err)
 	}
@@ -120,12 +123,41 @@ func (e *GoGitCommandExecutor) handleStatus(workingDir string, args []string) ([
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
 	}
 
-	worktree, err := repo.Worktree()
+	// Resolve workingDir to an absolute path for comparison
+	absWorkingDir, err := filepath.Abs(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
 	}
 
-	status, err := worktree.Status()
+	// Get all worktrees for the repository
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
+	}
+	worktrees := []*gogit.Worktree{worktree}
+
+	// Find the worktree that matches the current working directory
+	var targetWorktree *gogit.Worktree
+	for _, wt := range worktrees {
+		wtPath := wt.Filesystem.Root()
+		absWtPath, err := filepath.Abs(wtPath)
+		if err != nil {
+			continue
+		}
+
+		if absWtPath == absWorkingDir {
+			targetWorktree = wt
+			break
+		}
+	}
+
+	// If no matching worktree is found, something is wrong. Fallback to shell.
+	if targetWorktree == nil {
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
+	}
+
+	// Now use the correct worktree to get the status
+	status, err := targetWorktree.Status()
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
 	}
