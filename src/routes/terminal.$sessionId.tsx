@@ -307,7 +307,7 @@ function TerminalPage() {
   }, [instance, params.sessionId, search.agent, setDims]);
 
   return (
-    <div className="h-full w-full bg-black">
+    <div className="h-full w-full bg-black p-4">
       {/* Terminal */}
       <div className="h-full w-full">
         <div ref={ref} className="h-full w-full" />

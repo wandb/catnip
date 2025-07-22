@@ -46,7 +46,7 @@ function RootLayout() {
 
         {/* Main Content - Responsive margins and height */}
         <main className="pt-14 sm:pt-0 sm:pl-16">
-          <div className="h-[calc(100vh-4rem)] sm:h-screen p-4">
+          <div className="h-[calc(100vh-4rem)] sm:h-screen">
             <ErrorBoundary>
               <Suspense
                 fallback={
