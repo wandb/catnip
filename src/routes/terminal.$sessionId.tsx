@@ -7,7 +7,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
 
-// TODO: What a cluster fuck.  It's working reasonable well now.  Please clean this awful shit up.
+// TerminalPage component
 function TerminalPage() {
   const search = useSearch({
     from: "/terminal/$sessionId",
@@ -30,10 +30,8 @@ function TerminalPage() {
   // Send ready signal when both WebSocket and terminal are ready
   const sendReadySignal = useCallback(() => {
     if (!wsReady.current || !wsRef.current || !fitAddon.current) {
-      console.log("🔍 Not sending ready signal");
       return;
     }
-    console.log("🎯 Sending ready signal");
     wsRef.current.send(JSON.stringify({ type: "ready" }));
   }, []);
 
@@ -63,7 +61,6 @@ function TerminalPage() {
 
   useEffect(() => {
     if (wsReady.current && dims) {
-      console.log("🔍 Sending resize to WebSocket", dims);
       wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
     }
   }, [dims, wsReady.current]);
@@ -76,7 +73,6 @@ function TerminalPage() {
 
     // Only set up once per session
     if (isSetup.current) {
-      console.log("🔍 Terminal already setup, skipping");
       return;
     }
 
@@ -96,20 +92,17 @@ function TerminalPage() {
       window.location.host
     }/v1/pty?${urlParams.toString()}`;
 
-    console.log("🔗 Connecting to WebSocket:", socketUrl);
     const ws = new WebSocket(socketUrl);
     wsRef.current = ws;
     const buffer: Uint8Array[] = [];
 
     ws.onopen = () => {
-      console.log("✅ WebSocket connected");
       setIsConnected(true);
       wsReady.current = true;
       sendReadySignal();
     };
 
     ws.onclose = () => {
-      console.log("🔌 WebSocket disconnected");
       setIsConnected(false);
     };
 
@@ -121,13 +114,11 @@ function TerminalPage() {
     ws.onmessage = async (event) => {
       let data: string | Uint8Array | undefined;
       const rePaint = () => {
-        console.log("✅ Buffer replay complete, fitting terminal");
         fitAddon.current?.fit();
       };
       // Handle both binary and text data
       if (event.data instanceof ArrayBuffer) {
         if (bufferingRef.current) {
-          console.log("🔍 Buffering ArrayBuffer", event.data.byteLength);
           buffer.push(new Uint8Array(event.data));
           return;
         } else {
@@ -138,9 +129,6 @@ function TerminalPage() {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "buffer-size") {
-            console.log(
-              `📐 Server wants terminal at ${msg.cols}x${msg.rows} for buffer replay`,
-            );
             // Resize terminal to match buffer dimensions
             if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
               instance.resize(msg.cols, msg.rows);
@@ -150,28 +138,20 @@ function TerminalPage() {
             return;
           } else if (msg.type === "buffer-complete") {
             // Now fit to actual window size and send resize
-            console.log("🔍 Terminal ready");
             terminalReady.current = true;
 
             // Check if we have a prompt to send
             if (search.prompt && search.agent === "claude") {
-              console.log("📝 Scheduling prompt injection...");
-              setTimeout(() => {
-                console.log("📝 Sending prompt to Claude:", search.prompt);
-                wsRef.current?.send(
-                  JSON.stringify({
-                    type: "prompt",
-                    data: search.prompt,
-                    submit: true,
-                  }),
-                );
-              }, 1000); // Wait a second for Claude UI to fully load
+              wsRef.current?.send(
+                JSON.stringify({
+                  type: "prompt",
+                  data: search.prompt,
+                  submit: true,
+                }),
+              );
             }
-            setTimeout(() => {
-              const dims = { cols: instance.cols, rows: instance.rows };
-              console.log("Post load resize message...", dims);
-              wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
-            }, 100);
+            const dims = { cols: instance.cols, rows: instance.rows };
+            wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
             return;
           }
         } catch (_e) {
@@ -186,13 +166,7 @@ function TerminalPage() {
       } else if (event.data instanceof Blob) {
         const arrayBuffer = await event.data.arrayBuffer();
         if (bufferingRef.current) {
-          console.log(
-            "🔍 Buffering blob, claude?",
-            search.agent,
-            arrayBuffer.byteLength,
-          );
           buffer.push(new Uint8Array(arrayBuffer));
-          // TODO: this assumes there's one buffer message :(
           bufferingRef.current = false;
         } else {
           data = new Uint8Array(arrayBuffer);
@@ -202,11 +176,6 @@ function TerminalPage() {
       }
 
       if (!bufferingRef.current && buffer.length > 0) {
-        console.log(
-          "🔍 Writing buffer and calling repaint",
-          instance.cols,
-          instance.rows,
-        );
         rePaint();
         for (const chunk of buffer) {
           instance.write(chunk);
@@ -300,13 +269,12 @@ function TerminalPage() {
           if (instance.options.fontSize !== newFontSize) {
             instance.options.fontSize = newFontSize;
           }
-          console.log("🔍 Resizing terminal?:", terminalReady.current);
           // Send resize to WebSocket
           if (terminalReady.current) {
             fitAddon.current?.fit();
           }
         }
-      }, 500);
+      }, 100);
     });
 
     const disposer = instance?.onData((data: string) => {
@@ -339,9 +307,9 @@ function TerminalPage() {
   }, [instance, params.sessionId, search.agent, setDims]);
 
   return (
-    <div className="h-full bg-black p-4">
+    <div className="h-full w-full bg-black">
       {/* Terminal */}
-      <div className="h-full terminal-container">
+      <div className="h-full w-full">
         <div ref={ref} className="h-full w-full" />
       </div>
     </div>
