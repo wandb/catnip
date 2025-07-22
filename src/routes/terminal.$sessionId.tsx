@@ -26,6 +26,7 @@ function TerminalPage() {
   const resizeTimeout = useRef<number | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
+  const [isReadOnly, setIsReadOnly] = useState(false);
 
   // Send ready signal when both WebSocket and terminal are ready
   const sendReadySignal = useCallback(() => {
@@ -64,6 +65,26 @@ function TerminalPage() {
       wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
     }
   }, [dims, wsReady.current]);
+
+  // Update terminal cursor when read-only state changes
+  useEffect(() => {
+    if (instance && instance.options) {
+      instance.options.cursorBlink = search.agent !== "claude" && !isReadOnly;
+      instance.options.theme = {
+        ...instance.options.theme,
+        cursor: isReadOnly
+          ? "transparent"
+          : search.agent === "claude"
+            ? "#0a0a0a"
+            : "#00ff95",
+        cursorAccent: isReadOnly
+          ? "transparent"
+          : search.agent === "claude"
+            ? "#0a0a0a"
+            : "#00ff95",
+      };
+    }
+  }, [isReadOnly, search.agent, instance]);
 
   // Set up terminal when instance and ref become available
   useEffect(() => {
@@ -142,16 +163,23 @@ function TerminalPage() {
 
             // Check if we have a prompt to send
             if (search.prompt && search.agent === "claude") {
-              wsRef.current?.send(
-                JSON.stringify({
-                  type: "prompt",
-                  data: search.prompt,
-                  submit: true,
-                }),
-              );
+              // Wait for Claude UI to fully load before sending prompt
+              setTimeout(() => {
+                wsRef.current?.send(
+                  JSON.stringify({
+                    type: "prompt",
+                    data: search.prompt,
+                    submit: true,
+                  }),
+                );
+              }, 1000); // Give Claude TUI time to initialize
             }
             const dims = { cols: instance.cols, rows: instance.rows };
             wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+            return;
+          } else if (msg.type === "read-only") {
+            // Handle read-only status from server
+            setIsReadOnly(msg.data === true);
             return;
           }
         } catch (_e) {
@@ -195,8 +223,16 @@ function TerminalPage() {
       instance.options.theme = {
         background: "#0a0a0a",
         foreground: "#e2e8f0",
-        cursor: search.agent === "claude" ? "#0a0a0a" : "#00ff95",
-        cursorAccent: search.agent === "claude" ? "#0a0a0a" : "#00ff95",
+        cursor: isReadOnly
+          ? "transparent"
+          : search.agent === "claude"
+            ? "#0a0a0a"
+            : "#00ff95",
+        cursorAccent: isReadOnly
+          ? "transparent"
+          : search.agent === "claude"
+            ? "#0a0a0a"
+            : "#00ff95",
         selectionBackground: "#333333",
         black: "#0a0a0a",
         red: "#fc8181",
@@ -215,7 +251,7 @@ function TerminalPage() {
         brightCyan: "#4fd1c7",
         brightWhite: "#f7fafc",
       };
-      instance.options.cursorBlink = search.agent !== "claude";
+      instance.options.cursorBlink = search.agent !== "claude" && !isReadOnly;
       instance.options.scrollback = 10000;
       instance.options.allowProposedApi = true;
       instance.options.drawBoldTextInBrightColors = false;
@@ -307,7 +343,14 @@ function TerminalPage() {
   }, [instance, params.sessionId, search.agent, setDims]);
 
   return (
-    <div className="h-full w-full bg-black p-4">
+    <div className="h-full w-full bg-black p-4 relative">
+      {/* Read-only indicator */}
+      {isReadOnly && (
+        <div className="absolute top-4 right-4 z-10 bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-3 py-1 rounded-md text-sm font-medium backdrop-blur-sm">
+          👁️ Read Only
+        </div>
+      )}
+
       {/* Terminal */}
       <div className="h-full w-full">
         <div ref={ref} className="h-full w-full" />
