@@ -5,15 +5,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/vanpelt/catnip/internal/git/executor"
 )
 
 // StatusChecker provides Git status checking operations
 type StatusChecker struct {
-	executor CommandExecutor
+	executor executor.CommandExecutor
 }
 
 // NewStatusChecker creates a new status checker
-func NewStatusChecker(executor CommandExecutor) *StatusChecker {
+func NewStatusChecker(executor executor.CommandExecutor) *StatusChecker {
 	return &StatusChecker{executor: executor}
 }
 

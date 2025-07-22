@@ -3,16 +3,18 @@ package git
 import (
 	"fmt"
 	"log"
+
+	"github.com/vanpelt/catnip/internal/git/executor"
 )
 
 // URLManager handles remote URL operations with conversion and restoration
 type URLManager struct {
-	executor         CommandExecutor
+	executor         executor.CommandExecutor
 	originalURLCache map[string]string // Cache original URLs by worktree-remote key
 }
 
 // NewURLManager creates a new URL manager
-func NewURLManager(executor CommandExecutor) *URLManager {
+func NewURLManager(executor executor.CommandExecutor) *URLManager {
 	return &URLManager{
 		executor:         executor,
 		originalURLCache: make(map[string]string),

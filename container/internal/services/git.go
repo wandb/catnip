@@ -152,8 +152,7 @@ func (s *GitService) cleanupUnusedBranches() {
 type GitService struct {
 	repositories map[string]*models.Repository // key: repoID (e.g., "owner/repo")
 	worktrees    map[string]*models.Worktree   // key: worktree ID
-	manager      git.Manager                   // Delegate for core git operations
-	helper       *git.ServiceHelper            // NEW: Helper for extracted git operations
+	operations   git.Operations                // All git operations through this interface
 	mu           sync.RWMutex
 }
 
@@ -172,7 +171,7 @@ func (s *GitService) getSourceRef(worktree *models.Worktree) string {
 	return fmt.Sprintf("origin/%s", worktree.SourceBranch)
 }
 
-// execCommand executes any command with standard environment (DEPRECATED: use s.helper.ExecuteCommand)
+// execCommand executes any command with standard environment (DEPRECATED: use s.operations.ExecuteCommand)
 func (s *GitService) execCommand(command string, args ...string) *exec.Cmd {
 	cmd := exec.Command(command, args...)
 	cmd.Env = append(os.Environ(),
@@ -196,9 +195,9 @@ func (s *GitService) execGitCommand(workingDir string, args ...string) *exec.Cmd
 	return cmd
 }
 
-// runGitCommand runs a git command and returns output (DEPRECATED: use s.helper.ExecuteGit)
+// runGitCommand runs a git command and returns output (DEPRECATED: use s.operations.ExecuteGit)
 func (s *GitService) runGitCommand(workingDir string, args ...string) ([]byte, error) {
-	return s.helper.ExecuteGit(workingDir, args...)
+	return s.operations.ExecuteGit(workingDir, args...)
 }
 
 // Removed RemoteURLManager - functionality moved to git.URLManager
@@ -233,8 +232,8 @@ func (s *GitService) pushBranch(worktree *models.Worktree, repo *models.Reposito
 		gitStrategy.Remote = "origin"
 	}
 
-	// Execute push using helper
-	err := s.helper.PushWithStrategy(worktree.Path, gitStrategy)
+	// Execute push using operations
+	err := s.operations.PushBranch(worktree.Path, gitStrategy)
 
 	// Handle push failure with sync retry (if requested)
 	if err != nil && strategy.SyncOnFail && git.IsPushRejected(err, err.Error()) {
@@ -272,57 +271,51 @@ func (s *GitService) parseGitHubURL(url string) (string, error) {
 
 // branchExists checks if a branch exists in a repository with configurable options
 func (s *GitService) branchExists(repoPath, branch string, isRemote bool) bool {
-	return s.helper.BranchExists(repoPath, branch, isRemote)
+	return s.operations.BranchExists(repoPath, branch, isRemote)
 }
-
-// Removed branchExistsWithOptions - use s.helper.BranchOps.BranchExists directly
 
 // getCommitCount counts commits between two refs
 func (s *GitService) getCommitCount(repoPath, fromRef, toRef string) (int, error) {
-	return s.helper.GetCommitCount(repoPath, fromRef, toRef)
+	return s.operations.GetCommitCount(repoPath, fromRef, toRef)
 }
 
 // getRemoteURL gets the remote URL for a repository
 func (s *GitService) getRemoteURL(repoPath string) (string, error) {
-	return s.helper.GetRemoteURL(repoPath)
+	return s.operations.GetRemoteURL(repoPath)
 }
 
 // getDefaultBranch gets the default branch from a repository
 func (s *GitService) getDefaultBranch(repoPath string) (string, error) {
-	return s.helper.GetDefaultBranch(repoPath)
+	return s.operations.GetDefaultBranch(repoPath)
 }
 
 // fetchBranch unified fetch method with strategy pattern
 func (s *GitService) fetchBranch(repoPath string, strategy git.FetchStrategy) error {
-	return s.helper.FetchWithStrategy(repoPath, strategy)
+	return s.operations.FetchBranch(repoPath, strategy)
 }
 
 // isDirty checks if a worktree has uncommitted changes
 func (s *GitService) isDirty(worktreePath string) bool {
-	return s.helper.IsDirty(worktreePath)
+	return s.operations.IsDirty(worktreePath)
 }
 
 // hasConflicts checks if a worktree is in a conflicted state (rebase/merge in progress)
 func (s *GitService) hasConflicts(worktreePath string) bool {
-	return s.helper.HasConflicts(worktreePath)
+	return s.operations.HasConflicts(worktreePath)
 }
 
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
 	fmt.Println("🐛 [DEBUG] NewGitService called - debug logging is active!")
-	return NewGitServiceWithHelper(git.NewServiceHelper())
+	return NewGitServiceWithOperations(git.NewOperations())
 }
 
-// NewGitServiceWithHelper creates a new Git service instance with injectable git operations
-func NewGitServiceWithHelper(helper *git.ServiceHelper) *GitService {
-	// Create the underlying git manager
-	manager := git.NewManager()
-
+// NewGitServiceWithOperations creates a new Git service instance with injectable git operations
+func NewGitServiceWithOperations(operations git.Operations) *GitService {
 	s := &GitService{
 		repositories: make(map[string]*models.Repository),
 		worktrees:    make(map[string]*models.Worktree),
-		manager:      manager,
-		helper:       helper, // Use injected helper
+		operations:   operations,
 	}
 
 	// Ensure workspace directory exists
@@ -942,21 +935,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 
 // getLocalRepoBranches returns the local branches for a local repository
 func (s *GitService) getLocalRepoBranches(repoPath string) ([]string, error) {
-	output, err := s.runGitCommand(repoPath, "branch", "--format=%(refname:short)")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get local branches: %w", err)
-	}
-
-	var branches []string
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			branches = append(branches, line)
-		}
-	}
-
-	return branches, nil
+	return s.operations.GetLocalBranches(repoPath)
 }
 
 // GetRepositoryBranches returns the remote branches for a repository
@@ -971,39 +950,11 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 
 	// Handle local repos specially
 	if s.isLocalRepo(repoID) {
-		return s.getLocalRepoBranches(repo.Path)
+		return s.operations.GetLocalBranches(repo.Path)
 	}
 
-	// Start with the default branch
-	branches := []string{repo.DefaultBranch}
-	branchSet := map[string]bool{repo.DefaultBranch: true}
-
-	cmd := s.execGitCommand(repo.Path, "branch", "-r")
-
-	output, err := cmd.Output()
-	if err != nil {
-		return branches, nil // Return at least the default branch
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" && !strings.Contains(line, "HEAD ->") {
-			// Remove "origin/" prefix
-			branch := line
-			if strings.HasPrefix(line, "origin/") {
-				branch = strings.TrimPrefix(line, "origin/")
-			}
-
-			// Add to list if not already present
-			if !branchSet[branch] {
-				branches = append(branches, branch)
-				branchSet[branch] = true
-			}
-		}
-	}
-
-	return branches, nil
+	// For remote repos, use the operations interface
+	return s.operations.GetRemoteBranches(repo.Path, repo.DefaultBranch)
 }
 
 // DeleteWorktree removes a worktree
@@ -1307,12 +1258,12 @@ func (s *GitService) fetchLatestReferenceWithDepth(worktree *models.Worktree, sh
 
 // fetchBranchFast performs a highly optimized fetch for status updates
 func (s *GitService) fetchBranchFast(repoPath, branch string) error {
-	return s.helper.FetchBranchFast(repoPath, branch)
+	return s.operations.FetchBranchFast(repoPath, branch)
 }
 
 // fetchBranchFull performs a full fetch for operations that need complete history
 func (s *GitService) fetchBranchFull(repoPath, branch string) error {
-	return s.helper.FetchBranchFull(repoPath, branch)
+	return s.operations.FetchBranchFull(repoPath, branch)
 }
 
 // fetchLocalBranch performs a highly optimized fetch for local repos
@@ -1666,7 +1617,7 @@ func (s *GitService) shouldForceUpdatePreviewBranch(repoPath, previewBranchName 
 
 // hasUncommittedChanges checks if the worktree has any uncommitted changes
 func (s *GitService) hasUncommittedChanges(worktreePath string) (bool, error) {
-	return s.helper.StatusChecker.HasUncommittedChanges(worktreePath)
+	return s.operations.HasUncommittedChanges(worktreePath)
 }
 
 // createTemporaryCommit creates a temporary commit with all uncommitted changes

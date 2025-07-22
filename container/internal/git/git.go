@@ -4,6 +4,6 @@ package git
 
 // Re-export commonly used types and functions
 var (
-	// Default manager instance (can be overridden for testing)
-	DefaultManager = NewManager()
+	// Default operations instance (can be overridden for testing)
+	DefaultOperations = NewOperations()
 )

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/git/executor"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -27,119 +28,116 @@ func TestGitServiceWithInMemoryOperations(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
 	// Create service with in-memory git operations
-	helper := git.NewInMemoryServiceHelper()
-	service := NewGitServiceWithHelper(helper)
+	exec := executor.NewInMemoryExecutor()
+	operations := git.NewOperationsWithExecutor(exec)
+	service := NewGitServiceWithOperations(operations)
 	require.NotNil(t, service)
+	require.NotNil(t, exec)
 
-	// Get the in-memory executor for test setup
-	executor := helper.GetInMemoryExecutor()
-	require.NotNil(t, executor)
+	inMemoryExec, ok := exec.(*executor.InMemoryExecutor)
+	require.True(t, ok)
 
 	t.Run("InMemoryRepositorySetup", func(t *testing.T) {
-		testInMemoryRepositorySetup(t, service, executor)
+		testInMemoryRepositorySetup(t, service, inMemoryExec)
 	})
 
 	t.Run("GitOperationsWithInMemory", func(t *testing.T) {
-		testGitOperationsWithInMemory(t, service, executor)
+		testGitOperationsWithInMemory(t, service, inMemoryExec)
 	})
 
 	t.Run("WorktreeOperationsWithInMemory", func(t *testing.T) {
-		testWorktreeOperationsWithInMemory(t, service, executor)
+		testWorktreeOperationsWithInMemory(t, service, inMemoryExec)
 	})
 }
 
-func testInMemoryRepositorySetup(t *testing.T, service *GitService, executor *git.InMemoryExecutor) {
+func testInMemoryRepositorySetup(t *testing.T, service *GitService, exec *executor.InMemoryExecutor) {
 	t.Run("CreateTestRepository", func(t *testing.T) {
 		// Create a test repository with some history
-		repo, err := git.CreateTestRepositoryWithHistory()
+		repo, err := executor.CreateTestRepositoryWithHistory()
 		require.NoError(t, err)
 		assert.NotNil(t, repo)
 
 		// Add it to the executor at a known path
 		repoPath := "/test/repo"
-		executor.AddRepository(repoPath, repo)
+		exec.AddRepository(repoPath, repo)
 
 		// Verify we can execute git commands on it
-		output, err := executor.ExecuteGitWithWorkingDir(repoPath, "status", "--porcelain")
+		output, err := exec.ExecuteGitWithWorkingDir(repoPath, "status", "--porcelain")
 		assert.NoError(t, err)
 		assert.Equal(t, "", string(output)) // Clean repository
 	})
 
 	t.Run("CreateTestRepositoryWithConflicts", func(t *testing.T) {
 		// Create a repository set up for conflicts
-		repo, err := git.CreateTestRepositoryWithConflicts()
+		repo, err := executor.CreateTestRepositoryWithConflicts()
 		require.NoError(t, err)
 		assert.NotNil(t, repo)
 
 		conflictPath := "/test/conflict-repo"
-		executor.AddRepository(conflictPath, repo)
+		exec.AddRepository(conflictPath, repo)
 
 		// Verify repository is accessible
-		output, err := executor.ExecuteGitWithWorkingDir(conflictPath, "branch", "--show-current")
+		output, err := exec.ExecuteGitWithWorkingDir(conflictPath, "branch", "--show-current")
 		assert.NoError(t, err)
 		assert.NotEmpty(t, string(output))
 	})
 }
 
-func testGitOperationsWithInMemory(t *testing.T, service *GitService, executor *git.InMemoryExecutor) {
+func testGitOperationsWithInMemory(t *testing.T, service *GitService, exec *executor.InMemoryExecutor) {
 	// Create a test repository
-	repo, err := git.CreateTestRepositoryWithHistory()
+	repo, err := executor.CreateTestRepositoryWithHistory()
 	require.NoError(t, err)
 
 	repoPath := "/test/git-ops"
-	executor.AddRepository(repoPath, repo)
+	exec.AddRepository(repoPath, repo)
 
 	t.Run("BasicGitCommands", func(t *testing.T) {
-		// Test basic git operations through the service helper
-		helper := service.helper
+		// Test basic git operations through the operations interface
 
 		// Test ExecuteGit
-		output, err := helper.ExecuteGit(repoPath, "status", "--porcelain")
+		output, err := service.operations.ExecuteGit(repoPath, "status", "--porcelain")
 		assert.NoError(t, err)
 		assert.Equal(t, "", string(output))
 
 		// Test branch operations
-		exists := helper.BranchExists(repoPath, "main", false)
+		exists := service.operations.BranchExists(repoPath, "main", false)
 		assert.True(t, exists) // Should exist in our test repo
 
-		exists = helper.BranchExists(repoPath, "nonexistent", false)
+		exists = service.operations.BranchExists(repoPath, "nonexistent", false)
 		assert.False(t, exists)
 
 		// Test remote operations
-		remoteURL, err := helper.GetRemoteURL(repoPath)
+		remoteURL, err := service.operations.GetRemoteURL(repoPath)
 		assert.NoError(t, err)
 		assert.Equal(t, "https://github.com/test/repo.git", remoteURL)
 	})
 
 	t.Run("StatusOperations", func(t *testing.T) {
-		helper := service.helper
 
 		// Test worktree status operations
-		isDirty := helper.IsDirty(repoPath)
+		isDirty := service.operations.IsDirty(repoPath)
 		assert.False(t, isDirty) // Clean repository
 
-		hasConflicts := helper.HasConflicts(repoPath)
+		hasConflicts := service.operations.HasConflicts(repoPath)
 		assert.False(t, hasConflicts) // No conflicts
 
 		// Test comprehensive status
-		status, err := helper.GetWorktreeStatus(repoPath)
+		status, err := service.operations.GetStatus(repoPath)
 		assert.NoError(t, err)
 		assert.NotNil(t, status)
 	})
 
 	t.Run("FetchOperations", func(t *testing.T) {
-		helper := service.helper
-
 		// Test fetch operations (should not error in mock implementation)
-		err := helper.FetchBranchFast(repoPath, "main")
+		err := service.operations.FetchBranchFast(repoPath, "main")
 		assert.NoError(t, err)
 
-		err = helper.FetchBranchFull(repoPath, "main")
+		err = service.operations.FetchBranchFull(repoPath, "main")
 		assert.NoError(t, err)
 	})
 }
 
-func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, executor *git.InMemoryExecutor) {
+func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec *executor.InMemoryExecutor) {
 	// Clear any existing state from previous test runs
 	for k := range service.worktrees {
 		delete(service.worktrees, k)
@@ -149,10 +147,10 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, execu
 	}
 
 	// Create test repositories and add them to service state
-	repo1, err := git.CreateTestRepositoryWithHistory()
+	repo1, err := executor.CreateTestRepositoryWithHistory()
 	require.NoError(t, err)
 	repo1Path := "/test/worktree-repo1"
-	executor.AddRepository(repo1Path, repo1)
+	exec.AddRepository(repo1Path, repo1)
 
 	// Manually add repository to service state for testing
 	mockRepo := &models.Repository{
@@ -234,35 +232,38 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, execu
 // TestGitServiceInMemoryAdvanced demonstrates advanced testing scenarios with in-memory operations
 func TestGitServiceInMemoryAdvanced(t *testing.T) {
 	// Create service with in-memory operations
-	helper := git.NewInMemoryServiceHelper()
-	service := NewGitServiceWithHelper(helper)
-	executor := helper.GetInMemoryExecutor()
+	exec := executor.NewInMemoryExecutor()
+	operations := git.NewOperationsWithExecutor(exec)
+	service := NewGitServiceWithOperations(operations)
+
+	inMemoryExec, ok := exec.(*executor.InMemoryExecutor)
+	require.True(t, ok)
 
 	// Create a complex test scenario
-	repo, err := git.CreateTestRepositoryWithHistory()
+	repo, err := executor.CreateTestRepositoryWithHistory()
 	require.NoError(t, err)
 
 	repoPath := "/advanced/test/repo"
-	executor.AddRepository(repoPath, repo)
+	inMemoryExec.AddRepository(repoPath, repo)
 
 	t.Run("GitOperationChaining", func(t *testing.T) {
 		// Test that we can chain multiple git operations
 
 		// 1. Check status
-		isDirty := helper.IsDirty(repoPath)
+		isDirty := service.operations.IsDirty(repoPath)
 		assert.False(t, isDirty)
 
 		// 2. Check branches
-		exists := helper.BranchExists(repoPath, "main", false)
+		exists := service.operations.BranchExists(repoPath, "main", false)
 		assert.True(t, exists)
 
 		// 3. Get remote URL
-		url, err := helper.GetRemoteURL(repoPath)
+		url, err := service.operations.GetRemoteURL(repoPath)
 		assert.NoError(t, err)
 		assert.Equal(t, "https://github.com/test/repo.git", url)
 
 		// 4. Perform fetch
-		err = helper.FetchBranchFast(repoPath, "main")
+		err = service.operations.FetchBranchFast(repoPath, "main")
 		assert.NoError(t, err)
 	})
 
@@ -340,7 +341,7 @@ func TestGitServiceLocalRepositoryOperations(t *testing.T) {
 	})
 }
 
-func testLocalRepositoryOperations(t *testing.T, service *GitService, executor *git.InMemoryExecutor) {
+func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *executor.InMemoryExecutor) {
 	repoID := "local/test-project"
 
 	t.Run("GetLocalRepoBranches", func(t *testing.T) {
@@ -462,7 +463,7 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, executor *
 	})
 }
 
-func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, executor *git.InMemoryExecutor) {
+func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exec *executor.InMemoryExecutor) {
 	repoID := "local/test-project"
 
 	t.Run("CreateAndDeleteWorktree", func(t *testing.T) {
@@ -567,25 +568,27 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 
 // TestInMemoryExecutorDirectly tests the InMemoryExecutor independently
 func TestInMemoryExecutorDirectly(t *testing.T) {
-	executor := git.NewInMemoryExecutor()
+	exec := executor.NewInMemoryExecutor()
+	inMemoryExec, ok := exec.(*executor.InMemoryExecutor)
+	require.True(t, ok)
 
 	t.Run("BasicCommandExecution", func(t *testing.T) {
 		// Test non-git commands
-		output, err := executor.Execute("", "echo", "hello")
+		output, err := inMemoryExec.Execute("", "echo", "hello")
 		assert.NoError(t, err)
 		assert.Equal(t, "hello\n", string(output))
 	})
 
 	t.Run("GitCommandsWithoutRepository", func(t *testing.T) {
 		// Should fail gracefully when no repository is found
-		_, err := executor.ExecuteGitWithWorkingDir("/nonexistent", "status")
+		_, err := inMemoryExec.ExecuteGitWithWorkingDir("/nonexistent", "status")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no repository found")
 	})
 
 	t.Run("GitCommandsWithRepository", func(t *testing.T) {
 		// Create and add a test repository
-		repo, err := git.NewTestRepository("/test/direct")
+		repo, err := executor.NewTestRepository("/test/direct")
 		require.NoError(t, err)
 
 		// Add initial commit to make it valid
@@ -596,14 +599,14 @@ func TestInMemoryExecutorDirectly(t *testing.T) {
 		err = repo.RenameBranch("master", "main")
 		require.NoError(t, err)
 
-		executor.AddRepository("/test/direct", repo)
+		inMemoryExec.AddRepository("/test/direct", repo)
 
 		// Test git commands
-		output, err := executor.ExecuteGitWithWorkingDir("/test/direct", "status", "--porcelain")
+		output, err := inMemoryExec.ExecuteGitWithWorkingDir("/test/direct", "status", "--porcelain")
 		assert.NoError(t, err)
 		assert.Equal(t, "", string(output)) // Clean repository
 
-		output, err = executor.ExecuteGitWithWorkingDir("/test/direct", "branch", "--show-current")
+		output, err = inMemoryExec.ExecuteGitWithWorkingDir("/test/direct", "branch", "--show-current")
 		assert.NoError(t, err)
 		assert.Contains(t, string(output), "main") // renamed from master
 	})

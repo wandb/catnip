@@ -1,4 +1,4 @@
-package git
+package executor
 
 import (
 	"bytes"
@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-// CommandExecutorImpl implements CommandExecutor using the git binary
-type CommandExecutorImpl struct {
+// ShellExecutor implements CommandExecutor using the git binary
+type ShellExecutor struct {
 	defaultEnv []string
 }
 
-// NewGitCommandExecutor creates a new Git command executor
-func NewGitCommandExecutor() CommandExecutor {
-	return &CommandExecutorImpl{
+// NewShellExecutor creates a new shell-based Git command executor
+func NewShellExecutor() CommandExecutor {
+	return &ShellExecutor{
 		defaultEnv: []string{
 			"HOME=/home/catnip",
 			"USER=catnip",
@@ -22,13 +22,18 @@ func NewGitCommandExecutor() CommandExecutor {
 	}
 }
 
+// NewGitCommandExecutor is deprecated, use NewShellExecutor instead
+func NewGitCommandExecutor() CommandExecutor {
+	return NewShellExecutor()
+}
+
 // Execute runs a git command in the specified directory
-func (e *CommandExecutorImpl) Execute(dir string, args ...string) ([]byte, error) {
+func (e *ShellExecutor) Execute(dir string, args ...string) ([]byte, error) {
 	return e.ExecuteWithEnv(dir, e.defaultEnv, args...)
 }
 
 // ExecuteWithEnv runs a git command with custom environment variables
-func (e *CommandExecutorImpl) ExecuteWithEnv(dir string, env []string, args ...string) ([]byte, error) {
+func (e *ShellExecutor) ExecuteWithEnv(dir string, env []string, args ...string) ([]byte, error) {
 	cmd := exec.Command("git", args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -48,7 +53,7 @@ func (e *CommandExecutorImpl) ExecuteWithEnv(dir string, env []string, args ...s
 }
 
 // ExecuteGitWithWorkingDir runs a git command with -C flag for working directory
-func (e *CommandExecutorImpl) ExecuteGitWithWorkingDir(workingDir string, args ...string) ([]byte, error) {
+func (e *ShellExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...string) ([]byte, error) {
 	if workingDir != "" {
 		args = append([]string{"-C", workingDir}, args...)
 	}
@@ -56,7 +61,7 @@ func (e *CommandExecutorImpl) ExecuteGitWithWorkingDir(workingDir string, args .
 }
 
 // ExecuteCommand runs any command (not just git) with standard environment
-func (e *CommandExecutorImpl) ExecuteCommand(command string, args ...string) ([]byte, error) {
+func (e *ShellExecutor) ExecuteCommand(command string, args ...string) ([]byte, error) {
 	cmd := exec.Command(command, args...)
 	cmd.Env = append(cmd.Environ(), e.defaultEnv...)
 

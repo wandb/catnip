@@ -1,4 +1,4 @@
-package git
+package executor
 
 import (
 	"bytes"
@@ -11,34 +11,41 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
-// GoGitCommandExecutor implements CommandExecutor using go-git library
+// GitExecutor implements CommandExecutor using go-git library
 // Falls back to shell commands for operations not supported by go-git
-type GoGitCommandExecutor struct {
+//
+//revive:disable:exported
+type GitExecutor struct {
 	fallbackExecutor CommandExecutor
 	repositoryCache  map[string]*gogit.Repository
 }
 
-// NewGoGitCommandExecutor creates a new go-git based command executor
-func NewGoGitCommandExecutor() CommandExecutor {
-	return &GoGitCommandExecutor{
-		fallbackExecutor: NewGitCommandExecutor(), // Shell git as fallback
+// NewGitExecutor creates a new go-git based command executor (the main production executor)
+func NewGitExecutor() CommandExecutor {
+	return &GitExecutor{
+		fallbackExecutor: NewShellExecutor(), // Shell git as fallback
 		repositoryCache:  make(map[string]*gogit.Repository),
 	}
 }
 
+// NewGoGitCommandExecutor is deprecated, use NewGitExecutor instead
+func NewGoGitCommandExecutor() CommandExecutor {
+	return NewGitExecutor()
+}
+
 // Execute runs a git command - uses go-git where possible, falls back to shell
-func (e *GoGitCommandExecutor) Execute(dir string, args ...string) ([]byte, error) {
+func (e *GitExecutor) Execute(dir string, args ...string) ([]byte, error) {
 	return e.ExecuteGitWithWorkingDir(dir, args...)
 }
 
 // ExecuteWithEnv runs a git command with custom environment - falls back to shell for env support
-func (e *GoGitCommandExecutor) ExecuteWithEnv(dir string, env []string, args ...string) ([]byte, error) {
+func (e *GitExecutor) ExecuteWithEnv(dir string, env []string, args ...string) ([]byte, error) {
 	// go-git doesn't support custom env, so fallback to shell
 	return e.fallbackExecutor.ExecuteWithEnv(dir, env, args...)
 }
 
 // ExecuteGitWithWorkingDir runs a git command with working directory - main implementation
-func (e *GoGitCommandExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...string) ([]byte, error) {
+func (e *GitExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...string) ([]byte, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("no git command provided")
 	}
@@ -81,12 +88,12 @@ func (e *GoGitCommandExecutor) ExecuteGitWithWorkingDir(workingDir string, args 
 }
 
 // ExecuteCommand runs any command (not just git) - always use fallback
-func (e *GoGitCommandExecutor) ExecuteCommand(command string, args ...string) ([]byte, error) {
+func (e *GitExecutor) ExecuteCommand(command string, args ...string) ([]byte, error) {
 	return e.fallbackExecutor.ExecuteCommand(command, args...)
 }
 
 // getRepository gets or opens a repository, caching the result
-func (e *GoGitCommandExecutor) getRepository(repoPath string) (*gogit.Repository, error) {
+func (e *GitExecutor) getRepository(repoPath string) (*gogit.Repository, error) {
 	if repoPath == "" {
 		repoPath = "."
 	}
@@ -117,7 +124,7 @@ func (e *GoGitCommandExecutor) getRepository(repoPath string) (*gogit.Repository
 }
 
 // handleStatus implements git status --porcelain
-func (e *GoGitCommandExecutor) handleStatus(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleStatus(workingDir string, args []string) ([]byte, error) {
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
@@ -188,7 +195,7 @@ func (e *GoGitCommandExecutor) handleStatus(workingDir string, args []string) ([
 }
 
 // handleBranch implements various git branch commands
-func (e *GoGitCommandExecutor) handleBranch(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleBranch(workingDir string, args []string) ([]byte, error) {
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"branch"}, args...)...)
@@ -216,7 +223,7 @@ func (e *GoGitCommandExecutor) handleBranch(workingDir string, args []string) ([
 }
 
 // handleRemote implements git remote commands
-func (e *GoGitCommandExecutor) handleRemote(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleRemote(workingDir string, args []string) ([]byte, error) {
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"remote"}, args...)...)
@@ -241,7 +248,7 @@ func (e *GoGitCommandExecutor) handleRemote(workingDir string, args []string) ([
 }
 
 // handleConfig implements basic git config queries
-func (e *GoGitCommandExecutor) handleConfig(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleConfig(workingDir string, args []string) ([]byte, error) {
 	if len(args) >= 2 && args[0] == "--get" {
 		configKey := args[1]
 
@@ -284,7 +291,7 @@ func (e *GoGitCommandExecutor) handleConfig(workingDir string, args []string) ([
 }
 
 // handleRevParse implements git rev-parse commands
-func (e *GoGitCommandExecutor) handleRevParse(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleRevParse(workingDir string, args []string) ([]byte, error) {
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-parse"}, args...)...)
@@ -320,14 +327,14 @@ func (e *GoGitCommandExecutor) handleRevParse(workingDir string, args []string) 
 }
 
 // handleSymbolicRef implements git symbolic-ref commands
-func (e *GoGitCommandExecutor) handleSymbolicRef(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleSymbolicRef(workingDir string, args []string) ([]byte, error) {
 	// This is typically used for getting default branch from remote
 	// Fall back to shell for now as it's complex to implement
 	return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"symbolic-ref"}, args...)...)
 }
 
 // handleFetch implements git fetch commands
-func (e *GoGitCommandExecutor) handleFetch(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleFetch(workingDir string, args []string) ([]byte, error) {
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"fetch"}, args...)...)
@@ -352,14 +359,14 @@ func (e *GoGitCommandExecutor) handleFetch(workingDir string, args []string) ([]
 }
 
 // handleShowRef implements git show-ref commands
-func (e *GoGitCommandExecutor) handleShowRef(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleShowRef(workingDir string, args []string) ([]byte, error) {
 	// show-ref is used for verifying references exist
 	// For now, fall back to shell as it's mainly used for verification
 	return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"show-ref"}, args...)...)
 }
 
 // handleLsRemote implements git ls-remote commands
-func (e *GoGitCommandExecutor) handleLsRemote(workingDir string, args []string) ([]byte, error) {
+func (e *GitExecutor) handleLsRemote(workingDir string, args []string) ([]byte, error) {
 	// ls-remote is complex and used for remote operations
 	// Fall back to shell for reliable implementation
 	return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"ls-remote"}, args...)...)
@@ -367,7 +374,7 @@ func (e *GoGitCommandExecutor) handleLsRemote(workingDir string, args []string) 
 
 // Helper functions
 
-func (e *GoGitCommandExecutor) listBranches(repo *gogit.Repository, includeRemote bool) ([]byte, error) {
+func (e *GitExecutor) listBranches(repo *gogit.Repository, includeRemote bool) ([]byte, error) {
 	refs, err := repo.References()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get references: %w", err)
@@ -412,7 +419,7 @@ func (e *GoGitCommandExecutor) listBranches(repo *gogit.Repository, includeRemot
 	return []byte(output), nil
 }
 
-func (e *GoGitCommandExecutor) getCurrentBranch(repo *gogit.Repository) ([]byte, error) {
+func (e *GitExecutor) getCurrentBranch(repo *gogit.Repository) ([]byte, error) {
 	head, err := repo.Head()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get HEAD: %w", err)
@@ -425,7 +432,7 @@ func (e *GoGitCommandExecutor) getCurrentBranch(repo *gogit.Repository) ([]byte,
 	return []byte(head.Name().Short() + "\n"), nil
 }
 
-func (e *GoGitCommandExecutor) getStatusCode(status gogit.StatusCode) string {
+func (e *GitExecutor) getStatusCode(status gogit.StatusCode) string {
 	switch status {
 	case gogit.Unmodified:
 		return " "

@@ -1,9 +1,11 @@
 package git
 
+import "github.com/vanpelt/catnip/internal/git/executor"
+
 // ServiceHelper provides a convenient wrapper around all Git operations
 // This makes it easy for the GitService to use the extracted functionality
 type ServiceHelper struct {
-	Executor      CommandExecutor
+	Executor      executor.CommandExecutor
 	BranchOps     *BranchOperations
 	FetchExecutor *FetchExecutor
 	PushExecutor  *PushExecutor
@@ -13,50 +15,50 @@ type ServiceHelper struct {
 
 // NewServiceHelper creates a new service helper with all components
 func NewServiceHelper() *ServiceHelper {
-	executor := NewGoGitCommandExecutor() // Use go-git by default
+	exec := executor.NewGitExecutor() // Use go-git by default
 
 	return &ServiceHelper{
-		Executor:      executor,
-		BranchOps:     NewBranchOperations(executor),
-		FetchExecutor: NewFetchExecutor(executor),
-		PushExecutor:  NewPushExecutor(executor),
-		StatusChecker: NewStatusChecker(executor),
-		URLManager:    NewURLManager(executor),
+		Executor:      exec,
+		BranchOps:     NewBranchOperations(exec),
+		FetchExecutor: NewFetchExecutor(exec),
+		PushExecutor:  NewPushExecutor(exec),
+		StatusChecker: NewStatusChecker(exec),
+		URLManager:    NewURLManager(exec),
 	}
 }
 
 // NewShellServiceHelper creates a new service helper using shell git commands
 func NewShellServiceHelper() *ServiceHelper {
-	executor := NewGitCommandExecutor() // Use shell git
+	exec := executor.NewShellExecutor() // Use shell git
 
 	return &ServiceHelper{
-		Executor:      executor,
-		BranchOps:     NewBranchOperations(executor),
-		FetchExecutor: NewFetchExecutor(executor),
-		PushExecutor:  NewPushExecutor(executor),
-		StatusChecker: NewStatusChecker(executor),
-		URLManager:    NewURLManager(executor),
+		Executor:      exec,
+		BranchOps:     NewBranchOperations(exec),
+		FetchExecutor: NewFetchExecutor(exec),
+		PushExecutor:  NewPushExecutor(exec),
+		StatusChecker: NewStatusChecker(exec),
+		URLManager:    NewURLManager(exec),
 	}
 }
 
 // NewInMemoryServiceHelper creates a new service helper with in-memory git operations for testing
 func NewInMemoryServiceHelper() *ServiceHelper {
-	executor := NewInMemoryExecutor()
+	exec := executor.NewInMemoryExecutor()
 
 	return &ServiceHelper{
-		Executor:      executor,
-		BranchOps:     NewBranchOperations(executor),
-		FetchExecutor: NewFetchExecutor(executor),
-		PushExecutor:  NewPushExecutor(executor),
-		StatusChecker: NewStatusChecker(executor),
-		URLManager:    NewURLManager(executor),
+		Executor:      exec,
+		BranchOps:     NewBranchOperations(exec),
+		FetchExecutor: NewFetchExecutor(exec),
+		PushExecutor:  NewPushExecutor(exec),
+		StatusChecker: NewStatusChecker(exec),
+		URLManager:    NewURLManager(exec),
 	}
 }
 
 // GetInMemoryExecutor returns the underlying InMemoryExecutor if this helper uses one, nil otherwise
-func (h *ServiceHelper) GetInMemoryExecutor() *InMemoryExecutor {
-	if executor, ok := h.Executor.(*InMemoryExecutor); ok {
-		return executor
+func (h *ServiceHelper) GetInMemoryExecutor() executor.CommandExecutor {
+	if exec, ok := h.Executor.(*executor.InMemoryExecutor); ok {
+		return exec
 	}
 	return nil
 }

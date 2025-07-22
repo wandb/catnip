@@ -1,4 +1,4 @@
-package git
+package executor
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/memfs"
-	"github.com/go-git/go-git/v5"
+	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -15,7 +15,7 @@ import (
 
 // TestRepository provides utilities for creating in-memory Git repositories for testing
 type TestRepository struct {
-	repo    *git.Repository
+	repo    *gogit.Repository
 	storage *memory.Storage
 	fs      billy.Filesystem
 	path    string
@@ -26,7 +26,7 @@ func NewTestRepository(path string) (*TestRepository, error) {
 	storage := memory.NewStorage()
 	fs := memfs.New()
 
-	repo, err := git.Init(storage, fs)
+	repo, err := gogit.Init(storage, fs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize test repository: %w", err)
 	}
@@ -44,7 +44,7 @@ func CloneTestRepository(url, path string) (*TestRepository, error) {
 	storage := memory.NewStorage()
 	fs := memfs.New()
 
-	repo, err := git.Clone(storage, fs, &git.CloneOptions{
+	repo, err := gogit.Clone(storage, fs, &gogit.CloneOptions{
 		URL: url,
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func CloneTestRepository(url, path string) (*TestRepository, error) {
 }
 
 // GetRepository returns the underlying go-git repository
-func (tr *TestRepository) GetRepository() *git.Repository {
+func (tr *TestRepository) GetRepository() *gogit.Repository {
 	return tr.repo
 }
 
@@ -106,7 +106,7 @@ func (tr *TestRepository) CommitFile(filename, content, message string) error {
 	}
 
 	// Commit
-	_, err = worktree.Commit(message, &git.CommitOptions{
+	_, err = worktree.Commit(message, &gogit.CommitOptions{
 		Author: &object.Signature{
 			Name:  "Test User",
 			Email: "test@example.com",
@@ -145,7 +145,7 @@ func (tr *TestRepository) CheckoutBranch(branchName string) error {
 		return fmt.Errorf("failed to get worktree: %w", err)
 	}
 
-	err = worktree.Checkout(&git.CheckoutOptions{
+	err = worktree.Checkout(&gogit.CheckoutOptions{
 		Branch: plumbing.ReferenceName("refs/heads/" + branchName),
 	})
 	if err != nil {
@@ -201,16 +201,6 @@ func (tr *TestRepository) AddRemote(name, url string) error {
 	}
 
 	return nil
-}
-
-// ToRepository converts the test repository to our Repository interface
-func (tr *TestRepository) ToRepository() Repository {
-	return NewGoGitRepositoryFromExisting(tr.repo, tr.path)
-}
-
-// ToWorktree converts the test repository to our Worktree interface
-func (tr *TestRepository) ToWorktree(branch string) (Worktree, error) {
-	return NewGoGitWorktree(tr.repo, tr.path, branch)
 }
 
 // CreateTestRepositoryWithHistory creates a repository with sample commit history

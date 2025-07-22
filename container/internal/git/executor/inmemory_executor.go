@@ -1,4 +1,4 @@
-package git
+package executor
 
 import (
 	"fmt"
@@ -7,13 +7,13 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
-// InMemoryExecutor implements CommandExecutor using go-git in-memory repositories
+// InMemoryExecutor implements executor.CommandExecutor using go-git in-memory repositories
 type InMemoryExecutor struct {
 	repositories map[string]*TestRepository // Map of path to repository
 }
 
 // NewInMemoryExecutor creates a new in-memory git executor for testing
-func NewInMemoryExecutor() *InMemoryExecutor {
+func NewInMemoryExecutor() CommandExecutor {
 	return &InMemoryExecutor{
 		repositories: make(map[string]*TestRepository),
 	}

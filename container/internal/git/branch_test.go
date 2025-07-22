@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vanpelt/catnip/internal/git/executor"
 )
 
 func TestBranchOperations(t *testing.T) {
@@ -18,31 +19,31 @@ func TestBranchOperations(t *testing.T) {
 	require.NoError(t, os.MkdirAll(testRepo, 0755))
 
 	// Use shell git executor for real git operations in tests
-	executor := NewGitCommandExecutor()
-	branchOps := NewBranchOperations(executor)
+	exec := executor.NewShellExecutor()
+	branchOps := NewBranchOperations(exec)
 
 	// Initialize git repo
-	_, err := executor.ExecuteGitWithWorkingDir(testRepo, "init")
+	_, err := exec.ExecuteGitWithWorkingDir(testRepo, "init")
 	require.NoError(t, err)
 
 	// Configure git user for commits
-	_, err = executor.ExecuteGitWithWorkingDir(testRepo, "config", "user.name", "Test User")
+	_, err = exec.ExecuteGitWithWorkingDir(testRepo, "config", "user.name", "Test User")
 	require.NoError(t, err)
-	_, err = executor.ExecuteGitWithWorkingDir(testRepo, "config", "user.email", "test@example.com")
+	_, err = exec.ExecuteGitWithWorkingDir(testRepo, "config", "user.email", "test@example.com")
 	require.NoError(t, err)
 
 	// Create initial commit
 	readmePath := filepath.Join(testRepo, "README.md")
 	require.NoError(t, os.WriteFile(readmePath, []byte("# Test Repo\n"), 0644))
-	_, err = executor.ExecuteGitWithWorkingDir(testRepo, "add", "README.md")
+	_, err = exec.ExecuteGitWithWorkingDir(testRepo, "add", "README.md")
 	require.NoError(t, err)
-	_, err = executor.ExecuteGitWithWorkingDir(testRepo, "commit", "-m", "Initial commit")
+	_, err = exec.ExecuteGitWithWorkingDir(testRepo, "commit", "-m", "Initial commit")
 	require.NoError(t, err)
 
 	t.Run("NewBranchOperations", func(t *testing.T) {
-		ops := NewBranchOperations(executor)
+		ops := NewBranchOperations(exec)
 		assert.NotNil(t, ops)
-		assert.Equal(t, executor, ops.executor)
+		assert.Equal(t, exec, ops.executor)
 	})
 
 	t.Run("BranchExistsLocal", func(t *testing.T) {
@@ -59,7 +60,7 @@ func TestBranchOperations(t *testing.T) {
 		assert.False(t, exists)
 
 		// Create a new branch and test
-		_, err := executor.ExecuteGitWithWorkingDir(testRepo, "checkout", "-b", "feature-branch")
+		_, err := exec.ExecuteGitWithWorkingDir(testRepo, "checkout", "-b", "feature-branch")
 		require.NoError(t, err)
 
 		exists = branchOps.BranchExistsLocal(testRepo, "feature-branch")
@@ -96,10 +97,10 @@ func TestBranchOperations(t *testing.T) {
 	t.Run("GetCommitCount", func(t *testing.T) {
 		// Switch back to main/master
 		currentBranch := "main"
-		_, err := executor.ExecuteGitWithWorkingDir(testRepo, "checkout", "main")
+		_, err := exec.ExecuteGitWithWorkingDir(testRepo, "checkout", "main")
 		if err != nil {
 			// Try master
-			_, err = executor.ExecuteGitWithWorkingDir(testRepo, "checkout", "master")
+			_, err = exec.ExecuteGitWithWorkingDir(testRepo, "checkout", "master")
 			if err == nil {
 				currentBranch = "master"
 			}
@@ -107,15 +108,15 @@ func TestBranchOperations(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create additional commits on feature branch
-		_, err = executor.ExecuteGitWithWorkingDir(testRepo, "checkout", "feature-branch")
+		_, err = exec.ExecuteGitWithWorkingDir(testRepo, "checkout", "feature-branch")
 		require.NoError(t, err)
 
 		// Add a commit to feature branch
 		testPath := filepath.Join(testRepo, "feature.txt")
 		require.NoError(t, os.WriteFile(testPath, []byte("feature content\n"), 0644))
-		_, err = executor.ExecuteGitWithWorkingDir(testRepo, "add", "feature.txt")
+		_, err = exec.ExecuteGitWithWorkingDir(testRepo, "add", "feature.txt")
 		require.NoError(t, err)
-		_, err = executor.ExecuteGitWithWorkingDir(testRepo, "commit", "-m", "Add feature")
+		_, err = exec.ExecuteGitWithWorkingDir(testRepo, "commit", "-m", "Add feature")
 		require.NoError(t, err)
 
 		// Count commits between main/master and feature-branch
@@ -135,7 +136,7 @@ func TestBranchOperations(t *testing.T) {
 		assert.Error(t, err, "Should fail without remote origin")
 
 		// Set up a remote and test
-		_, err = executor.ExecuteGitWithWorkingDir(testRepo, "remote", "add", "origin", "https://github.com/test/repo.git")
+		_, err = exec.ExecuteGitWithWorkingDir(testRepo, "remote", "add", "origin", "https://github.com/test/repo.git")
 		require.NoError(t, err)
 
 		url, err := branchOps.GetRemoteURL(testRepo)
@@ -196,14 +197,17 @@ func TestBranchOperations(t *testing.T) {
 func TestBranchOperationsWithMockExecutor(t *testing.T) {
 	// Test with in-memory executor for edge cases
 	helper := NewInMemoryServiceHelper()
-	executor := helper.GetInMemoryExecutor()
-	branchOps := NewBranchOperations(executor)
+	exec := helper.GetInMemoryExecutor()
+	branchOps := NewBranchOperations(exec)
+
+	inMemoryExec, ok := exec.(*executor.InMemoryExecutor)
+	require.True(t, ok)
 
 	// Create test repository
-	repo, err := CreateTestRepositoryWithHistory()
+	repo, err := executor.CreateTestRepositoryWithHistory()
 	require.NoError(t, err)
 	repoPath := "/test/branch-ops"
-	executor.AddRepository(repoPath, repo)
+	inMemoryExec.AddRepository(repoPath, repo)
 
 	t.Run("BranchExistsWithInMemory", func(t *testing.T) {
 		// Test existing branch
@@ -230,8 +234,8 @@ func TestBranchOperationsWithMockExecutor(t *testing.T) {
 
 func TestBranchOperationsErrorHandling(t *testing.T) {
 	// Test error handling with invalid repository path
-	executor := NewGitCommandExecutor()
-	branchOps := NewBranchOperations(executor)
+	exec := executor.NewShellExecutor()
+	branchOps := NewBranchOperations(exec)
 
 	invalidPath := "/nonexistent/path"
 
@@ -265,8 +269,8 @@ func TestBranchOperationsErrorHandling(t *testing.T) {
 
 func TestBranchExistsOptions(t *testing.T) {
 	t.Run("DefaultRemoteName", func(t *testing.T) {
-		executor := NewGitCommandExecutor()
-		branchOps := NewBranchOperations(executor)
+		exec := executor.NewShellExecutor()
+		branchOps := NewBranchOperations(exec)
 
 		// Test that empty remote name defaults to "origin"
 		exists := branchOps.BranchExistsRemote("/tmp", "main", "")

@@ -3,6 +3,8 @@ package git
 import (
 	"fmt"
 	"log"
+
+	"github.com/vanpelt/catnip/internal/git/executor"
 )
 
 // FetchStrategy defines the strategy for fetching branches
@@ -28,11 +30,11 @@ type PushStrategy struct {
 
 // FetchExecutor handles fetch operations with strategy pattern
 type FetchExecutor struct {
-	executor CommandExecutor
+	executor executor.CommandExecutor
 }
 
 // NewFetchExecutor creates a new fetch executor
-func NewFetchExecutor(executor CommandExecutor) *FetchExecutor {
+func NewFetchExecutor(executor executor.CommandExecutor) *FetchExecutor {
 	return &FetchExecutor{executor: executor}
 }
 
@@ -142,12 +144,12 @@ func (f *FetchExecutor) FetchBranchFull(repoPath, branch string) error {
 
 // PushExecutor handles push operations with strategy pattern
 type PushExecutor struct {
-	executor   CommandExecutor
+	executor   executor.CommandExecutor
 	urlManager *URLManager
 }
 
 // NewPushExecutor creates a new push executor
-func NewPushExecutor(executor CommandExecutor) *PushExecutor {
+func NewPushExecutor(executor executor.CommandExecutor) *PushExecutor {
 	return &PushExecutor{
 		executor:   executor,
 		urlManager: NewURLManager(executor),

@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/vanpelt/catnip/internal/git/executor"
 )
 
 // BranchOperations provides branch-related Git operations
 type BranchOperations struct {
-	executor CommandExecutor
+	executor executor.CommandExecutor
 }
 
 // NewBranchOperations creates a new branch operations instance
-func NewBranchOperations(executor CommandExecutor) *BranchOperations {
+func NewBranchOperations(exec executor.CommandExecutor) *BranchOperations {
 	return &BranchOperations{
-		executor: executor,
+		executor: exec,
 	}
 }
 
