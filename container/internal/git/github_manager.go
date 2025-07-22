@@ -11,6 +11,7 @@ import (
 )
 
 // GitHubManager handles all GitHub CLI operations (auth, repos, pull requests, etc.)
+// nolint:revive
 type GitHubManager struct {
 	operations Operations
 }
@@ -263,6 +264,7 @@ func (g *GitHubManager) ConfigureGitCredentials() error {
 }
 
 // GitHubRepository represents a GitHub repository from the API
+// nolint:revive
 type GitHubRepository struct {
 	Name        string                 `json:"name"`
 	URL         string                 `json:"url"`
