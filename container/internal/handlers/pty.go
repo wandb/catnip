@@ -30,6 +30,14 @@ type PTYHandler struct {
 	portService    *services.PortAllocationService
 }
 
+// ConnectionInfo tracks metadata for each WebSocket connection
+type ConnectionInfo struct {
+	ConnectedAt time.Time
+	RemoteAddr  string
+	ConnID      string
+	IsReadOnly  bool
+}
+
 // Session represents a PTY session
 type Session struct {
 	ID              string
@@ -41,7 +49,7 @@ type Session struct {
 	Agent           string
 	Title           string
 	ClaudeSessionID string // Track Claude session UUID for resume functionality
-	connections     map[*websocket.Conn]bool
+	connections     map[*websocket.Conn]*ConnectionInfo
 	connMutex       sync.RWMutex
 	// Buffer to store PTY output for replay
 	outputBuffer  []byte
