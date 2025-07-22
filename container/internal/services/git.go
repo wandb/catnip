@@ -1217,6 +1217,11 @@ func (s *GitService) applySyncStrategy(worktree *models.Worktree, strategy, sour
 	}
 
 	if err != nil {
+		// Check if this is an uncommitted changes error (not a conflict)
+		if s.isUncommittedChangesError(err.Error()) {
+			return fmt.Errorf("cannot %s: worktree has staged changes. Please commit or unstage your changes first", strategy)
+		}
+
 		// Check if this is a merge conflict
 		if s.isMergeConflict(worktree.Path, err.Error()) {
 			return s.createMergeConflictError("sync", worktree, err.Error())
@@ -1452,6 +1457,22 @@ func (s *GitService) revertTemporaryCommit(worktreePath, commitHash string) {
 // isMergeConflict checks if the git command output indicates a merge conflict
 func (s *GitService) isMergeConflict(repoPath, output string) bool {
 	return s.conflictResolver.IsMergeConflict(repoPath, output)
+}
+
+// isUncommittedChangesError checks if the error is due to staged/uncommitted changes
+func (s *GitService) isUncommittedChangesError(output string) bool {
+	uncommittedIndicators := []string{
+		"Your index contains uncommitted changes",
+		"cannot rebase: Your index contains uncommitted changes",
+		"Please commit or stash them",
+	}
+
+	for _, indicator := range uncommittedIndicators {
+		if strings.Contains(output, indicator) {
+			return true
+		}
+	}
+	return false
 }
 
 // createMergeConflictError creates a detailed merge conflict error
