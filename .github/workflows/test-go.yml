@@ -84,17 +84,22 @@ jobs:
       - name: Display coverage summary
         run: |
           echo "## Coverage Summary" >> $GITHUB_STEP_SUMMARY
-          go tool cover -func=coverage.out >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           COVERAGE=$(go tool cover -func=coverage.out | grep "total:" | awk '{print $3}')
           echo "**Total Coverage: $COVERAGE**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show just the total - no need for noisy per-function details
+          echo "For detailed coverage report, check the uploaded coverage artifacts or run locally:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo 'go tool cover -html=coverage.out -o coverage.html' >> $GITHUB_STEP_SUMMARY  
+          echo '```' >> $GITHUB_STEP_SUMMARY
         working-directory: container
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.24'
         with:
-          file: container/coverage.out
+          files: container/coverage.out
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false
