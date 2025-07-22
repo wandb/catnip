@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+// GetCurrentTimestamp returns the current Unix timestamp
+func GetCurrentTimestamp() int64 {
+	return time.Now().Unix()
+}
+
 var (
 	// Cat names for branch generation (max 7 characters)
 	catNames = []string{
@@ -351,6 +356,14 @@ func ExtractWorkspaceName(branchName string) string {
 	if strings.HasPrefix(branchName, "catnip/") {
 		return strings.TrimPrefix(branchName, "catnip/")
 	}
+	return branchName
+}
+
+func CleanBranchName(branchName string) string {
+	branchName = strings.TrimSpace(branchName)
+	branchName = strings.TrimPrefix(branchName, "*") // Current branch indicator
+	branchName = strings.TrimPrefix(branchName, "+") // Worktree branch indicator
+	branchName = strings.TrimSpace(branchName)
 	return branchName
 }
 

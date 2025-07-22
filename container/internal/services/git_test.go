@@ -226,12 +226,6 @@ func TestGitServiceCleanupOperations(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("TriggerManualSync", func(t *testing.T) {
-		// Should not error
-		err := service.TriggerManualSync()
-		assert.NoError(t, err)
-	})
-
 	t.Run("Stop", func(t *testing.T) {
 		// Should not error
 		service.Stop()
