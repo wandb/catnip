@@ -453,7 +453,22 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			}
 		}
 
-		// Write data to PTY
+		// Check if this connection has write access
+		session.connMutex.RLock()
+		connInfo, exists := session.connections[conn]
+		session.connMutex.RUnlock()
+
+		if !exists {
+			log.Printf("⚠️ Connection [%s] no longer exists in session", connID)
+			break
+		}
+
+		if connInfo.IsReadOnly {
+			log.Printf("🚫 Ignoring input from read-only connection [%s] in session %s", connID, sessionID)
+			continue
+		}
+
+		// Write data to PTY (only from write-enabled connections)
 		if _, err := session.PTY.Write(data); err != nil {
 			log.Printf("❌ PTY write error: %v", err)
 			break
@@ -611,7 +626,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		LastAccess:    time.Now(),
 		WorkDir:       workDir,
 		Agent:         agent,
-		connections:   make(map[*websocket.Conn]bool),
+		connections:   make(map[*websocket.Conn]*ConnectionInfo),
 		outputBuffer:  make([]byte, 0),
 		maxBufferSize: 5 * 1024 * 1024, // 5MB buffer
 		cols:          80,
@@ -944,13 +959,27 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 	defer s.writeMutex.Unlock()
 
 	s.connMutex.RLock()
+	connectionCount := len(s.connections)
+	s.connMutex.RUnlock()
+
+	// Only broadcast if we have connections and avoid excessive logging for small data
+	if connectionCount == 0 {
+		return
+	}
+
+	// Log broadcasts for debugging (limit to prevent spam)
+	if len(data) > 100 || connectionCount > 1 {
+		log.Printf("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
+	}
+
+	s.connMutex.RLock()
 	defer s.connMutex.RUnlock()
 
 	var disconnectedConns []*websocket.Conn
 
-	for conn := range s.connections {
+	for conn, connInfo := range s.connections {
 		if err := conn.WriteMessage(messageType, data); err != nil {
-			log.Printf("❌ WebSocket write error: %v", err)
+			log.Printf("❌ WebSocket write error for connection [%s] in session %s: %v", connInfo.ConnID, s.ID, err)
 			// Mark connection for removal
 			disconnectedConns = append(disconnectedConns, conn)
 		}
