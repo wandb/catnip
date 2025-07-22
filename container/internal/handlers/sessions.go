@@ -11,7 +11,6 @@ import (
 type SessionsHandler struct {
 	sessionService *services.SessionService
 	claudeService  *services.ClaudeService
-	geminiService  *services.GeminiService
 }
 
 // SessionsResponse represents the response containing all sessions
@@ -43,11 +42,10 @@ type DeleteSessionResponse struct {
 }
 
 // NewSessionsHandler creates a new sessions handler
-func NewSessionsHandler(sessionService *services.SessionService, claudeService *services.ClaudeService, geminiService *services.GeminiService) *SessionsHandler {
+func NewSessionsHandler(sessionService *services.SessionService, claudeService *services.ClaudeService) *SessionsHandler {
 	return &SessionsHandler{
 		sessionService: sessionService,
 		claudeService:  claudeService,
-		geminiService:  geminiService,
 	}
 }
 
