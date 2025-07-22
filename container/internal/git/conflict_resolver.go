@@ -62,21 +62,20 @@ func (c *ConflictResolver) CheckMergeConflicts(repoPath, worktreePath, sourceBra
 
 // IsMergeConflict checks if an error or output indicates a merge conflict
 func (c *ConflictResolver) IsMergeConflict(repoPath, output string) bool {
-	// Check for common merge conflict indicators in git output
-	conflictIndicators := []string{
-		"CONFLICT",
-		"Automatic merge failed",
-		"fix conflicts and then commit",
-		"Merge conflict",
+	// First, check if there's actually an active conflict state requiring resolution
+	// (rebase/merge in progress with unmerged files)
+	if c.hasActiveConflictState(repoPath) {
+		return true
 	}
 
-	for _, indicator := range conflictIndicators {
-		if strings.Contains(output, indicator) {
-			return true
-		}
-	}
+	// If no active conflict state, don't treat text-based conflict indicators as true conflicts
+	// This handles cases where rebase fails with conflicts but git auto-aborts the operation
+	return false
+}
 
-	// Also check git status for unmerged paths
+// hasActiveConflictState checks if there's an active rebase/merge requiring manual resolution
+func (c *ConflictResolver) hasActiveConflictState(repoPath string) bool {
+	// Check git status for unmerged paths (actual conflicts requiring resolution)
 	statusOutput, err := c.operations.ExecuteGit(repoPath, "status", "--porcelain")
 	if err != nil {
 		return false
