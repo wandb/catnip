@@ -10,12 +10,17 @@ export const getRelativeTime = (date: string | Date) => {
   const diffDays = Math.floor(diffMs / 86400000);
 
   if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? "s" : ""} ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
+  if (diffMins < 60)
+    return `${diffMins} minute${diffMins !== 1 ? "s" : ""} ago`;
+  if (diffHours < 24)
+    return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
   return `${diffDays} day${diffDays !== 1 ? "s" : ""} ago`;
 };
 
-export const getDuration = (startDate: string | Date, endDate: string | Date) => {
+export const getDuration = (
+  startDate: string | Date,
+  endDate: string | Date,
+) => {
   const start = new Date(startDate);
   const end = new Date(endDate);
   const diffMs = end.getTime() - start.getTime();
@@ -39,13 +44,16 @@ export const copyRemoteCommand = (url: string) => {
 
 export const showPreviewToast = (branchName: string) => {
   const command = `git checkout preview/${branchName}`;
-  
+
   toast.success(
     <div className="flex items-center gap-2 w-full">
       <div className="flex-1">
         <div className="font-medium">Preview branch created!</div>
         <div className="text-sm text-muted-foreground mt-1">
-          Run: <code className="bg-muted px-1 py-0.5 rounded text-xs">{command}</code>
+          Run:{" "}
+          <code className="bg-muted px-1 py-0.5 rounded text-xs">
+            {command}
+          </code>
         </div>
       </div>
       <button
@@ -57,7 +65,8 @@ export const showPreviewToast = (branchName: string) => {
           // Show brief success feedback
           const button = e.currentTarget;
           const originalContent = button.innerHTML;
-          button.innerHTML = '<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+          button.innerHTML =
+            '<svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
 
           setTimeout(() => {
             button.innerHTML = originalContent;
@@ -71,7 +80,7 @@ export const showPreviewToast = (branchName: string) => {
     </div>,
     {
       duration: 8000,
-    }
+    },
   );
 };
 
@@ -92,10 +101,29 @@ export const parseGitUrl = (url: string) => {
   return null;
 };
 
-export const createMergeConflictPrompt = (operation: string, conflictFiles: string[]) => {
-  const conflictText = conflictFiles.length > 0 
-    ? `Conflicts in: ${conflictFiles.join(", ")}`
-    : "Multiple files have conflicts";
-  
+export const createMergeConflictPrompt = (
+  operation: string,
+  conflictFiles: string[],
+) => {
+  const conflictText =
+    conflictFiles.length > 0
+      ? `Conflicts in: ${conflictFiles.join(", ")}`
+      : "Multiple files have conflicts";
+
   return `I have a merge conflict during a ${operation} operation. ${conflictText}. Please help me resolve these conflicts by examining the files, understanding the conflicting changes, and providing a resolution strategy.`;
+};
+
+/**
+ * Extracts a clean display name from a branch name by removing the catnip/ prefix
+ * Examples:
+ * - "catnip/felix" -> "felix"
+ * - "catnip/fuzzy-luna" -> "fuzzy-luna"
+ * - "main" -> "main" (unchanged)
+ * - "feature/something" -> "feature/something" (unchanged)
+ */
+export const extractDisplayName = (branchName: string): string => {
+  if (branchName.startsWith("catnip/")) {
+    return branchName.replace("catnip/", "");
+  }
+  return branchName;
 };

@@ -350,7 +350,6 @@ function TerminalPage() {
           👁️ Read Only
         </div>
       )}
-
       {/* Terminal */}
       <div className="h-full w-full">
         <div ref={ref} className="h-full w-full" />

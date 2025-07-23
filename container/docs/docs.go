@@ -866,9 +866,9 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Full session data when full=true",
+                        "description": "Basic session info when full=false",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData"
+                            "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
                         }
                     }
                 }

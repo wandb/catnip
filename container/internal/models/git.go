@@ -135,3 +135,12 @@ type PullRequestInfo struct {
 	// URL to the pull request (if exists)
 	URL string `json:"url,omitempty" example:"https://github.com/owner/repo/pull/123"`
 }
+
+// GitState represents the persisted state of repositories and worktrees
+// @Description Persisted state of all repositories and worktrees
+type GitState struct {
+	// All repositories mapped by repository ID
+	Repositories map[string]*Repository `json:"repositories"`
+	// All worktrees mapped by worktree ID
+	Worktrees map[string]*Worktree `json:"worktrees"`
+}

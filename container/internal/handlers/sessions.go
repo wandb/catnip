@@ -81,7 +81,6 @@ func (h *SessionsHandler) GetAllSessions(c *fiber.Ctx) error {
 // @Param workspace path string true "Workspace directory path"
 // @Param full query boolean false "Include full session data with messages and user prompts"
 // @Success 200 {object} ActiveSessionInfo "Basic session info when full=false"
-// @Success 200 {object} github_com_vanpelt_catnip_internal_models.FullSessionData "Full session data when full=true"
 // @Router /v1/sessions/workspace/{workspace} [get]
 func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 	workspace := c.Params("workspace")

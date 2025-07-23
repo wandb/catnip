@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "format": "echo \"Global pretty disabled for now...\" #prettier --write .",
     "format:check": "prettier --check .",
-    "format:changed": "{ git diff --cached --name-only; git diff --name-only; git ls-files --others --exclude-standard; } | grep -E '\\.(ts|tsx|js|jsx|json|css|md)$' | xargs prettier --write",
+    "format:changed": "{ git diff --cached --name-only --diff-filter=ACMR; git diff --name-only --diff-filter=ACMR; git ls-files --others --exclude-standard; } | grep -E '\\.(ts|tsx|js|jsx|json|css|md)$' | xargs -r prettier --write",
     "preview": "pnpm run build && vite preview",
     "deploy:prod": "pnpm run build && wrangler deploy --env production",
     "cf-typegen": "wrangler types"
@@ -82,6 +82,6 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.34.1",
     "vite": "^7.0.0",
-    "wrangler": "^4.24.3"
+    "wrangler": "^4.25.0"
   }
 }
