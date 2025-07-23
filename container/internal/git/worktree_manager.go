@@ -221,17 +221,58 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 	return nil
 }
 
-// UpdateWorktreeStatus updates the status of a worktree
-func (w *WorktreeManager) UpdateWorktreeStatus(worktree *models.Worktree, shouldFetch bool, getSourceRef func(*models.Worktree) string) {
+// detectWorktreeActualState inspects the actual Git state of a worktree
+// and returns the real branch/ref. For source branch detection, we rely on stored metadata
+// since determining the "correct" source branch is a business logic decision, not a git operation.
+func (w *WorktreeManager) detectWorktreeActualState(worktreePath string) (actualBranch string, err error) {
+	// Get the actual HEAD reference
+	branchOutput, err := w.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD")
+	if err != nil {
+		// Might be detached HEAD, get the commit hash
+		if commitHash, hashErr := w.operations.ExecuteGit(worktreePath, "rev-parse", "HEAD"); hashErr == nil {
+			actualBranch = strings.TrimSpace(string(commitHash))
+		} else {
+			return "", fmt.Errorf("failed to get HEAD reference: %v, %v", err, hashErr)
+		}
+	} else {
+		actualBranch = strings.TrimSpace(string(branchOutput))
+	}
+
+	return actualBranch, nil
+}
+
+// UpdateWorktreeStatus updates the status of a worktree with dynamic state detection
+// Note: Fetching should be handled at the service layer before calling this method
+func (w *WorktreeManager) UpdateWorktreeStatus(worktree *models.Worktree, getSourceRef func(*models.Worktree) string) {
+	log.Printf("🔍 UpdateWorktreeStatus called for worktree %s", worktree.Name)
+
 	// Update basic status
 	worktree.IsDirty = w.operations.IsDirty(worktree.Path)
 	worktree.HasConflicts = w.operations.HasConflicts(worktree.Path)
+
+	// Detect actual worktree state (branch/ref only - source branch is business logic)
+	log.Printf("🔍 Starting dynamic state detection for %s", worktree.Name)
+	actualBranch, err := w.detectWorktreeActualState(worktree.Path)
+	if err != nil {
+		log.Printf("⚠️ Failed to detect actual worktree state for %s: %v", worktree.Name, err)
+		// Fall back to stored metadata
+	} else {
+		// Update stored metadata if it differs from reality
+		if actualBranch != worktree.Branch {
+			log.Printf("🔄 Worktree %s actual branch (%s) differs from stored (%s), updating",
+				worktree.Name, actualBranch, worktree.Branch)
+			worktree.Branch = actualBranch
+		}
+	}
 
 	if worktree.SourceBranch == "" || worktree.SourceBranch == worktree.Branch {
 		return
 	}
 
-	// TODO: Implement fetch logic if needed when shouldFetch is true
+	// Update commit hash to current HEAD
+	if commitHash, err := w.operations.GetCommitHash(worktree.Path, "HEAD"); err == nil {
+		worktree.CommitHash = commitHash
+	}
 
 	// Get source reference
 	sourceRef := getSourceRef(worktree)

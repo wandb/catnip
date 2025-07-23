@@ -236,7 +236,7 @@ type GitService struct {
 	repositories     map[string]*models.Repository // key: repoID (e.g., "owner/repo")
 	worktrees        map[string]*models.Worktree   // key: worktree ID
 	operations       git.Operations                // All git operations through this interface
-	worktreeManager  *git.WorktreeManager          // Handles worktree lifecycle
+	worktreeService  *WorktreeManager              // Handles all worktree operations (services layer)
 	conflictResolver *git.ConflictResolver         // Handles conflict detection/resolution
 	githubManager    *git.GitHubManager            // Handles all GitHub CLI operations
 	mu               sync.RWMutex
@@ -331,11 +331,6 @@ func (s *GitService) branchExists(repoPath, branch string, isRemote bool) bool {
 	return s.operations.BranchExists(repoPath, branch, isRemote)
 }
 
-// getCommitCount counts commits between two refs
-func (s *GitService) getCommitCount(repoPath, fromRef, toRef string) (int, error) {
-	return s.operations.GetCommitCount(repoPath, fromRef, toRef)
-}
-
 // getRemoteURL gets the remote URL for a repository
 func (s *GitService) getRemoteURL(repoPath string) (string, error) {
 	return s.operations.GetRemoteURL(repoPath)
@@ -351,16 +346,6 @@ func (s *GitService) fetchBranch(repoPath string, strategy git.FetchStrategy) er
 	return s.operations.FetchBranch(repoPath, strategy)
 }
 
-// isDirty checks if a worktree has uncommitted changes
-func (s *GitService) isDirty(worktreePath string) bool {
-	return s.operations.IsDirty(worktreePath)
-}
-
-// hasConflicts checks if a worktree is in a conflicted state (rebase/merge in progress)
-func (s *GitService) hasConflicts(worktreePath string) bool {
-	return s.operations.HasConflicts(worktreePath)
-}
-
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
 	fmt.Println("🐛 [DEBUG] NewGitService called - debug logging is active!")
@@ -373,7 +358,7 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 		repositories:     make(map[string]*models.Repository),
 		worktrees:        make(map[string]*models.Worktree),
 		operations:       operations,
-		worktreeManager:  git.NewWorktreeManager(operations),
+		worktreeService:  NewWorktreeManager(operations),
 		conflictResolver: git.NewConflictResolver(operations),
 		githubManager:    git.NewGitHubManager(operations),
 	}
@@ -558,19 +543,35 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 
 // ListWorktrees returns all worktrees
 func (s *GitService) ListWorktrees() []*models.Worktree {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	worktrees := make([]*models.Worktree, 0, len(s.worktrees))
-	for _, wt := range s.worktrees {
-		// Update dirty status and conflict status
-		wt.IsDirty = s.isDirty(wt.Path)
-		wt.HasConflicts = s.hasConflicts(wt.Path)
+	hasUpdates := false
 
-		// Update commit count and commits behind without fetching
-		s.updateWorktreeStatusInternal(wt, false)
+	for _, wt := range s.worktrees {
+		// Store previous values to detect changes
+		prevCommitCount := wt.CommitCount
+		prevCommitsBehind := wt.CommitsBehind
+		prevSourceBranch := wt.SourceBranch
+		prevBranch := wt.Branch
+		prevCommitHash := wt.CommitHash
+
+		// Use the services layer's UpdateWorktreeStatus which includes dynamic state detection
+		s.worktreeService.UpdateWorktreeStatus(wt, false, s.isLocalRepo(wt.RepoID))
+
+		// Check if any values changed
+		if wt.CommitCount != prevCommitCount || wt.CommitsBehind != prevCommitsBehind ||
+			wt.SourceBranch != prevSourceBranch || wt.Branch != prevBranch || wt.CommitHash != prevCommitHash {
+			hasUpdates = true
+		}
 
 		worktrees = append(worktrees, wt)
+	}
+
+	// Save state if any worktree was updated
+	if hasUpdates {
+		_ = s.saveState()
 	}
 
 	return worktrees
@@ -870,13 +871,7 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 // createLocalRepoWorktree creates a worktree for any local repo
 func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, name string) (*models.Worktree, error) {
 	// Use WorktreeManager to create the local worktree
-	worktree, err := s.worktreeManager.CreateLocalWorktree(git.CreateWorktreeRequest{
-		Repository:   repo,
-		SourceBranch: branch,
-		BranchName:   name,
-		WorkspaceDir: getWorkspaceDir(),
-		IsInitial:    false,
-	})
+	worktree, err := s.worktreeService.CreateLocalWorktree(repo, branch, name, getWorkspaceDir())
 	if err != nil {
 		return nil, err
 	}
@@ -936,7 +931,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	s.cleanupActiveSessions(worktree.Path)
 
 	// Use WorktreeManager to handle the comprehensive cleanup
-	if err := s.worktreeManager.DeleteWorktree(worktree, repo); err != nil {
+	if err := s.worktreeService.DeleteWorktree(repo, worktree); err != nil {
 		return err
 	}
 
@@ -1100,31 +1095,6 @@ func (s *GitService) cleanupActiveSessions(worktreePath string) {
 	}
 }
 
-// updateWorktreeStatusInternal updates commit count and commits behind for a worktree (internal, no mutex)
-func (s *GitService) updateWorktreeStatusInternal(worktree *models.Worktree, shouldFetch bool) {
-	if worktree.SourceBranch == "" || worktree.SourceBranch == worktree.Branch {
-		return
-	}
-
-	// Fetch latest reference only if requested
-	if shouldFetch {
-		s.fetchLatestReference(worktree)
-	}
-
-	// Determine source reference based on repo type
-	sourceRef := s.getSourceRef(worktree)
-
-	// Count commits ahead (our commits)
-	if count, err := s.getCommitCount(worktree.Path, sourceRef, "HEAD"); err == nil {
-		worktree.CommitCount = count
-	}
-
-	// Count commits behind (missing commits)
-	if count, err := s.getCommitCount(worktree.Path, "HEAD", sourceRef); err == nil {
-		worktree.CommitsBehind = count
-	}
-}
-
 // fetchLatestReference fetches the latest reference for a worktree (shallow fetch for status)
 func (s *GitService) fetchLatestReference(worktree *models.Worktree) {
 	s.fetchLatestReferenceWithDepth(worktree, true)
@@ -1285,7 +1255,7 @@ func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy st
 	}
 
 	// Update worktree status (no need to fetch since we already did fetchFullHistory)
-	s.updateWorktreeStatusInternal(worktree, false)
+	s.worktreeService.UpdateWorktreeStatus(worktree, false, s.isLocalRepo(worktree.RepoID))
 
 	log.Printf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
 	return nil
@@ -1693,7 +1663,7 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 // createWorktreeInternalForRepo creates a worktree for a specific repository
 func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, source, name string, isInitial bool) (*models.Worktree, error) {
 	// Use WorktreeManager to create the worktree
-	worktree, err := s.worktreeManager.CreateWorktree(git.CreateWorktreeRequest{
+	worktree, err := s.worktreeService.CreateWorktreeFromRequest(git.CreateWorktreeRequest{
 		Repository:   repo,
 		SourceBranch: source,
 		BranchName:   name,
@@ -1774,7 +1744,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*git.WorktreeDiffRespon
 		return nil
 	}
 
-	result, err := s.worktreeManager.GetWorktreeDiff(worktree, sourceRef, fetchLatestRef)
+	result, err := s.worktreeService.GetWorktreeDiff(worktree, sourceRef, fetchLatestRef)
 	if err != nil {
 		return nil, err
 	}
