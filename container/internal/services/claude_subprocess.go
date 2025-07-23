@@ -16,6 +16,12 @@ import (
 	"github.com/vanpelt/catnip/internal/models"
 )
 
+// ClaudeSubprocessInterface defines the interface for claude CLI subprocess execution
+type ClaudeSubprocessInterface interface {
+	CreateCompletion(ctx context.Context, opts *ClaudeSubprocessOptions) (*models.CreateCompletionResponse, error)
+	CreateStreamingCompletion(ctx context.Context, opts *ClaudeSubprocessOptions, responseWriter io.Writer) error
+}
+
 // ClaudeSubprocessWrapper handles calling the claude CLI tool as a subprocess
 type ClaudeSubprocessWrapper struct {
 	claudePath string
@@ -286,10 +292,6 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, w.claudePath, args...)
-
-	// Log the exact command being run
-	log.Printf("[DEBUG] Claude CLI command (sync): %s %v", w.claudePath, args)
-	log.Printf("[DEBUG] Working directory (sync): %s", opts.WorkingDirectory)
 
 	// Set working directory if specified, resolving symlinks
 	if opts.WorkingDirectory != "" {

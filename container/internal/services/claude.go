@@ -21,7 +21,7 @@ type ClaudeService struct {
 	claudeConfigPath  string
 	claudeProjectsDir string
 	volumeProjectsDir string
-	subprocessWrapper *ClaudeSubprocessWrapper
+	subprocessWrapper ClaudeSubprocessInterface
 }
 
 // readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
@@ -78,6 +78,19 @@ func NewClaudeService() *ClaudeService {
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
 		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 		subprocessWrapper: NewClaudeSubprocessWrapper(),
+	}
+}
+
+// NewClaudeServiceWithWrapper creates a new Claude service with a custom subprocess wrapper (for testing)
+func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeService {
+	// Use catnip user's home directory explicitly
+	homeDir := "/home/catnip"
+	volumeDir := "/volume"
+	return &ClaudeService{
+		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
+		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
+		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		subprocessWrapper: wrapper,
 	}
 }
 
