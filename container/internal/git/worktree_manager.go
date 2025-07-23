@@ -193,7 +193,8 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 	}
 
 	// Step 3: Remove preview branch if it exists
-	previewBranchName := fmt.Sprintf("preview/%s", worktree.Branch)
+	workspaceName := ExtractWorkspaceName(worktree.Branch)
+	previewBranchName := fmt.Sprintf("preview/%s", workspaceName)
 	if err := w.operations.DeleteBranch(repo.Path, previewBranchName, true); err != nil {
 		log.Printf("ℹ️ No preview branch to remove: %s", previewBranchName)
 	} else {

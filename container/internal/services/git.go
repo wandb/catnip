@@ -143,6 +143,94 @@ func (s *GitService) cleanupUnusedBranches() {
 	}
 }
 
+// cleanupCatnipRefs provides comprehensive cleanup of refs/catnip/ namespace
+func (s *GitService) cleanupCatnipRefs() {
+	log.Printf("🧹 Starting cleanup of catnip refs namespace...")
+
+	s.mu.RLock()
+	repos := make([]*models.Repository, 0, len(s.repositories))
+	for _, repo := range s.repositories {
+		repos = append(repos, repo)
+	}
+	s.mu.RUnlock()
+
+	totalDeleted := 0
+
+	for _, repo := range repos {
+		// Use git for-each-ref to list all refs/catnip/ references
+		output, err := s.operations.ExecuteGit(repo.Path, "for-each-ref", "--format=%(refname)", "refs/catnip/")
+		if err != nil {
+			log.Printf("⚠️  Failed to list catnip refs for %s: %v", repo.ID, err)
+			continue
+		}
+
+		if strings.TrimSpace(string(output)) == "" {
+			continue // No catnip refs to clean up
+		}
+
+		deletedInRepo := 0
+		refs := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+		for _, ref := range refs {
+			ref = strings.TrimSpace(ref)
+			if ref == "" {
+				continue
+			}
+
+			// Check if there's an active worktree using this ref
+			worktrees, err := s.operations.ListWorktrees(repo.Path)
+			if err == nil {
+				var skipRef bool
+				for _, wt := range worktrees {
+					if wt.Branch == ref {
+						skipRef = true
+						break
+					}
+				}
+				if skipRef {
+					continue // Skip if ref is currently checked out in a worktree
+				}
+			}
+
+			// Delete the ref using update-ref
+			if _, err := s.operations.ExecuteGit(repo.Path, "update-ref", "-d", ref); err == nil {
+				deletedInRepo++
+				totalDeleted++
+				log.Printf("🗑️  Deleted catnip ref: %s in %s", ref, repo.ID)
+			} else {
+				log.Printf("⚠️  Failed to delete catnip ref %s: %v", ref, err)
+			}
+		}
+
+		if deletedInRepo > 0 {
+			log.Printf("✅ Cleaned up %d catnip refs in %s", deletedInRepo, repo.ID)
+			// Run garbage collection to clean up unreachable objects
+			if err := s.operations.GarbageCollect(repo.Path); err != nil {
+				log.Printf("⚠️ Failed to run garbage collection for %s: %v", repo.ID, err)
+			}
+		}
+	}
+
+	if totalDeleted > 0 {
+		log.Printf("🧹 Catnip refs cleanup complete: removed %d refs", totalDeleted)
+	} else {
+		log.Printf("✅ No orphaned catnip refs found")
+	}
+}
+
+// CleanupAllCatnipRefs provides a comprehensive cleanup that handles both legacy catnip/ branches and new refs/catnip/ refs
+func (s *GitService) CleanupAllCatnipRefs() {
+	log.Printf("🧹 Starting comprehensive catnip cleanup...")
+
+	// Clean up legacy catnip/ branches first
+	s.cleanupUnusedBranches()
+
+	// Then clean up new refs/catnip/ namespace
+	s.cleanupCatnipRefs()
+
+	log.Printf("✅ Comprehensive catnip cleanup complete")
+}
+
 // GitService manages multiple Git repositories and their worktrees
 type GitService struct {
 	repositories     map[string]*models.Repository // key: repoID (e.g., "owner/repo")

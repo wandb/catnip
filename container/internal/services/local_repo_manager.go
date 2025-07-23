@@ -78,7 +78,9 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 
 // CreateWorktreePreview creates a preview branch in the main repo for viewing changes outside container
 func (lrm *LocalRepoManager) CreateWorktreePreview(repo *models.Repository, worktree *models.Worktree) error {
-	previewBranchName := fmt.Sprintf("preview/%s", worktree.Branch)
+	// Extract workspace name for preview branch
+	workspaceName := git.ExtractWorkspaceName(worktree.Branch)
+	previewBranchName := fmt.Sprintf("preview/%s", workspaceName)
 	log.Printf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
 
 	// Check if there are uncommitted changes (staged, unstaged, or untracked)
