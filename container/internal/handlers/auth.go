@@ -72,8 +72,8 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 		h.activeAuth = nil
 	}
 
-	// Start new auth process
-	cmd := exec.Command("bash", "--login", "-c", "gh auth login --web 2>&1")
+	// Start new auth process with workflow scope for GitHub Actions support
+	cmd := exec.Command("bash", "--login", "-c", "gh auth login --web --scopes 'repo,read:org,workflow' 2>&1")
 	cmd.Env = append(os.Environ(),
 		"HOME=/home/catnip",
 		"USER=catnip",

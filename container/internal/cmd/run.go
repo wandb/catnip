@@ -16,7 +16,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/vanpelt/catnip/internal/gitutil"
+	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui"
 	"golang.org/x/crypto/ssh"
@@ -124,7 +124,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find git root early - all our operations should be relative to this
-	gitRoot, isGitRepo := gitutil.FindGitRoot(workDir)
+	gitRoot, isGitRepo := git.FindGitRoot(workDir)
 	if !isGitRepo {
 		return fmt.Errorf("not in a git repository")
 	}

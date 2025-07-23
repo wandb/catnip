@@ -224,15 +224,8 @@ fi
 
 # If files were formatted, add only those specific files to staging
 if [ -n "$formatted_files_list" ]; then
-    echo -e "${YELLOW}📝 Files were formatted. Adding only formatted files to staging area...${NC}"
-    # Add only the formatted files
-    for file in $formatted_files_list; do
-        if [ -f "$file" ]; then
-            git add "$file"
-            echo -e "${GREEN}  ✅ Added $file${NC}"
-        fi
-    done
-    echo -e "${GREEN}✅ Pre-commit formatting complete${NC}"
+    echo -e "${YELLOW}📝 Files were formatted. ${formatted_files_list}${NC}"
+    exit 1
 else
     echo -e "${GREEN}✅ All files already formatted${NC}"
 fi

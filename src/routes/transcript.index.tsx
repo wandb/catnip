@@ -17,6 +17,7 @@ interface Session {
   isActive: boolean;
   lastCost?: number;
   lastDuration?: number;
+  provider: "Claude" | "Gemini";
 }
 
 function TranscriptIndex() {
@@ -31,45 +32,75 @@ function TranscriptIndex() {
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch("/v1/claude/sessions");
-      if (!response.ok) {
-        throw new Error(`Failed to fetch sessions: ${response.statusText}`);
+      const [claudeResponse, geminiResponse] = await Promise.all([
+        fetch("/v1/claude/sessions"),
+        fetch("/v1/gemini/sessions"),
+      ]);
+
+      if (!claudeResponse.ok) {
+        throw new Error(
+          `Failed to fetch Claude sessions: ${claudeResponse.statusText}`,
+        );
       }
-      const data = await response.json();
+      if (!geminiResponse.ok) {
+        throw new Error(
+          `Failed to fetch Gemini sessions: ${geminiResponse.statusText}`,
+        );
+      }
+
+      const claudeData = await claudeResponse.json();
+      const geminiData = await geminiResponse.json();
 
       // Transform the data into a flat array of sessions
       const sessionsList: Session[] = [];
 
-      Object.entries(data).forEach(([worktreePath, summary]: [string, any]) => {
-        // Add sessions from allSessions if available
-        if (summary.allSessions && Array.isArray(summary.allSessions)) {
-          summary.allSessions.forEach((session: any) => {
+      Object.entries(claudeData).forEach(
+        ([worktreePath, summary]: [string, any]) => {
+          // Add sessions from allSessions if available
+          if (summary.allSessions && Array.isArray(summary.allSessions)) {
+            summary.allSessions.forEach((session: any) => {
+              sessionsList.push({
+                sessionId: session.sessionId,
+                worktreePath,
+                header: summary.header,
+                turnCount: summary.turnCount || 0,
+                startTime: session.startTime,
+                endTime: session.endTime,
+                isActive: session.isActive || false,
+                lastCost: summary.lastCost,
+                lastDuration: summary.lastDuration,
+                provider: "Claude",
+              });
+            });
+          } else if (summary.currentSessionId || summary.lastSessionId) {
+            // Add a single session entry for workspaces without allSessions
             sessionsList.push({
-              sessionId: session.sessionId,
+              sessionId: summary.currentSessionId || summary.lastSessionId,
               worktreePath,
               header: summary.header,
               turnCount: summary.turnCount || 0,
-              startTime: session.startTime,
-              endTime: session.endTime,
-              isActive: session.isActive || false,
+              startTime: summary.sessionStartTime,
+              endTime: summary.sessionEndTime,
+              isActive: summary.isActive || false,
               lastCost: summary.lastCost,
               lastDuration: summary.lastDuration,
+              provider: "Claude",
             });
-          });
-        } else if (summary.currentSessionId || summary.lastSessionId) {
-          // Add a single session entry for workspaces without allSessions
-          sessionsList.push({
-            sessionId: summary.currentSessionId || summary.lastSessionId,
-            worktreePath,
-            header: summary.header,
-            turnCount: summary.turnCount || 0,
-            startTime: summary.sessionStartTime,
-            endTime: summary.sessionEndTime,
-            isActive: summary.isActive || false,
-            lastCost: summary.lastCost,
-            lastDuration: summary.lastDuration,
-          });
-        }
+          }
+        },
+      );
+
+      Object.entries(geminiData).forEach(([, summary]: [string, any]) => {
+        sessionsList.push({
+          sessionId: summary.uuid,
+          worktreePath: summary.worktree, // Using the hash from the summary
+          header: summary.title,
+          turnCount: summary.turnCount,
+          startTime: new Date(summary.lastUpdated).toISOString(),
+          endTime: null,
+          isActive: false,
+          provider: "Gemini",
+        });
       });
 
       // Sort by most recent activity first
@@ -127,11 +158,10 @@ function TranscriptIndex() {
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold mb-2">
-            Claude Session Transcripts
-          </h1>
+          <h1 className="text-3xl font-bold mb-2">Session Transcripts</h1>
           <p className="text-muted-foreground">
-            Browse and view detailed transcripts of Claude coding sessions
+            Browse and view detailed transcripts of Claude and Gemini coding
+            sessions
           </p>
         </div>
 
@@ -175,6 +205,16 @@ function TranscriptIndex() {
                             Active
                           </Badge>
                         )}
+                        <Badge
+                          variant={
+                            session.provider === "Claude"
+                              ? "secondary"
+                              : "outline"
+                          }
+                          className="ml-2"
+                        >
+                          {session.provider}
+                        </Badge>
                       </div>
                       {session.header && (
                         <p className="text-sm text-muted-foreground mt-1 line-clamp-1">

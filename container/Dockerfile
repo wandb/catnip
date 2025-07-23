@@ -273,11 +273,11 @@ RUN chmod +x /usr/local/bin/generate-banner.sh && \
     touch /home/catnip/.sudo_as_admin_successful && \
     chown catnip:catnip /home/catnip/.sudo_as_admin_successful
 
-# Install Claude Code as catnip user (not root)
+# Install Claude Code and Gemini CLI as catnip user (not root)
 USER catnip
 RUN bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
-    npm install -g @anthropic-ai/claude-code && \
+    npm install -g @anthropic-ai/claude-code @google/gemini-cli && \
     VSIX_PATH="$(npm root -g)/@anthropic-ai/claude-code/vendor/claude-code.vsix" && \
     if [ -f "$VSIX_PATH" ]; then \
         echo "Installing Claude Code extension from: $VSIX_PATH" && \
@@ -288,6 +288,8 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
 
 # Switch back to root for final setup
 USER root
+
+
 
 # Copy and set up entrypoint script
 COPY container/setup/entrypoint.sh /entrypoint.sh
