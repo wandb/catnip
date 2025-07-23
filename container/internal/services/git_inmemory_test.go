@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -195,8 +196,16 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec 
 		// Now should have worktrees
 		worktrees = service.ListWorktrees()
 		assert.Len(t, worktrees, 2)
+
+		// Sort worktrees by ID for deterministic testing
+		sort.Slice(worktrees, func(i, j int) bool {
+			return worktrees[i].ID < worktrees[j].ID
+		})
+
 		assert.Equal(t, "wt-1", worktrees[0].ID)
 		assert.Equal(t, "catnip/felix", worktrees[0].Branch)
+		assert.Equal(t, "wt-2", worktrees[1].ID)
+		assert.Equal(t, "catnip/whiskers", worktrees[1].Branch)
 	})
 
 	t.Run("GetStatus", func(t *testing.T) {
