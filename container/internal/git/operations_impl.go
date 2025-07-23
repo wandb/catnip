@@ -91,15 +91,23 @@ func (o *OperationsImpl) CreateBranch(repoPath, branch, fromRef string) error {
 }
 
 func (o *OperationsImpl) DeleteBranch(repoPath, branch string, force bool) error {
-	args := []string{"branch"}
-	if force {
-		args = append(args, "-D")
+	// Check if this is a catnip ref (refs/catnip/...)
+	if strings.HasPrefix(branch, "refs/catnip/") {
+		// For catnip refs, use update-ref to delete the ref directly
+		_, err := o.ExecuteGit(repoPath, "update-ref", "-d", branch)
+		return err
 	} else {
-		args = append(args, "-d")
+		// For regular branches, use the original logic
+		args := []string{"branch"}
+		if force {
+			args = append(args, "-D")
+		} else {
+			args = append(args, "-d")
+		}
+		args = append(args, branch)
+		_, err := o.ExecuteGit(repoPath, args...)
+		return err
 	}
-	args = append(args, branch)
-	_, err := o.ExecuteGit(repoPath, args...)
-	return err
 }
 
 func (o *OperationsImpl) ListBranches(repoPath string, options ListBranchesOptions) ([]string, error) {
@@ -135,12 +143,47 @@ func (o *OperationsImpl) ListBranches(repoPath string, options ListBranchesOptio
 // Worktree operations
 
 func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef string) error {
-	args := []string{"worktree", "add", "-b", branch, worktreePath}
-	if fromRef != "" {
-		args = append(args, fromRef)
+	// Check if this is a catnip ref (refs/catnip/...)
+	if strings.HasPrefix(branch, "refs/catnip/") {
+		// For catnip refs, we need to create the ref manually then create the worktree
+		// First create the worktree without a branch (detached HEAD)
+		args := []string{"worktree", "add", "--detach", worktreePath}
+		if fromRef != "" {
+			args = append(args, fromRef)
+		}
+		_, err := o.ExecuteGit(repoPath, args...)
+		if err != nil {
+			return err
+		}
+
+		// Then create the branch ref and check it out in the worktree
+		// First, we need to get the commit hash for the ref we want to base on
+		commitHash := fromRef
+		if fromRef == "" {
+			commitHash = "HEAD"
+		}
+
+		// Create the ref in the main repo pointing to the correct commit
+		_, err = o.ExecuteGit(repoPath, "update-ref", branch, commitHash)
+		if err != nil {
+			// Cleanup the worktree if ref creation fails
+			_ = o.RemoveWorktree(repoPath, worktreePath, true)
+			return err
+		}
+
+		// Now we need to update the worktree to use our custom ref
+		// We use symbolic-ref to set the HEAD to our custom ref
+		_, err = o.ExecuteGit(worktreePath, "symbolic-ref", "HEAD", branch)
+		return err
+	} else {
+		// For regular branches, use the original logic
+		args := []string{"worktree", "add", "-b", branch, worktreePath}
+		if fromRef != "" {
+			args = append(args, fromRef)
+		}
+		_, err := o.ExecuteGit(repoPath, args...)
+		return err
 	}
-	_, err := o.ExecuteGit(repoPath, args...)
-	return err
 }
 
 func (o *OperationsImpl) RemoveWorktree(repoPath, worktreePath string, force bool) error {

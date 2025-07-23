@@ -14,10 +14,10 @@ import (
 func TestGenerateSessionName(t *testing.T) {
 	name := GenerateSessionName()
 	assert.NotEmpty(t, name)
-	assert.True(t, strings.HasPrefix(name, "catnip/"), "Branch name should start with catnip/")
+	assert.True(t, strings.HasPrefix(name, "refs/catnip/"), "Branch name should start with refs/catnip/")
 
 	// Extract cat name
-	catName := strings.TrimPrefix(name, "catnip/")
+	catName := strings.TrimPrefix(name, "refs/catnip/")
 	assert.NotEmpty(t, catName)
 	assert.LessOrEqual(t, len(catName), 7, "Cat name should be max 7 characters")
 
@@ -35,10 +35,10 @@ func TestGenerateSessionName(t *testing.T) {
 func TestGenerateSessionNameWithAdjective(t *testing.T) {
 	name := GenerateSessionNameWithAdjective()
 	assert.NotEmpty(t, name)
-	assert.True(t, strings.HasPrefix(name, "catnip/"), "Branch name should start with catnip/")
+	assert.True(t, strings.HasPrefix(name, "refs/catnip/"), "Branch name should start with refs/catnip/")
 
-	// Extract the part after catnip/
-	namePart := strings.TrimPrefix(name, "catnip/")
+	// Extract the part after refs/catnip/
+	namePart := strings.TrimPrefix(name, "refs/catnip/")
 	assert.Contains(t, namePart, "-", "Should contain hyphen between adjective and cat name")
 
 	// Split into adjective and cat name
@@ -77,20 +77,37 @@ func TestIsCatnipBranch(t *testing.T) {
 		branch   string
 		expected bool
 	}{
-		// Simple cat names
+		// New format - Simple cat names
+		{"refs/catnip/felix", true},
+		{"refs/catnip/luna", true},
+		{"refs/catnip/milo", true},
+		{"refs/catnip/tiger", true},
+
+		// New format - Adjective-cat names
+		{"refs/catnip/fuzzy-felix", true},
+		{"refs/catnip/silly-luna", true},
+		{"refs/catnip/tiny-milo", true},
+		{"refs/catnip/happy-tiger", true},
+
+		// Legacy format - Simple cat names (backward compatibility)
 		{"catnip/felix", true},
 		{"catnip/luna", true},
 		{"catnip/milo", true},
 		{"catnip/tiger", true},
 
-		// Adjective-cat names
+		// Legacy format - Adjective-cat names (backward compatibility)
 		{"catnip/fuzzy-felix", true},
 		{"catnip/silly-luna", true},
 		{"catnip/tiny-milo", true},
 		{"catnip/happy-tiger", true},
 
 		// Invalid formats
-		{"catnip/notacat", false},
+		{"refs/catnip/notacat", false},
+		{"refs/catnip/toolongname", false},
+		{"refs/catnip/invalid-felix", false},     // Invalid adjective
+		{"refs/catnip/fuzzy-notacat", false},     // Invalid cat name
+		{"refs/catnip/fuzzy-happy-felix", false}, // Too many parts
+		{"catnip/notacat", false},                // Legacy format invalid
 		{"catnip/toolongname", false},
 		{"catnip/invalid-felix", false},     // Invalid adjective
 		{"catnip/fuzzy-notacat", false},     // Invalid cat name
@@ -218,7 +235,7 @@ func TestGenerateUniqueSessionName(t *testing.T) {
 		}
 
 		name := GenerateUniqueSessionName(branchExists)
-		assert.True(t, strings.HasPrefix(name, "catnip/"))
+		assert.True(t, strings.HasPrefix(name, "refs/catnip/"))
 		assert.NotContains(t, name, "-")       // Should be a simple cat name, not adjective-cat
 		assert.NotContains(t, name, "special") // Should not use timestamp fallback
 	})
@@ -234,7 +251,7 @@ func TestGenerateUniqueSessionName(t *testing.T) {
 		}
 
 		name := GenerateUniqueSessionName(branchExists)
-		assert.True(t, strings.HasPrefix(name, "catnip/"))
+		assert.True(t, strings.HasPrefix(name, "refs/catnip/"))
 		assert.Contains(t, name, "-")          // Should be adjective-cat format
 		assert.NotContains(t, name, "special") // Should not use timestamp fallback
 	})
@@ -246,11 +263,11 @@ func TestGenerateUniqueSessionName(t *testing.T) {
 		}
 
 		name := GenerateUniqueSessionName(branchExists)
-		assert.True(t, strings.HasPrefix(name, "catnip/special-"))
+		assert.True(t, strings.HasPrefix(name, "refs/catnip/special-"))
 		// Should contain timestamp-like number at the end
 		parts := strings.Split(name, "-")
 		assert.Len(t, parts, 2)
-		assert.Equal(t, "catnip/special", parts[0])
+		assert.Equal(t, "refs/catnip/special", parts[0])
 		// parts[1] should be a number (timestamp)
 		_, err := strconv.ParseInt(parts[1], 10, 64)
 		assert.NoError(t, err)
@@ -262,17 +279,30 @@ func TestExtractWorkspaceName(t *testing.T) {
 		branchName   string
 		expectedName string
 	}{
-		// Simple catnip branches
+		// New format - Simple catnip branches
+		{"refs/catnip/felix", "felix"},
+		{"refs/catnip/luna", "luna"},
+		{"refs/catnip/milo", "milo"},
+
+		// New format - Adjective-cat catnip branches
+		{"refs/catnip/fuzzy-felix", "fuzzy-felix"},
+		{"refs/catnip/silly-luna", "silly-luna"},
+		{"refs/catnip/tiny-milo", "tiny-milo"},
+
+		// New format - Special fallback names
+		{"refs/catnip/special-1234567890", "special-1234567890"},
+
+		// Legacy format - Simple catnip branches (backward compatibility)
 		{"catnip/felix", "felix"},
 		{"catnip/luna", "luna"},
 		{"catnip/milo", "milo"},
 
-		// Adjective-cat catnip branches
+		// Legacy format - Adjective-cat catnip branches
 		{"catnip/fuzzy-felix", "fuzzy-felix"},
 		{"catnip/silly-luna", "silly-luna"},
 		{"catnip/tiny-milo", "tiny-milo"},
 
-		// Special fallback names
+		// Legacy format - Special fallback names
 		{"catnip/special-1234567890", "special-1234567890"},
 
 		// Non-catnip branches (should be unchanged)

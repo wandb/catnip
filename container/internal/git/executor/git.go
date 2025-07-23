@@ -9,7 +9,6 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 // GitExecutor implements CommandExecutor using go-git library
@@ -74,7 +73,8 @@ func (e *GitExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...string
 	case "ls-remote":
 		return e.handleLsRemote(workingDir, args[1:])
 	case "rev-list":
-		return e.handleRevList(workingDir, args[1:])
+		// rev-list operations are complex and better handled by shell git
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, args...)
 	// Complex operations that require shell git
 	case "merge", "rebase", "clone", "worktree", "push", "pull":
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, args...)
@@ -375,122 +375,7 @@ func (e *GitExecutor) handleLsRemote(workingDir string, args []string) ([]byte, 
 	return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"ls-remote"}, args...)...)
 }
 
-// handleRevList implements git rev-list commands
-func (e *GitExecutor) handleRevList(workingDir string, args []string) ([]byte, error) {
-	repo, err := e.getRepository(workingDir)
-	if err != nil {
-		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-list"}, args...)...)
-	}
-
-	// Handle rev-list --count fromRef..toRef (most common use case for commit counting)
-	if len(args) >= 2 && args[0] == "--count" {
-		revRange := args[1]
-
-		// Parse fromRef..toRef format
-		if strings.Contains(revRange, "..") {
-			parts := strings.Split(revRange, "..")
-			if len(parts) == 2 {
-				fromRef := parts[0]
-				toRef := parts[1]
-
-				// Get commit objects for both references
-				fromHash, err := e.resolveRef(repo, fromRef)
-				if err != nil {
-					// If we can't resolve with go-git, fall back to shell
-					return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-list"}, args...)...)
-				}
-
-				toHash, err := e.resolveRef(repo, toRef)
-				if err != nil {
-					// If we can't resolve with go-git, fall back to shell
-					return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-list"}, args...)...)
-				}
-
-				// Count commits between fromHash and toHash
-				count, err := e.countCommitsBetween(repo, fromHash, toHash)
-				if err != nil {
-					// If we can't count with go-git, fall back to shell
-					return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-list"}, args...)...)
-				}
-
-				return []byte(fmt.Sprintf("%d\n", count)), nil
-			}
-		}
-	}
-
-	// For other rev-list operations, fall back to shell
-	return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-list"}, args...)...)
-}
-
 // Helper functions
-
-// resolveRef resolves a reference to a commit hash
-func (e *GitExecutor) resolveRef(repo *gogit.Repository, ref string) (plumbing.Hash, error) {
-	// Handle HEAD specially
-	if ref == "HEAD" {
-		head, err := repo.Head()
-		if err != nil {
-			return plumbing.ZeroHash, fmt.Errorf("failed to get HEAD: %w", err)
-		}
-		return head.Hash(), nil
-	}
-
-	// Try as a direct hash first
-	if len(ref) >= 7 && len(ref) <= 40 {
-		hash := plumbing.NewHash(ref)
-		if _, err := repo.CommitObject(hash); err == nil {
-			return hash, nil
-		}
-	}
-
-	// Try as a branch reference
-	branchRef, err := repo.Reference(plumbing.NewBranchReferenceName(ref), true)
-	if err == nil {
-		return branchRef.Hash(), nil
-	}
-
-	// Try as a remote branch reference
-	remoteBranchRef, err := repo.Reference(plumbing.NewRemoteReferenceName("origin", ref), true)
-	if err == nil {
-		return remoteBranchRef.Hash(), nil
-	}
-
-	// Try as any reference
-	anyRef, err := repo.Reference(plumbing.ReferenceName(ref), true)
-	if err == nil {
-		return anyRef.Hash(), nil
-	}
-
-	return plumbing.ZeroHash, fmt.Errorf("reference %s not found", ref)
-}
-
-// countCommitsBetween counts commits between two commit hashes (fromHash..toHash)
-func (e *GitExecutor) countCommitsBetween(repo *gogit.Repository, fromHash, toHash plumbing.Hash) (int, error) {
-
-	// Create commit iterator from toHash
-	iter, err := repo.Log(&gogit.LogOptions{From: toHash})
-	if err != nil {
-		return 0, fmt.Errorf("failed to create log iterator: %w", err)
-	}
-	defer iter.Close()
-
-	count := 0
-	err = iter.ForEach(func(commit *object.Commit) error {
-		// Stop when we reach the fromHash commit
-		if commit.Hash == fromHash {
-			return fmt.Errorf("stop") // Use error to break iteration
-		}
-		count++
-		return nil
-	})
-
-	// The "stop" error is expected when we find the base commit
-	if err != nil && err.Error() != "stop" {
-		return 0, fmt.Errorf("failed to iterate commits: %w", err)
-	}
-
-	return count, nil
-}
 
 func (e *GitExecutor) listBranches(repo *gogit.Repository, includeRemote bool) ([]byte, error) {
 	refs, err := repo.References()

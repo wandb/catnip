@@ -391,13 +391,13 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 		// Verify the worktree was created correctly
 		assert.Equal(t, repoID, worktree.RepoID)
 		assert.Equal(t, "main", worktree.SourceBranch)
-		assert.Contains(t, worktree.Name, "test-project/")            // Should have repo prefix
-		assert.True(t, strings.HasPrefix(worktree.Branch, "catnip/")) // Should be a catnip branch
+		assert.Contains(t, worktree.Name, "test-project/")                 // Should have repo prefix
+		assert.True(t, strings.HasPrefix(worktree.Branch, "refs/catnip/")) // Should be a catnip branch
 
-		// Verify the worktree branch was created in the live repo
-		branches, err := service.getLocalRepoBranches(repo.Path)
-		assert.NoError(t, err)
-		assert.Contains(t, branches, worktree.Branch)
+		// Verify the worktree branch exists in the custom refs/catnip/ namespace
+		// Note: refs/catnip/ branches intentionally don't appear in regular branch list
+		exists := service.branchExists(repo.Path, worktree.Branch, false)
+		assert.True(t, exists, "Branch should exist in refs/catnip/ namespace: %s", worktree.Branch)
 
 		// Verify worktree was added to service
 		worktrees := service.ListWorktrees()
@@ -438,10 +438,10 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 		// Verify the worktree directory was created
 		assert.DirExists(t, worktree.Path)
 
-		// Verify the branch exists in the live repo
-		branches, err := service.getLocalRepoBranches(repo.Path)
-		assert.NoError(t, err)
-		assert.Contains(t, branches, uniqueName)
+		// Verify the branch exists in the custom refs/catnip/ namespace
+		// Note: refs/catnip/ branches intentionally don't appear in regular branch list
+		branchExists := service.branchExists(repo.Path, uniqueName, false)
+		assert.True(t, branchExists, "Branch should exist in refs/catnip/ namespace: %s", uniqueName)
 
 		// Clean up this worktree for the next tests
 		_ = service.DeleteWorktree(worktree.ID)
@@ -499,10 +499,10 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		assert.Len(t, worktrees, 1)
 		assert.Equal(t, worktreeID, worktrees[0].ID)
 
-		// Verify branch exists in live repo
-		branches, err := service.getLocalRepoBranches(repo.Path)
-		require.NoError(t, err)
-		assert.Contains(t, branches, worktreBranch)
+		// Verify branch exists in the custom refs/catnip/ namespace
+		// Note: refs/catnip/ branches intentionally don't appear in regular branch list
+		branchExists := service.branchExists(repo.Path, worktreBranch, false)
+		assert.True(t, branchExists, "Branch should exist in refs/catnip/ namespace: %s", worktreBranch)
 
 		// Verify worktree directory exists
 		assert.DirExists(t, worktree.Path)
@@ -515,10 +515,9 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		worktrees = service.ListWorktrees()
 		assert.Len(t, worktrees, 0)
 
-		// Verify branch was deleted from live repo
-		branches, err = service.getLocalRepoBranches(repo.Path)
-		require.NoError(t, err)
-		assert.NotContains(t, branches, worktreBranch)
+		// Verify branch was deleted from refs/catnip/ namespace
+		branchExistsAfterDelete := service.branchExists(repo.Path, worktreBranch, false)
+		assert.False(t, branchExistsAfterDelete, "Branch should be deleted from refs/catnip/ namespace: %s", worktreBranch)
 
 		// Verify worktree directory was removed
 		assert.NoDirExists(t, worktree.Path)
@@ -543,10 +542,12 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 
 		// Verify both branches exist in live repo
 		repo := service.repositories[repoID]
-		branches, err := service.getLocalRepoBranches(repo.Path)
-		require.NoError(t, err)
-		assert.Contains(t, branches, worktree1.Branch)
-		assert.Contains(t, branches, worktree2.Branch)
+		// Verify both branches exist in the custom refs/catnip/ namespace
+		// Note: refs/catnip/ branches intentionally don't appear in regular branch list
+		exists1 := service.branchExists(repo.Path, worktree1.Branch, false)
+		exists2 := service.branchExists(repo.Path, worktree2.Branch, false)
+		assert.True(t, exists1, "Branch should exist in refs/catnip/ namespace: %s", worktree1.Branch)
+		assert.True(t, exists2, "Branch should exist in refs/catnip/ namespace: %s", worktree2.Branch)
 
 		// Delete first worktree
 		err = service.DeleteWorktree(worktree1.ID)
@@ -557,11 +558,11 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		assert.Len(t, worktrees, 1)
 		assert.Equal(t, worktree2.ID, worktrees[0].ID)
 
-		// Verify first branch was deleted but second remains
-		branches, err = service.getLocalRepoBranches(repo.Path)
-		require.NoError(t, err)
-		assert.NotContains(t, branches, worktree1.Branch)
-		assert.Contains(t, branches, worktree2.Branch)
+		// Verify first branch was deleted but second remains in refs/catnip/ namespace
+		exists1AfterDelete := service.branchExists(repo.Path, worktree1.Branch, false)
+		exists2AfterDelete := service.branchExists(repo.Path, worktree2.Branch, false)
+		assert.False(t, exists1AfterDelete, "First branch should be deleted from refs/catnip/ namespace: %s", worktree1.Branch)
+		assert.True(t, exists2AfterDelete, "Second branch should still exist in refs/catnip/ namespace: %s", worktree2.Branch)
 
 		// Clean up remaining worktree
 		_ = service.DeleteWorktree(worktree2.ID)

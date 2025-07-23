@@ -91,32 +91,36 @@ var (
 	sshURLPattern    = regexp.MustCompile(`^(?:ssh://)?git@([^:]+):(.+)$`)
 )
 
-// GenerateSessionName creates a random branch name with format catnip/catname
+// GenerateSessionName creates a random branch name with format refs/catnip/catname
 func GenerateSessionName() string {
 	catIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(catNames))))
 	catName := catNames[catIndex.Int64()]
-	return fmt.Sprintf("catnip/%s", catName)
+	return fmt.Sprintf("refs/catnip/%s", catName)
 }
 
-// GenerateSessionNameWithAdjective creates a branch name with format catnip/adjective-catname
+// GenerateSessionNameWithAdjective creates a branch name with format refs/catnip/adjective-catname
 // Used for collision handling when simple cat names are taken
 func GenerateSessionNameWithAdjective() string {
 	catIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(catNames))))
 	adjIndex, _ := rand.Int(rand.Reader, big.NewInt(int64(len(adjectives))))
 	catName := catNames[catIndex.Int64()]
 	adjective := adjectives[adjIndex.Int64()]
-	return fmt.Sprintf("catnip/%s-%s", adjective, catName)
+	return fmt.Sprintf("refs/catnip/%s-%s", adjective, catName)
 }
 
-// IsCatnipBranch checks if a branch name follows the catnip/catname or catnip/adjective-catname pattern
+// IsCatnipBranch checks if a branch name follows the catnip ref pattern (refs/catnip/ or legacy catnip/)
 func IsCatnipBranch(branchName string) bool {
-	// Check if it starts with catnip/ prefix
-	if !strings.HasPrefix(branchName, "catnip/") {
+	var namePart string
+
+	// Check if it starts with refs/catnip/ prefix (new format)
+	if strings.HasPrefix(branchName, "refs/catnip/") {
+		namePart = strings.TrimPrefix(branchName, "refs/catnip/")
+	} else if strings.HasPrefix(branchName, "catnip/") {
+		// Legacy format for backward compatibility
+		namePart = strings.TrimPrefix(branchName, "catnip/")
+	} else {
 		return false
 	}
-
-	// Extract the part after catnip/
-	namePart := strings.TrimPrefix(branchName, "catnip/")
 
 	// Check if it's a simple cat name
 	for _, name := range catNames {
@@ -346,13 +350,16 @@ func GenerateUniqueSessionName(branchExists func(string) bool) string {
 	}
 
 	// Final fallback: add timestamp to ensure uniqueness
-	return fmt.Sprintf("catnip/special-%d", time.Now().Unix())
+	return fmt.Sprintf("refs/catnip/special-%d", time.Now().Unix())
 }
 
 // ExtractWorkspaceName extracts the workspace-friendly name from a branch name
-// For catnip branches, removes the "catnip/" prefix
-// Examples: "catnip/felix" -> "felix", "catnip/fuzzy-luna" -> "fuzzy-luna"
+// For catnip branches, removes the "refs/catnip/" or "catnip/" prefix
+// Examples: "refs/catnip/felix" -> "felix", "catnip/fuzzy-luna" -> "fuzzy-luna"
 func ExtractWorkspaceName(branchName string) string {
+	if strings.HasPrefix(branchName, "refs/catnip/") {
+		return strings.TrimPrefix(branchName, "refs/catnip/")
+	}
 	if strings.HasPrefix(branchName, "catnip/") {
 		return strings.TrimPrefix(branchName, "catnip/")
 	}
