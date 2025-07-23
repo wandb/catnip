@@ -30,6 +30,14 @@ type PTYHandler struct {
 	portService    *services.PortAllocationService
 }
 
+// ConnectionInfo tracks metadata for each WebSocket connection
+type ConnectionInfo struct {
+	ConnectedAt time.Time
+	RemoteAddr  string
+	ConnID      string
+	IsReadOnly  bool
+}
+
 // Session represents a PTY session
 type Session struct {
 	ID              string
@@ -41,7 +49,7 @@ type Session struct {
 	Agent           string
 	Title           string
 	ClaudeSessionID string // Track Claude session UUID for resume functionality
-	connections     map[*websocket.Conn]bool
+	connections     map[*websocket.Conn]*ConnectionInfo
 	connMutex       sync.RWMutex
 	// Buffer to store PTY output for replay
 	outputBuffer  []byte
@@ -136,18 +144,28 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 		}
 		sessionID := c.Query("session", defaultSession)
 		agent := c.Query("agent", "")
+
+		// Create composite session key: path + agent
+		compositeSessionID := sessionID
+		if agent != "" {
+			compositeSessionID = fmt.Sprintf("%s:%s", sessionID, agent)
+		}
+
 		return websocket.New(func(conn *websocket.Conn) {
-			h.handlePTYConnection(conn, sessionID, agent)
+			h.handlePTYConnection(conn, compositeSessionID, agent)
 		})(c)
 	}
 	return fiber.ErrUpgradeRequired
 }
 
 func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent string) {
+	// Generate unique connection ID for logging and tracking
+	connID := fmt.Sprintf("%p", conn)
+
 	if agent != "" {
-		log.Printf("📡 New PTY connection for session: %s with agent: %s", sessionID, agent)
+		log.Printf("📡 New PTY connection [%s] for session: %s with agent: %s", connID, sessionID, agent)
 	} else {
-		log.Printf("📡 New PTY connection for session: %s", sessionID)
+		log.Printf("📡 New PTY connection [%s] for session: %s", connID, sessionID)
 	}
 
 	// Get or create session
@@ -158,10 +176,51 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		return
 	}
 
-	// Add connection to session
+	// Add connection to session with read-only logic
 	session.connMutex.Lock()
-	session.connections[conn] = true
+	connectionCount := len(session.connections)
+
+	// First connection gets write access, subsequent ones are read-only
+	isReadOnly := connectionCount > 0
+
+	session.connections[conn] = &ConnectionInfo{
+		ConnectedAt: time.Now(),
+		RemoteAddr:  conn.RemoteAddr().String(),
+		ConnID:      connID,
+		IsReadOnly:  isReadOnly,
+	}
+	newConnectionCount := len(session.connections)
 	session.connMutex.Unlock()
+
+	if isReadOnly {
+		log.Printf("🔗 Added READ-ONLY connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
+
+		// Notify client that it's read-only
+		readOnlyMsg := struct {
+			Type string `json:"type"`
+			Data bool   `json:"data"`
+		}{
+			Type: "read-only",
+			Data: true,
+		}
+		if data, err := json.Marshal(readOnlyMsg); err == nil {
+			_ = session.writeToConnection(conn, websocket.TextMessage, data)
+		}
+	} else {
+		log.Printf("🔗 Added WRITE connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
+
+		// Notify client that it has write access
+		writeAccessMsg := struct {
+			Type string `json:"type"`
+			Data bool   `json:"data"`
+		}{
+			Type: "read-only",
+			Data: false,
+		}
+		if data, err := json.Marshal(writeAccessMsg); err == nil {
+			_ = session.writeToConnection(conn, websocket.TextMessage, data)
+		}
+	}
 
 	// Don't replay buffer immediately - wait for client ready signal
 	// This prevents race conditions with PTY state
@@ -178,11 +237,52 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 		close(done) // Signal goroutines to stop
 		session.connMutex.Lock()
+
+		// Check if this was a write-enabled connection
+		connInfo, exists := session.connections[conn]
+		wasWriteConnection := exists && !connInfo.IsReadOnly
+
 		delete(session.connections, conn)
 		connectionCount := len(session.connections)
+
+		// If the write connection disconnected, promote the oldest read-only connection
+		if wasWriteConnection && connectionCount > 0 {
+			var oldestConn *websocket.Conn
+			var oldestTime time.Time
+
+			for c, info := range session.connections {
+				if info.IsReadOnly && (oldestConn == nil || info.ConnectedAt.Before(oldestTime)) {
+					oldestConn = c
+					oldestTime = info.ConnectedAt
+				}
+			}
+
+			if oldestConn != nil {
+				session.connections[oldestConn].IsReadOnly = false
+				promotedConnID := session.connections[oldestConn].ConnID
+				log.Printf("🔄 Promoted connection [%s] to WRITE access in session %s", promotedConnID, sessionID)
+
+				// Notify the promoted connection about write access
+				writeAccessMsg := struct {
+					Type string `json:"type"`
+					Data bool   `json:"data"`
+				}{
+					Type: "read-only",
+					Data: false,
+				}
+				if data, err := json.Marshal(writeAccessMsg); err == nil {
+					_ = oldestConn.WriteMessage(websocket.TextMessage, data)
+				}
+			}
+		}
+
 		session.connMutex.Unlock()
 
-		log.Printf("🔌 PTY connection closed for session %s (remaining: %d)", sessionID, connectionCount)
+		if wasWriteConnection {
+			log.Printf("🔌 WRITE connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
+		} else {
+			log.Printf("🔌 read-only connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
+		}
 
 		// Safe close with error handling
 		if err := conn.Close(); err != nil {
@@ -353,7 +453,22 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			}
 		}
 
-		// Write data to PTY
+		// Check if this connection has write access
+		session.connMutex.RLock()
+		connInfo, exists := session.connections[conn]
+		session.connMutex.RUnlock()
+
+		if !exists {
+			log.Printf("⚠️ Connection [%s] no longer exists in session", connID)
+			break
+		}
+
+		if connInfo.IsReadOnly {
+			log.Printf("🚫 Ignoring input from read-only connection [%s] in session %s", connID, sessionID)
+			continue
+		}
+
+		// Write data to PTY (only from write-enabled connections)
 		if _, err := session.PTY.Write(data); err != nil {
 			log.Printf("❌ PTY write error: %v", err)
 			break
@@ -511,7 +626,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 		LastAccess:    time.Now(),
 		WorkDir:       workDir,
 		Agent:         agent,
-		connections:   make(map[*websocket.Conn]bool),
+		connections:   make(map[*websocket.Conn]*ConnectionInfo),
 		outputBuffer:  make([]byte, 0),
 		maxBufferSize: 5 * 1024 * 1024, // 5MB buffer
 		cols:          80,
@@ -844,13 +959,27 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 	defer s.writeMutex.Unlock()
 
 	s.connMutex.RLock()
+	connectionCount := len(s.connections)
+	s.connMutex.RUnlock()
+
+	// Only broadcast if we have connections and avoid excessive logging for small data
+	if connectionCount == 0 {
+		return
+	}
+
+	// Log broadcasts for debugging (limit to prevent spam)
+	if len(data) > 100 || connectionCount > 1 {
+		log.Printf("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
+	}
+
+	s.connMutex.RLock()
 	defer s.connMutex.RUnlock()
 
 	var disconnectedConns []*websocket.Conn
 
-	for conn := range s.connections {
+	for conn, connInfo := range s.connections {
 		if err := conn.WriteMessage(messageType, data); err != nil {
-			log.Printf("❌ WebSocket write error: %v", err)
+			log.Printf("❌ WebSocket write error for connection [%s] in session %s: %v", connInfo.ConnID, s.ID, err)
 			// Mark connection for removal
 			disconnectedConns = append(disconnectedConns, conn)
 		}
