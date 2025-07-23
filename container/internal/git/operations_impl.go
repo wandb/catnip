@@ -157,17 +157,23 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 
 		// Then create the branch ref and check it out in the worktree
-		// Create the ref in the main repo
-		_, err = o.ExecuteGit(repoPath, "update-ref", branch, "HEAD")
+		// First, we need to get the commit hash for the ref we want to base on
+		commitHash := fromRef
+		if fromRef == "" {
+			commitHash = "HEAD"
+		}
+
+		// Create the ref in the main repo pointing to the correct commit
+		_, err = o.ExecuteGit(repoPath, "update-ref", branch, commitHash)
 		if err != nil {
 			// Cleanup the worktree if ref creation fails
 			_ = o.RemoveWorktree(repoPath, worktreePath, true)
 			return err
 		}
 
-		// Check out the new ref in the worktree
-		shortBranchName := strings.TrimPrefix(branch, "refs/")
-		_, err = o.ExecuteGit(worktreePath, "checkout", "-B", shortBranchName, branch)
+		// Now we need to update the worktree to use our custom ref
+		// We use symbolic-ref to set the HEAD to our custom ref
+		_, err = o.ExecuteGit(worktreePath, "symbolic-ref", "HEAD", branch)
 		return err
 	} else {
 		// For regular branches, use the original logic
