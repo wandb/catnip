@@ -28,6 +28,32 @@ function TerminalPage() {
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [isReadOnly, setIsReadOnly] = useState(false);
 
+  // Helper to generate a unique key for session storage
+  const getPromptStorageKey = useCallback(
+    (sessionId: string, prompt: string) => {
+      return `catnip_prompt_${sessionId}_${btoa(prompt).slice(0, 20)}`;
+    },
+    [],
+  );
+
+  // Check if prompt has already been executed
+  const hasPromptBeenExecuted = useCallback(
+    (sessionId: string, prompt: string) => {
+      const key = getPromptStorageKey(sessionId, prompt);
+      return sessionStorage.getItem(key) === "executed";
+    },
+    [getPromptStorageKey],
+  );
+
+  // Mark prompt as executed
+  const markPromptAsExecuted = useCallback(
+    (sessionId: string, prompt: string) => {
+      const key = getPromptStorageKey(sessionId, prompt);
+      sessionStorage.setItem(key, "executed");
+    },
+    [getPromptStorageKey],
+  );
+
   // Send ready signal when both WebSocket and terminal are ready
   const sendReadySignal = useCallback(() => {
     if (!wsReady.current || !wsRef.current || !fitAddon.current) {
@@ -163,16 +189,32 @@ function TerminalPage() {
 
             // Check if we have a prompt to send
             if (search.prompt && search.agent === "claude") {
-              // Wait for Claude UI to fully load before sending prompt
-              setTimeout(() => {
-                wsRef.current?.send(
-                  JSON.stringify({
-                    type: "prompt",
-                    data: search.prompt,
-                    submit: true,
-                  }),
+              // Check if this prompt has already been executed for this session
+              const promptExecuted = hasPromptBeenExecuted(
+                params.sessionId,
+                search.prompt,
+              );
+
+              if (!promptExecuted) {
+                // Mark as executed before sending to prevent race conditions
+                markPromptAsExecuted(params.sessionId, search.prompt);
+                console.log(
+                  `[Terminal] Marking prompt as executed and sending to Claude`,
                 );
-              }, 1000); // Give Claude TUI time to initialize
+
+                // Wait for Claude UI to fully load before sending prompt
+                setTimeout(() => {
+                  wsRef.current?.send(
+                    JSON.stringify({
+                      type: "prompt",
+                      data: search.prompt,
+                      submit: true,
+                    }),
+                  );
+                }, 1000); // Give Claude TUI time to initialize
+              } else {
+                console.log(`[Terminal] Prompt already executed, skipping`);
+              }
             }
             const dims = { cols: instance.cols, rows: instance.rows };
             wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
@@ -340,7 +382,14 @@ function TerminalPage() {
         resizeTimeout.current = null;
       }
     };
-  }, [instance, params.sessionId, search.agent, setDims]);
+  }, [
+    instance,
+    params.sessionId,
+    search.agent,
+    setDims,
+    hasPromptBeenExecuted,
+    markPromptAsExecuted,
+  ]);
 
   return (
     <div className="h-full w-full bg-black p-4 relative">
