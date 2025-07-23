@@ -143,6 +143,9 @@ function TerminalPage() {
     if (search.agent) {
       urlParams.set("agent", String(search.agent));
     }
+    if (search.reset) {
+      urlParams.set("reset", String(search.reset));
+    }
     const socketUrl = `${protocol}//${
       window.location.host
     }/v1/pty?${urlParams.toString()}`;
