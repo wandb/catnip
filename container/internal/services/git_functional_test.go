@@ -203,8 +203,8 @@ func TestGitServiceHelperFunctions(t *testing.T) {
 			// Note: Names might not be unique due to random generation, so just test validity
 			names[name] = true
 
-			// Should start with catnip/
-			assert.True(t, strings.HasPrefix(name, "catnip/"), "Name should start with catnip/: %s", name)
+			// Should start with refs/catnip/
+			assert.True(t, strings.HasPrefix(name, "refs/catnip/"), "Name should start with refs/catnip/: %s", name)
 
 			// Should be a valid catnip branch name
 			assert.True(t, isCatnipBranch(name), "Generated name should be valid catnip branch: %s", name)
@@ -212,8 +212,13 @@ func TestGitServiceHelperFunctions(t *testing.T) {
 	})
 
 	t.Run("IsCatnipBranch", func(t *testing.T) {
+		// Test new refs/catnip/ format
+		assert.True(t, isCatnipBranch("refs/catnip/felix"))
+		assert.True(t, isCatnipBranch("refs/catnip/fluffy-felix"))
+		// Test legacy catnip/ format for backward compatibility
 		assert.True(t, isCatnipBranch("catnip/felix"))
 		assert.True(t, isCatnipBranch("catnip/fluffy-felix"))
+		// Test non-catnip branches
 		assert.False(t, isCatnipBranch("main"))
 		assert.False(t, isCatnipBranch("feature/something"))
 		assert.False(t, isCatnipBranch("develop"))

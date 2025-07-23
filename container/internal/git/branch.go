@@ -38,6 +38,12 @@ func (b *BranchOperations) BranchExists(repoPath, branch string, opts BranchExis
 		return err == nil
 	}
 
+	// For branches with full ref path (like refs/catnip/name), use show-ref
+	if strings.HasPrefix(branch, "refs/") {
+		_, err := b.executor.ExecuteGitWithWorkingDir(repoPath, "show-ref", "--verify", "--quiet", branch)
+		return err == nil
+	}
+
 	// For local branches, use git branch --list which is more reliable
 	output, err := b.executor.ExecuteGitWithWorkingDir(repoPath, "branch", "--list", branch)
 	if err != nil {
