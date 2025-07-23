@@ -32,9 +32,8 @@ function TranscriptIndex() {
 
   const fetchSessions = async () => {
     try {
-      const [claudeResponse, geminiResponse] = await Promise.all([
+      const [claudeResponse] = await Promise.all([
         fetch("/v1/claude/sessions"),
-        fetch("/v1/gemini/sessions"),
       ]);
 
       if (!claudeResponse.ok) {
@@ -42,14 +41,8 @@ function TranscriptIndex() {
           `Failed to fetch Claude sessions: ${claudeResponse.statusText}`,
         );
       }
-      if (!geminiResponse.ok) {
-        throw new Error(
-          `Failed to fetch Gemini sessions: ${geminiResponse.statusText}`,
-        );
-      }
 
       const claudeData = await claudeResponse.json();
-      const geminiData = await geminiResponse.json();
 
       // Transform the data into a flat array of sessions
       const sessionsList: Session[] = [];
@@ -89,19 +82,6 @@ function TranscriptIndex() {
           }
         },
       );
-
-      Object.entries(geminiData).forEach(([, summary]: [string, any]) => {
-        sessionsList.push({
-          sessionId: summary.uuid,
-          worktreePath: summary.worktree, // Using the hash from the summary
-          header: summary.title,
-          turnCount: summary.turnCount,
-          startTime: new Date(summary.lastUpdated).toISOString(),
-          endTime: null,
-          isActive: false,
-          provider: "Gemini",
-        });
-      });
 
       // Sort by most recent activity first
       sessionsList.sort((a, b) => {
