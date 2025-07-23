@@ -92,77 +92,56 @@ definitions:
         example: /workspace/my-project
         type: string
     type: object
-  github_com_vanpelt_catnip_internal_models.CompletionMessage:
-    description: A message in the conversation context
+  github_com_vanpelt_catnip_internal_models.CreateCompletionRequest:
+    description: Request payload for Claude Code completion using claude CLI subprocess
     properties:
-      content:
-        description: Content of the message
-        example: What is the weather like?
-        type: string
-      role:
-        description: Role of the message sender
-        example: user
-        type: string
-    type: object
-  github_com_vanpelt_catnip_internal_models.CompletionRequest:
-    description: Request payload for Claude completion API
-    properties:
-      context:
-        description: Optional conversation context
-        items:
-          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionMessage'
-        type: array
-      max_tokens:
-        description: Maximum number of tokens to generate
-        example: 1024
+      max_turns:
+        description: Maximum number of turns in the conversation
+        example: 10
         type: integer
-      message:
-        description: The message to send to Claude
-        example: Hello, how are you?
-        type: string
       model:
-        description: Model to use for completion
+        description: Optional model override
         example: claude-3-5-sonnet-20241022
         type: string
-      system:
-        description: Optional system prompt
-        example: You are a helpful assistant.
+      prompt:
+        description: The prompt/message to send to claude
+        example: Help me debug this error
         type: string
-    type: object
-  github_com_vanpelt_catnip_internal_models.CompletionResponse:
-    description: Response from Claude completion API
-    properties:
-      model:
-        description: Model used for the completion
-        example: claude-3-5-sonnet-20241022
-        type: string
-      response:
-        description: Generated response text
-        example: I'm doing well, thank you for asking!
-        type: string
-      truncated:
-        description: Whether the response was truncated
+      resume:
+        description: Whether to resume the most recent session for this working directory
+        example: true
         type: boolean
-      usage:
-        allOf:
-        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionUsage'
-        description: Number of tokens used in the request
+      stream:
+        description: Whether to stream the response
+        example: true
+        type: boolean
+      system_prompt:
+        description: Optional system prompt override
+        example: You are a helpful coding assistant
+        type: string
+      working_directory:
+        description: Working directory for the claude command
+        example: /workspace/my-project
+        type: string
     type: object
-  github_com_vanpelt_catnip_internal_models.CompletionUsage:
-    description: Token usage information for completion
+  github_com_vanpelt_catnip_internal_models.CreateCompletionResponse:
+    description: Response from Claude Code completion using claude CLI subprocess
     properties:
-      input_tokens:
-        description: Tokens used in the input
-        example: 15
-        type: integer
-      output_tokens:
-        description: Tokens generated in the output
-        example: 25
-        type: integer
-      total_tokens:
-        description: Total tokens used
-        example: 40
-        type: integer
+      error:
+        description: Any error that occurred
+        type: string
+      is_chunk:
+        description: Whether this is a streaming chunk or complete response
+        example: false
+        type: boolean
+      is_last:
+        description: Whether this is the last chunk in a stream
+        example: true
+        type: boolean
+      response:
+        description: The generated response text
+        example: I can help you debug that error...
+        type: string
     type: object
   github_com_vanpelt_catnip_internal_models.FullSessionData:
     description: Complete session data with all messages and metadata
@@ -688,25 +667,26 @@ paths:
       summary: Get authentication status
       tags:
       - auth
-  /v1/claude/completion:
+  /v1/claude/messages:
     post:
       consumes:
       - application/json
-      description: Sends a message to Claude and returns the completion response
+      description: Creates a completion using the claude CLI tool as a subprocess,
+        supporting both streaming and non-streaming responses, with resume functionality
       parameters:
-      - description: Completion request
+      - description: Create completion request
         in: body
         name: request
         required: true
         schema:
-          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionRequest'
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CreateCompletionRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CompletionResponse'
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CreateCompletionResponse'
         "400":
           description: Bad Request
           schema:
@@ -719,7 +699,7 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Get Claude completion
+      summary: Create Claude messages using CLI
       tags:
       - claude
   /v1/claude/session:

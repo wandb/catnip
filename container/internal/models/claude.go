@@ -122,89 +122,34 @@ type FullSessionData struct {
 	MessageCount int `json:"messageCount,omitempty"`
 }
 
-// CompletionRequest represents a request to the Anthropic API
-// @Description Request payload for Claude completion API
-type CompletionRequest struct {
-	// The message to send to Claude
-	Message string `json:"message" example:"Hello, how are you?"`
-	// Maximum number of tokens to generate
-	MaxTokens int `json:"max_tokens" example:"1024"`
-	// Model to use for completion
-	Model string `json:"model" example:"claude-3-5-sonnet-20241022"`
-	// Optional system prompt
-	System string `json:"system,omitempty" example:"You are a helpful assistant."`
-	// Optional conversation context
-	Context []CompletionMessage `json:"context,omitempty"`
+// CreateCompletionRequest represents a request to create a completion using claude CLI
+// @Description Request payload for Claude Code completion using claude CLI subprocess
+type CreateCompletionRequest struct {
+	// The prompt/message to send to claude
+	Prompt string `json:"prompt" example:"Help me debug this error"`
+	// Whether to stream the response
+	Stream bool `json:"stream,omitempty" example:"true"`
+	// Optional system prompt override
+	SystemPrompt string `json:"system_prompt,omitempty" example:"You are a helpful coding assistant"`
+	// Optional model override
+	Model string `json:"model,omitempty" example:"claude-3-5-sonnet-20241022"`
+	// Maximum number of turns in the conversation
+	MaxTurns int `json:"max_turns,omitempty" example:"10"`
+	// Working directory for the claude command
+	WorkingDirectory string `json:"working_directory,omitempty" example:"/workspace/my-project"`
+	// Whether to resume the most recent session for this working directory
+	Resume bool `json:"resume,omitempty" example:"true"`
 }
 
-// CompletionMessage represents a message in conversation context
-// @Description A message in the conversation context
-type CompletionMessage struct {
-	// Role of the message sender
-	Role string `json:"role" example:"user"`
-	// Content of the message
-	Content string `json:"content" example:"What is the weather like?"`
-}
-
-// CompletionResponse represents the response from the Anthropic API
-// @Description Response from Claude completion API
-type CompletionResponse struct {
-	// Generated response text
-	Response string `json:"response" example:"I'm doing well, thank you for asking!"`
-	// Number of tokens used in the request
-	Usage CompletionUsage `json:"usage"`
-	// Model used for the completion
-	Model string `json:"model" example:"claude-3-5-sonnet-20241022"`
-	// Whether the response was truncated
-	Truncated bool `json:"truncated"`
-}
-
-// CompletionUsage represents token usage information
-// @Description Token usage information for completion
-type CompletionUsage struct {
-	// Tokens used in the input
-	InputTokens int `json:"input_tokens" example:"15"`
-	// Tokens generated in the output
-	OutputTokens int `json:"output_tokens" example:"25"`
-	// Total tokens used
-	TotalTokens int `json:"total_tokens" example:"40"`
-}
-
-// AnthropicAPIMessage represents a message in the Anthropic API format
-type AnthropicAPIMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-// AnthropicAPIRequest represents the request format for Anthropic API
-type AnthropicAPIRequest struct {
-	Model     string                `json:"model"`
-	MaxTokens int                   `json:"max_tokens"`
-	Messages  []AnthropicAPIMessage `json:"messages"`
-	System    string                `json:"system,omitempty"`
-}
-
-// AnthropicAPIResponse represents the response format from Anthropic API
-type AnthropicAPIResponse struct {
-	ID      string `json:"id"`
-	Type    string `json:"type"`
-	Role    string `json:"role"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
-	Model string `json:"model"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
-}
-
-// AnthropicAPIError represents an error response from Anthropic API
-type AnthropicAPIError struct {
-	Type  string `json:"type"`
-	Error struct {
-		Type    string `json:"type"`
-		Message string `json:"message"`
-	} `json:"error"`
+// CreateCompletionResponse represents a response from claude CLI completion
+// @Description Response from Claude Code completion using claude CLI subprocess
+type CreateCompletionResponse struct {
+	// The generated response text
+	Response string `json:"response" example:"I can help you debug that error..."`
+	// Whether this is a streaming chunk or complete response
+	IsChunk bool `json:"is_chunk,omitempty" example:"false"`
+	// Whether this is the last chunk in a stream
+	IsLast bool `json:"is_last,omitempty" example:"true"`
+	// Any error that occurred
+	Error string `json:"error,omitempty"`
 }

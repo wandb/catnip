@@ -49,9 +49,9 @@ const docTemplate = `{
                 }
             }
         },
-        "/v1/claude/completion": {
+        "/v1/claude/messages": {
             "post": {
-                "description": "Sends a message to Claude and returns the completion response",
+                "description": "Creates a completion using the claude CLI tool as a subprocess, supporting both streaming and non-streaming responses, with resume functionality",
                 "consumes": [
                     "application/json"
                 ],
@@ -61,15 +61,15 @@ const docTemplate = `{
                 "tags": [
                     "claude"
                 ],
-                "summary": "Get Claude completion",
+                "summary": "Create Claude messages using CLI",
                 "parameters": [
                     {
-                        "description": "Completion request",
+                        "description": "Create completion request",
                         "name": "request",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionRequest"
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CreateCompletionRequest"
                         }
                     }
                 ],
@@ -77,7 +77,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionResponse"
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CreateCompletionResponse"
                         }
                     },
                     "400": {
@@ -1107,101 +1107,69 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.CompletionMessage": {
-            "description": "A message in the conversation context",
+        "github_com_vanpelt_catnip_internal_models.CreateCompletionRequest": {
+            "description": "Request payload for Claude Code completion using claude CLI subprocess",
             "type": "object",
             "properties": {
-                "content": {
-                    "description": "Content of the message",
-                    "type": "string",
-                    "example": "What is the weather like?"
-                },
-                "role": {
-                    "description": "Role of the message sender",
-                    "type": "string",
-                    "example": "user"
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.CompletionRequest": {
-            "description": "Request payload for Claude completion API",
-            "type": "object",
-            "properties": {
-                "context": {
-                    "description": "Optional conversation context",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionMessage"
-                    }
-                },
-                "max_tokens": {
-                    "description": "Maximum number of tokens to generate",
+                "max_turns": {
+                    "description": "Maximum number of turns in the conversation",
                     "type": "integer",
-                    "example": 1024
-                },
-                "message": {
-                    "description": "The message to send to Claude",
-                    "type": "string",
-                    "example": "Hello, how are you?"
+                    "example": 10
                 },
                 "model": {
-                    "description": "Model to use for completion",
+                    "description": "Optional model override",
                     "type": "string",
                     "example": "claude-3-5-sonnet-20241022"
                 },
-                "system": {
-                    "description": "Optional system prompt",
+                "prompt": {
+                    "description": "The prompt/message to send to claude",
                     "type": "string",
-                    "example": "You are a helpful assistant."
+                    "example": "Help me debug this error"
+                },
+                "resume": {
+                    "description": "Whether to resume the most recent session for this working directory",
+                    "type": "boolean",
+                    "example": true
+                },
+                "stream": {
+                    "description": "Whether to stream the response",
+                    "type": "boolean",
+                    "example": true
+                },
+                "system_prompt": {
+                    "description": "Optional system prompt override",
+                    "type": "string",
+                    "example": "You are a helpful coding assistant"
+                },
+                "working_directory": {
+                    "description": "Working directory for the claude command",
+                    "type": "string",
+                    "example": "/workspace/my-project"
                 }
             }
         },
-        "github_com_vanpelt_catnip_internal_models.CompletionResponse": {
-            "description": "Response from Claude completion API",
+        "github_com_vanpelt_catnip_internal_models.CreateCompletionResponse": {
+            "description": "Response from Claude Code completion using claude CLI subprocess",
             "type": "object",
             "properties": {
-                "model": {
-                    "description": "Model used for the completion",
-                    "type": "string",
-                    "example": "claude-3-5-sonnet-20241022"
+                "error": {
+                    "description": "Any error that occurred",
+                    "type": "string"
+                },
+                "is_chunk": {
+                    "description": "Whether this is a streaming chunk or complete response",
+                    "type": "boolean",
+                    "example": false
+                },
+                "is_last": {
+                    "description": "Whether this is the last chunk in a stream",
+                    "type": "boolean",
+                    "example": true
                 },
                 "response": {
-                    "description": "Generated response text",
+                    "description": "The generated response text",
                     "type": "string",
-                    "example": "I'm doing well, thank you for asking!"
-                },
-                "truncated": {
-                    "description": "Whether the response was truncated",
-                    "type": "boolean"
-                },
-                "usage": {
-                    "description": "Number of tokens used in the request",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.CompletionUsage"
-                        }
-                    ]
-                }
-            }
-        },
-        "github_com_vanpelt_catnip_internal_models.CompletionUsage": {
-            "description": "Token usage information for completion",
-            "type": "object",
-            "properties": {
-                "input_tokens": {
-                    "description": "Tokens used in the input",
-                    "type": "integer",
-                    "example": 15
-                },
-                "output_tokens": {
-                    "description": "Tokens generated in the output",
-                    "type": "integer",
-                    "example": 25
-                },
-                "total_tokens": {
-                    "description": "Total tokens used",
-                    "type": "integer",
-                    "example": 40
+                    "example": "I can help you debug that error..."
                 }
             }
         },

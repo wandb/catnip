@@ -103,19 +103,19 @@ func (h *ClaudeHandler) GetSessionByUUID(c *fiber.Ctx) error {
 	return c.JSON(sessionData)
 }
 
-// GetClaudeCompletion handles requests to get completions from the Anthropic API
-// @Summary Get Claude completion
-// @Description Sends a message to Claude and returns the completion response
+// CreateCompletion handles requests to create completions using claude CLI subprocess
+// @Summary Create Claude messages using CLI
+// @Description Creates a completion using the claude CLI tool as a subprocess, supporting both streaming and non-streaming responses, with resume functionality
 // @Tags claude
 // @Accept json
 // @Produce json
-// @Param request body models.CompletionRequest true "Completion request"
-// @Success 200 {object} models.CompletionResponse
+// @Param request body github_com_vanpelt_catnip_internal_models.CreateCompletionRequest true "Create completion request"
+// @Success 200 {object} github_com_vanpelt_catnip_internal_models.CreateCompletionResponse
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /v1/claude/completion [post]
-func (h *ClaudeHandler) GetClaudeCompletion(c *fiber.Ctx) error {
-	var req models.CompletionRequest
+// @Router /v1/claude/messages [post]
+func (h *ClaudeHandler) CreateCompletion(c *fiber.Ctx) error {
+	var req models.CreateCompletionRequest
 
 	// Parse the request body
 	if err := c.BodyParser(&req); err != nil {
@@ -125,19 +125,40 @@ func (h *ClaudeHandler) GetClaudeCompletion(c *fiber.Ctx) error {
 	}
 
 	// Validate required fields
-	if req.Message == "" {
+	if req.Prompt == "" {
 		return c.Status(400).JSON(fiber.Map{
-			"error": "Message is required",
+			"error": "Prompt is required",
 		})
 	}
 
-	// Call the service to get completion
-	resp, err := h.claudeService.GetCompletion(&req)
+	// Create context for the request
+	ctx := c.Context()
+
+	// Handle streaming response
+	if req.Stream {
+		// Set headers for streaming
+		c.Set("Content-Type", "application/json")
+		c.Set("Cache-Control", "no-cache")
+		c.Set("Connection", "keep-alive")
+
+		// Use the streaming method
+		return h.claudeService.CreateStreamingCompletion(ctx, &req, c.Response().BodyWriter())
+	}
+
+	// Handle non-streaming response
+	resp, err := h.claudeService.CreateCompletion(ctx, &req)
 	if err != nil {
 		// Handle specific error types
-		if strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
+		if strings.Contains(err.Error(), "prompt is required") {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "Prompt is required",
+			})
+		}
+
+		if strings.Contains(err.Error(), "claude command failed") {
 			return c.Status(500).JSON(fiber.Map{
-				"error": "API key not configured",
+				"error":   "Claude CLI execution failed",
+				"details": err.Error(),
 			})
 		}
 

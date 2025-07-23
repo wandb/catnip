@@ -2,12 +2,11 @@ package services
 
 import (
 	"bufio"
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,6 +21,7 @@ type ClaudeService struct {
 	claudeConfigPath  string
 	claudeProjectsDir string
 	volumeProjectsDir string
+	subprocessWrapper ClaudeSubprocessInterface
 }
 
 // readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
@@ -77,6 +77,20 @@ func NewClaudeService() *ClaudeService {
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
 		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		subprocessWrapper: NewClaudeSubprocessWrapper(),
+	}
+}
+
+// NewClaudeServiceWithWrapper creates a new Claude service with a custom subprocess wrapper (for testing)
+func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeService {
+	// Use catnip user's home directory explicitly
+	homeDir := "/home/catnip"
+	volumeDir := "/volume"
+	return &ClaudeService{
+		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
+		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
+		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		subprocessWrapper: wrapper,
 	}
 }
 
@@ -647,108 +661,60 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 	return s.GetSessionByID(targetWorktree, sessionUUID)
 }
 
-// GetCompletion sends a completion request to the Anthropic API
-func (s *ClaudeService) GetCompletion(req *models.CompletionRequest) (*models.CompletionResponse, error) {
-	// Get API key from environment
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY environment variable is required")
+// CreateCompletion creates a completion using the claude CLI subprocess
+func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.CreateCompletionRequest) (*models.CreateCompletionResponse, error) {
+	// Validate required fields
+	if req.Prompt == "" {
+		return nil, fmt.Errorf("prompt is required")
 	}
 
-	// Set defaults
-	if req.Model == "" {
-		req.Model = "claude-3-5-sonnet-20241022"
-	}
-	if req.MaxTokens == 0 {
-		req.MaxTokens = 1024
+	// Set default working directory if not provided
+	workingDir := req.WorkingDirectory
+	if workingDir == "" {
+		workingDir = "/workspace/current"
 	}
 
-	// Build messages array
-	messages := []models.AnthropicAPIMessage{}
-
-	// Add context messages if provided
-	for _, msg := range req.Context {
-		messages = append(messages, models.AnthropicAPIMessage(msg))
+	// Set up subprocess options
+	opts := &ClaudeSubprocessOptions{
+		Prompt:           req.Prompt,
+		SystemPrompt:     req.SystemPrompt,
+		Model:            req.Model,
+		MaxTurns:         req.MaxTurns,
+		WorkingDirectory: workingDir,
+		Resume:           req.Resume,
 	}
 
-	// Add the main message
-	messages = append(messages, models.AnthropicAPIMessage{
-		Role:    "user",
-		Content: req.Message,
-	})
+	// Resume logic is handled by claude CLI's --continue flag
 
-	// Create the API request
-	apiReq := models.AnthropicAPIRequest{
-		Model:     req.Model,
-		MaxTokens: req.MaxTokens,
-		Messages:  messages,
-		System:    req.System,
+	// Call the subprocess wrapper
+	return s.subprocessWrapper.CreateCompletion(ctx, opts)
+}
+
+// CreateStreamingCompletion creates a streaming completion using the claude CLI subprocess
+func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *models.CreateCompletionRequest, responseWriter io.Writer) error {
+	// Validate required fields
+	if req.Prompt == "" {
+		return fmt.Errorf("prompt is required")
 	}
 
-	// Marshal the request
-	jsonData, err := json.Marshal(apiReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	// Set default working directory if not provided
+	workingDir := req.WorkingDirectory
+	if workingDir == "" {
+		workingDir = "/workspace/current"
 	}
 
-	// Create HTTP request
-	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	// Set up subprocess options for streaming
+	opts := &ClaudeSubprocessOptions{
+		Prompt:           req.Prompt,
+		SystemPrompt:     req.SystemPrompt,
+		Model:            req.Model,
+		MaxTurns:         req.MaxTurns,
+		WorkingDirectory: workingDir,
+		Resume:           req.Resume,
 	}
 
-	// Set headers
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	// Resume logic is handled by claude CLI's --continue flag
 
-	// Make the request
-	client := &http.Client{
-		Timeout: 60 * time.Second,
-	}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Check for HTTP errors
-	if resp.StatusCode != http.StatusOK {
-		// Try to parse structured error
-		var apiError models.AnthropicAPIError
-		if err := json.Unmarshal(body, &apiError); err == nil {
-			return nil, fmt.Errorf("API error: %s", apiError.Error.Message)
-		}
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse the response
-	var apiResp models.AnthropicAPIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	// Extract the text content
-	var responseText string
-	if len(apiResp.Content) > 0 && apiResp.Content[0].Type == "text" {
-		responseText = apiResp.Content[0].Text
-	}
-
-	// Build the response
-	return &models.CompletionResponse{
-		Response: responseText,
-		Model:    apiResp.Model,
-		Usage: models.CompletionUsage{
-			InputTokens:  apiResp.Usage.InputTokens,
-			OutputTokens: apiResp.Usage.OutputTokens,
-			TotalTokens:  apiResp.Usage.InputTokens + apiResp.Usage.OutputTokens,
-		},
-		Truncated: false,
-	}, nil
+	// Call the subprocess wrapper for streaming
+	return s.subprocessWrapper.CreateStreamingCompletion(ctx, opts, responseWriter)
 }
