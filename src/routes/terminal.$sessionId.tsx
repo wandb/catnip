@@ -30,16 +30,24 @@ function TerminalPage() {
 
   // Helper to generate a unique key for session storage
   const getPromptStorageKey = useCallback(
-    (sessionId: string, prompt: string) => {
-      return `catnip_prompt_${sessionId}_${btoa(prompt).slice(0, 20)}`;
+    async (sessionId: string, prompt: string) => {
+      // Use Web Crypto API to generate SHA-256 hash
+      const encoder = new TextEncoder();
+      const data = encoder.encode(prompt);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      return `catnip_prompt_${sessionId}_${hashHex.slice(0, 16)}`;
     },
     [],
   );
 
   // Check if prompt has already been executed
   const hasPromptBeenExecuted = useCallback(
-    (sessionId: string, prompt: string) => {
-      const key = getPromptStorageKey(sessionId, prompt);
+    async (sessionId: string, prompt: string) => {
+      const key = await getPromptStorageKey(sessionId, prompt);
       return sessionStorage.getItem(key) === "executed";
     },
     [getPromptStorageKey],
@@ -47,8 +55,8 @@ function TerminalPage() {
 
   // Mark prompt as executed
   const markPromptAsExecuted = useCallback(
-    (sessionId: string, prompt: string) => {
-      const key = getPromptStorageKey(sessionId, prompt);
+    async (sessionId: string, prompt: string) => {
+      const key = await getPromptStorageKey(sessionId, prompt);
       sessionStorage.setItem(key, "executed");
     },
     [getPromptStorageKey],
@@ -190,31 +198,34 @@ function TerminalPage() {
             // Check if we have a prompt to send
             if (search.prompt && search.agent === "claude") {
               // Check if this prompt has already been executed for this session
-              const promptExecuted = hasPromptBeenExecuted(
-                params.sessionId,
-                search.prompt,
+              void hasPromptBeenExecuted(params.sessionId, search.prompt).then(
+                (promptExecuted) => {
+                  if (!promptExecuted) {
+                    // Mark as executed before sending to prevent race conditions
+                    void markPromptAsExecuted(
+                      params.sessionId,
+                      search.prompt,
+                    ).then(() => {
+                      console.log(
+                        `[Terminal] Marking prompt as executed and sending to Claude`,
+                      );
+
+                      // Wait for Claude UI to fully load before sending prompt
+                      setTimeout(() => {
+                        wsRef.current?.send(
+                          JSON.stringify({
+                            type: "prompt",
+                            data: search.prompt,
+                            submit: true,
+                          }),
+                        );
+                      }, 1000); // Give Claude TUI time to initialize
+                    });
+                  } else {
+                    console.log(`[Terminal] Prompt already executed, skipping`);
+                  }
+                },
               );
-
-              if (!promptExecuted) {
-                // Mark as executed before sending to prevent race conditions
-                markPromptAsExecuted(params.sessionId, search.prompt);
-                console.log(
-                  `[Terminal] Marking prompt as executed and sending to Claude`,
-                );
-
-                // Wait for Claude UI to fully load before sending prompt
-                setTimeout(() => {
-                  wsRef.current?.send(
-                    JSON.stringify({
-                      type: "prompt",
-                      data: search.prompt,
-                      submit: true,
-                    }),
-                  );
-                }, 1000); // Give Claude TUI time to initialize
-              } else {
-                console.log(`[Terminal] Prompt already executed, skipping`);
-              }
             }
             const dims = { cols: instance.cols, rows: instance.rows };
             wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
