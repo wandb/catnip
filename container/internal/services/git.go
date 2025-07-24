@@ -231,7 +231,11 @@ func (s *GitService) CleanupAllCatnipRefs() {
 	log.Printf("✅ Comprehensive catnip cleanup complete")
 }
 
-// GitService manages multiple Git repositories and their worktrees
+// SetupExecutor interface for executing setup.sh scripts in worktrees
+type SetupExecutor interface {
+	ExecuteSetupScript(worktreePath string)
+}
+
 type GitService struct {
 	repositories     map[string]*models.Repository // key: repoID (e.g., "owner/repo")
 	worktrees        map[string]*models.Worktree   // key: worktree ID
@@ -240,10 +244,18 @@ type GitService struct {
 	conflictResolver *git.ConflictResolver         // Handles conflict detection/resolution
 	githubManager    *git.GitHubManager            // Handles all GitHub CLI operations
 	commitSync       *CommitSyncService            // Handles automatic checkpointing and commit sync
+	setupExecutor    SetupExecutor                 // Handles setup.sh execution in PTY sessions
 	mu               sync.RWMutex
 }
 
 // Helper functions for standardized command execution
+
+// SetSetupExecutor sets the setup executor for executing setup.sh scripts
+func (s *GitService) SetSetupExecutor(executor SetupExecutor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.setupExecutor = executor
+}
 
 // Repository type detection helpers
 func (s *GitService) isLocalRepo(repoID string) bool {
@@ -1704,6 +1716,16 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	if isInitial || len(s.worktrees) == 1 {
 		// Update current symlink to point to the first/initial worktree
 		_ = s.updateCurrentSymlink(worktree.Path)
+	}
+
+	// Execute setup.sh if it exists in the newly created worktree
+	if s.setupExecutor != nil {
+		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
+		go func() {
+			// Wait a moment to ensure the worktree is fully ready
+			time.Sleep(2 * time.Second)
+			s.setupExecutor.ExecuteSetupScript(worktree.Path)
+		}()
 	}
 
 	return worktree, nil

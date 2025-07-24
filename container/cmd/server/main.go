@@ -101,6 +101,10 @@ func main() {
 
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService)
+
+	// Wire up the setup executor to enable setup.sh execution in new worktrees
+	gitService.SetSetupExecutor(ptyHandler)
+
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, ptyHandler.GetSessionService())
