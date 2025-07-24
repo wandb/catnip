@@ -1400,7 +1400,7 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 		return fmt.Errorf("local repository %s not found", worktree.RepoID)
 	}
 
-	previewBranchName := fmt.Sprintf("preview/%s", worktree.Branch)
+	previewBranchName := fmt.Sprintf("catnip/%s", git.ExtractWorkspaceName(worktree.Branch))
 	log.Printf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
 
 	// Check if there are uncommitted changes (staged, unstaged, or untracked)
@@ -1436,7 +1436,7 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 		pushArgs = append(pushArgs, "--force")
 		log.Printf("🔄 Updating existing preview branch %s", previewBranchName)
 	}
-	pushArgs = append(pushArgs, repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, previewBranchName))
+	pushArgs = append(pushArgs, repo.Path, fmt.Sprintf("%s:refs/heads/%s", worktree.Branch, previewBranchName))
 
 	output, err := s.runGitCommand(worktree.Path, pushArgs...)
 	if err != nil {

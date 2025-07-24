@@ -286,6 +286,12 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
         echo "Warning: Claude Code VSIX not found at $VSIX_PATH"; \
     fi'
 
+# Set global git config for catnip user, these get overridden by the entrypoint script
+RUN git config --global user.name "catnip" && \
+    git config --global user.email "catnip@catnip.run" && \
+    git config --global init.defaultBranch main && \
+    git config --global --add safe.directory /workspace
+
 # Switch back to root for final setup
 USER root
 

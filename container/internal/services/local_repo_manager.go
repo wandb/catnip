@@ -80,7 +80,7 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 func (lrm *LocalRepoManager) CreateWorktreePreview(repo *models.Repository, worktree *models.Worktree) error {
 	// Extract workspace name for preview branch
 	workspaceName := git.ExtractWorkspaceName(worktree.Branch)
-	previewBranchName := fmt.Sprintf("preview/%s", workspaceName)
+	previewBranchName := fmt.Sprintf("catnip/%s", workspaceName)
 	log.Printf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
 
 	// Check if there are uncommitted changes (staged, unstaged, or untracked)
@@ -113,14 +113,14 @@ func (lrm *LocalRepoManager) CreateWorktreePreview(repo *models.Repository, work
 	// Push the worktree branch to a preview branch in main repo
 	strategy := git.PushStrategy{
 		Remote:    repo.Path,
-		Branch:    fmt.Sprintf("%s:%s", worktree.Branch, previewBranchName),
+		Branch:    fmt.Sprintf("%s:refs/heads/%s", worktree.Branch, previewBranchName),
 		RemoteURL: repo.Path,
 	}
 
 	if shouldForceUpdate {
 		log.Printf("🔄 Updating existing preview branch %s", previewBranchName)
 		// For force updates, we need to use git command directly since PushStrategy doesn't support force
-		output, err := lrm.operations.ExecuteGit(worktree.Path, "push", "--force", repo.Path, fmt.Sprintf("%s:%s", worktree.Branch, previewBranchName))
+		output, err := lrm.operations.ExecuteGit(worktree.Path, "push", "--force", repo.Path, fmt.Sprintf("%s:refs/heads/%s", worktree.Branch, previewBranchName))
 		if err != nil {
 			return fmt.Errorf("failed to create preview branch: %v\n%s", err, output)
 		}

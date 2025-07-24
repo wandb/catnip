@@ -43,7 +43,13 @@ export const copyRemoteCommand = (url: string) => {
 };
 
 export const showPreviewToast = (branchName: string) => {
-  const command = `git checkout preview/${branchName}`;
+  // Extract workspace name from custom ref (e.g., "refs/catnip/buddy" -> "buddy")
+  const workspaceName = branchName.startsWith("refs/catnip/")
+    ? branchName.slice("refs/catnip/".length)
+    : branchName.startsWith("catnip/")
+      ? branchName.slice("catnip/".length)
+      : branchName;
+  const command = `git checkout catnip/${workspaceName}`;
 
   toast.success(
     <div className="flex items-center gap-2 w-full">
