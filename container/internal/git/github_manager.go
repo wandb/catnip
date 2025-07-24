@@ -280,10 +280,30 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 	// Extract URL from output (gh pr create returns the URL)
 	url := strings.TrimSpace(string(output))
 
+	// Get the PR number by querying the created PR
+	cmd = g.execCommand("gh", "pr", "view", branchToPush, "--repo", ownerRepo, "--json", "number")
+	numberOutput, err := cmd.Output()
+	var prNumber int
+	if err != nil {
+		log.Printf("⚠️ Could not get PR number: %v", err)
+		prNumber = 0 // fallback to 0 if we can't get the number
+	} else {
+		var result struct {
+			Number int `json:"number"`
+		}
+		if err := json.Unmarshal(numberOutput, &result); err != nil {
+			log.Printf("⚠️ Could not parse PR number: %v", err)
+			prNumber = 0 // fallback to 0 if we can't parse the number
+		} else {
+			prNumber = result.Number
+		}
+	}
+
 	return &models.PullRequestResponse{
-		URL:   url,
-		Title: title,
-		Body:  body,
+		Number: prNumber,
+		URL:    url,
+		Title:  title,
+		Body:   body,
 	}, nil
 }
 
