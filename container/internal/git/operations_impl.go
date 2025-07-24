@@ -215,7 +215,9 @@ func (o *OperationsImpl) ListWorktrees(repoPath string) ([]WorktreeInfo, error) 
 		} else if strings.HasPrefix(line, "HEAD ") {
 			current.Commit = strings.TrimPrefix(line, "HEAD ")
 		} else if strings.HasPrefix(line, "branch ") {
-			current.Branch = strings.TrimPrefix(line, "branch refs/heads/")
+			// Extract the full branch reference
+			fullRef := strings.TrimPrefix(line, "branch ")
+			current.Branch = fullRef
 		} else if line == "bare" {
 			current.Bare = true
 		}
@@ -557,7 +559,8 @@ func (o *OperationsImpl) GarbageCollect(repoPath string) error {
 // Utility operations
 
 func (o *OperationsImpl) IsGitRepository(path string) bool {
-	err := o.ShowRef(path, "HEAD", ShowRefOptions{Quiet: true})
+	// Use rev-parse --git-dir which is more reliable for checking if it's a git repo
+	_, err := o.ExecuteGit(path, "rev-parse", "--git-dir")
 	return err == nil
 }
 

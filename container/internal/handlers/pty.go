@@ -721,17 +721,28 @@ func (h *PTYHandler) monitorSession(session *Session) {
 }
 
 func (h *PTYHandler) monitorCheckpoints(session *Session) {
+	log.Printf("🔍 Starting checkpoint monitoring for session %s", session.ID)
 	// Monitor session for checkpoint opportunities
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for range ticker.C {
+		log.Printf("🔍 Checkpoint monitor tick for session %s (Title: %q)", session.ID, session.Title)
+
 		// Check if we have a title set and if checkpoint is needed
-		if session.Title != "" && session.checkpointManager.ShouldCreateCheckpoint() {
-			err := session.checkpointManager.CreateCheckpoint(session.Title)
-			if err != nil {
-				log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
+		if session.Title != "" {
+			shouldCreate := session.checkpointManager.ShouldCreateCheckpoint()
+			log.Printf("🔍 Should create checkpoint: %v (title: %q)", shouldCreate, session.Title)
+
+			if shouldCreate {
+				log.Printf("📝 Creating checkpoint for session %s with title: %q", session.ID, session.Title)
+				err := session.checkpointManager.CreateCheckpoint(session.Title)
+				if err != nil {
+					log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
+				}
 			}
+		} else {
+			log.Printf("🔍 No title set for session %s, skipping checkpoint", session.ID)
 		}
 
 		// If no connections, stop monitoring
@@ -740,6 +751,7 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 		session.connMutex.RUnlock()
 
 		if connectionCount == 0 {
+			log.Printf("🔍 No connections for session %s, stopping checkpoint monitoring", session.ID)
 			return
 		}
 	}
@@ -1200,7 +1212,7 @@ type SessionCheckpointManager struct {
 func (cm *SessionCheckpointManager) ShouldCreateCheckpoint() bool {
 	cm.checkpointMutex.RLock()
 	defer cm.checkpointMutex.RUnlock()
-	return time.Since(cm.lastCommitTime) >= 60*time.Second
+	return time.Since(cm.lastCommitTime) >= 30*time.Second
 }
 
 // CreateCheckpoint creates a checkpoint commit

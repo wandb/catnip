@@ -4,19 +4,20 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
 // CommitSyncService monitors worktrees for commits and syncs them to the bare repository
 type CommitSyncService struct {
 	gitService   *GitService
+	operations   git.Operations
 	watcher      *fsnotify.Watcher
 	syncInterval time.Duration
 	mu           sync.RWMutex
@@ -38,7 +39,18 @@ type CommitInfo struct {
 func NewCommitSyncService(gitService *GitService) *CommitSyncService {
 	return &CommitSyncService{
 		gitService:   gitService,
-		syncInterval: 5 * time.Second,
+		operations:   git.NewOperations(),
+		syncInterval: 30 * time.Second, // Less aggressive - only syncing existing commits
+		stopChan:     make(chan struct{}),
+	}
+}
+
+// NewCommitSyncServiceWithOperations creates a new commit sync service with custom operations (for testing)
+func NewCommitSyncServiceWithOperations(gitService *GitService, operations git.Operations) *CommitSyncService {
+	return &CommitSyncService{
+		gitService:   gitService,
+		operations:   operations,
+		syncInterval: 30 * time.Second, // Less aggressive - only syncing existing commits
 		stopChan:     make(chan struct{}),
 	}
 }
@@ -142,13 +154,19 @@ func (css *CommitSyncService) addWorktreeWatcher(worktreePath string) {
 	// Watch the .git directory for changes
 	gitDir := filepath.Join(worktreePath, ".git")
 	if _, err := os.Stat(gitDir); err == nil {
-		// Watch refs/heads for new commits
-		refsDir := filepath.Join(gitDir, "refs", "heads")
-		if _, err := os.Stat(refsDir); err == nil {
-			if err := css.watcher.Add(refsDir); err != nil {
-				log.Printf("⚠️ Failed to watch refs directory %s: %v", refsDir, err)
-			} else {
-				log.Printf("👀 Watching worktree for commits: %s", worktreePath)
+		// Watch both refs/heads and refs/catnip for new commits
+		refsDirs := []string{
+			filepath.Join(gitDir, "refs", "heads"),
+			filepath.Join(gitDir, "refs", "catnip"),
+		}
+
+		for _, refsDir := range refsDirs {
+			if _, err := os.Stat(refsDir); err == nil {
+				if err := css.watcher.Add(refsDir); err != nil {
+					log.Printf("⚠️ Failed to watch refs directory %s: %v", refsDir, err)
+				} else {
+					log.Printf("👀 Watching worktree refs directory: %s", refsDir)
+				}
 			}
 		}
 	}
@@ -182,9 +200,9 @@ func (css *CommitSyncService) monitorFilesystem() {
 
 // isCommitEvent checks if a filesystem event represents a new commit
 func (css *CommitSyncService) isCommitEvent(event fsnotify.Event) bool {
-	// Look for writes to files in refs/heads (branch updates)
+	// Look for writes to files in refs/heads or refs/catnip (branch updates)
 	if event.Op&fsnotify.Write == fsnotify.Write {
-		return strings.Contains(event.Name, "refs/heads/")
+		return strings.Contains(event.Name, "refs/heads/") || strings.Contains(event.Name, "refs/catnip/")
 	}
 	return false
 }
@@ -233,32 +251,39 @@ func (css *CommitSyncService) extractWorktreePath(refsPath string) string {
 // getCommitInfo retrieves information about the latest commit in a worktree
 func (css *CommitSyncService) getCommitInfo(worktreePath string) (*CommitInfo, error) {
 	// Get commit hash
-	cmd := exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
-	hashOutput, err := cmd.Output()
+	commitHash, err := css.operations.RevParse(worktreePath, "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit hash: %v", err)
 	}
-	commitHash := strings.TrimSpace(string(hashOutput))
 
-	// Get branch name
-	cmd = exec.Command("git", "-C", worktreePath, "branch", "--show-current")
-	branchOutput, err := cmd.Output()
+	// Get full ref name (works for both regular branches and custom refs like refs/catnip/)
+	var branch string
+	refOutput, err := css.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get branch name: %v", err)
+		// Fallback to branch --show-current for detached HEAD or other cases
+		branchOutput, err := css.operations.ExecuteGit(worktreePath, "branch", "--show-current")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get branch/ref name: %v", err)
+		}
+		branch = strings.TrimSpace(string(branchOutput))
+		if branch == "" {
+			// Detached HEAD state
+			branch = "HEAD"
+		}
+	} else {
+		// We have a full ref, store it as is
+		branch = strings.TrimSpace(string(refOutput))
 	}
-	branch := strings.TrimSpace(string(branchOutput))
 
 	// Get commit message
-	cmd = exec.Command("git", "-C", worktreePath, "log", "-1", "--pretty=format:%s")
-	messageOutput, err := cmd.Output()
+	messageOutput, err := css.operations.ExecuteGit(worktreePath, "log", "-1", "--pretty=format:%s")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit message: %v", err)
 	}
 	message := strings.TrimSpace(string(messageOutput))
 
 	// Get author
-	cmd = exec.Command("git", "-C", worktreePath, "log", "-1", "--pretty=format:%an <%ae>")
-	authorOutput, err := cmd.Output()
+	authorOutput, err := css.operations.ExecuteGit(worktreePath, "log", "-1", "--pretty=format:%an <%ae>")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get commit author: %v", err)
 	}
@@ -289,23 +314,26 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	bareRepoPath := repo.Path
 
 	// Verify the commit exists in the worktree before trying to sync
-	verifyCmd := exec.Command("git", "-C", commitInfo.WorktreePath, "cat-file", "-e", commitInfo.CommitHash)
-	if err := verifyCmd.Run(); err != nil {
+	_, err = css.operations.ExecuteGit(commitInfo.WorktreePath, "cat-file", "-e", commitInfo.CommitHash)
+	if err != nil {
 		log.Printf("⚠️ Commit %s doesn't exist in worktree %s, skipping sync", commitInfo.CommitHash[:8], commitInfo.WorktreePath)
 		return nil // Skip rather than error
 	}
 
 	// Check if commit already exists in bare repo
-	checkCmd := exec.Command("git", "-C", bareRepoPath, "cat-file", "-e", commitInfo.CommitHash)
-	if err := checkCmd.Run(); err == nil {
+	_, err = css.operations.ExecuteGit(bareRepoPath, "cat-file", "-e", commitInfo.CommitHash)
+	if err == nil {
 		// Commit already exists, just update the ref
-		updateRefCmd := exec.Command("git", "-C", bareRepoPath, "update-ref",
-			fmt.Sprintf("refs/heads/%s", commitInfo.Branch), commitInfo.CommitHash)
-		updateOutput, err := updateRefCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to update branch ref: %v\n%s", err, updateOutput)
+		// Handle both full refs (refs/catnip/name) and simple branch names
+		refToUpdate := commitInfo.Branch
+		if !strings.HasPrefix(refToUpdate, "refs/") {
+			refToUpdate = fmt.Sprintf("refs/heads/%s", commitInfo.Branch)
 		}
-		log.Printf("🔄 Updated branch ref %s to existing commit %s", commitInfo.Branch, commitInfo.CommitHash[:8])
+		_, err = css.operations.ExecuteGit(bareRepoPath, "update-ref", refToUpdate, commitInfo.CommitHash)
+		if err != nil {
+			return fmt.Errorf("failed to update branch ref: %v", err)
+		}
+		log.Printf("🔄 Updated branch ref %s to existing commit %s", refToUpdate, commitInfo.CommitHash[:8])
 		return nil
 	}
 
@@ -315,12 +343,10 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	remoteName := fmt.Sprintf("sync-%s-%s", repoID, strings.ReplaceAll(commitInfo.Branch, "/", "-"))
 
 	// Remove existing remote first to avoid conflicts
-	removeRemoteCmd := exec.Command("git", "-C", bareRepoPath, "remote", "remove", remoteName)
-	_ = removeRemoteCmd.Run() // Ignore error - remote might not exist
+	_ = css.operations.RemoveRemote(bareRepoPath, remoteName) // Ignore error - remote might not exist
 
 	// Add remote
-	addRemoteCmd := exec.Command("git", "-C", bareRepoPath, "remote", "add", remoteName, commitInfo.WorktreePath)
-	if err := addRemoteCmd.Run(); err != nil {
+	if err := css.operations.AddRemote(bareRepoPath, remoteName, commitInfo.WorktreePath); err != nil {
 		return fmt.Errorf("failed to add remote: %v", err)
 	}
 
@@ -331,41 +357,49 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	}
 
 	// Fetch from the worktree - use unshallow only if repo is shallow
-	var fetchCmd *exec.Cmd
-	if isShallow {
-		log.Printf("🔄 Bare repo is shallow, using --unshallow for %s", commitInfo.Branch)
-		fetchCmd = exec.Command("git", "-C", bareRepoPath, "fetch", "--unshallow", remoteName, commitInfo.Branch)
-	} else {
-		fetchCmd = exec.Command("git", "-C", bareRepoPath, "fetch", remoteName, commitInfo.Branch)
+	// We need to fetch with the proper refspec for custom refs
+	fetchRefspec := commitInfo.Branch
+	// If it's a full ref (like refs/catnip/name), we need to fetch it properly
+	if strings.HasPrefix(commitInfo.Branch, "refs/") {
+		fetchRefspec = fmt.Sprintf("%s:%s", commitInfo.Branch, commitInfo.Branch)
 	}
 
-	output, err := fetchCmd.CombinedOutput()
+	var output []byte
+	if isShallow {
+		log.Printf("🔄 Bare repo is shallow, using --unshallow for %s", commitInfo.Branch)
+		output, err = css.operations.ExecuteGit(bareRepoPath, "fetch", "--unshallow", remoteName, fetchRefspec)
+	} else {
+		output, err = css.operations.ExecuteGit(bareRepoPath, "fetch", remoteName, fetchRefspec)
+	}
+
 	if err != nil {
 		// If unshallow fails, try regular fetch as fallback
 		if isShallow {
 			log.Printf("⚠️ Unshallow fetch failed, trying regular fetch: %s", string(output))
-			fetchCmd = exec.Command("git", "-C", bareRepoPath, "fetch", remoteName, commitInfo.Branch)
-			output, err = fetchCmd.CombinedOutput()
+			output, err = css.operations.ExecuteGit(bareRepoPath, "fetch", remoteName, fetchRefspec)
 		}
 		if err != nil {
 			// Clean up the remote before returning error
-			_ = removeRemoteCmd.Run()
+			_ = css.operations.RemoveRemote(bareRepoPath, remoteName)
 			return fmt.Errorf("failed to fetch from worktree: %v\n%s", err, output)
 		}
 	}
 
 	// Update the branch ref in the bare repository
-	updateRefCmd := exec.Command("git", "-C", bareRepoPath, "update-ref",
-		fmt.Sprintf("refs/heads/%s", commitInfo.Branch), commitInfo.CommitHash)
-	updateOutput, err := updateRefCmd.CombinedOutput()
+	// Handle both full refs (refs/catnip/name) and simple branch names
+	refToUpdate := commitInfo.Branch
+	if !strings.HasPrefix(refToUpdate, "refs/") {
+		refToUpdate = fmt.Sprintf("refs/heads/%s", commitInfo.Branch)
+	}
+	_, err = css.operations.ExecuteGit(bareRepoPath, "update-ref", refToUpdate, commitInfo.CommitHash)
 	if err != nil {
 		// Clean up the remote before returning error
-		_ = removeRemoteCmd.Run()
-		return fmt.Errorf("failed to update branch ref: %v\n%s", err, updateOutput)
+		_ = css.operations.RemoveRemote(bareRepoPath, remoteName)
+		return fmt.Errorf("failed to update branch ref: %v", err)
 	}
 
 	// Clean up the temporary remote
-	_ = removeRemoteCmd.Run()
+	_ = css.operations.RemoveRemote(bareRepoPath, remoteName)
 
 	return nil
 }
@@ -390,12 +424,13 @@ func (css *CommitSyncService) PerformManualSync() {
 	css.performPeriodicSync()
 }
 
-// performPeriodicSync checks all worktrees for unsync'd commits
+// performPeriodicSync checks all worktrees for unsync'd commits (NO AUTO-COMMITS)
 func (css *CommitSyncService) performPeriodicSync() {
 	worktrees := css.gitService.ListWorktrees()
 
 	for _, worktree := range worktrees {
-		// Check if worktree has commits that aren't in the bare repo
+		// Only sync existing commits to bare repo (no auto-commits)
+		// Let the session-aware CheckpointManager handle creating commits
 		if css.hasUnsyncedCommits(worktree.Path) {
 			commitInfo, err := css.getCommitInfo(worktree.Path)
 			if err != nil {
@@ -427,23 +462,18 @@ func (css *CommitSyncService) cleanupOrphanedRemotes() {
 
 // cleanupOrphanedRemotesForRepo removes orphaned remotes for a specific repository
 func (css *CommitSyncService) cleanupOrphanedRemotesForRepo(bareRepoPath string) {
-
-	// List all remotes
-	cmd := exec.Command("git", "-C", bareRepoPath, "remote")
-	output, err := cmd.Output()
+	// Get all remotes using the operations interface
+	remotesMap, err := css.operations.GetRemotes(bareRepoPath)
 	if err != nil {
 		log.Printf("⚠️ Failed to list remotes for cleanup: %v", err)
 		return
 	}
 
 	// Remove any remotes that start with "sync-" or "worktree-"
-	remotes := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, remote := range remotes {
-		remote = strings.TrimSpace(remote)
-		if strings.HasPrefix(remote, "sync-") || strings.HasPrefix(remote, "worktree-") {
-			log.Printf("🧹 Cleaning up orphaned remote: %s", remote)
-			removeCmd := exec.Command("git", "-C", bareRepoPath, "remote", "remove", remote)
-			_ = removeCmd.Run() // Ignore errors
+	for remoteName := range remotesMap {
+		if strings.HasPrefix(remoteName, "sync-") || strings.HasPrefix(remoteName, "worktree-") {
+			log.Printf("🧹 Cleaning up orphaned remote: %s", remoteName)
+			_ = css.operations.RemoveRemote(bareRepoPath, remoteName) // Ignore errors
 		}
 	}
 }
@@ -457,28 +487,39 @@ func (css *CommitSyncService) hasUnsyncedCommits(worktreePath string) bool {
 	}
 
 	// Get worktree HEAD
-	cmd := exec.Command("git", "-C", worktreePath, "rev-parse", "HEAD")
-	worktreeHead, err := cmd.Output()
+	worktreeHead, err := css.operations.RevParse(worktreePath, "HEAD")
 	if err != nil {
 		return false
 	}
 
-	// Get branch name
-	cmd = exec.Command("git", "-C", worktreePath, "branch", "--show-current")
-	branchOutput, err := cmd.Output()
+	// Get full ref name (same logic as getCommitInfo)
+	var branch string
+	refOutput, err := css.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD")
 	if err != nil {
-		return false
+		// Fallback to branch --show-current for detached HEAD or other cases
+		branchOutput, err := css.operations.ExecuteGit(worktreePath, "branch", "--show-current")
+		if err != nil {
+			return false
+		}
+		branch = strings.TrimSpace(string(branchOutput))
+		if branch == "" {
+			// Detached HEAD state
+			return false
+		}
+		// Convert to full ref path for consistency
+		branch = fmt.Sprintf("refs/heads/%s", branch)
+	} else {
+		// We have a full ref, store it as is
+		branch = strings.TrimSpace(string(refOutput))
 	}
-	branch := strings.TrimSpace(string(branchOutput))
 
-	// Get bare repo HEAD for this branch
-	cmd = exec.Command("git", "-C", repo.Path, "rev-parse", fmt.Sprintf("refs/heads/%s", branch))
-	bareHead, err := cmd.Output()
+	// Get bare repo HEAD for this ref
+	bareHead, err := css.operations.RevParse(repo.Path, branch)
 	if err != nil {
 		// Branch doesn't exist in bare repo, so it's definitely unsynced
 		return true
 	}
 
 	// Compare HEADs
-	return strings.TrimSpace(string(worktreeHead)) != strings.TrimSpace(string(bareHead))
+	return strings.TrimSpace(worktreeHead) != strings.TrimSpace(bareHead)
 }
