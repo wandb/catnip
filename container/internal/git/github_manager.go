@@ -223,31 +223,34 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
 	log.Printf("🚀 Creating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
-	// Handle custom refs (e.g., refs/catnip/ninja) by creating a regular branch
+	// Handle custom refs (e.g., refs/catnip/sunny) by syncing with target branch
 	branchToPush := worktree.Branch
 	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
 		// Extract the simple branch name from the custom ref
 		simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+		log.Printf("🔄 Syncing custom ref %s with target branch %s", worktree.Branch, simpleBranchName)
 
-		// Create a regular branch from the current HEAD
-		// We need to use checkout -b instead of branch when HEAD points to a custom ref
-		log.Printf("🔄 Creating regular branch %s from custom ref %s", simpleBranchName, worktree.Branch)
-
-		// First check if the branch already exists
+		// First check if the target branch already exists
 		if g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
-			log.Printf("ℹ️ Branch %s already exists, checking it out", simpleBranchName)
+			log.Printf("ℹ️ Target branch %s exists, updating it with custom ref changes", simpleBranchName)
 			// Checkout the existing branch
 			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", simpleBranchName)
 			if err != nil {
 				return nil, fmt.Errorf("failed to checkout existing branch %s: %v", simpleBranchName, err)
 			}
-		} else {
-			// Create and checkout the new branch in one step
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName)
+			// Update the branch to match the custom ref
+			_, err = g.operations.ExecuteGit(worktree.Path, "reset", "--hard", worktree.Branch)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create branch from custom ref: %v", err)
+				return nil, fmt.Errorf("failed to sync branch %s with custom ref %s: %v", simpleBranchName, worktree.Branch, err)
 			}
-			log.Printf("✅ Created and checked out branch %s", simpleBranchName)
+			log.Printf("✅ Updated branch %s with changes from custom ref %s", simpleBranchName, worktree.Branch)
+		} else {
+			// Create new branch from the custom ref
+			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName, worktree.Branch)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create branch %s from custom ref %s: %v", simpleBranchName, worktree.Branch, err)
+			}
+			log.Printf("✅ Created branch %s from custom ref %s", simpleBranchName, worktree.Branch)
 		}
 
 		branchToPush = simpleBranchName
