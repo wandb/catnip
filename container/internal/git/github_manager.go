@@ -184,34 +184,38 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 
 	log.Printf("✅ Updated PR for branch %s", worktree.Branch)
 
-	// Get the PR URL
-	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "url")
+	// Get the PR URL and number
+	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "url,number")
 	output, err = cmd.Output()
 	if err != nil {
-		log.Printf("⚠️ Could not get PR URL: %v", err)
+		log.Printf("⚠️ Could not get PR info: %v", err)
 		return &models.PullRequestResponse{
-			URL:   "",
-			Title: title,
-			Body:  body,
+			Number: 0,
+			URL:    "",
+			Title:  title,
+			Body:   body,
 		}, nil
 	}
 
 	var result struct {
-		URL string `json:"url"`
+		URL    string `json:"url"`
+		Number int    `json:"number"`
 	}
 	if err := json.Unmarshal(output, &result); err != nil {
-		log.Printf("⚠️ Could not parse PR URL: %v", err)
+		log.Printf("⚠️ Could not parse PR info: %v", err)
 		return &models.PullRequestResponse{
-			URL:   "",
-			Title: title,
-			Body:  body,
+			Number: 0,
+			URL:    "",
+			Title:  title,
+			Body:   body,
 		}, nil
 	}
 
 	return &models.PullRequestResponse{
-		URL:   result.URL,
-		Title: title,
-		Body:  body,
+		Number: result.Number,
+		URL:    result.URL,
+		Title:  title,
+		Body:   body,
 	}, nil
 }
 
