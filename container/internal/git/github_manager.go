@@ -155,45 +155,18 @@ func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository
 func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
 	log.Printf("🔄 Updating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
-	// Handle custom refs (e.g., refs/catnip/sunny) by syncing with target branch
+	// Handle custom refs (e.g., refs/catnip/ninja) by using the simple branch name
 	branchToPush := worktree.Branch
 	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
 		// Extract the simple branch name from the custom ref
-		simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
-		log.Printf("🔄 Syncing custom ref %s with target branch %s for PR update", worktree.Branch, simpleBranchName)
-
-		// First check if the target branch already exists
-		if g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
-			log.Printf("ℹ️ Target branch %s exists, updating it with custom ref changes", simpleBranchName)
-			// Checkout the existing branch
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", simpleBranchName)
-			if err != nil {
-				return nil, fmt.Errorf("failed to checkout existing branch %s: %v", simpleBranchName, err)
-			}
-			// Update the branch to match the custom ref
-			_, err = g.operations.ExecuteGit(worktree.Path, "reset", "--hard", worktree.Branch)
-			if err != nil {
-				return nil, fmt.Errorf("failed to sync branch %s with custom ref %s: %v", simpleBranchName, worktree.Branch, err)
-			}
-			log.Printf("✅ Updated branch %s with changes from custom ref %s", simpleBranchName, worktree.Branch)
-		} else {
-			// Create new branch from the custom ref
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName, worktree.Branch)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create branch %s from custom ref %s: %v", simpleBranchName, worktree.Branch, err)
-			}
-			log.Printf("✅ Created branch %s from custom ref %s", simpleBranchName, worktree.Branch)
-		}
-
-		branchToPush = simpleBranchName
+		branchToPush = strings.TrimPrefix(worktree.Branch, "refs/catnip/")
 	}
 
-	// First, push the branch to ensure it's up to date using HTTPS conversion
+	// First, push the branch to ensure it's up to date
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:       branchToPush,
-		Remote:       "origin",
-		SetUpstream:  true,
-		ConvertHTTPS: true, // Use insteadOf to replace ssh with https
+		Branch:      branchToPush,
+		Remote:      "origin",
+		SetUpstream: true,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to push branch before PR update: %v", err)
 	}
@@ -211,38 +184,34 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 
 	log.Printf("✅ Updated PR for branch %s", worktree.Branch)
 
-	// Get the PR URL and number
-	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "url,number")
+	// Get the PR URL
+	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "url")
 	output, err = cmd.Output()
 	if err != nil {
-		log.Printf("⚠️ Could not get PR info: %v", err)
+		log.Printf("⚠️ Could not get PR URL: %v", err)
 		return &models.PullRequestResponse{
-			Number: 0,
-			URL:    "",
-			Title:  title,
-			Body:   body,
+			URL:   "",
+			Title: title,
+			Body:  body,
 		}, nil
 	}
 
 	var result struct {
-		URL    string `json:"url"`
-		Number int    `json:"number"`
+		URL string `json:"url"`
 	}
 	if err := json.Unmarshal(output, &result); err != nil {
-		log.Printf("⚠️ Could not parse PR info: %v", err)
+		log.Printf("⚠️ Could not parse PR URL: %v", err)
 		return &models.PullRequestResponse{
-			Number: 0,
-			URL:    "",
-			Title:  title,
-			Body:   body,
+			URL:   "",
+			Title: title,
+			Body:  body,
 		}, nil
 	}
 
 	return &models.PullRequestResponse{
-		Number: result.Number,
-		URL:    result.URL,
-		Title:  title,
-		Body:   body,
+		URL:   result.URL,
+		Title: title,
+		Body:  body,
 	}, nil
 }
 
@@ -250,45 +219,41 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
 	log.Printf("🚀 Creating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
-	// Handle custom refs (e.g., refs/catnip/sunny) by syncing with target branch
+	// Handle custom refs (e.g., refs/catnip/ninja) by creating a regular branch
 	branchToPush := worktree.Branch
 	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
 		// Extract the simple branch name from the custom ref
 		simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
-		log.Printf("🔄 Syncing custom ref %s with target branch %s", worktree.Branch, simpleBranchName)
 
-		// First check if the target branch already exists
+		// Create a regular branch from the current HEAD
+		// We need to use checkout -b instead of branch when HEAD points to a custom ref
+		log.Printf("🔄 Creating regular branch %s from custom ref %s", simpleBranchName, worktree.Branch)
+
+		// First check if the branch already exists
 		if g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
-			log.Printf("ℹ️ Target branch %s exists, updating it with custom ref changes", simpleBranchName)
+			log.Printf("ℹ️ Branch %s already exists, checking it out", simpleBranchName)
 			// Checkout the existing branch
 			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", simpleBranchName)
 			if err != nil {
 				return nil, fmt.Errorf("failed to checkout existing branch %s: %v", simpleBranchName, err)
 			}
-			// Update the branch to match the custom ref
-			_, err = g.operations.ExecuteGit(worktree.Path, "reset", "--hard", worktree.Branch)
-			if err != nil {
-				return nil, fmt.Errorf("failed to sync branch %s with custom ref %s: %v", simpleBranchName, worktree.Branch, err)
-			}
-			log.Printf("✅ Updated branch %s with changes from custom ref %s", simpleBranchName, worktree.Branch)
 		} else {
-			// Create new branch from the custom ref
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName, worktree.Branch)
+			// Create and checkout the new branch in one step
+			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create branch %s from custom ref %s: %v", simpleBranchName, worktree.Branch, err)
+				return nil, fmt.Errorf("failed to create branch from custom ref: %v", err)
 			}
-			log.Printf("✅ Created branch %s from custom ref %s", simpleBranchName, worktree.Branch)
+			log.Printf("✅ Created and checked out branch %s", simpleBranchName)
 		}
 
 		branchToPush = simpleBranchName
 	}
 
-	// Push the branch using HTTPS conversion
+	// Push the branch
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:       branchToPush,
-		Remote:       "origin",
-		SetUpstream:  true,
-		ConvertHTTPS: true, // Use insteadOf to replace ssh with https
+		Branch:      branchToPush,
+		Remote:      "origin",
+		SetUpstream: true,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to push branch before PR creation: %v", err)
 	}
@@ -315,30 +280,10 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 	// Extract URL from output (gh pr create returns the URL)
 	url := strings.TrimSpace(string(output))
 
-	// Get the PR number by querying the created PR
-	cmd = g.execCommand("gh", "pr", "view", branchToPush, "--repo", ownerRepo, "--json", "number")
-	numberOutput, err := cmd.Output()
-	var prNumber int
-	if err != nil {
-		log.Printf("⚠️ Could not get PR number: %v", err)
-		prNumber = 0 // fallback to 0 if we can't get the number
-	} else {
-		var result struct {
-			Number int `json:"number"`
-		}
-		if err := json.Unmarshal(numberOutput, &result); err != nil {
-			log.Printf("⚠️ Could not parse PR number: %v", err)
-			prNumber = 0 // fallback to 0 if we can't parse the number
-		} else {
-			prNumber = result.Number
-		}
-	}
-
 	return &models.PullRequestResponse{
-		Number: prNumber,
-		URL:    url,
-		Title:  title,
-		Body:   body,
+		URL:   url,
+		Title: title,
+		Body:  body,
 	}, nil
 }
 

@@ -28,6 +28,7 @@ type PTYHandler struct {
 	gitService     *services.GitService
 	sessionService *services.SessionService
 	portService    *services.PortAllocationService
+	ptyService     *services.PTYService
 }
 
 // ConnectionInfo tracks metadata for each WebSocket connection
@@ -124,6 +125,7 @@ func NewPTYHandler(gitService *services.GitService) *PTYHandler {
 		gitService:     gitService,
 		sessionService: services.NewSessionService(),
 		portService:    services.NewPortAllocationService(),
+		ptyService:     services.NewPTYService(),
 	}
 }
 
@@ -661,6 +663,15 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	h.sessions[sessionID] = session
 	log.Printf("✅ Created new PTY session: %s in %s", sessionID, workDir)
 
+	// For setup agent sessions, check if there's existing buffered output from PTY service
+	if agent == "setup" {
+		if buffer, exists := h.ptyService.GetSetupSessionBuffer(sessionID); exists && len(buffer) > 0 {
+			// Pre-populate the output buffer with existing setup output
+			session.outputBuffer = append(session.outputBuffer, buffer...)
+			log.Printf("📋 Pre-populated setup session %s buffer with %d bytes from PTY service", sessionID, len(buffer))
+		}
+	}
+
 	// Track active session for this workspace
 	if agent == "claude" {
 		// Start or resume session tracking - we'll update with actual Claude session UUID later
@@ -783,7 +794,8 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		portEnvVars = []string{} // fallback to empty
 	}
 
-	if agent == "claude" {
+	switch agent {
+	case "claude":
 		// Build Claude command with optional continue or resume flag
 		args := []string{"--dangerously-skip-permissions"}
 		if useContinue {
@@ -806,7 +818,20 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		)
 		// Add port environment variables
 		cmd.Env = append(cmd.Env, portEnvVars...)
-	} else {
+	case "setup":
+		// Setup shell for script execution and viewing output
+		cmd = exec.Command("bash", "--login")
+		cmd.Env = append(os.Environ(),
+			fmt.Sprintf("SESSION_ID=%s", sessionID),
+			"HOME=/home/catnip",
+			"USER=catnip",
+			"TERM=xterm-direct",
+			"COLORTERM=truecolor",
+		)
+		// Add port environment variables
+		cmd.Env = append(cmd.Env, portEnvVars...)
+		log.Printf("🔧 Starting setup shell for session: %s", sessionID)
+	default:
 		// Default bash shell
 		cmd = exec.Command("bash", "--login")
 		cmd.Env = append(os.Environ(),
@@ -1279,4 +1304,15 @@ func (cm *SessionCheckpointManager) UpdateLastCommitTime() {
 	cm.checkpointMutex.Lock()
 	defer cm.checkpointMutex.Unlock()
 	cm.lastCommitTime = time.Now()
+}
+
+// ExecuteSetupScript checks for and executes setup.sh in a worktree's PTY session
+func (h *PTYHandler) ExecuteSetupScript(worktreePath string) {
+	// Delegate to PTY service
+	h.ptyService.ExecuteSetupScript(worktreePath)
+}
+
+// GetPTYService returns the PTY service for external access
+func (h *PTYHandler) GetPTYService() *services.PTYService {
+	return h.ptyService
 }

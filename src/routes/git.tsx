@@ -15,7 +15,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RepoSelector } from "@/components/RepoSelector";
-import { BranchSelector } from "@/components/BranchSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { WorktreeRow } from "@/components/WorktreeRow";
@@ -66,7 +65,6 @@ function GitPage() {
   } = useGitState();
 
   const [githubUrl, setGithubUrl] = useState("");
-  const [selectedBranch, setSelectedBranch] = useState("");
   const [openDiffWorktreeId, setOpenDiffWorktreeId] = useState<string | null>(
     null,
   );
@@ -277,30 +275,17 @@ function GitPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
-            <div className="flex-1 grid grid-cols-2 gap-2">
-              <div className="space-y-2">
-                <Label htmlFor="github-url">GitHub Repository URL</Label>
-                <RepoSelector
-                  value={githubUrl}
-                  onValueChange={setGithubUrl}
-                  repositories={repositories}
-                  currentRepositories={gitStatus.repositories ?? {}}
-                  loading={reposLoading}
-                  placeholder="Select repository or enter URL..."
-                  autoExpand={fromWorkspace}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="branch-select">Branch</Label>
-                <BranchSelector
-                  value={selectedBranch}
-                  onValueChange={setSelectedBranch}
-                  branches={[]}
-                  loading={false}
-                  disabled={!githubUrl}
-                  placeholder="Select branch..."
-                />
-              </div>
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="github-url">GitHub Repository URL</Label>
+              <RepoSelector
+                value={githubUrl}
+                onValueChange={setGithubUrl}
+                repositories={repositories}
+                currentRepositories={gitStatus.repositories ?? {}}
+                loading={reposLoading}
+                placeholder="Select repository or enter URL..."
+                autoExpand={fromWorkspace}
+              />
             </div>
             <Button
               onClick={() => void handleCheckout(githubUrl)}

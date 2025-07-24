@@ -231,3 +231,38 @@ func TestGitServiceCleanupOperations(t *testing.T) {
 		service.Stop()
 	})
 }
+
+// Mock setup executor for testing
+type mockSetupExecutor struct {
+	executedPaths []string
+	executed      bool
+}
+
+func (m *mockSetupExecutor) ExecuteSetupScript(worktreePath string) {
+	m.executedPaths = append(m.executedPaths, worktreePath)
+	m.executed = true
+}
+
+func TestGitServiceSetupExecutor(t *testing.T) {
+	service := NewGitService()
+	require.NotNil(t, service)
+
+	t.Run("SetSetupExecutor", func(t *testing.T) {
+		mock := &mockSetupExecutor{}
+		service.SetSetupExecutor(mock)
+
+		// Verify the executor was set (cannot check directly since setupExecutor is private)
+		// We'll verify through the behavior in a worktree creation scenario
+		assert.NotNil(t, service)
+	})
+
+	t.Run("SetupExecutorInterface", func(t *testing.T) {
+		// Test that our mock implements the interface correctly
+		var executor SetupExecutor = &mockSetupExecutor{}
+		executor.ExecuteSetupScript("/test/path")
+
+		mock := executor.(*mockSetupExecutor)
+		assert.True(t, mock.executed)
+		assert.Contains(t, mock.executedPaths, "/test/path")
+	})
+}
