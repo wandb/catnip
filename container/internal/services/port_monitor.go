@@ -1,0 +1,446 @@
+package services
+
+import (
+	"bufio"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ServiceInfo represents a detected service
+type ServiceInfo struct {
+	Port        int       `json:"port"`
+	ServiceType string    `json:"service_type"`
+	Health      string    `json:"health"`
+	LastSeen    time.Time `json:"last_seen"`
+	Title       string    `json:"title,omitempty"`
+	PID         int       `json:"pid,omitempty"`
+	Command     string    `json:"command,omitempty"`
+}
+
+// PortMonitor monitors /proc/net/tcp for port changes and manages service registry
+type PortMonitor struct {
+	services     map[int]*ServiceInfo
+	mutex        sync.RWMutex
+	lastTcpState map[int]bool
+	stopChan     chan bool
+	stopped      bool
+}
+
+// NewPortMonitor creates a new port monitor instance
+func NewPortMonitor() *PortMonitor {
+	pm := &PortMonitor{
+		services:     make(map[int]*ServiceInfo),
+		lastTcpState: make(map[int]bool),
+		stopChan:     make(chan bool),
+	}
+
+	// Start monitoring immediately
+	go pm.Start()
+
+	return pm
+}
+
+// Start begins monitoring /proc/net/tcp for port changes
+func (pm *PortMonitor) Start() {
+	ticker := time.NewTicker(500 * time.Millisecond) // Check every 500ms for fast detection
+	defer ticker.Stop()
+
+	log.Printf("🔍 Started real-time port monitoring using /proc/net/tcp")
+
+	for {
+		select {
+		case <-ticker.C:
+			pm.checkPortChanges()
+		case <-pm.stopChan:
+			log.Printf("🛑 Stopped port monitoring")
+			pm.stopped = true
+			return
+		}
+	}
+}
+
+// Stop stops the port monitor
+func (pm *PortMonitor) Stop() {
+	if !pm.stopped {
+		close(pm.stopChan)
+	}
+}
+
+// GetServices returns all currently detected services
+func (pm *PortMonitor) GetServices() map[int]*ServiceInfo {
+	pm.mutex.RLock()
+	defer pm.mutex.RUnlock()
+
+	// Create a copy to avoid concurrent access issues
+	services := make(map[int]*ServiceInfo)
+	for port, info := range pm.services {
+		services[port] = info
+	}
+	return services
+}
+
+// checkPortChanges compares current ports with last known state
+func (pm *PortMonitor) checkPortChanges() {
+	currentPorts, err := pm.parseProcNetTcp()
+	if err != nil {
+		log.Printf("❌ Error parsing /proc/net/tcp: %v", err)
+		return
+	}
+
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
+	// Check for new ports
+	for port, portInfo := range currentPorts {
+		if !pm.lastTcpState[port] {
+			// New port detected
+			log.Printf("🔍 New port detected: %d (PID: %d)", port, portInfo.PID)
+			pm.addService(port, portInfo.PID)
+		}
+	}
+
+	// Check for removed ports
+	for port := range pm.lastTcpState {
+		if _, exists := currentPorts[port]; !exists {
+			// Port removed
+			log.Printf("🔍 Port removed: %d", port)
+			delete(pm.services, port)
+		}
+	}
+
+	// Update last TCP state to track port existence
+	lastTcpState := make(map[int]bool)
+	for port := range currentPorts {
+		lastTcpState[port] = true
+	}
+	pm.lastTcpState = lastTcpState
+}
+
+// PortWithPID represents a port with its associated PID and inode
+type PortWithPID struct {
+	Port  int
+	PID   int
+	Inode int
+}
+
+// parseProcNetTcp parses /proc/net/tcp and returns a map of listening ports with PID info
+func (pm *PortMonitor) parseProcNetTcp() (map[int]*PortWithPID, error) {
+	file, err := os.Open("/proc/net/tcp")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	listeningPorts := make(map[int]*PortWithPID)
+	scanner := bufio.NewScanner(file)
+
+	// Skip header line
+	scanner.Scan()
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+
+		if len(fields) < 10 {
+			continue
+		}
+
+		// Local address is in field 1, format is "IP:PORT" in hex
+		localAddr := fields[1]
+		parts := strings.Split(localAddr, ":")
+		if len(parts) != 2 {
+			continue
+		}
+
+		// Parse hex port
+		portHex := parts[1]
+		port, err := strconv.ParseInt(portHex, 16, 32)
+		if err != nil {
+			continue
+		}
+
+		// Check if socket is in listening state (state 0A = 10 = TCP_LISTEN)
+		state := fields[3]
+		if state == "0A" {
+			portInt := int(port)
+
+			// Filter out ports we don't want to proxy:
+			// - System ports (< 1024)
+			// - Container's own port (8080)
+			// - SSH (22), although it should be < 1024 anyway
+			if portInt >= 1024 && portInt != 8080 && portInt != 22 {
+				// Parse inode from field 9 (0-indexed)
+				inode, err := strconv.Atoi(fields[9])
+				if err != nil {
+					continue
+				}
+
+				// Resolve PID from inode
+				pid := pm.resolvePIDFromInode(inode)
+
+				listeningPorts[portInt] = &PortWithPID{
+					Port:  portInt,
+					PID:   pid,
+					Inode: inode,
+				}
+			}
+		}
+	}
+
+	return listeningPorts, scanner.Err()
+}
+
+// addService adds a new service to the registry with health checking
+func (pm *PortMonitor) addService(port int, pid int) {
+	// Get command name from PID
+	command := pm.getCommandFromPID(pid)
+
+	service := &ServiceInfo{
+		Port:        port,
+		ServiceType: "unknown",
+		Health:      "unknown",
+		LastSeen:    time.Now(),
+		PID:         pid,
+		Command:     command,
+	}
+
+	// Try to determine service type and health
+	go pm.healthCheckService(service)
+
+	pm.services[port] = service
+}
+
+// healthCheckService attempts to determine service type and health status
+func (pm *PortMonitor) healthCheckService(service *ServiceInfo) {
+	// Give the service a moment to fully start
+	time.Sleep(100 * time.Millisecond)
+
+	// Try HTTP health check
+	httpResult := pm.checkHTTPHealth(service)
+	if httpResult.IsHTTP {
+		pm.mutex.Lock()
+		if existingService, exists := pm.services[service.Port]; exists {
+			existingService.ServiceType = "http"
+			if httpResult.IsHealthy {
+				existingService.Health = "healthy"
+				log.Printf("✅ Port %d: HTTP service detected and healthy", service.Port)
+			} else {
+				existingService.Health = "unhealthy"
+				log.Printf("⚠️  Port %d: HTTP service detected but unhealthy", service.Port)
+			}
+			existingService.LastSeen = time.Now()
+		}
+		pm.mutex.Unlock()
+		return
+	}
+
+	// Try TCP health check
+	if pm.checkTCPHealth(service) {
+		pm.mutex.Lock()
+		if existingService, exists := pm.services[service.Port]; exists {
+			existingService.ServiceType = "tcp"
+			existingService.Health = "healthy"
+			existingService.LastSeen = time.Now()
+		}
+		pm.mutex.Unlock()
+		log.Printf("✅ Port %d: TCP service detected and healthy", service.Port)
+		return
+	}
+
+	// Mark as unhealthy if all checks fail
+	pm.mutex.Lock()
+	if existingService, exists := pm.services[service.Port]; exists {
+		existingService.Health = "unhealthy"
+		existingService.LastSeen = time.Now()
+	}
+	pm.mutex.Unlock()
+	log.Printf("❌ Port %d: Service detected but unhealthy", service.Port)
+}
+
+// HTTPHealthResult contains the result of HTTP health check
+type HTTPHealthResult struct {
+	IsHTTP    bool
+	IsHealthy bool
+	URL       string
+}
+
+// checkHTTPHealth checks if the service responds to HTTP requests
+// Returns IsHTTP=true if any HTTP headers are received (indicating HTTP service)
+// Returns IsHealthy=true if status code < 500 (indicating healthy service)
+func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	// Try both http and https
+	for _, scheme := range []string{"http", "https"} {
+		url := fmt.Sprintf("%s://localhost:%d", scheme, service.Port)
+
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+
+		// If we got any HTTP response (even error), it's an HTTP service
+		result := HTTPHealthResult{
+			IsHTTP:    true,
+			IsHealthy: resp.StatusCode < 500,
+			URL:       url,
+		}
+
+		// Extract title from response if it's HTML and healthy
+		if result.IsHealthy {
+			pm.extractTitle(service, url)
+		}
+
+		return result
+	}
+
+	return HTTPHealthResult{
+		IsHTTP:    false,
+		IsHealthy: false,
+	}
+}
+
+// checkTCPHealth checks if the service accepts TCP connections
+func (pm *PortMonitor) checkTCPHealth(service *ServiceInfo) bool {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", service.Port), 2*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// resolvePIDFromInode finds the PID that owns a socket inode by scanning /proc/*/fd/*
+func (pm *PortMonitor) resolvePIDFromInode(inode int) int {
+	inodeStr := fmt.Sprintf("socket:[%d]", inode)
+
+	// Walk through all PIDs in /proc
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return 0
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		// Check if directory name is numeric (PID)
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+
+		// Check /proc/PID/fd directory
+		fdDir := filepath.Join("/proc", entry.Name(), "fd")
+		fdEntries, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue // Process may have exited or we don't have permission
+		}
+
+		for _, fdEntry := range fdEntries {
+			fdPath := filepath.Join(fdDir, fdEntry.Name())
+
+			// Read the symlink target
+			target, err := os.Readlink(fdPath)
+			if err != nil {
+				continue
+			}
+
+			// Check if this fd points to our socket inode
+			if target == inodeStr {
+				return pid
+			}
+		}
+	}
+
+	return 0 // PID not found
+}
+
+// getCommandFromPID extracts the command name from a PID
+func (pm *PortMonitor) getCommandFromPID(pid int) string {
+	if pid == 0 {
+		return ""
+	}
+
+	// Try to read /proc/PID/cmdline first (full command line)
+	cmdlinePath := filepath.Join("/proc", strconv.Itoa(pid), "cmdline")
+	if data, err := os.ReadFile(cmdlinePath); err == nil {
+		// cmdline is null-separated, take first argument
+		cmdline := string(data)
+		if len(cmdline) > 0 {
+			// Split by null bytes and take the first part
+			parts := strings.Split(cmdline, "\x00")
+			if len(parts) > 0 && parts[0] != "" {
+				// Extract just the command name from the full path
+				return filepath.Base(parts[0])
+			}
+		}
+	}
+
+	// Fall back to /proc/PID/comm (just the command name)
+	commPath := filepath.Join("/proc", strconv.Itoa(pid), "comm")
+	if data, err := os.ReadFile(commPath); err == nil {
+		comm := strings.TrimSpace(string(data))
+		if comm != "" {
+			return comm
+		}
+	}
+
+	return ""
+}
+
+// extractTitle attempts to extract the title from an HTML response
+func (pm *PortMonitor) extractTitle(service *ServiceInfo, url string) {
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	// Only process HTML responses
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		return
+	}
+
+	// Read first 4KB to find title
+	buffer := make([]byte, 4096)
+	n, _ := resp.Body.Read(buffer)
+	content := string(buffer[:n])
+
+	// Extract title using regex
+	titleRegex := regexp.MustCompile(`<title[^>]*>(.*?)</title>`)
+	matches := titleRegex.FindStringSubmatch(content)
+	if len(matches) > 1 {
+		title := strings.TrimSpace(matches[1])
+		if title != "" {
+			pm.mutex.Lock()
+			if existingService, exists := pm.services[service.Port]; exists {
+				// If we have a command name, append it to the title
+				if existingService.Command != "" {
+					existingService.Title = fmt.Sprintf("%s (%s)", title, existingService.Command)
+				} else {
+					existingService.Title = title
+				}
+			}
+			pm.mutex.Unlock()
+		}
+	}
+}

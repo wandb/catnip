@@ -1,0 +1,51 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# JS
+node_modules
+dist/
+!container/internal/assets/dist/
+dist-ssr
+*.local
+.pnpm-store
+
+# Coverage
+coverage.html
+coverage.out
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# wrangler files
+.wrangler
+.dev.vars*
+# worker is generating js?
+worker/*.js
+
+# secrets
+*.pem
+
+# reference files
+reference
+container/Dockerfile.backup
+public/*.jsonl
+
+# fallback frontend assets for local go builds (real assets are built in docker)
+# keep the dummy index.html but ignore anything else that gets copied here
+container/internal/assets/dist/*
+!container/internal/assets/dist/index.html
+!container/internal/assets/dist/.gitkeep

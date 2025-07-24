@@ -1,0 +1,1348 @@
+definitions:
+  github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry:
+    properties:
+      display:
+        type: string
+      pastedContents:
+        additionalProperties: {}
+        type: object
+    type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage:
+    properties:
+      cwd:
+        type: string
+      isMeta:
+        type: boolean
+      isSidechain:
+        type: boolean
+      message:
+        additionalProperties: {}
+        type: object
+      parentUuid:
+        type: string
+      sessionId:
+        type: string
+      timestamp:
+        type: string
+      type:
+        type: string
+      userType:
+        type: string
+      uuid:
+        type: string
+      version:
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary:
+    description: Claude Code session summary with metrics and timing information
+    properties:
+      allSessions:
+        description: List of all available sessions for this worktree
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry'
+        type: array
+      currentSessionId:
+        description: ID of the currently active session
+        example: xyz789-ghi012
+        type: string
+      header:
+        description: Header/title of the session from the Claude history
+        example: Fix bug in user authentication
+        type: string
+      isActive:
+        description: Whether this session is currently active
+        example: true
+        type: boolean
+      lastCost:
+        description: |-
+          Metrics (from completed sessions)
+          Cost in USD of the last completed session
+        example: 0.25
+        type: number
+      lastDuration:
+        description: Duration in seconds of the last session
+        example: 3600
+        type: integer
+      lastSessionId:
+        description: ID of the most recent completed session
+        example: abc123-def456
+        type: string
+      lastTotalInputTokens:
+        description: Total input tokens used in the last session
+        example: 15000
+        type: integer
+      lastTotalOutputTokens:
+        description: Total output tokens generated in the last session
+        example: 8500
+        type: integer
+      sessionEndTime:
+        description: When the last session ended (if not active)
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      sessionStartTime:
+        description: When the current session started
+        example: "2024-01-15T14:30:00Z"
+        type: string
+      turnCount:
+        description: Number of conversation turns in the session
+        example: 15
+        type: integer
+      worktreePath:
+        description: Path to the worktree directory
+        example: /workspace/my-project
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.CreateCompletionRequest:
+    description: Request payload for Claude Code completion using claude CLI subprocess
+    properties:
+      max_turns:
+        description: Maximum number of turns in the conversation
+        example: 10
+        type: integer
+      model:
+        description: Optional model override
+        example: claude-3-5-sonnet-20241022
+        type: string
+      prompt:
+        description: The prompt/message to send to claude
+        example: Help me debug this error
+        type: string
+      resume:
+        description: Whether to resume the most recent session for this working directory
+        example: true
+        type: boolean
+      stream:
+        description: Whether to stream the response
+        example: true
+        type: boolean
+      system_prompt:
+        description: Optional system prompt override
+        example: You are a helpful coding assistant
+        type: string
+      working_directory:
+        description: Working directory for the claude command
+        example: /workspace/my-project
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.CreateCompletionResponse:
+    description: Response from Claude Code completion using claude CLI subprocess
+    properties:
+      error:
+        description: Any error that occurred
+        type: string
+      is_chunk:
+        description: Whether this is a streaming chunk or complete response
+        example: false
+        type: boolean
+      is_last:
+        description: Whether this is the last chunk in a stream
+        example: true
+        type: boolean
+      response:
+        description: The generated response text
+        example: I can help you debug that error...
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.FullSessionData:
+    description: Complete session data with all messages and metadata
+    properties:
+      allSessions:
+        description: All sessions available for this workspace
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry'
+        type: array
+      messageCount:
+        description: Total message count in full data
+        type: integer
+      messages:
+        description: Full conversation history (only when full=true)
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage'
+        type: array
+      sessionInfo:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
+        description: Basic session information
+      userPrompts:
+        description: User prompts from ~/.claude.json (only when full=true)
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry'
+        type: array
+    type: object
+  github_com_vanpelt_catnip_internal_models.GitStatus:
+    description: Current git status including repository information
+    properties:
+      repositories:
+        additionalProperties:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Repository'
+        description: All loaded repositories mapped by repository ID
+        type: object
+      worktree_count:
+        description: Total number of worktrees across all repositories
+        example: 3
+        type: integer
+    type: object
+  github_com_vanpelt_catnip_internal_models.PullRequestInfo:
+    description: Information about an existing pull request for a worktree
+    properties:
+      body:
+        description: Body/description of the existing pull request (if exists)
+        example: This PR adds new functionality
+        type: string
+      exists:
+        description: Whether a pull request exists for this branch
+        example: true
+        type: boolean
+      has_commits_ahead:
+        description: Whether the branch has commits ahead of the base branch
+        example: true
+        type: boolean
+      number:
+        description: Pull request number (if exists)
+        example: 123
+        type: integer
+      title:
+        description: Title of the existing pull request (if exists)
+        example: 'Feature: Add new functionality'
+        type: string
+      url:
+        description: URL to the pull request (if exists)
+        example: https://github.com/owner/repo/pull/123
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.PullRequestResponse:
+    description: Response containing pull request information after creation
+    properties:
+      base_branch:
+        description: Base branch (target branch of the PR)
+        example: main
+        type: string
+      body:
+        description: Body/description of the pull request
+        example: This PR adds new functionality to the system
+        type: string
+      head_branch:
+        description: Head branch (source branch of the PR)
+        example: feature/new-feature
+        type: string
+      number:
+        description: Pull request number
+        example: 123
+        type: integer
+      repository:
+        description: Repository in owner/repo format
+        example: owner/repo
+        type: string
+      title:
+        description: Title of the pull request
+        example: 'Feature: Add new functionality'
+        type: string
+      url:
+        description: URL to the pull request
+        example: https://github.com/owner/repo/pull/123
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.Repository:
+    description: Git repository information and metadata
+    properties:
+      created_at:
+        description: When this repository was first cloned
+        example: "2024-01-15T10:30:00Z"
+        type: string
+      default_branch:
+        description: Default branch name for this repository
+        example: main
+        type: string
+      description:
+        description: Repository description
+        example: AI coding assistant
+        type: string
+      id:
+        description: Repository identifier in owner/repo format
+        example: anthropics/claude-code
+        type: string
+      last_accessed:
+        description: When this repository was last accessed
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      path:
+        description: Local path to the bare repository
+        example: /workspace/repos/anthropics_claude-code.git
+        type: string
+      url:
+        description: Full GitHub repository URL
+        example: https://github.com/anthropics/claude-code
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.SessionListEntry:
+    description: Session list entry with basic metadata
+    properties:
+      endTime:
+        description: When the session ended (if available)
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      isActive:
+        description: Whether this session is currently active
+        example: false
+        type: boolean
+      lastModified:
+        description: When the session was last modified
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      sessionId:
+        description: Unique session identifier
+        example: abc123-def456-ghi789
+        type: string
+      startTime:
+        description: When the session started (if available)
+        example: "2024-01-15T14:30:00Z"
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.TitleEntry:
+    properties:
+      commit_hash:
+        type: string
+      timestamp:
+        type: string
+      title:
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.Worktree:
+    description: Git worktree with branch and status information
+    properties:
+      branch:
+        description: Current git branch name in this worktree
+        example: feature/api-docs
+        type: string
+      commit_count:
+        description: Number of commits ahead of the divergence point (CommitHash)
+        example: 3
+        type: integer
+      commit_hash:
+        description: Commit hash where this worktree diverged from source branch (updated
+          after merges)
+        example: abc123def456
+        type: string
+      commits_behind:
+        description: Number of commits the source branch is ahead of our divergence
+          point
+        example: 2
+        type: integer
+      created_at:
+        description: When this worktree was created
+        example: "2024-01-15T14:00:00Z"
+        type: string
+      has_conflicts:
+        description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
+        example: false
+        type: boolean
+      id:
+        description: Unique identifier for this worktree
+        example: abc123-def456-ghi789
+        type: string
+      is_dirty:
+        description: Whether there are uncommitted changes in the worktree
+        example: true
+        type: boolean
+      last_accessed:
+        description: When this worktree was last accessed
+        example: "2024-01-15T16:30:00Z"
+        type: string
+      name:
+        description: User-friendly name for this worktree (e.g., 'vectorize-quasar')
+        example: feature-api-docs
+        type: string
+      path:
+        description: Absolute path to the worktree directory
+        example: /workspace/worktrees/feature-api-docs
+        type: string
+      repo_id:
+        description: Repository this worktree belongs to
+        example: anthropics/claude-code
+        type: string
+      session_title:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry'
+        description: Current session title (from terminal title escape sequences)
+      session_title_history:
+        description: History of session titles
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry'
+        type: array
+      source_branch:
+        description: Branch this worktree was originally created from
+        example: main
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_services.ServiceInfo:
+    properties:
+      command:
+        type: string
+      health:
+        type: string
+      last_seen:
+        type: string
+      pid:
+        type: integer
+      port:
+        type: integer
+      service_type:
+        type: string
+      title:
+        type: string
+    type: object
+  internal_handlers.ActiveSessionInfo:
+    description: Active session information with timing and Claude session details
+    properties:
+      claude_session_uuid:
+        description: Unique identifier for the Claude session
+        example: abc123-def456-ghi789
+        type: string
+      ended_at:
+        description: When the session ended (if not active)
+        example: "2024-01-15T18:30:00Z"
+        type: string
+      resumed_at:
+        description: When the session was resumed (if applicable)
+        example: "2024-01-15T16:00:00Z"
+        type: string
+      started_at:
+        description: When the session was initially started
+        example: "2024-01-15T14:30:00Z"
+        type: string
+      title:
+        description: Title of the session
+        example: Updating README.md
+        type: string
+    type: object
+  internal_handlers.AppEvent:
+    properties:
+      payload: {}
+      type:
+        $ref: '#/definitions/internal_handlers.EventType'
+    type: object
+  internal_handlers.AuthStartResponse:
+    description: Response when starting GitHub device flow authentication
+    properties:
+      code:
+        description: Device verification code to enter on GitHub
+        example: 1234-5678
+        type: string
+      status:
+        description: Current authentication status
+        example: waiting
+        type: string
+      url:
+        description: GitHub device activation URL
+        example: https://github.com/login/device
+        type: string
+    type: object
+  internal_handlers.AuthStatusResponse:
+    description: Response containing the current authentication status
+    properties:
+      error:
+        description: Error message if authentication failed
+        example: authentication timeout
+        type: string
+      status:
+        description: 'Authentication status: pending, waiting, success, or error'
+        example: success
+        type: string
+    type: object
+  internal_handlers.CheckoutResponse:
+    description: Response containing repository and worktree information after checkout
+    properties:
+      message:
+        description: Success message
+        example: Repository checked out successfully
+        type: string
+      repository:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Repository'
+        description: Repository information
+      worktree:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+        description: Created worktree information
+    type: object
+  internal_handlers.ConflictCheckResponse:
+    description: Response containing conflict information for sync/merge operations
+    properties:
+      conflict_files:
+        description: List of files with conflicts
+        example:
+        - '["src/main.go"'
+        - ' "README.md"]'
+        items:
+          type: string
+        type: array
+      has_conflicts:
+        description: Whether conflicts were detected
+        example: true
+        type: boolean
+      message:
+        description: Status message
+        example: No conflicts detected
+        type: string
+      operation:
+        description: Operation type (sync/merge)
+        example: sync
+        type: string
+      worktree_name:
+        description: Name of the worktree
+        example: feature-branch
+        type: string
+    type: object
+  internal_handlers.CreatePullRequestRequest:
+    properties:
+      body:
+        type: string
+      title:
+        type: string
+    type: object
+  internal_handlers.DeleteSessionResponse:
+    description: Response confirming session deletion
+    properties:
+      message:
+        description: Confirmation message
+        example: Session deleted successfully
+        type: string
+      workspace:
+        description: Workspace path that was deleted
+        example: /workspace/my-project
+        type: string
+    type: object
+  internal_handlers.EventType:
+    enum:
+    - port:opened
+    - port:closed
+    - git:dirty
+    - git:clean
+    - process:started
+    - process:stopped
+    - container:status
+    - heartbeat
+    type: string
+    x-enum-varnames:
+    - PortOpenedEvent
+    - PortClosedEvent
+    - GitDirtyEvent
+    - GitCleanEvent
+    - ProcessStartedEvent
+    - ProcessStoppedEvent
+    - ContainerStatusEvent
+    - HeartbeatEvent
+  internal_handlers.GitHubRepository:
+    description: GitHub repository information from the GitHub API
+    properties:
+      clone_url:
+        description: Git clone URL
+        example: https://github.com/anthropics/claude-code.git
+        type: string
+      description:
+        description: Repository description
+        example: AI coding assistant
+        type: string
+      full_name:
+        description: Full repository name (org/repo)
+        example: anthropics/claude-code
+        type: string
+      html_url:
+        description: Repository URL
+        example: https://github.com/anthropics/claude-code
+        type: string
+      id:
+        description: GitHub repository ID
+        example: 123456789
+        type: integer
+      name:
+        description: Repository name
+        example: claude-code
+        type: string
+      private:
+        description: Whether the repository is private
+        example: false
+        type: boolean
+    type: object
+  internal_handlers.SSEMessage:
+    properties:
+      event:
+        $ref: '#/definitions/internal_handlers.AppEvent'
+      id:
+        type: string
+      timestamp:
+        type: integer
+    type: object
+  internal_handlers.SessionsResponse:
+    additionalProperties:
+      $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
+    description: Map of workspace paths to session information
+    type: object
+  internal_handlers.UploadResponse:
+    description: Response containing upload status and file location
+    properties:
+      filePath:
+        description: Path where the uploaded file was saved
+        example: /tmp/uploads/document.pdf
+        type: string
+      message:
+        description: Status message or error details
+        example: File uploaded successfully
+        type: string
+      success:
+        description: Whether the upload succeeded
+        example: true
+        type: boolean
+    type: object
+  internal_handlers.WorktreeDiffResponse:
+    description: Response containing git diff information for a worktree
+    properties:
+      additions:
+        description: Number of lines added
+        example: 25
+        type: integer
+      deletions:
+        description: Number of lines deleted
+        example: 10
+        type: integer
+      diff:
+        description: Raw git diff output
+        example: diff --git a/main.go b/main.go...
+        type: string
+      files_changed:
+        description: List of changed files
+        example:
+        - '["main.go"'
+        - ' "README.md"]'
+        items:
+          type: string
+        type: array
+      summary:
+        description: Diff summary
+        example: 2 files changed, 25 insertions(+), 10 deletions(-)
+        type: string
+    type: object
+  internal_handlers.WorktreeOperationResponse:
+    description: Response for worktree operations like delete, sync, merge, preview
+    properties:
+      id:
+        description: Worktree ID
+        example: abc123-def456-ghi789
+        type: string
+      message:
+        description: Operation result message
+        example: Worktree deleted successfully
+        type: string
+      strategy:
+        description: Strategy used for sync operations
+        example: rebase
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API for managing container PTY sessions and services
+  title: Catnip Container API
+  version: "1.0"
+paths:
+  /v1/auth/github/start:
+    post:
+      description: Initiates GitHub device flow authentication
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.AuthStartResponse'
+      summary: Start GitHub authentication
+      tags:
+      - auth
+  /v1/auth/github/status:
+    get:
+      description: Returns the current status of the authentication flow
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.AuthStatusResponse'
+      summary: Get authentication status
+      tags:
+      - auth
+  /v1/claude/messages:
+    post:
+      consumes:
+      - application/json
+      description: Creates a completion using the claude CLI tool as a subprocess,
+        supporting both streaming and non-streaming responses, with resume functionality
+      parameters:
+      - description: Create completion request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CreateCompletionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.CreateCompletionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create Claude messages using CLI
+      tags:
+      - claude
+  /v1/claude/session:
+    get:
+      description: Returns Claude Code session metadata for a specific worktree
+      parameters:
+      - description: Worktree path
+        in: query
+        name: worktree_path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
+      summary: Get worktree session summary
+      tags:
+      - claude
+  /v1/claude/session/{uuid}:
+    get:
+      description: Returns complete session data including all messages for a specific
+        session UUID
+      parameters:
+      - description: Session UUID
+        in: path
+        name: uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData'
+      summary: Get session by UUID
+      tags:
+      - claude
+  /v1/claude/sessions:
+    get:
+      description: Returns Claude Code session metadata for all worktrees with Claude
+        data
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
+            type: object
+      summary: Get all worktree session summaries
+      tags:
+      - claude
+  /v1/events:
+    get:
+      consumes:
+      - text/event-stream
+      description: |-
+        Streams real-time events in Server-Sent Events format. Events include port changes, git status, processes, and container status updates.
+
+        ## Event Types
+
+        ### Port Events
+        - **port:opened**: Fired when a new port is detected
+        - `port` (int): Port number
+        - `service` (string): Service type (http, tcp)
+        - `protocol` (string): Protocol used
+        - `title` (string): Service title/name if detected
+        - **port:closed**: Fired when a port is no longer available
+        - `port` (int): Port number that was closed
+
+        ### Git Events
+        - **git:dirty**: Fired when git workspace has uncommitted changes
+        - `workspace` (string): Workspace path
+        - `files` ([]string): List of modified files
+        - **git:clean**: Fired when git workspace becomes clean
+        - `workspace` (string): Workspace path
+
+        ### Process Events
+        - **process:started**: Fired when a new process starts
+        - `pid` (int): Process ID
+        - `command` (string): Command that was executed
+        - `workspace` (string): Workspace where process started
+        - **process:stopped**: Fired when a process terminates
+        - `pid` (int): Process ID that stopped
+        - `exitCode` (int): Exit code of the process
+
+        ### Container Events
+        - **container:status**: Fired when container status changes
+        - `status` (string): Container status (running, stopped, error)
+        - `message` (string): Optional status message
+
+        ### System Events
+        - **heartbeat**: Sent every 5 seconds to keep connection alive
+        - `timestamp` (int64): Current timestamp in milliseconds
+        - `uptime` (int64): Server uptime in milliseconds
+
+        ## Message Format
+        Each SSE message is a JSON object with:
+        - `event`: Event object containing `type` and `payload`
+        - `timestamp`: Event timestamp in milliseconds
+        - `id`: Unique event identifier
+
+        ## Connection Behavior
+        - Auto-reconnects on disconnection
+        - Sends current state on initial connection
+        - Heartbeat every 5 seconds
+        - Rate limited to prevent spam
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: SSE stream of events
+          schema:
+            $ref: '#/definitions/internal_handlers.SSEMessage'
+      summary: Server-Sent Events endpoint for real-time container events
+      tags:
+      - events
+  /v1/git/branches/{repo_id}:
+    get:
+      description: Returns a list of remote branches for a specific repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: repo_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      summary: Get repository branches
+      tags:
+      - git
+  /v1/git/checkout/{org}/{repo}:
+    post:
+      consumes:
+      - application/json
+      description: Clones a GitHub repository as a bare repo and creates initial worktree
+      parameters:
+      - description: Organization name
+        in: path
+        name: org
+        required: true
+        type: string
+      - description: Repository name
+        in: path
+        name: repo
+        required: true
+        type: string
+      - description: Branch name (optional)
+        in: query
+        name: branch
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.CheckoutResponse'
+      summary: Checkout a GitHub repository
+      tags:
+      - git
+  /v1/git/github/repos:
+    get:
+      description: Returns a list of GitHub repositories accessible to the authenticated
+        user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_handlers.GitHubRepository'
+            type: array
+      summary: List GitHub repositories
+      tags:
+      - git
+  /v1/git/status:
+    get:
+      description: Returns the current repository and worktree status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.GitStatus'
+      summary: Get Git status
+      tags:
+      - git
+  /v1/git/worktrees:
+    get:
+      description: Returns a list of all worktrees for the current repository
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+            type: array
+      summary: List all worktrees
+      tags:
+      - git
+  /v1/git/worktrees/{id}:
+    delete:
+      description: Removes a worktree from the repository
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
+      summary: Delete worktree
+      tags:
+      - git
+  /v1/git/worktrees/{id}/diff:
+    get:
+      description: Returns the diff for a worktree against its source branch, including
+        all staged/unstaged changes
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.WorktreeDiffResponse'
+      summary: Get worktree diff
+      tags:
+      - git
+  /v1/git/worktrees/{id}/merge:
+    post:
+      consumes:
+      - application/json
+      description: Merges a local repo worktree's changes back to the main repository
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Merge options
+        in: body
+        name: body
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
+      summary: Merge worktree to main
+      tags:
+      - git
+  /v1/git/worktrees/{id}/merge/check:
+    get:
+      description: Checks if merging a worktree to main would cause conflicts
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ConflictCheckResponse'
+      summary: Check merge conflicts
+      tags:
+      - git
+  /v1/git/worktrees/{id}/pr:
+    get:
+      description: Gets information about an existing pull request for a worktree
+        branch
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestInfo'
+      summary: Get pull request info
+      tags:
+      - git
+    post:
+      consumes:
+      - application/json
+      description: Creates a pull request for a worktree branch
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreatePullRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse'
+      summary: Create pull request
+      tags:
+      - git
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing pull request for a worktree branch
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Pull request details
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreatePullRequestRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.PullRequestResponse'
+      summary: Update pull request
+      tags:
+      - git
+  /v1/git/worktrees/{id}/preview:
+    post:
+      description: Creates a preview branch in the main repo for viewing changes outside
+        container
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
+      summary: Create worktree preview
+      tags:
+      - git
+  /v1/git/worktrees/{id}/sync:
+    post:
+      consumes:
+      - application/json
+      description: Syncs a worktree with its source branch using merge or rebase strategy
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Sync options
+        in: body
+        name: body
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
+      summary: Sync worktree with source branch
+      tags:
+      - git
+  /v1/git/worktrees/{id}/sync/check:
+    get:
+      description: Checks if syncing a worktree would cause merge conflicts
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ConflictCheckResponse'
+      summary: Check sync conflicts
+      tags:
+      - git
+  /v1/git/worktrees/cleanup:
+    post:
+      description: Removes worktrees that have been fully merged into their source
+        branch
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Cleanup merged worktrees
+      tags:
+      - git
+  /v1/ports:
+    get:
+      consumes:
+      - application/json
+      description: Returns a list of all currently detected ports with their service
+        information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of detected ports and services
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get detected ports
+      tags:
+      - ports
+  /v1/ports/{port}:
+    get:
+      consumes:
+      - application/json
+      description: Returns detailed information about a specific port if it exists
+      parameters:
+      - description: Port number
+        in: path
+        name: port
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Port information
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_services.ServiceInfo'
+        "404":
+          description: Port not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get port information
+      tags:
+      - ports
+  /v1/pty:
+    get:
+      description: Establishes a WebSocket connection for terminal access
+      parameters:
+      - description: Session ID
+        in: query
+        name: session
+        required: true
+        type: string
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+      summary: Create PTY WebSocket connection
+      tags:
+      - pty
+  /v1/sessions:
+    get:
+      description: Returns all sessions including ended ones
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.SessionsResponse'
+      summary: Get all sessions
+      tags:
+      - sessions
+  /v1/sessions/active:
+    get:
+      description: Returns all active sessions (not ended)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.SessionsResponse'
+      summary: Get active sessions
+      tags:
+      - sessions
+  /v1/sessions/workspace/{workspace}:
+    delete:
+      description: Removes a session from the active sessions mapping
+      parameters:
+      - description: Workspace directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.DeleteSessionResponse'
+      summary: Delete session
+      tags:
+      - sessions
+    get:
+      description: Returns session information for a specific workspace directory.
+        Use ?full=true for complete session data including messages.
+      parameters:
+      - description: Workspace directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      - description: Include full session data with messages and user prompts
+        in: query
+        name: full
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Basic session info when full=false
+          schema:
+            $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
+      summary: Get session by workspace
+      tags:
+      - sessions
+  /v1/sessions/workspace/{workspace}/session/{sessionId}:
+    get:
+      description: Returns complete session data for a specific session ID within
+        a workspace
+      parameters:
+      - description: Workspace directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      - description: Session ID (UUID)
+        in: path
+        name: sessionId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.FullSessionData'
+      summary: Get session by ID
+      tags:
+      - sessions
+  /v1/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Upload a file to /tmp/uploads directory with automatic conflict
+        resolution
+      parameters:
+      - description: File to upload
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.UploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.UploadResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.UploadResponse'
+      summary: Upload a file
+      tags:
+      - upload
+schemes:
+- http
+- ws
+swagger: "2.0"

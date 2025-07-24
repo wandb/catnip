@@ -1,0 +1,22 @@
+# Binaries
+bin/
+*.exe
+catnip
+
+# Air temporary files
+tmp/
+build-errors.log
+
+# Go build cache
+*.out
+
+# IDE files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+
+# Test coverage
+coverage.txt
+*.test

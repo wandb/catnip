@@ -1,0 +1,30 @@
+# Development Dockerfile based on main catnip image
+FROM catnip
+
+# Pre-create live directory and project directory with correct ownership
+RUN mkdir -p /live && chown -R catnip:catnip /live
+RUN mkdir -p /live/catnip/node_modules && chown -R catnip:catnip /live/catnip
+
+# Switch to catnip user for development
+USER catnip
+WORKDIR /workspace
+
+# Install Air and swag for Go hot reloading with cache mount
+RUN --mount=type=cache,target=/home/catnip/.cache/go-build,uid=1000,gid=1000 \
+    --mount=type=cache,target=/home/catnip/go/pkg/mod,uid=1000,gid=1000 \
+    bash -c 'source /etc/profile.d/catnip.sh && go install github.com/air-verse/air@latest && go install github.com/swaggo/swag/cmd/swag@latest'
+
+# Copy development scripts
+COPY --chown=catnip:catnip container/scripts/dev-entrypoint.sh ./dev-entrypoint.sh
+RUN chmod +x ./dev-entrypoint.sh
+
+# Set development environment variables
+ENV CATNIP_DEV=true
+ENV VITE_DEV_SERVER=http://localhost:5173
+
+# Expose ports for Go server and Vite dev server
+EXPOSE 8080 5173
+USER root
+
+# Use development entrypoint
+ENTRYPOINT ["/entrypoint.sh", "./dev-entrypoint.sh"]

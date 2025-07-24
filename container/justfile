@@ -1,0 +1,124 @@
+# Catnip Go Server Development
+
+# Configuration
+GOLANGCI_LINT_VERSION := "2.3.0"
+
+# Build the server binary
+build: swagger build-cli
+	go build -o bin/catnip cmd/server/main.go
+
+# Build the CLI binary
+build-cli:
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	# Get the latest git tag (version)
+	LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+	VERSION="${LATEST_TAG}-dev"
+
+	# Get git commit info
+	COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+	DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+	echo "Building catctrl ${VERSION} (commit: ${COMMIT})"
+
+	go build -ldflags "\
+		-X main.version=${VERSION} \
+		-X main.commit=${COMMIT} \
+		-X main.date=${DATE} \
+		-X main.builtBy=just" \
+		-o bin/catctrl cmd/cli/main.go
+
+# Run the server
+run: build
+	./bin/catnip
+
+# Development mode with hot reload (local)
+dev:
+	@command -v air >/dev/null 2>&1 || (echo "Installing Air..." && go install github.com/air-verse/air@latest)
+	air
+
+# Development mode without Air (simple)
+dev-simple:
+	go run cmd/server/main.go
+
+# Generate Swagger documentation
+swagger:
+	@command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
+	swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
+
+# Run tests
+test:
+	go test -v ./...
+
+# Clean build artifacts
+clean:
+	rm -rf bin/ docs/
+
+golangci-lint:
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	# Check if golangci-lint is installed and has the correct version
+	if command -v golangci-lint >/dev/null 2>&1; then
+		INSTALLED_VERSION=$(golangci-lint --version | grep -o 'version [0-9]\+\.[0-9]\+\.[0-9]\+' | cut -d' ' -f2)
+		if [ "$INSTALLED_VERSION" = "{{GOLANGCI_LINT_VERSION}}" ]; then
+			echo "golangci-lint v{{GOLANGCI_LINT_VERSION}} is already installed"
+			exit 0
+		else
+			echo "golangci-lint v$INSTALLED_VERSION is installed, but we need v{{GOLANGCI_LINT_VERSION}}"
+		fi
+	else
+		echo "golangci-lint is not installed"
+	fi
+
+	echo "Installing golangci-lint v{{GOLANGCI_LINT_VERSION}}..."
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin v{{GOLANGCI_LINT_VERSION}}
+
+# Install dependencies
+deps: golangci-lint
+	go mod download
+	go mod tidy
+	@command -v air >/dev/null 2>&1 || (echo "Installing Air..." && go install github.com/air-verse/air@latest)
+	@command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
+
+# Format code
+#fmt:
+#	go fmt ./...
+
+# Format all Go files with gofmt
+format-go:
+	echo "Disabled global gofmt until we start enforcing..."
+	# gofmt -w -s .
+
+# Format only changed Go files
+format-go-changed:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	# Get staged, changed, and untracked Go files (from repo root, filter for container/)
+	files=$({ git diff --cached --name-only --diff-filter=ACMR; git diff --name-only --diff-filter=ACMR; git ls-files --others --exclude-standard; } | grep -E '^container/.*\.go$' | sed 's|^container/||' || true)
+	if [ -n "$files" ]; then
+		echo "$files" | xargs gofmt -w -s
+	else
+		echo "No changed Go files to format in container/"
+	fi
+
+# Lint code
+lint: golangci-lint
+	golangci-lint run
+
+# Docker build
+docker-build:
+	docker build -t catnip:latest .
+
+# Docker build for development
+build-dev:
+	docker build -t catnip-dev:dev .
+
+# All-in-one development setup
+setup: deps swagger build
+	@echo "✅ Catnip is ready for development!"
+
+# Show available commands
+default:
+	@just --list

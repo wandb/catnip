@@ -1,0 +1,2 @@
+# This directory contains fallback frontend assets for Go builds without frontend assets.
+# The real frontend assets are built by the Docker build process and copied here.
