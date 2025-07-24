@@ -67,7 +67,9 @@ function GitPage() {
 
   const [githubUrl, setGithubUrl] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
-  const [selectedRepoBranches, setSelectedRepoBranches] = useState<string[]>([]);
+  const [selectedRepoBranches, setSelectedRepoBranches] = useState<string[]>(
+    [],
+  );
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [openDiffWorktreeId, setOpenDiffWorktreeId] = useState<string | null>(
     null,
@@ -181,7 +183,7 @@ function GitPage() {
     const success = await checkoutRepository(
       url,
       setErrorAlertWithClaudeAction,
-      branch
+      branch,
     );
     if (success) {
       setGithubUrl("");
@@ -195,23 +197,26 @@ function GitPage() {
     setGithubUrl(url);
     setSelectedBranch("");
     setSelectedRepoBranches([]);
-    
+
     if (!url) return;
-    
+
     // Check if this is a current repository (already checked out)
     const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
-      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === url
+      (repo) => (repo.id.startsWith("local/") ? repo.id : repo.url) === url,
     );
-    
+
     if (currentRepo) {
       // For current repos, get the current branch and default branch
       setBranchesLoading(true);
       try {
         const branches = await gitApi.fetchBranches(currentRepo.id);
         setSelectedRepoBranches(branches);
-        
+
         // Set default branch as selected for current repos
-        if (currentRepo.default_branch && branches.includes(currentRepo.default_branch)) {
+        if (
+          currentRepo.default_branch &&
+          branches.includes(currentRepo.default_branch)
+        ) {
           setSelectedBranch(currentRepo.default_branch);
         } else if (branches.length > 0) {
           setSelectedBranch(branches[0]);
@@ -223,26 +228,31 @@ function GitPage() {
       }
     } else {
       // For GitHub repos, try to get the repo info to find default branch
-      const gitHubRepo = repositories.find(repo => repo.url === url);
+      const gitHubRepo = repositories.find((repo) => repo.url === url);
       if (gitHubRepo) {
         setBranchesLoading(true);
         try {
           // For remote repos, we'll fetch branches using the repo name format
-          const repoName = `${gitHubRepo.owner.name}/${gitHubRepo.name ?? gitHubRepo.fullName?.split('/')[1] ?? ''}`;
+          const repoName =
+            gitHubRepo.fullName ||
+            `${gitHubRepo.owner.name}/${gitHubRepo.name}`;
           const branches = await gitApi.fetchBranches(repoName);
           setSelectedRepoBranches(branches);
-          
+
           // Set default branch as selected (assume main/master if not specified)
-          const defaultBranch = branches.find(b => b === 'main') || branches.find(b => b === 'master') || branches[0];
+          const defaultBranch =
+            branches.find((b) => b === "main") ||
+            branches.find((b) => b === "master") ||
+            branches[0];
           if (defaultBranch) {
             setSelectedBranch(defaultBranch);
           }
         } catch (error) {
           console.error("Failed to fetch branches:", error);
           // Set common default branches if fetch fails
-          const commonBranches = ['main', 'master'];
+          const commonBranches = ["main", "master"];
           setSelectedRepoBranches(commonBranches);
-          setSelectedBranch('main');
+          setSelectedBranch("main");
         } finally {
           setBranchesLoading(false);
         }
@@ -355,7 +365,7 @@ function GitPage() {
               />
             </div>
           </div>
-          
+
           {/* Branch Selection */}
           {githubUrl && (
             <div className="flex gap-2">
@@ -366,19 +376,31 @@ function GitPage() {
                   onValueChange={setSelectedBranch}
                   branches={selectedRepoBranches}
                   currentBranch={(() => {
-                    const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
-                      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl
+                    const currentRepo = Object.values(
+                      gitStatus.repositories ?? {},
+                    ).find(
+                      (repo) =>
+                        (repo.id.startsWith("local/") ? repo.id : repo.url) ===
+                        githubUrl,
                     );
                     if (currentRepo?.id.startsWith("local/")) {
                       // For local repos, get the current branch from worktrees
-                      const repoWorktrees = worktrees.filter(wt => wt.repo_id === currentRepo.id);
-                      return repoWorktrees.length > 0 ? repoWorktrees[0].source_branch : undefined;
+                      const repoWorktrees = worktrees.filter(
+                        (wt) => wt.repo_id === currentRepo.id,
+                      );
+                      return repoWorktrees.length > 0
+                        ? repoWorktrees[0].source_branch
+                        : undefined;
                     }
                     return undefined;
                   })()}
                   defaultBranch={(() => {
-                    const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
-                      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl
+                    const currentRepo = Object.values(
+                      gitStatus.repositories ?? {},
+                    ).find(
+                      (repo) =>
+                        (repo.id.startsWith("local/") ? repo.id : repo.url) ===
+                        githubUrl,
                     );
                     return currentRepo?.default_branch;
                   })()}
@@ -386,8 +408,12 @@ function GitPage() {
                   disabled={!githubUrl || selectedRepoBranches.length === 0}
                   placeholder="Select branch..."
                   isLocalRepo={(() => {
-                    const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
-                      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl
+                    const currentRepo = Object.values(
+                      gitStatus.repositories ?? {},
+                    ).find(
+                      (repo) =>
+                        (repo.id.startsWith("local/") ? repo.id : repo.url) ===
+                        githubUrl,
                     );
                     return currentRepo?.id.startsWith("local/") ?? false;
                   })()}
@@ -406,7 +432,7 @@ function GitPage() {
               </Button>
             </div>
           )}
-          
+
           {/* Checkout button for when no repo is selected */}
           {!githubUrl && (
             <div className="flex justify-end">

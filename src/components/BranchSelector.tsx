@@ -15,7 +15,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Check, ChevronsUpDown, RefreshCw, GitBranch } from "lucide-react";
-import type { LocalRepository } from "@/lib/git-api";
 
 interface BranchSelectorProps {
   value: string;
@@ -62,10 +61,18 @@ export function BranchSelector({
 
   const getBranchBadge = (branch: string) => {
     if (isLocalRepo && branch === currentBranch) {
-      return <Badge variant="outline" className="text-xs ml-2">current</Badge>;
+      return (
+        <Badge variant="outline" className="text-xs ml-2">
+          current
+        </Badge>
+      );
     }
     if (branch === defaultBranch) {
-      return <Badge variant="secondary" className="text-xs ml-2">default</Badge>;
+      return (
+        <Badge variant="secondary" className="text-xs ml-2">
+          default
+        </Badge>
+      );
     }
     return null;
   };
