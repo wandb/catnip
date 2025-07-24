@@ -155,18 +155,45 @@ func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository
 func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
 	log.Printf("🔄 Updating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
-	// Handle custom refs (e.g., refs/catnip/ninja) by using the simple branch name
+	// Handle custom refs (e.g., refs/catnip/sunny) by syncing with target branch
 	branchToPush := worktree.Branch
 	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
 		// Extract the simple branch name from the custom ref
-		branchToPush = strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+		simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+		log.Printf("🔄 Syncing custom ref %s with target branch %s for PR update", worktree.Branch, simpleBranchName)
+
+		// First check if the target branch already exists
+		if g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
+			log.Printf("ℹ️ Target branch %s exists, updating it with custom ref changes", simpleBranchName)
+			// Checkout the existing branch
+			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", simpleBranchName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to checkout existing branch %s: %v", simpleBranchName, err)
+			}
+			// Update the branch to match the custom ref
+			_, err = g.operations.ExecuteGit(worktree.Path, "reset", "--hard", worktree.Branch)
+			if err != nil {
+				return nil, fmt.Errorf("failed to sync branch %s with custom ref %s: %v", simpleBranchName, worktree.Branch, err)
+			}
+			log.Printf("✅ Updated branch %s with changes from custom ref %s", simpleBranchName, worktree.Branch)
+		} else {
+			// Create new branch from the custom ref
+			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName, worktree.Branch)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create branch %s from custom ref %s: %v", simpleBranchName, worktree.Branch, err)
+			}
+			log.Printf("✅ Created branch %s from custom ref %s", simpleBranchName, worktree.Branch)
+		}
+
+		branchToPush = simpleBranchName
 	}
 
-	// First, push the branch to ensure it's up to date
+	// First, push the branch to ensure it's up to date using HTTPS conversion
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:      branchToPush,
-		Remote:      "origin",
-		SetUpstream: true,
+		Branch:       branchToPush,
+		Remote:       "origin",
+		SetUpstream:  true,
+		ConvertHTTPS: true, // Use insteadOf to replace ssh with https
 	}); err != nil {
 		return nil, fmt.Errorf("failed to push branch before PR update: %v", err)
 	}
