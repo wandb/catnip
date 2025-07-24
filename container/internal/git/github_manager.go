@@ -256,11 +256,12 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 		branchToPush = simpleBranchName
 	}
 
-	// Push the branch
+	// Push the branch using HTTPS conversion
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:      branchToPush,
-		Remote:      "origin",
-		SetUpstream: true,
+		Branch:       branchToPush,
+		Remote:       "origin",
+		SetUpstream:  true,
+		ConvertHTTPS: true, // Use insteadOf to replace ssh with https
 	}); err != nil {
 		return nil, fmt.Errorf("failed to push branch before PR creation: %v", err)
 	}
