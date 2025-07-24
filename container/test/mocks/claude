@@ -114,16 +114,17 @@ simulate_file_operations() {
     local content="$3"
     
     case "$action" in
-        "create")
+        "addFile"|"create")
             echo "$content" > "$filename"
             echo "Created file: $filename" >> "$MOCK_LOG"
             ;;
-        "edit")
+        "updateFile"|"edit")
             if [[ -f "$filename" ]]; then
-                echo "$content" > "$filename"
-                echo "Edited file: $filename" >> "$MOCK_LOG"
+                echo "$content" >> "$filename"
+                echo "Updated file: $filename" >> "$MOCK_LOG"
             else
-                echo "File not found: $filename" >> "$MOCK_LOG"
+                echo "$content" > "$filename"
+                echo "Created new file during update: $filename" >> "$MOCK_LOG"
             fi
             ;;
         "read")
@@ -134,6 +135,45 @@ simulate_file_operations() {
             fi
             ;;
     esac
+}
+
+# Function to handle test commands from PTY input
+handle_test_command() {
+    local input="$1"
+    
+    # Check for test commands that trigger file operations
+    case "$input" in
+        "addFile:"*)
+            local file_spec="${input#addFile:}"
+            local filename="${file_spec%%:*}"
+            local content="${file_spec#*:}"
+            if [[ -z "$content" ]]; then
+                content="This is a test file created by mock Claude"
+            fi
+            simulate_file_operations "addFile" "$filename" "$content"
+            echo "✅ Created file: $filename"
+            ;;
+        "updateFile:"*)
+            local file_spec="${input#updateFile:}"
+            local filename="${file_spec%%:*}"
+            local content="${file_spec#*:}"
+            if [[ -z "$content" ]]; then
+                content="Additional line added by mock Claude"
+            fi
+            simulate_file_operations "updateFile" "$filename" "$content"
+            echo "✅ Updated file: $filename"
+            ;;
+        "setTitle:"*)
+            local new_title="${input#setTitle:}"
+            send_title_escape "$new_title"
+            echo "🪧 Set terminal title to: $new_title"
+            save_session_state "$(get_session_uuid)" "$new_title"
+            ;;
+        *)
+            return 1  # Not a test command
+            ;;
+    esac
+    return 0
 }
 
 # Function to process JSON input from stdin
@@ -220,15 +260,26 @@ main() {
             title="Claude Session"
         fi
         
-        # Send title escape sequence for PTY
-        send_title_escape "$title"
-        
         # Save session state
         save_session_state "$session_id" "$title"
+        
+        # Wait a bit to ensure PTY read goroutine is set up
+        sleep 1
+        
+        # Send initial title escape sequence for PTY
+        send_title_escape "$title"
+        
+        # Small delay to ensure title sequence is processed
+        sleep 0.1
         
         # Simulate interactive Claude session
         echo "Welcome to Claude! I'm ready to help with your coding tasks."
         echo "Type your questions or commands, and I'll assist you."
+        echo ""
+        echo "Test commands available:"
+        echo "  addFile:filename.txt:content - Create a new file"
+        echo "  updateFile:filename.txt:content - Add content to existing file"  
+        echo "  setTitle:New Title - Change terminal title"
         echo ""
         
         # Interactive loop simulation
@@ -238,7 +289,14 @@ main() {
                 break
             fi
             
-            # Simulate processing and response
+            # Check for test commands first
+            if handle_test_command "$user_input"; then
+                # Test command was handled
+                echo ""
+                continue
+            fi
+            
+            # Simulate processing and response for regular prompts
             response=$(get_response_for_prompt "$user_input")
             echo "$response"
             echo ""

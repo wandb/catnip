@@ -4,72 +4,72 @@ package common //nolint:revive
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/require"
-	"github.com/vanpelt/catnip/internal/handlers"
-	"github.com/vanpelt/catnip/internal/services"
 )
 
 // TestSuite holds the test environment
 type TestSuite struct {
-	App        *fiber.App
+	BaseURL    string
 	TestDir    string
-	GitService *services.GitService
+	HTTPClient *http.Client
 	cleanup    func()
 }
 
-// SetupTestSuite initializes the test environment with mocked commands
+// SetupTestSuite initializes the test environment to connect to external test server
 func SetupTestSuite(t *testing.T) *TestSuite {
 	// Create temporary test directory
 	testDir, err := os.MkdirTemp("", "catnip-integration-test-*")
 	require.NoError(t, err)
 
+	// Get test server URL from environment or use default
+	baseURL := os.Getenv("CATNIP_TEST_SERVER_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8181"
+	}
+
+	// Create HTTP client with reasonable timeout
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
 	// Set up test environment variables
 	_ = os.Setenv("CATNIP_TEST_MODE", "1")
-	_ = os.Setenv("CATNIP_TEST_DATA_DIR", filepath.Join(testDir, "test_data"))
+
+	testDataDir := os.Getenv("CATNIP_TEST_DATA_DIR")
+	if testDataDir == "" {
+		testDataDir = filepath.Join(testDir, "test_data")
+		_ = os.Setenv("CATNIP_TEST_DATA_DIR", testDataDir)
+	}
 
 	// Create test data directories
-	testDataDir := filepath.Join(testDir, "test_data")
 	require.NoError(t, os.MkdirAll(filepath.Join(testDataDir, "claude_responses"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(testDataDir, "gh_data"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(testDataDir, "git_data"), 0755))
 
-	// Initialize services with test configuration
-	gitService := services.NewGitService()
-	gitHTTPService := services.NewGitHTTPService(gitService)
-	sessionService := services.NewSessionService()
-	claudeService := services.NewClaudeService()
+	// Verify that the test server is running
+	healthURL := baseURL + "/health"
+	resp, err := httpClient.Get(healthURL)
+	if err != nil {
+		require.FailNow(t, fmt.Sprintf("Test server is not running at %s. Start it with './run_integration_tests.sh start'", baseURL))
+	}
+	resp.Body.Close()
 
-	// Create Fiber app
-	app := fiber.New(fiber.Config{
-		DisableStartupMessage: true,
-		ErrorHandler: func(ctx *fiber.Ctx, err error) error {
-			return ctx.Status(500).JSON(fiber.Map{
-				"error": err.Error(),
-			})
-		},
-	})
-
-	// Setup handlers
-	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService)
-	claudeHandler := handlers.NewClaudeHandler(claudeService)
-
-	// Setup routes using the new RegisterRoutes methods
-	v1 := app.Group("/v1")
-	gitHandler.RegisterRoutes(v1)
-	claudeHandler.RegisterRoutes(v1)
+	if resp.StatusCode != http.StatusOK {
+		require.FailNow(t, fmt.Sprintf("Test server at %s returned status %d. Expected 200", baseURL, resp.StatusCode))
+	}
 
 	return &TestSuite{
-		App:        app,
+		BaseURL:    baseURL,
 		TestDir:    testDir,
-		GitService: gitService,
+		HTTPClient: httpClient,
 		cleanup: func() {
 			_ = os.RemoveAll(testDir)
 			_ = os.Unsetenv("CATNIP_TEST_MODE")
@@ -85,7 +85,7 @@ func (ts *TestSuite) TearDown() {
 	}
 }
 
-// MakeRequest is a helper function to make HTTP requests
+// MakeRequest is a helper function to make HTTP requests to the test server
 func (ts *TestSuite) MakeRequest(method, path string, body interface{}) (*http.Response, []byte, error) {
 	var bodyReader io.Reader
 
@@ -97,15 +97,23 @@ func (ts *TestSuite) MakeRequest(method, path string, body interface{}) (*http.R
 		bodyReader = bytes.NewReader(jsonBody)
 	}
 
-	req := httptest.NewRequest(method, path, bodyReader)
+	// Construct full URL
+	url := ts.BaseURL + path
+
+	req, err := http.NewRequest(method, url, bodyReader)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := ts.App.Test(req, -1) // -1 means no timeout
+	resp, err := ts.HTTPClient.Do(req)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "test-repo",
+    "url": "https://github.com/testorg/test-repo",
+    "isPrivate": false,
+    "description": "Test repository for integration tests",
+    "owner": {
+      "login": "testorg"
+    }
+  },
+  {
+    "name": "catnip",
+    "url": "https://github.com/wandb/catnip",
+    "isPrivate": false,
+    "description": "Agentic coding environment",
+    "owner": {
+      "login": "wandb"
+    }
+  }
+]

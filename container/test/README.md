@@ -6,33 +6,47 @@ This directory contains integration tests for the Catnip application using a moc
 
 The integration test framework provides:
 
+- **External Test Container**: Runs the Catnip server on port 8181 with hot reloading
 - **Mock Scripts**: Replaces external commands (`claude`, `gh`, `git`) with test doubles
 - **Real Git Operations**: Uses real git for local operations, mocks only network calls
-- **API Testing**: Tests all major API endpoints in isolation
-- **Docker Environment**: Runs tests in a containerized environment matching production
-- **Dev-Friendly**: Edit tests locally and re-run without rebuilding containers
+- **API Testing**: Tests all major API endpoints against the real server
+- **Docker Environment**: Test server runs in a containerized environment matching production
+- **Dev-Friendly**: Edit server code or tests locally and re-run without rebuilding containers
 
 ## Architecture
 
+The new architecture separates the test server from the test runner:
+
 ```
 test/
-├── integration/          # Go integration tests (volume-mounted)
+├── integration/          # Go integration tests (run from host)
 │   ├── common/          # Shared test utilities
-│   │   └── test_suite.go # Test suite setup and helpers
+│   │   └── test_suite.go # HTTP client setup and helpers
 │   └── api/             # API-specific tests
 │       ├── claude_test.go   # Claude API tests
 │       ├── git_test.go      # Git status and GitHub tests
 │       └── worktree_test.go # Worktree and PR tests
-├── mocks/               # Mock command scripts
+├── mocks/               # Mock command scripts (mounted in test container)
 │   ├── claude           # Mock Claude CLI
 │   ├── gh               # Mock GitHub CLI
 │   └── git              # Git wrapper (mocks network ops)
-├── data/                # Test data and responses
+├── data/                # Test data and responses (shared)
 │   ├── claude_responses/# Claude mock responses
 │   ├── gh_data/         # GitHub CLI test data
 │   └── git_data/        # Git operation logs
+├── scripts/             # Container scripts
+│   └── test-entrypoint.sh  # Test container entry point
+├── Dockerfile.test      # Docker configuration for test container
+├── docker-compose.test.yml # Docker Compose for test environment
 └── run_integration_tests.sh  # Test runner script
 ```
+
+**Key Changes:**
+
+- **Test Container**: Runs Catnip server on port 8181 with hot reloading
+- **External Tests**: Integration tests run from host machine and make HTTP calls to test container
+- **Hot Reloading**: Server code changes are reflected immediately without rebuilds
+- **Port Isolation**: Test server runs on separate port (8181) to avoid conflicts
 
 ## Mock Strategy
 
@@ -99,8 +113,14 @@ The integration tests cover these major areas:
 ### Quick Start
 
 ```bash
-# Run all integration tests
+# Run all integration tests (starts test container automatically)
 ./run_integration_tests.sh
+
+# Start test container manually
+./run_integration_tests.sh start
+
+# Check if test container is running
+./run_integration_tests.sh status
 
 # Run specific test
 ./run_integration_tests.sh test TestWorktreeCreation
@@ -108,26 +128,44 @@ The integration tests cover these major areas:
 # Run benchmarks
 ./run_integration_tests.sh bench
 
-# Interactive debugging shell (edit tests in ./integration/ and re-run!)
+# Interactive debugging shell in test container
 ./run_integration_tests.sh shell
+
+# Stop the test container
+./run_integration_tests.sh stop
 ```
 
 ### Development Workflow
 
-The test framework is designed for rapid iteration:
+The new architecture provides excellent development experience:
 
-1. **Build once**: `./run_integration_tests.sh build`
-2. **Edit tests**: Modify files in `./integration/` directory locally
-3. **Re-run instantly**: `./run_integration_tests.sh --no-build test`
-4. **Repeat**: No container rebuilds needed for test changes
+1. **Start test container**: `./run_integration_tests.sh start` (runs server with hot reloading)
+2. **Edit server code**: Modify files in `container/` directory - changes auto-reload in test container
+3. **Edit tests**: Modify files in `./integration/` directory locally
+4. **Re-run tests**: `./run_integration_tests.sh test` (no rebuilds needed)
+5. **Repeat**: Both server and test changes are reflected immediately
 
-Tests are volume-mounted, so changes are immediately available in the container!
+**Key Benefits:**
+
+- Server hot reloading via Air - edit Go code and see changes instantly
+- Tests run from host - no container rebuilds needed for test changes
+- Real HTTP testing - tests interact with actual server endpoints
+- Port isolation - test server won't conflict with development server
 
 ### Detailed Commands
 
 ```bash
 # Build test image only
 ./run_integration_tests.sh build
+
+# Start test container (with build if needed)
+./run_integration_tests.sh start
+
+# Stop test container
+./run_integration_tests.sh stop
+
+# Check test container status
+./run_integration_tests.sh status
 
 # Run tests without rebuilding
 ./run_integration_tests.sh --no-build test
@@ -142,17 +180,24 @@ Tests are volume-mounted, so changes are immediately available in the container!
 ### Manual Testing
 
 ```bash
+# Access test server directly
+curl http://localhost:8181/health
+
 # Enter test container for manual debugging
 ./run_integration_tests.sh shell
 
 # Inside the container:
-cd /test/integration
-go test -v -run TestWorktreeCreation ./...
-
 # Check mock logs
 tail -f /tmp/claude-mock.log
 tail -f /tmp/gh-mock.log
 tail -f /tmp/git-mock.log
+
+# Outside container - run individual tests
+cd integration
+go test -v -run TestWorktreeCreation ./...
+
+# Make manual API calls to test server
+curl -X GET http://localhost:8181/v1/git/status
 ```
 
 ## Test Data Management
@@ -186,9 +231,17 @@ Operation logs in `data/git_data/`:
 
 The test environment supports these variables:
 
-- `CATNIP_TEST_MODE=1` - Enables test mode
-- `CATNIP_TEST_DATA_DIR` - Path to test data directory
+**Test Container:**
+
+- `CATNIP_TEST_MODE=1` - Enables test mode in the server
+- `CATNIP_PORT=8181` - Port for the test server
 - `PATH` - Modified to prioritize mock scripts
+
+**Test Runner:**
+
+- `CATNIP_TEST_SERVER_URL` - URL of test server (default: http://localhost:8181)
+- `CATNIP_TEST_DATA_DIR` - Path to test data directory
+- `CATNIP_TEST_MODE=1` - Enables test mode for test runner
 
 ## Debugging
 
