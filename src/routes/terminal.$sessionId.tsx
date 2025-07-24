@@ -194,6 +194,13 @@ function TerminalPage() {
           } else if (msg.type === "buffer-complete") {
             // Now fit to actual window size and send resize
             terminalReady.current = true;
+            
+            // Ensure terminal is properly fitted after buffer is complete
+            requestAnimationFrame(() => {
+              if (fitAddon.current) {
+                fitAddon.current.fit();
+              }
+            });
 
             // Check if we have a prompt to send
             if (search.prompt && search.agent === "claude") {
