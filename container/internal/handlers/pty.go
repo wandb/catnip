@@ -526,6 +526,12 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Set workspace directory
 	var workDir string
 
+	// Extract base session ID without agent suffix for directory lookups
+	baseSessionID := sessionID
+	if idx := strings.LastIndex(sessionID, ":"); idx != -1 {
+		baseSessionID = sessionID[:idx]
+	}
+
 	// Priority order for workspace directory:
 	// 1. Session ID "default" maps to /workspace/current symlink if it exists
 	// 2. Session ID in repo/branch format maps to Git worktree
@@ -534,7 +540,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// 5. Default /workspace
 
 	// Check if session ID is "default" and /workspace/current symlink exists
-	if sessionID == "default" {
+	if baseSessionID == "default" {
 		currentSymlinkPath := filepath.Join("/workspace", "current")
 		if target, err := os.Readlink(currentSymlinkPath); err == nil {
 			// Symlink exists, check if target is valid
@@ -548,10 +554,10 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	}
 
 	// Check if session ID is in repo/branch format (e.g., "myrepo/main")
-	if workDir == "" && strings.Contains(sessionID, "/") && h.gitService != nil {
+	if workDir == "" && strings.Contains(baseSessionID, "/") && h.gitService != nil {
 		// This might be a Git worktree session
 		// The session format is "repo/branch" which maps to /workspace/repo/branch or /workspace/repo
-		parts := strings.SplitN(sessionID, "/", 2)
+		parts := strings.SplitN(baseSessionID, "/", 2)
 		if len(parts) == 2 {
 			repo := parts[0]
 			branch := parts[1]
@@ -561,7 +567,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
 				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
 					workDir = branchWorktreePath
-					log.Printf("📁 Using Git worktree for session %s: %s", sessionID, workDir)
+					log.Printf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
 				}
 			}
 		}
@@ -578,7 +584,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 
 	// If no Git worktree, check for session-based directory
 	if workDir == "" {
-		sessionWorkDir := filepath.Join("/workspace", sessionID)
+		sessionWorkDir := filepath.Join("/workspace", baseSessionID)
 		if info, err := os.Stat(sessionWorkDir); err == nil {
 			// Directory exists - could be mounted or created
 			if info.IsDir() {
