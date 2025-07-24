@@ -345,6 +345,16 @@ function TerminalPage() {
     // Open terminal in DOM element
     instance.open(ref.current);
 
+    // Delay initial fit to allow layout to settle
+    // Use requestAnimationFrame to ensure DOM layout is complete
+    const initialFitTimeout = setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (fitAddon.current) {
+          fitAddon.current.fit();
+        }
+      });
+    }, 50);
+
     // Set up resize observer before sending ready signal
     const resizeObserver = new ResizeObserver((entries) => {
       if (resizeTimeout.current) {
@@ -392,6 +402,7 @@ function TerminalPage() {
         clearTimeout(resizeTimeout.current);
         resizeTimeout.current = null;
       }
+      clearTimeout(initialFitTimeout);
     };
   }, [
     instance,
