@@ -144,6 +144,7 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 		}
 		sessionID := c.Query("session", defaultSession)
 		agent := c.Query("agent", "")
+		reset := c.Query("reset", "false") == "true"
 
 		// Create composite session key: path + agent
 		compositeSessionID := sessionID
@@ -152,24 +153,37 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 		}
 
 		return websocket.New(func(conn *websocket.Conn) {
-			h.handlePTYConnection(conn, compositeSessionID, agent)
+			h.handlePTYConnection(conn, compositeSessionID, agent, reset)
 		})(c)
 	}
 	return fiber.ErrUpgradeRequired
 }
 
-func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent string) {
+func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent string, reset bool) {
 	// Generate unique connection ID for logging and tracking
 	connID := fmt.Sprintf("%p", conn)
 
 	if agent != "" {
-		log.Printf("📡 New PTY connection [%s] for session: %s with agent: %s", connID, sessionID, agent)
+		log.Printf("📡 New PTY connection [%s] for session: %s with agent: %s (reset: %t)", connID, sessionID, agent, reset)
 	} else {
-		log.Printf("📡 New PTY connection [%s] for session: %s", connID, sessionID)
+		log.Printf("📡 New PTY connection [%s] for session: %s (reset: %t)", connID, sessionID, reset)
+	}
+
+	// Handle reset logic for Claude agent
+	if reset && agent == "claude" {
+		log.Printf("🔄 Reset requested for Claude session: %s", sessionID)
+		// Shutdown any existing PTY session for this sessionID
+		h.sessionMutex.Lock()
+		if existingSession, exists := h.sessions[sessionID]; exists {
+			log.Printf("🛑 Shutting down existing session: %s", sessionID)
+			h.cleanupSession(existingSession)
+			delete(h.sessions, sessionID)
+		}
+		h.sessionMutex.Unlock()
 	}
 
 	// Get or create session
-	session := h.getOrCreateSession(sessionID, agent)
+	session := h.getOrCreateSession(sessionID, agent, reset)
 	if session == nil {
 		log.Printf("❌ Failed to create session: %s", sessionID)
 		conn.Close()
@@ -479,7 +493,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	}
 }
 
-func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
+func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Session {
 	// Sanitize session ID to prevent path traversal
 	sessionID = h.sanitizeSessionID(sessionID)
 
@@ -590,10 +604,12 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 
 	// Check for existing Claude session in this directory for auto-resume
 	var resumeSessionID string
-	if agent == "claude" {
+	var useContinue bool
+	if agent == "claude" && !reset {
 		if existingState, err := h.sessionService.FindSessionByDirectory(workDir); err == nil && existingState != nil {
-			resumeSessionID = existingState.ClaudeSessionID
-			log.Printf("🔄 Found existing Claude session in %s, will resume: %s", workDir, resumeSessionID)
+			// For existing sessions, use --continue instead of --resume
+			useContinue = true
+			log.Printf("🔄 Found existing Claude session in %s, will use --continue", workDir)
 		}
 	}
 
@@ -606,7 +622,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string) *Session {
 	log.Printf("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
 
 	// Create command based on agent parameter
-	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID, ports)
+	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID, useContinue, ports)
 
 	// Start PTY
 	ptmx, err := pty.Start(cmd)
@@ -745,7 +761,7 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 	}
 }
 
-func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID string, ports *services.SessionPorts) *exec.Cmd {
+func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID string, useContinue bool, ports *services.SessionPorts) *exec.Cmd {
 	var cmd *exec.Cmd
 
 	// Get port environment variables
@@ -756,9 +772,12 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 	}
 
 	if agent == "claude" {
-		// Build Claude command with optional resume flag
+		// Build Claude command with optional continue or resume flag
 		args := []string{"--dangerously-skip-permissions"}
-		if resumeSessionID != "" {
+		if useContinue {
+			args = append(args, "--continue")
+			log.Printf("🔄 Starting Claude Code with --continue for session: %s", sessionID)
+		} else if resumeSessionID != "" {
 			args = append(args, "--resume", resumeSessionID)
 			log.Printf("🔄 Starting Claude Code with resume for session: %s (resuming: %s)", sessionID, resumeSessionID)
 		} else {
@@ -827,8 +846,8 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		}
 	}
 
-	// Create new command using the same agent
-	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID, ports)
+	// Create new command using the same agent (use old resume logic for recreation)
+	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID, false, ports)
 
 	// Start new PTY
 	ptmx, err := pty.Start(cmd)
