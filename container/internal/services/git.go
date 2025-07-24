@@ -239,6 +239,7 @@ type GitService struct {
 	worktreeService  *WorktreeManager              // Handles all worktree operations (services layer)
 	conflictResolver *git.ConflictResolver         // Handles conflict detection/resolution
 	githubManager    *git.GitHubManager            // Handles all GitHub CLI operations
+	commitSync       *CommitSyncService            // Handles automatic checkpointing and commit sync
 	mu               sync.RWMutex
 }
 
@@ -363,6 +364,9 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 		githubManager:    git.NewGitHubManager(operations),
 	}
 
+	// Initialize CommitSync service
+	s.commitSync = NewCommitSyncServiceWithOperations(s, operations)
+
 	// Ensure workspace directory exists
 	_ = os.MkdirAll(getWorkspaceDir(), 0755)
 	_ = os.MkdirAll(getGitStateDir(), 0755)
@@ -383,6 +387,11 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 		s.cleanupUnusedBranches()
 	} else {
 		log.Printf("🔧 Skipping branch cleanup in dev mode")
+	}
+
+	// Start CommitSync service for automatic checkpointing
+	if err := s.commitSync.Start(); err != nil {
+		log.Printf("⚠️ Failed to start CommitSync service: %v", err)
 	}
 
 	return s
@@ -1583,7 +1592,10 @@ func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConfli
 
 // Stop stops the Git service
 func (s *GitService) Stop() {
-	// No background services to stop
+	// Stop CommitSync service
+	if s.commitSync != nil {
+		s.commitSync.Stop()
+	}
 }
 
 // GitAddCommitGetHash performs git add, commit, and returns the commit hash
@@ -1591,7 +1603,7 @@ func (s *GitService) Stop() {
 func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {
 	// Check if it's a git repository
 	if !s.operations.IsGitRepository(workspaceDir) {
-		log.Printf("📂 Not a git repository, skipping git operations")
+		log.Printf("📂 Not a git repository, skipping git operations for: %s", workspaceDir)
 		return "", nil
 	}
 
@@ -1683,6 +1695,11 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 
 	// Store worktree in service map
 	s.worktrees[worktree.ID] = worktree
+
+	// Notify CommitSync service about the new worktree
+	if s.commitSync != nil {
+		s.commitSync.AddWorktreeWatcher(worktree.Path)
+	}
 
 	if isInitial || len(s.worktrees) == 1 {
 		// Update current symlink to point to the first/initial worktree

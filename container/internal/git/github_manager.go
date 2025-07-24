@@ -23,6 +23,30 @@ func NewGitHubManager(operations Operations) *GitHubManager {
 	}
 }
 
+// extractGitHubRepoFromURL extracts owner/repo from a GitHub URL
+func (g *GitHubManager) extractGitHubRepoFromURL(remoteURL string) string {
+	// Handle various GitHub URL formats:
+	// - https://github.com/owner/repo.git
+	// - git@github.com:owner/repo.git
+	// - https://github.com/owner/repo
+
+	// Remove .git suffix if present
+	remoteURL = strings.TrimSuffix(remoteURL, ".git")
+
+	// Handle SSH format (git@github.com:owner/repo)
+	if strings.HasPrefix(remoteURL, "git@github.com:") {
+		return strings.TrimPrefix(remoteURL, "git@github.com:")
+	}
+
+	// Handle HTTPS format (https://github.com/owner/repo)
+	if strings.HasPrefix(remoteURL, "https://github.com/") {
+		return strings.TrimPrefix(remoteURL, "https://github.com/")
+	}
+
+	// Not a recognized GitHub URL
+	return ""
+}
+
 // execCommand creates a command with proper environment
 func (g *GitHubManager) execCommand(command string, args ...string) *exec.Cmd {
 	cmd := exec.Command(command, args...)
@@ -69,11 +93,30 @@ func (g *GitHubManager) CreatePullRequest(req CreatePullRequestRequest) (*models
 	}()
 
 	// Parse owner/repo from repository ID
-	parts := strings.Split(req.Repository.ID, "/")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid repository ID format: %s (expected owner/repo)", req.Repository.ID)
-	}
 	ownerRepo := req.Repository.ID
+
+	// For local repos, extract the GitHub owner/repo from the remote URL
+	if strings.HasPrefix(req.Repository.ID, "local/") {
+		// Get the remote URL from the worktree
+		remoteURL, err := g.operations.GetRemoteURL(req.Worktree.Path)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create PR: no remote configured for local repository")
+		}
+
+		// Extract owner/repo from URL (e.g., git@github.com:owner/repo.git -> owner/repo)
+		ownerRepo = g.extractGitHubRepoFromURL(remoteURL)
+		if ownerRepo == "" {
+			return nil, fmt.Errorf("cannot create PR: remote URL is not a GitHub repository: %s", remoteURL)
+		}
+
+		log.Printf("🔄 Using GitHub repo %s for local repository %s", ownerRepo, req.Repository.ID)
+	} else {
+		// For non-local repos, validate format
+		parts := strings.Split(req.Repository.ID, "/")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid repository ID format: %s (expected owner/repo)", req.Repository.ID)
+		}
+	}
 
 	if req.IsUpdate {
 		return g.updatePullRequestWithGH(req.Worktree, ownerRepo, req.Title, req.Body)
@@ -84,21 +127,21 @@ func (g *GitHubManager) CreatePullRequest(req CreatePullRequestRequest) (*models
 
 // GetPullRequestInfo retrieves PR information for a worktree
 func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository *models.Repository) (*models.PullRequestInfo, error) {
-	// For local repos, return empty info
+	// For local repos, we still want to check if there are commits
+	// The UI will show the PR button if HasCommitsAhead is true
+	prInfo := &models.PullRequestInfo{
+		HasCommitsAhead: worktree.CommitCount > 0, // Enable PR if there are commits
+		Exists:          false,
+	}
+
+	// For local repos, we can't check for existing PRs without a remote URL
 	if strings.HasPrefix(repository.ID, "local/") {
-		return &models.PullRequestInfo{
-			HasCommitsAhead: false,
-			Exists:          false,
-		}, nil
+		// If there's a remote URL configured, we could check for existing PRs
+		// but for now, just return whether there are commits to push
+		return prInfo, nil
 	}
 
 	ownerRepo := repository.ID
-
-	// Check for existing PR first
-	prInfo := &models.PullRequestInfo{
-		HasCommitsAhead: true, // Will be updated by caller if needed
-		Exists:          false,
-	}
 
 	// Try to find existing PR
 	if err := g.checkExistingPR(worktree, ownerRepo, prInfo); err != nil {
@@ -112,9 +155,16 @@ func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository
 func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
 	log.Printf("🔄 Updating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
+	// Handle custom refs (e.g., refs/catnip/ninja) by using the simple branch name
+	branchToPush := worktree.Branch
+	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+		// Extract the simple branch name from the custom ref
+		branchToPush = strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+	}
+
 	// First, push the branch to ensure it's up to date
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:      worktree.Branch,
+		Branch:      branchToPush,
 		Remote:      "origin",
 		SetUpstream: true,
 	}); err != nil {
@@ -122,7 +172,7 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 	}
 
 	// Update the PR
-	cmd := g.execCommand("gh", "pr", "edit", worktree.Branch,
+	cmd := g.execCommand("gh", "pr", "edit", branchToPush,
 		"--repo", ownerRepo,
 		"--title", title,
 		"--body", body)
@@ -169,9 +219,39 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
 	log.Printf("🚀 Creating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
-	// First, push the branch
+	// Handle custom refs (e.g., refs/catnip/ninja) by creating a regular branch
+	branchToPush := worktree.Branch
+	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+		// Extract the simple branch name from the custom ref
+		simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+
+		// Create a regular branch from the current HEAD
+		// We need to use checkout -b instead of branch when HEAD points to a custom ref
+		log.Printf("🔄 Creating regular branch %s from custom ref %s", simpleBranchName, worktree.Branch)
+
+		// First check if the branch already exists
+		if g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
+			log.Printf("ℹ️ Branch %s already exists, checking it out", simpleBranchName)
+			// Checkout the existing branch
+			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", simpleBranchName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to checkout existing branch %s: %v", simpleBranchName, err)
+			}
+		} else {
+			// Create and checkout the new branch in one step
+			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create branch from custom ref: %v", err)
+			}
+			log.Printf("✅ Created and checked out branch %s", simpleBranchName)
+		}
+
+		branchToPush = simpleBranchName
+	}
+
+	// Push the branch
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:      worktree.Branch,
+		Branch:      branchToPush,
 		Remote:      "origin",
 		SetUpstream: true,
 	}); err != nil {
@@ -182,7 +262,7 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 	cmd := g.execCommand("gh", "pr", "create",
 		"--repo", ownerRepo,
 		"--base", worktree.SourceBranch,
-		"--head", worktree.Branch,
+		"--head", branchToPush,
 		"--title", title,
 		"--body", body)
 
@@ -195,7 +275,7 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 		return nil, fmt.Errorf("failed to create PR: %v\nOutput: %s", err, string(output))
 	}
 
-	log.Printf("✅ Created PR for branch %s", worktree.Branch)
+	log.Printf("✅ Created PR for branch %s", branchToPush)
 
 	// Extract URL from output (gh pr create returns the URL)
 	url := strings.TrimSpace(string(output))

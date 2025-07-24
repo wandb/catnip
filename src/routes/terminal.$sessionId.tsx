@@ -197,6 +197,13 @@ function TerminalPage() {
           } else if (msg.type === "buffer-complete") {
             // Now fit to actual window size and send resize
             terminalReady.current = true;
+            
+            // Ensure terminal is properly fitted after buffer is complete
+            requestAnimationFrame(() => {
+              if (fitAddon.current) {
+                fitAddon.current.fit();
+              }
+            });
 
             // Check if we have a prompt to send
             if (search.prompt && search.agent === "claude") {
@@ -348,6 +355,16 @@ function TerminalPage() {
     // Open terminal in DOM element
     instance.open(ref.current);
 
+    // Delay initial fit to allow layout to settle
+    // Use requestAnimationFrame to ensure DOM layout is complete
+    const initialFitTimeout = setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (fitAddon.current) {
+          fitAddon.current.fit();
+        }
+      });
+    }, 50);
+
     // Set up resize observer before sending ready signal
     const resizeObserver = new ResizeObserver((entries) => {
       if (resizeTimeout.current) {
@@ -395,6 +412,7 @@ function TerminalPage() {
         clearTimeout(resizeTimeout.current);
         resizeTimeout.current = null;
       }
+      clearTimeout(initialFitTimeout);
     };
   }, [
     instance,

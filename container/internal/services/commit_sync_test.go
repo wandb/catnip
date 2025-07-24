@@ -36,7 +36,7 @@ func TestCommitSyncService(t *testing.T) {
 
 	t.Run("NewCommitSyncService", func(t *testing.T) {
 		assert.NotNil(t, commitSync.gitService)
-		assert.Equal(t, 5*time.Second, commitSync.syncInterval)
+		assert.Equal(t, 30*time.Second, commitSync.syncInterval)
 		assert.False(t, commitSync.running)
 	})
 
@@ -122,7 +122,7 @@ func TestCommitSyncServiceMethods(t *testing.T) {
 	t.Run("ServiceCreation", func(t *testing.T) {
 		assert.NotNil(t, commitSync.gitService)
 		assert.NotNil(t, commitSync.stopChan)
-		assert.Equal(t, 5*time.Second, commitSync.syncInterval)
+		assert.Equal(t, 30*time.Second, commitSync.syncInterval)
 		assert.False(t, commitSync.running)
 		assert.Empty(t, commitSync.gitCommands)
 	})
