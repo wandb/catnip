@@ -15,13 +15,14 @@ import {
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { RepoSelector } from "@/components/RepoSelector";
+import { BranchSelector } from "@/components/BranchSelector";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { WorktreeRow } from "@/components/WorktreeRow";
 import { PullRequestDialog } from "@/components/PullRequestDialog";
 import { GitBranch, Copy, RefreshCw, Loader2 } from "lucide-react";
 import { copyRemoteCommand } from "@/lib/git-utils";
-import { type LocalRepository } from "@/lib/git-api";
+import { type LocalRepository, gitApi } from "@/lib/git-api";
 import { useGitState } from "@/hooks/useGitState";
 import { useGitActions } from "@/hooks/useGitActions";
 import { useHighlight } from "@/hooks/useHighlight";
@@ -65,6 +66,9 @@ function GitPage() {
   } = useGitState();
 
   const [githubUrl, setGithubUrl] = useState("");
+  const [selectedBranch, setSelectedBranch] = useState("");
+  const [selectedRepoBranches, setSelectedRepoBranches] = useState<string[]>([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
   const [openDiffWorktreeId, setOpenDiffWorktreeId] = useState<string | null>(
     null,
   );
@@ -173,13 +177,76 @@ function GitPage() {
     setMergingWorktree,
   });
 
-  const handleCheckout = async (url: string) => {
+  const handleCheckout = async (url: string, branch?: string) => {
     const success = await checkoutRepository(
       url,
       setErrorAlertWithClaudeAction,
+      branch
     );
     if (success) {
       setGithubUrl("");
+      setSelectedBranch("");
+      setSelectedRepoBranches([]);
+    }
+  };
+
+  // Handle repo selection change - fetch branches for the selected repo
+  const handleRepoChange = async (url: string) => {
+    setGithubUrl(url);
+    setSelectedBranch("");
+    setSelectedRepoBranches([]);
+    
+    if (!url) return;
+    
+    // Check if this is a current repository (already checked out)
+    const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
+      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === url
+    );
+    
+    if (currentRepo) {
+      // For current repos, get the current branch and default branch
+      setBranchesLoading(true);
+      try {
+        const branches = await gitApi.fetchBranches(currentRepo.id);
+        setSelectedRepoBranches(branches);
+        
+        // Set default branch as selected for current repos
+        if (currentRepo.default_branch && branches.includes(currentRepo.default_branch)) {
+          setSelectedBranch(currentRepo.default_branch);
+        } else if (branches.length > 0) {
+          setSelectedBranch(branches[0]);
+        }
+      } catch (error) {
+        console.error("Failed to fetch branches:", error);
+      } finally {
+        setBranchesLoading(false);
+      }
+    } else {
+      // For GitHub repos, try to get the repo info to find default branch
+      const gitHubRepo = repositories.find(repo => repo.url === url);
+      if (gitHubRepo) {
+        setBranchesLoading(true);
+        try {
+          // For remote repos, we'll fetch branches using the repo name format
+          const repoName = `${gitHubRepo.owner.name}/${gitHubRepo.name ?? gitHubRepo.fullName?.split('/')[1] ?? ''}`;
+          const branches = await gitApi.fetchBranches(repoName);
+          setSelectedRepoBranches(branches);
+          
+          // Set default branch as selected (assume main/master if not specified)
+          const defaultBranch = branches.find(b => b === 'main') || branches.find(b => b === 'master') || branches[0];
+          if (defaultBranch) {
+            setSelectedBranch(defaultBranch);
+          }
+        } catch (error) {
+          console.error("Failed to fetch branches:", error);
+          // Set common default branches if fetch fails
+          const commonBranches = ['main', 'master'];
+          setSelectedRepoBranches(commonBranches);
+          setSelectedBranch('main');
+        } finally {
+          setBranchesLoading(false);
+        }
+      }
     }
   };
 
@@ -279,7 +346,7 @@ function GitPage() {
               <Label htmlFor="github-url">GitHub Repository URL</Label>
               <RepoSelector
                 value={githubUrl}
-                onValueChange={setGithubUrl}
+                onValueChange={handleRepoChange}
                 repositories={repositories}
                 currentRepositories={gitStatus.repositories ?? {}}
                 loading={reposLoading}
@@ -287,18 +354,75 @@ function GitPage() {
                 autoExpand={fromWorkspace}
               />
             </div>
-            <Button
-              onClick={() => void handleCheckout(githubUrl)}
-              disabled={!githubUrl || checkoutLoading}
-              className="mt-5.5"
-            >
-              {checkoutLoading ? (
-                <RefreshCw className="animate-spin" size={16} />
-              ) : (
-                "Checkout"
-              )}
-            </Button>
           </div>
+          
+          {/* Branch Selection */}
+          {githubUrl && (
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="branch-selector">Branch</Label>
+                <BranchSelector
+                  value={selectedBranch}
+                  onValueChange={setSelectedBranch}
+                  branches={selectedRepoBranches}
+                  currentBranch={(() => {
+                    const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
+                      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl
+                    );
+                    if (currentRepo?.id.startsWith("local/")) {
+                      // For local repos, get the current branch from worktrees
+                      const repoWorktrees = worktrees.filter(wt => wt.repo_id === currentRepo.id);
+                      return repoWorktrees.length > 0 ? repoWorktrees[0].source_branch : undefined;
+                    }
+                    return undefined;
+                  })()}
+                  defaultBranch={(() => {
+                    const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
+                      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl
+                    );
+                    return currentRepo?.default_branch;
+                  })()}
+                  loading={branchesLoading}
+                  disabled={!githubUrl || selectedRepoBranches.length === 0}
+                  placeholder="Select branch..."
+                  isLocalRepo={(() => {
+                    const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
+                      repo => (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl
+                    );
+                    return currentRepo?.id.startsWith("local/") ?? false;
+                  })()}
+                />
+              </div>
+              <Button
+                onClick={() => void handleCheckout(githubUrl, selectedBranch)}
+                disabled={!githubUrl || !selectedBranch || checkoutLoading}
+                className="mt-5.5"
+              >
+                {checkoutLoading ? (
+                  <RefreshCw className="animate-spin" size={16} />
+                ) : (
+                  "Checkout"
+                )}
+              </Button>
+            </div>
+          )}
+          
+          {/* Checkout button for when no repo is selected */}
+          {!githubUrl && (
+            <div className="flex justify-end">
+              <Button
+                onClick={() => void handleCheckout(githubUrl)}
+                disabled={!githubUrl || checkoutLoading}
+                className="mt-5.5"
+              >
+                {checkoutLoading ? (
+                  <RefreshCw className="animate-spin" size={16} />
+                ) : (
+                  "Checkout"
+                )}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
