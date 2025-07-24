@@ -195,27 +195,14 @@ func (lrm *LocalRepoManager) shouldForceUpdatePreviewBranch(repoPath, previewBra
 		return false, nil
 	}
 
-	// Branch exists, check if the last commit was made by us (preview commit)
+	// Branch exists - always force update preview branches since they should reflect latest worktree state
 	output, err := lrm.operations.ExecuteGit(repoPath, "log", "-1", "--pretty=format:%s", previewBranchName)
 	if err != nil {
 		return false, fmt.Errorf("failed to get last commit message: %v", err)
 	}
 
 	lastCommitMessage := strings.TrimSpace(string(output))
-
-	// Check if this looks like our preview commit
-	isOurPreviewCommit := strings.Contains(lastCommitMessage, "Preview:") ||
-		strings.Contains(lastCommitMessage, "Include all uncommitted changes") ||
-		strings.Contains(lastCommitMessage, "preview") // Case insensitive fallback
-
-	if isOurPreviewCommit {
-		log.Printf("🔍 Found existing preview branch %s with our commit: '%s'", previewBranchName, lastCommitMessage)
-		return true, nil
-	}
-
-	// The preview branch exists but doesn't appear to be our commit
-	// Let's still allow force update but warn about it
-	log.Printf("⚠️  Preview branch %s exists with non-preview commit: '%s' - will force update anyway", previewBranchName, lastCommitMessage)
+	log.Printf("🔄 Found existing preview branch %s with commit: '%s' - will force update", previewBranchName, lastCommitMessage)
 	return true, nil
 }
 

@@ -38,6 +38,7 @@ export function useGitActions(gitStateActions: GitStateActions) {
       conflictFiles?: string[];
       operation?: string;
     }) => void,
+    branch?: string,
   ) => {
     setCheckoutLoading(true);
     try {
@@ -52,7 +53,10 @@ export function useGitActions(gitStateActions: GitStateActions) {
       }
 
       const { org, repo } = parsedUrl;
-      const response = await fetch(`/v1/git/checkout/${org}/${repo}`, {
+      const checkoutUrl = branch
+        ? `/v1/git/checkout/${org}/${repo}?branch=${encodeURIComponent(branch)}`
+        : `/v1/git/checkout/${org}/${repo}`;
+      const response = await fetch(checkoutUrl, {
         method: "POST",
       });
 
