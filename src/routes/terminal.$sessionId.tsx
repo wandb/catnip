@@ -20,6 +20,8 @@ function TerminalPage() {
   const terminalReady = useRef(false);
   const bufferingRef = useRef(false);
   const isSetup = useRef(false);
+  const setupSessionClosed = useRef(false);
+  const lastConnectionAttempt = useRef(0);
   const fitAddon = useRef<FitAddon | null>(null);
   const webLinksAddon = useRef<WebLinksAddon | null>(null);
   const renderAddon = useRef<WebglAddon | null>(null);
@@ -86,6 +88,8 @@ function TerminalPage() {
     wsReady.current = false;
     terminalReady.current = false;
     bufferingRef.current = false;
+    setupSessionClosed.current = false;
+    lastConnectionAttempt.current = 0;
 
     // Close existing WebSocket if any
     if (wsRef.current) {
@@ -131,6 +135,22 @@ function TerminalPage() {
       return;
     }
 
+    // Don't reconnect if this is a setup session that has already closed
+    if (search.agent === "setup" && setupSessionClosed.current) {
+      console.log(
+        "[Terminal] Setup session already closed, skipping reconnection",
+      );
+      return;
+    }
+
+    // Rate limit reconnections to once per second maximum
+    const now = Date.now();
+    if (now - lastConnectionAttempt.current < 1000) {
+      console.log("[Terminal] Rate limiting connection attempt, too soon");
+      return;
+    }
+    lastConnectionAttempt.current = now;
+
     isSetup.current = true;
     instance.clear();
 
@@ -162,6 +182,12 @@ function TerminalPage() {
 
     ws.onclose = () => {
       setIsConnected(false);
+      // For setup sessions, prevent reconnection since they naturally exit
+      if (search.agent === "setup") {
+        console.log("[Terminal] Setup session closed, preventing reconnection");
+        setupSessionClosed.current = true;
+        return;
+      }
     };
 
     ws.onerror = (error) => {
@@ -197,7 +223,7 @@ function TerminalPage() {
           } else if (msg.type === "buffer-complete") {
             // Now fit to actual window size and send resize
             terminalReady.current = true;
-            
+
             // Ensure terminal is properly fitted after buffer is complete
             requestAnimationFrame(() => {
               if (fitAddon.current) {

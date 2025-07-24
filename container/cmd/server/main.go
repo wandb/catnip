@@ -26,7 +26,7 @@ func main() {
 	settings.Start()
 	defer settings.Stop()
 
-	// Initialize Git service
+	// Initialize Git service (but don't defer Stop() yet, as we need to set up dependencies first)
 	gitService := services.NewGitService()
 	defer gitService.Stop()
 
@@ -103,7 +103,9 @@ func main() {
 	ptyHandler := handlers.NewPTYHandler(gitService)
 
 	// Wire up the setup executor to enable setup.sh execution in new worktrees
+	log.Printf("🔧 Setting up setupExecutor for gitService")
 	gitService.SetSetupExecutor(ptyHandler)
+	log.Printf("✅ setupExecutor configured successfully")
 
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()

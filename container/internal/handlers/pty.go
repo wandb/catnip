@@ -46,6 +46,7 @@ type Session struct {
 	Cmd             *exec.Cmd
 	CreatedAt       time.Time
 	LastAccess      time.Time
+	LastRecreation  time.Time
 	WorkDir         string
 	Agent           string
 	Title           string
@@ -326,6 +327,21 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			if err != nil {
 				// Check for various exit conditions
 				if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
+					// For setup sessions, don't recreate - they're meant to exit after showing the log
+					if session.Agent == "setup" {
+						log.Printf("✅ Setup session completed normally, not recreating: %s", session.ID)
+						return
+					}
+
+					// Rate limit recreation to prevent CPU pegging
+					now := time.Now()
+					if now.Sub(session.LastRecreation) < time.Second {
+						log.Printf("⏸️ Rate limiting PTY recreation for session %s (last recreation: %v ago)", session.ID, now.Sub(session.LastRecreation))
+						time.Sleep(time.Second)
+						continue
+					}
+					session.LastRecreation = now
+
 					log.Printf("🔄 PTY closed (shell exited: %v), creating new session...", err)
 
 					// Create new PTY (this will clear the buffer)
@@ -632,13 +648,14 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Create command based on agent parameter
 	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID, useContinue, ports)
 
-	// Start PTY
-	ptmx, err := pty.Start(cmd)
+	var ptmx *os.File
+
+	// Start PTY for all session types including setup
+	ptmx, err = pty.Start(cmd)
 	if err != nil {
 		log.Printf("❌ Failed to start PTY: %v", err)
 		return nil
 	}
-
 	// Set initial size
 	_ = h.resizePTY(ptmx, 80, 24)
 
@@ -668,15 +685,6 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 
 	h.sessions[sessionID] = session
 	log.Printf("✅ Created new PTY session: %s in %s", sessionID, workDir)
-
-	// For setup agent sessions, check if there's existing buffered output from PTY service
-	if agent == "setup" {
-		if buffer, exists := h.ptyService.GetSetupSessionBuffer(sessionID); exists && len(buffer) > 0 {
-			// Pre-populate the output buffer with existing setup output
-			session.outputBuffer = append(session.outputBuffer, buffer...)
-			log.Printf("📋 Pre-populated setup session %s buffer with %d bytes from PTY service", sessionID, len(buffer))
-		}
-	}
 
 	// Track active session for this workspace
 	if agent == "claude" {
@@ -825,18 +833,15 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		// Add port environment variables
 		cmd.Env = append(cmd.Env, portEnvVars...)
 	case "setup":
-		// Setup shell for script execution and viewing output
-		cmd = exec.Command("bash", "--login")
+		// For setup sessions, run bash that cats the setup log file
+		setupLogPath := filepath.Join(workDir, ".catnip", "logs", "setup.log")
+		cmd = exec.Command("bash", "-c", fmt.Sprintf("cat '%s' 2>/dev/null || echo 'Setup log not found or setup not yet completed.'", setupLogPath))
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
-			"HOME=/home/catnip",
-			"USER=catnip",
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
-		// Add port environment variables
-		cmd.Env = append(cmd.Env, portEnvVars...)
-		log.Printf("🔧 Starting setup shell for session: %s", sessionID)
+		log.Printf("🔧 Setup session - will cat setup log file: %s", setupLogPath)
 	default:
 		// Default bash shell
 		cmd = exec.Command("bash", "--login")
@@ -851,7 +856,9 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		cmd.Env = append(cmd.Env, portEnvVars...)
 		log.Printf("🐚 Starting bash shell for session: %s", sessionID)
 	}
-	cmd.Dir = workDir
+	if cmd != nil {
+		cmd.Dir = workDir
+	}
 	return cmd
 }
 

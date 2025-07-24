@@ -244,14 +244,11 @@ func (w *WorktreeManager) detectWorktreeActualState(worktreePath string) (actual
 // UpdateWorktreeStatus updates the status of a worktree with dynamic state detection
 // Note: Fetching should be handled at the service layer before calling this method
 func (w *WorktreeManager) UpdateWorktreeStatus(worktree *models.Worktree, getSourceRef func(*models.Worktree) string) {
-	log.Printf("🔍 UpdateWorktreeStatus called for worktree %s", worktree.Name)
-
 	// Update basic status
 	worktree.IsDirty = w.operations.IsDirty(worktree.Path)
 	worktree.HasConflicts = w.operations.HasConflicts(worktree.Path)
 
 	// Detect actual worktree state (branch/ref only - source branch is business logic)
-	log.Printf("🔍 Starting dynamic state detection for %s", worktree.Name)
 	actualBranch, err := w.detectWorktreeActualState(worktree.Path)
 	if err != nil {
 		log.Printf("⚠️ Failed to detect actual worktree state for %s: %v", worktree.Name, err)

@@ -905,6 +905,20 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 		_ = s.updateCurrentSymlink(worktree.Path)
 	}
 
+	// Execute setup.sh if it exists in the newly created worktree
+	if s.setupExecutor != nil {
+		log.Printf("🚀 Scheduling setup.sh execution for local worktree: %s", worktree.Path)
+		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
+		go func() {
+			// Wait a moment to ensure the worktree is fully ready
+			time.Sleep(2 * time.Second)
+			log.Printf("⏰ Starting setup.sh execution for local worktree: %s", worktree.Path)
+			s.setupExecutor.ExecuteSetupScript(worktree.Path)
+		}()
+	} else {
+		log.Printf("⚠️ No setup executor configured, skipping setup.sh execution for local worktree: %s", worktree.Path)
+	}
+
 	return worktree, nil
 }
 
@@ -1707,12 +1721,16 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 
 	// Execute setup.sh if it exists in the newly created worktree
 	if s.setupExecutor != nil {
+		log.Printf("🚀 Scheduling setup.sh execution for worktree: %s", worktree.Path)
 		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
 		go func() {
 			// Wait a moment to ensure the worktree is fully ready
 			time.Sleep(2 * time.Second)
+			log.Printf("⏰ Starting setup.sh execution for worktree: %s", worktree.Path)
 			s.setupExecutor.ExecuteSetupScript(worktree.Path)
 		}()
+	} else {
+		log.Printf("⚠️ No setup executor configured, skipping setup.sh execution for worktree: %s", worktree.Path)
 	}
 
 	return worktree, nil
