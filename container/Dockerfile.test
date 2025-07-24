@@ -1,0 +1,52 @@
+# Test Dockerfile - builds on the main Dockerfile but adds mock scripts for testing
+FROM catnip:latest
+
+# Switch to root for setup
+USER root
+
+# Install additional test dependencies
+RUN apt-get update && apt-get install -y \
+    socat \
+    expect \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create test-specific directories
+RUN mkdir -p /opt/catnip/test/mocks /opt/catnip/test/bin /opt/catnip/test/data
+
+# Copy container source code for tests
+COPY container/ /opt/catnip/test/src/
+
+# Copy mock scripts and data (but not integration tests - we'll mount those)
+COPY container/test/mocks/ /opt/catnip/test/mocks/
+COPY container/test/data/ /opt/catnip/test/data/
+
+# Make mock scripts executable and create symlinks in PATH
+RUN chmod +x /opt/catnip/test/mocks/* && \
+    # Create a test-specific PATH that prioritizes our mocks
+    mkdir -p /opt/catnip/test/bin && \
+    ln -sf /opt/catnip/test/mocks/claude /opt/catnip/test/bin/claude && \
+    ln -sf /opt/catnip/test/mocks/gh /opt/catnip/test/bin/gh && \
+    ln -sf /opt/catnip/test/mocks/git /opt/catnip/test/bin/git
+
+# Copy go.mod and go.sum, then install dependencies
+COPY container/go.mod container/go.sum /opt/catnip/test/src/
+RUN bash --login -c "cd /opt/catnip/test/src && go mod download"
+
+# Set proper ownership for catnip user
+RUN chown -R catnip:catnip /opt/catnip/test
+
+# Set up test environment variables
+ENV CATNIP_TEST_MODE=1
+ENV PATH="/opt/catnip/test/bin:${PATH}"
+ENV CATNIP_TEST_DATA_DIR="/opt/catnip/test/data"
+
+# Create a test entrypoint that doesn't switch users
+COPY container/test/test-entrypoint.sh /test-entrypoint.sh
+RUN chmod +x /test-entrypoint.sh
+
+# Set working directory for tests
+WORKDIR /workspace
+
+# Use test entrypoint instead of the main one
+ENTRYPOINT ["/test-entrypoint.sh"]
+CMD ["bash"]

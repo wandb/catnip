@@ -20,6 +20,14 @@ func NewClaudeHandler(claudeService *services.ClaudeService) *ClaudeHandler {
 	}
 }
 
+// RegisterRoutes registers all claude-related routes
+func (h *ClaudeHandler) RegisterRoutes(v1 fiber.Router) {
+	v1.Get("/claude/session", h.GetWorktreeSessionSummary)
+	v1.Get("/claude/session/:uuid", h.GetSessionByUUID)
+	v1.Get("/claude/sessions", h.GetAllWorktreeSessionSummaries)
+	v1.Post("/claude/messages", h.CreateCompletion)
+}
+
 // GetWorktreeSessionSummary returns Claude session information for a specific worktree
 // @Summary Get worktree session summary
 // @Description Returns Claude Code session metadata for a specific worktree
