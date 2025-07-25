@@ -1,0 +1,346 @@
+#!/bin/bash
+
+# Mock Claude CLI for integration testing
+# This script simulates the behavior of the claude CLI tool including PTY interactions
+
+# Set up logging for debugging
+MOCK_LOG="/tmp/claude-mock.log"
+exec 2>> "$MOCK_LOG"
+echo "$(date): Mock Claude called with args: $*" >> "$MOCK_LOG"
+
+# Environment variables for testing
+CATNIP_TEST_DATA_DIR="${CATNIP_TEST_DATA_DIR:-/opt/catnip/test/data}"
+CLAUDE_SESSION_FILE="${CATNIP_TEST_DATA_DIR}/claude_session.json"
+
+# Default responses directory
+RESPONSES_DIR="${CATNIP_TEST_DATA_DIR}/claude_responses"
+
+# Parse command line arguments
+OUTPUT_FORMAT="text"
+INPUT_FORMAT="text"
+SYSTEM_PROMPT=""
+MODEL=""
+MAX_TURNS=""
+CONTINUE_SESSION=false
+DANGEROUS_SKIP=false
+RESUME_SESSION=false
+PROMPT_ARG=""
+VERBOSE=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --output-format=*)
+            OUTPUT_FORMAT="${1#*=}"
+            shift
+            ;;
+        --input-format=*)
+            INPUT_FORMAT="${1#*=}"
+            shift
+            ;;
+        --system-prompt)
+            SYSTEM_PROMPT="$2"
+            shift 2
+            ;;
+        --model)
+            MODEL="$2"
+            shift 2
+            ;;
+        --max-turns)
+            MAX_TURNS="$2"
+            shift 2
+            ;;
+        --continue)
+            CONTINUE_SESSION=true
+            shift
+            ;;
+        --resume)
+            RESUME_SESSION=true
+            shift
+            ;;
+        --dangerously-skip-permissions)
+            DANGEROUS_SKIP=true
+            shift
+            ;;
+        --verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -p)
+            PROMPT_ARG=true
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+echo "Parsed args - Format: $OUTPUT_FORMAT, Continue: $CONTINUE_SESSION, Resume: $RESUME_SESSION, Skip: $DANGEROUS_SKIP" >> "$MOCK_LOG"
+
+# Function to generate session UUID
+generate_session_uuid() {
+    cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "mock-session-$(date +%s)"
+}
+
+# Function to get or create session
+get_session_uuid() {
+    if [[ -f "$CLAUDE_SESSION_FILE" ]]; then
+        jq -r '.session_id // empty' "$CLAUDE_SESSION_FILE" 2>/dev/null || generate_session_uuid
+    else
+        generate_session_uuid
+    fi
+}
+
+# Function to save session state
+save_session_state() {
+    local session_id="$1"
+    local title="$2"
+    mkdir -p "$(dirname "$CLAUDE_SESSION_FILE")"
+    jq -n --arg id "$session_id" --arg title "$title" --arg pwd "$PWD" \
+        '{session_id: $id, title: $title, working_directory: $pwd, last_updated: now}' \
+        > "$CLAUDE_SESSION_FILE"
+}
+
+# Function to send PTY title escape sequence
+send_title_escape() {
+    local title="$1"
+    printf "\033]0;%s\007" "$title"
+}
+
+# Function to simulate file operations
+simulate_file_operations() {
+    local action="$1"
+    local filename="$2"
+    local content="$3"
+    
+    case "$action" in
+        "addFile"|"create")
+            echo "$content" > "$filename"
+            echo "Created file: $filename" >> "$MOCK_LOG"
+            ;;
+        "updateFile"|"edit")
+            if [[ -f "$filename" ]]; then
+                echo "$content" >> "$filename"
+                echo "Updated file: $filename" >> "$MOCK_LOG"
+            else
+                echo "$content" > "$filename"
+                echo "Created new file during update: $filename" >> "$MOCK_LOG"
+            fi
+            ;;
+        "read")
+            if [[ -f "$filename" ]]; then
+                cat "$filename"
+            else
+                echo "File not found: $filename"
+            fi
+            ;;
+    esac
+}
+
+# Function to handle test commands from PTY input
+handle_test_command() {
+    local input="$1"
+    
+    # Check for test commands that trigger file operations
+    case "$input" in
+        "addFile:"*)
+            local file_spec="${input#addFile:}"
+            local filename="${file_spec%%:*}"
+            local content="${file_spec#*:}"
+            if [[ -z "$content" ]]; then
+                content="This is a test file created by mock Claude"
+            fi
+            simulate_file_operations "addFile" "$filename" "$content"
+            echo "✅ Created file: $filename"
+            ;;
+        "updateFile:"*)
+            local file_spec="${input#updateFile:}"
+            local filename="${file_spec%%:*}"
+            local content="${file_spec#*:}"
+            if [[ -z "$content" ]]; then
+                content="Additional line added by mock Claude"
+            fi
+            simulate_file_operations "updateFile" "$filename" "$content"
+            echo "✅ Updated file: $filename"
+            ;;
+        "setTitle:"*)
+            local new_title="${input#setTitle:}"
+            send_title_escape "$new_title"
+            echo "🪧 Set terminal title to: $new_title"
+            save_session_state "$(get_session_uuid)" "$new_title"
+            ;;
+        *)
+            return 1  # Not a test command
+            ;;
+    esac
+    return 0
+}
+
+# Function to process JSON input from stdin
+process_json_input() {
+    local input_line
+    local message_content=""
+    
+    while IFS= read -r input_line; do
+        echo "Processing input: $input_line" >> "$MOCK_LOG"
+        
+        # Extract message content from JSON
+        if command -v jq >/dev/null 2>&1; then
+            message_content=$(echo "$input_line" | jq -r '.message.content // empty' 2>/dev/null)
+            if [[ -z "$message_content" ]]; then
+                message_content=$(echo "$input_line" | jq -r '.content // empty' 2>/dev/null)
+            fi
+        else
+            # Fallback without jq
+            message_content=$(echo "$input_line" | sed -n 's/.*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        fi
+        
+        if [[ -n "$message_content" ]]; then
+            break
+        fi
+    done
+    
+    echo "$message_content"
+}
+
+# Function to get response based on prompt
+get_response_for_prompt() {
+    local prompt="$1"
+    local response_file=""
+    local default_response="I understand. I'm Claude, your AI assistant, ready to help with your coding tasks."
+    
+    # Check for specific prompt patterns and return appropriate responses
+    case "$prompt" in
+        *"create"*"file"*)
+            response_file="$RESPONSES_DIR/create_file.json"
+            default_response="I'll create that file for you."
+            ;;
+        *"edit"*"function"*)
+            response_file="$RESPONSES_DIR/edit_function.json"
+            default_response="I'll edit that function for you."
+            ;;
+        *"test"*"integration"*)
+            response_file="$RESPONSES_DIR/integration_test.json"
+            default_response="I'll help you with integration testing."
+            ;;
+        *"commit"*"changes"*)
+            response_file="$RESPONSES_DIR/commit_changes.json"
+            default_response="I'll help commit these changes."
+            ;;
+        *)
+            response_file="$RESPONSES_DIR/default.json"
+            ;;
+    esac
+    
+    # Try to read response from file, fallback to default
+    if [[ -f "$response_file" ]]; then
+        cat "$response_file"
+    elif [[ -f "$RESPONSES_DIR/default.json" ]]; then
+        cat "$RESPONSES_DIR/default.json"
+    else
+        echo "$default_response"
+    fi
+}
+
+# Main execution logic
+main() {
+    local session_id
+    local title="Claude Session"
+    
+    # Handle different modes
+    if [[ "$DANGEROUS_SKIP" == "true" ]]; then
+        # PTY interactive mode
+        echo "Starting Claude PTY session..." >> "$MOCK_LOG"
+        
+        session_id=$(get_session_uuid)
+        
+        if [[ "$CONTINUE_SESSION" == "true" || "$RESUME_SESSION" == "true" ]]; then
+            title="Claude Session (resumed)"
+        else
+            title="Claude Session"
+        fi
+        
+        # Save session state
+        save_session_state "$session_id" "$title"
+        
+        # Wait a bit to ensure PTY read goroutine is set up
+        sleep 1
+        
+        # Send initial title escape sequence for PTY
+        send_title_escape "$title"
+        
+        # Small delay to ensure title sequence is processed
+        sleep 0.1
+        
+        # Simulate interactive Claude session
+        echo "Welcome to Claude! I'm ready to help with your coding tasks."
+        echo "Type your questions or commands, and I'll assist you."
+        echo ""
+        echo "Test commands available:"
+        echo "  addFile:filename.txt:content - Create a new file"
+        echo "  updateFile:filename.txt:content - Add content to existing file"  
+        echo "  setTitle:New Title - Change terminal title"
+        echo ""
+        
+        # Interactive loop simulation
+        while true; do
+            read -p "> " user_input
+            if [[ "$user_input" == "exit" || "$user_input" == "quit" ]]; then
+                break
+            fi
+            
+            # Check for test commands first
+            if handle_test_command "$user_input"; then
+                # Test command was handled
+                echo ""
+                continue
+            fi
+            
+            # Simulate processing and response for regular prompts
+            response=$(get_response_for_prompt "$user_input")
+            echo "$response"
+            echo ""
+        done
+        
+    elif [[ "$OUTPUT_FORMAT" == "stream-json" ]]; then
+        # API mode with streaming JSON
+        echo "API mode with streaming JSON" >> "$MOCK_LOG"
+        
+        session_id=$(get_session_uuid)
+        
+        # Process input from stdin
+        prompt=$(process_json_input)
+        echo "Received prompt: $prompt" >> "$MOCK_LOG"
+        
+        # Get response
+        response_text=$(get_response_for_prompt "$prompt")
+        
+        # Output in stream-json format
+        cat << EOF
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "$response_text"}]}}
+EOF
+        
+        # Save session state
+        save_session_state "$session_id" "API Session"
+        
+    else
+        # Simple text mode
+        echo "Simple text mode" >> "$MOCK_LOG"
+        
+        # Read from stdin if available
+        if [[ ! -t 0 ]]; then
+            prompt=$(cat)
+        else
+            prompt="Hello"
+        fi
+        
+        response=$(get_response_for_prompt "$prompt")
+        echo "$response"
+    fi
+}
+
+# Handle signals for cleanup
+trap 'echo "Claude mock session ended" >> "$MOCK_LOG"; exit 0' SIGTERM SIGINT
+
+# Run main function
+main "$@"

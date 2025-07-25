@@ -127,29 +127,9 @@ func main() {
 	// Upload routes
 	v1.Post("/upload", uploadHandler.UploadFile)
 
-	// Git routes
-	v1.Post("/git/checkout/:org/:repo", gitHandler.CheckoutRepository)
-	v1.Get("/git/status", gitHandler.GetStatus)
-	v1.Get("/git/worktrees", gitHandler.ListWorktrees)
-	v1.Delete("/git/worktrees/:id", gitHandler.DeleteWorktree)
-	v1.Post("/git/worktrees/cleanup", gitHandler.CleanupMergedWorktrees)
-	v1.Post("/git/worktrees/:id/sync", gitHandler.SyncWorktree)
-	v1.Get("/git/worktrees/:id/sync/check", gitHandler.CheckSyncConflicts)
-	v1.Post("/git/worktrees/:id/merge", gitHandler.MergeWorktreeToMain)
-	v1.Get("/git/worktrees/:id/merge/check", gitHandler.CheckMergeConflicts)
-	v1.Get("/git/worktrees/:id/diff", gitHandler.GetWorktreeDiff)
-	v1.Post("/git/worktrees/:id/preview", gitHandler.CreateWorktreePreview)
-	v1.Post("/git/worktrees/:id/pr", gitHandler.CreatePullRequest)
-	v1.Put("/git/worktrees/:id/pr", gitHandler.UpdatePullRequest)
-	v1.Get("/git/worktrees/:id/pr", gitHandler.GetPullRequestInfo)
-	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
-	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
-
-	// Claude routes
-	v1.Get("/claude/session", claudeHandler.GetWorktreeSessionSummary)
-	v1.Get("/claude/session/:uuid", claudeHandler.GetSessionByUUID)
-	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
-	v1.Post("/claude/messages", claudeHandler.CreateCompletion)
+	// Register handler routes
+	gitHandler.RegisterRoutes(v1)
+	claudeHandler.RegisterRoutes(v1)
 
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)

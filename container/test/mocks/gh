@@ -1,0 +1,417 @@
+#!/bin/bash
+
+# Mock GitHub CLI for integration testing
+# This script simulates the behavior of the gh CLI tool
+
+# Set up logging for debugging
+MOCK_LOG="/tmp/gh-mock.log"
+exec 2>> "$MOCK_LOG"
+echo "$(date): Mock GH called with args: $*" >> "$MOCK_LOG"
+
+# Environment variables for testing
+CATNIP_TEST_DATA_DIR="${CATNIP_TEST_DATA_DIR:-/opt/catnip/test/data}"
+GH_TEST_DATA_DIR="${CATNIP_TEST_DATA_DIR}/gh_data"
+GH_AUTH_FILE="${GH_TEST_DATA_DIR}/auth_status.json"
+GH_REPOS_FILE="${GH_TEST_DATA_DIR}/repos.json"
+GH_PRS_DIR="${GH_TEST_DATA_DIR}/prs"
+
+# Ensure data directories exist
+mkdir -p "$GH_TEST_DATA_DIR" "$GH_PRS_DIR"
+
+# Default test data
+init_test_data() {
+    # Create default auth status if not exists
+    if [[ ! -f "$GH_AUTH_FILE" ]]; then
+        cat > "$GH_AUTH_FILE" << 'EOF'
+{
+  "authenticated": true,
+  "user": "testuser",
+  "token": "ghs_test_token"
+}
+EOF
+    fi
+    
+    # Create default repositories if not exists
+    if [[ ! -f "$GH_REPOS_FILE" ]]; then
+        cat > "$GH_REPOS_FILE" << 'EOF'
+[
+  {
+    "name": "test-repo",
+    "url": "https://github.com/testorg/test-repo",
+    "isPrivate": false,
+    "description": "Test repository for integration tests",
+    "owner": {
+      "login": "testorg"
+    }
+  },
+  {
+    "name": "catnip",
+    "url": "https://github.com/wandb/catnip",
+    "isPrivate": false,
+    "description": "Agentic coding environment",
+    "owner": {
+      "login": "wandb"
+    }
+  }
+]
+EOF
+    fi
+}
+
+# Function to generate PR number
+generate_pr_number() {
+    local repo="$1"
+    local branch="$2"
+    # Create a deterministic PR number based on repo and branch
+    echo "$repo:$branch" | cksum | cut -d' ' -f1
+}
+
+# Function to create PR data file
+create_pr_data() {
+    local repo="$1"
+    local branch="$2"
+    local title="$3"
+    local body="$4"
+    local base_branch="${5:-main}"
+    local pr_number
+    
+    pr_number=$(generate_pr_number "$repo" "$branch")
+    local pr_file="${GH_PRS_DIR}/${repo//\//_}_${branch}.json"
+    
+    cat > "$pr_file" << EOF
+{
+  "number": $pr_number,
+  "url": "https://github.com/$repo/pull/$pr_number",
+  "title": "$title",
+  "body": "$body",
+  "head_branch": "$branch",
+  "base_branch": "$base_branch",
+  "state": "open",
+  "created_at": "$(date -Iseconds)"
+}
+EOF
+    
+    echo "$pr_file"
+}
+
+# Function to get PR data file path
+get_pr_data_file() {
+    local repo="$1"
+    local branch="$2"
+    echo "${GH_PRS_DIR}/${repo//\//_}_${branch}.json"
+}
+
+# Parse command arguments
+cmd_pr() {
+    local subcommand="$1"
+    shift
+    
+    case "$subcommand" in
+        "create")
+            cmd_pr_create "$@"
+            ;;
+        "edit")
+            cmd_pr_edit "$@"
+            ;;
+        "view")
+            cmd_pr_view "$@"
+            ;;
+        *)
+            echo "Unknown pr subcommand: $subcommand" >&2
+            exit 1
+            ;;
+    esac
+}
+
+cmd_pr_create() {
+    local repo=""
+    local base=""
+    local head=""
+    local title=""
+    local body=""
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --repo)
+                repo="$2"
+                shift 2
+                ;;
+            --base)
+                base="$2"
+                shift 2
+                ;;
+            --head)
+                head="$2"
+                shift 2
+                ;;
+            --title)
+                title="$2"
+                shift 2
+                ;;
+            --body)
+                body="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    echo "Creating PR: repo=$repo, base=$base, head=$head, title=$title" >> "$MOCK_LOG"
+    
+    # Create PR data
+    pr_file=$(create_pr_data "$repo" "$head" "$title" "$body" "$base")
+    pr_number=$(jq -r '.number' "$pr_file")
+    pr_url=$(jq -r '.url' "$pr_file")
+    
+    # Output success message (similar to real gh pr create)
+    echo "$pr_url"
+    
+    return 0
+}
+
+cmd_pr_edit() {
+    local branch="$1"
+    shift
+    local repo=""
+    local title=""
+    local body=""
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --repo)
+                repo="$2"
+                shift 2
+                ;;
+            --title)
+                title="$2"
+                shift 2
+                ;;
+            --body)
+                body="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    echo "Editing PR: branch=$branch, repo=$repo, title=$title" >> "$MOCK_LOG"
+    
+    local pr_file
+    pr_file=$(get_pr_data_file "$repo" "$branch")
+    
+    if [[ -f "$pr_file" ]]; then
+        # Update existing PR
+        jq --arg title "$title" --arg body "$body" \
+           '.title = $title | .body = $body | .updated_at = now | .updated_at |= todate' \
+           "$pr_file" > "${pr_file}.tmp" && mv "${pr_file}.tmp" "$pr_file"
+        
+        pr_url=$(jq -r '.url' "$pr_file")
+        echo "$pr_url"
+    else
+        echo "Error: Pull request not found for branch $branch in repo $repo" >&2
+        exit 1
+    fi
+    
+    return 0
+}
+
+cmd_pr_view() {
+    local branch="$1"
+    shift
+    local repo=""
+    local json_fields=""
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --repo)
+                repo="$2"
+                shift 2
+                ;;
+            --json)
+                json_fields="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    echo "Viewing PR: branch=$branch, repo=$repo, json=$json_fields" >> "$MOCK_LOG"
+    
+    local pr_file
+    pr_file=$(get_pr_data_file "$repo" "$branch")
+    
+    if [[ -f "$pr_file" ]]; then
+        if [[ -n "$json_fields" ]]; then
+            # Extract specific JSON fields
+            case "$json_fields" in
+                "url")
+                    jq -r '{url: .url}' "$pr_file"
+                    ;;
+                "number,url,title,body")
+                    jq -r '{number: .number, url: .url, title: .title, body: .body}' "$pr_file"
+                    ;;
+                *)
+                    jq -r "." "$pr_file"
+                    ;;
+            esac
+        else
+            # Return full PR info in human-readable format
+            cat "$pr_file"
+        fi
+    else
+        echo "Error: Pull request not found for branch $branch in repo $repo" >&2
+        exit 1
+    fi
+    
+    return 0
+}
+
+cmd_auth() {
+    local subcommand="$1"
+    shift
+    
+    case "$subcommand" in
+        "status")
+            cmd_auth_status "$@"
+            ;;
+        "git-credential")
+            cmd_auth_git_credential "$@"
+            ;;
+        *)
+            echo "Unknown auth subcommand: $subcommand" >&2
+            exit 1
+            ;;
+    esac
+}
+
+cmd_auth_status() {
+    echo "Auth status check" >> "$MOCK_LOG"
+    
+    if [[ -f "$GH_AUTH_FILE" ]]; then
+        local authenticated
+        authenticated=$(jq -r '.authenticated' "$GH_AUTH_FILE")
+        
+        if [[ "$authenticated" == "true" ]]; then
+            local user
+            user=$(jq -r '.user' "$GH_AUTH_FILE")
+            echo "Logged in to github.com as $user"
+            return 0
+        else
+            echo "You are not logged into any GitHub hosts. Run gh auth login to authenticate."
+            return 1
+        fi
+    else
+        echo "You are not logged into any GitHub hosts. Run gh auth login to authenticate."
+        return 1
+    fi
+}
+
+cmd_auth_git_credential() {
+    echo "Git credential helper called" >> "$MOCK_LOG"
+    
+    # Read the git credential protocol input
+    local input
+    input=$(cat)
+    echo "Git credential input: $input" >> "$MOCK_LOG"
+    
+    # Parse the input for host
+    if echo "$input" | grep -q "host=github.com"; then
+        if [[ -f "$GH_AUTH_FILE" ]]; then
+            local token
+            local user
+            token=$(jq -r '.token' "$GH_AUTH_FILE")
+            user=$(jq -r '.user' "$GH_AUTH_FILE")
+            
+            echo "username=$user"
+            echo "password=$token"
+        fi
+    fi
+    
+    return 0
+}
+
+cmd_repo() {
+    local subcommand="$1"
+    shift
+    
+    case "$subcommand" in
+        "list")
+            cmd_repo_list "$@"
+            ;;
+        *)
+            echo "Unknown repo subcommand: $subcommand" >&2
+            exit 1
+            ;;
+    esac
+}
+
+cmd_repo_list() {
+    local limit="100"
+    local json_fields=""
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --limit)
+                limit="$2"
+                shift 2
+                ;;
+            --json)
+                json_fields="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+    
+    echo "Listing repos: limit=$limit, json=$json_fields" >> "$MOCK_LOG"
+    
+    if [[ -f "$GH_REPOS_FILE" ]]; then
+        if [[ -n "$json_fields" ]]; then
+            # Return specific fields only
+            jq -r ".[0:$limit]" "$GH_REPOS_FILE"
+        else
+            # Return all data
+            jq -r ".[0:$limit]" "$GH_REPOS_FILE"
+        fi
+    else
+        echo "[]"
+    fi
+    
+    return 0
+}
+
+# Main command dispatcher
+main() {
+    init_test_data
+    
+    local command="$1"
+    shift
+    
+    case "$command" in
+        "pr")
+            cmd_pr "$@"
+            ;;
+        "auth")
+            cmd_auth "$@"
+            ;;
+        "repo")
+            cmd_repo "$@"
+            ;;
+        *)
+            echo "Unknown command: $command" >&2
+            echo "Available commands: pr, auth, repo" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"

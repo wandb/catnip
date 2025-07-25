@@ -1,0 +1,194 @@
+#!/bin/bash
+
+# Mock Git wrapper for integration testing
+# This wrapper uses real git for most operations but intercepts network operations
+# like push/pull to remote origins to prevent external network calls during testing
+
+# Set up logging for debugging
+MOCK_LOG="/tmp/git-mock.log"
+exec 2>> "$MOCK_LOG"
+echo "$(date): Mock Git called with args: $*" >> "$MOCK_LOG"
+
+# Environment variables for testing
+CATNIP_TEST_DATA_DIR="${CATNIP_TEST_DATA_DIR:-/opt/catnip/test/data}"
+GIT_TEST_DATA_DIR="${CATNIP_TEST_DATA_DIR}/git_data"
+
+# Ensure data directories exist
+mkdir -p "$GIT_TEST_DATA_DIR"
+
+# Function to check if this is a network operation that should be mocked
+is_network_operation() {
+    local cmd="$1"
+    local args="$2"
+    
+    case "$cmd" in
+        "push")
+            # Only mock pushes to remote origins, allow local pushes
+            if [[ "$args" =~ origin|upstream|github\.com|git@github\.com ]]; then
+                return 0  # Mock this
+            fi
+            return 1  # Use real git
+            ;;
+        "pull"|"fetch")
+            # Only mock pulls/fetches from remote origins
+            if [[ "$args" =~ origin|upstream|github\.com|git@github\.com ]] || [[ -z "$args" ]]; then
+                return 0  # Mock this
+            fi
+            return 1  # Use real git
+            ;;
+        "clone")
+            # Always mock clone operations since they hit external networks
+            return 0
+            ;;
+        *)
+            return 1  # Use real git for everything else
+            ;;
+    esac
+}
+
+# Function to simulate git push
+mock_git_push() {
+    local args=("$@")
+    echo "Mocking git push with args: ${args[*]}" >> "$MOCK_LOG"
+    
+    # Simulate successful push
+    echo "To mock-remote"
+    echo "   $(git rev-parse HEAD)..$(git rev-parse HEAD)  $(git branch --show-current) -> $(git branch --show-current)"
+    echo ""
+    
+    # Log the push attempt
+    local branch
+    branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+    local commit
+    commit=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+    
+    echo "$(date): Pushed branch '$branch' commit '$commit' to remote (mocked)" >> "$GIT_TEST_DATA_DIR/push_log.txt"
+    
+    return 0
+}
+
+# Function to simulate git pull
+mock_git_pull() {
+    local args=("$@")
+    echo "Mocking git pull with args: ${args[*]}" >> "$MOCK_LOG"
+    
+    # Simulate successful pull with no changes
+    echo "Already up to date."
+    
+    # Log the pull attempt
+    local branch
+    branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+    
+    echo "$(date): Pulled branch '$branch' from remote (mocked)" >> "$GIT_TEST_DATA_DIR/pull_log.txt"
+    
+    return 0
+}
+
+# Function to simulate git fetch
+mock_git_fetch() {
+    local args=("$@")
+    echo "Mocking git fetch with args: ${args[*]}" >> "$MOCK_LOG"
+    
+    # Simulate successful fetch (usually silent)
+    # Only output if verbose or if it's a specific fetch
+    if [[ "${args[*]}" =~ -v|--verbose ]]; then
+        echo "From mock-remote"
+        echo " * [up to date]      main       -> origin/main"
+    fi
+    
+    # Log the fetch attempt
+    echo "$(date): Fetched from remote (mocked)" >> "$GIT_TEST_DATA_DIR/fetch_log.txt"
+    
+    return 0
+}
+
+# Function to simulate git clone
+mock_git_clone() {
+    local args=("$@")
+    echo "Mocking git clone with args: ${args[*]}" >> "$MOCK_LOG"
+    
+    # Parse clone arguments to get repository URL and destination
+    local repo_url=""
+    local dest_dir=""
+    local clone_args=()
+    
+    for arg in "${args[@]}"; do
+        if [[ "$arg" =~ ^https?://|^git@|^ssh:// ]]; then
+            repo_url="$arg"
+        elif [[ "$arg" != -* ]] && [[ -n "$repo_url" ]] && [[ -z "$dest_dir" ]]; then
+            dest_dir="$arg"
+        else
+            clone_args+=("$arg")
+        fi
+    done
+    
+    # Extract repo name from URL if no destination specified
+    if [[ -z "$dest_dir" ]]; then
+        dest_dir=$(basename "$repo_url" .git)
+    fi
+    
+    echo "Cloning '$repo_url' into '$dest_dir' (mocked)"
+    
+    # Create a basic git repository structure
+    mkdir -p "$dest_dir"
+    cd "$dest_dir" || exit 1
+    
+    # Initialize a real git repository
+    git init -q
+    git config user.name "Test User"
+    git config user.email "test@example.com"
+    
+    # Create initial commit
+    echo "# Test Repository" > README.md
+    echo "This is a test repository created by the git mock for integration testing." >> README.md
+    git add README.md
+    git commit -q -m "Initial commit"
+    
+    # Set up remote (but don't actually connect)
+    git remote add origin "$repo_url"
+    
+    echo "Cloned successfully (mocked)"
+    
+    # Log the clone attempt
+    echo "$(date): Cloned '$repo_url' to '$dest_dir' (mocked)" >> "$GIT_TEST_DATA_DIR/clone_log.txt"
+    
+    return 0
+}
+
+# Main function
+main() {
+    local cmd="$1"
+    shift
+    local args="$*"
+    
+    # Check if this is a network operation that should be mocked
+    if is_network_operation "$cmd" "$args"; then
+        echo "Intercepting network operation: git $cmd $args" >> "$MOCK_LOG"
+        
+        case "$cmd" in
+            "push")
+                mock_git_push "$@"
+                ;;
+            "pull")
+                mock_git_pull "$@"
+                ;;
+            "fetch")
+                mock_git_fetch "$@"
+                ;;
+            "clone")
+                mock_git_clone "$@"
+                ;;
+            *)
+                echo "Unknown network operation: $cmd" >&2
+                exit 1
+                ;;
+        esac
+    else
+        # Use real git for local operations
+        echo "Passing through to real git: git $cmd $args" >> "$MOCK_LOG"
+        exec /usr/bin/git "$cmd" "$@"
+    fi
+}
+
+# Run main function
+main "$@"

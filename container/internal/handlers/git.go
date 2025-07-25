@@ -97,6 +97,33 @@ func NewGitHandler(gitService *services.GitService, gitHTTPService *services.Git
 	}
 }
 
+// RegisterRoutes registers all git-related routes
+func (h *GitHandler) RegisterRoutes(v1 fiber.Router) {
+	// Repository operations
+	v1.Post("/git/checkout/:org/:repo", h.CheckoutRepository)
+	v1.Get("/git/status", h.GetStatus)
+
+	// Worktree operations
+	v1.Get("/git/worktrees", h.ListWorktrees)
+	v1.Delete("/git/worktrees/:id", h.DeleteWorktree)
+	v1.Post("/git/worktrees/cleanup", h.CleanupMergedWorktrees)
+	v1.Post("/git/worktrees/:id/sync", h.SyncWorktree)
+	v1.Get("/git/worktrees/:id/sync/check", h.CheckSyncConflicts)
+	v1.Post("/git/worktrees/:id/merge", h.MergeWorktreeToMain)
+	v1.Get("/git/worktrees/:id/merge/check", h.CheckMergeConflicts)
+	v1.Get("/git/worktrees/:id/diff", h.GetWorktreeDiff)
+	v1.Post("/git/worktrees/:id/preview", h.CreateWorktreePreview)
+
+	// Pull request operations
+	v1.Post("/git/worktrees/:id/pr", h.CreatePullRequest)
+	v1.Put("/git/worktrees/:id/pr", h.UpdatePullRequest)
+	v1.Get("/git/worktrees/:id/pr", h.GetPullRequestInfo)
+
+	// GitHub operations
+	v1.Get("/git/github/repos", h.ListGitHubRepositories)
+	v1.Get("/git/branches/:repo_id", h.GetRepositoryBranches)
+}
+
 // CheckoutRepository handles repository checkout requests
 // @Summary Checkout a GitHub repository
 // @Description Clones a GitHub repository as a bare repo and creates initial worktree

@@ -130,6 +130,11 @@ func NewPTYHandler(gitService *services.GitService) *PTYHandler {
 	}
 }
 
+// RegisterRoutes registers all PTY-related routes
+func (h *PTYHandler) RegisterRoutes(v1 fiber.Router) {
+	v1.Get("/pty", h.HandleWebSocket)
+}
+
 // HandleWebSocket handles WebSocket connections for PTY
 // @Summary Create PTY WebSocket connection
 // @Description Establishes a WebSocket connection for terminal access
