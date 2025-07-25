@@ -27,6 +27,9 @@ func TestClaudeSessionMessagesEndpoint(t *testing.T) {
 	// First create a worktree
 	resp, body, err := ts.MakeRequest("POST", "/v1/git/checkout/testorg/claude-test-repo", map[string]interface{}{})
 	require.NoError(t, err)
+	if resp.StatusCode != http.StatusOK {
+		t.Logf("Checkout failed (%d): %s", resp.StatusCode, string(body))
+	}
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var checkoutResp handlers.CheckoutResponse
@@ -65,6 +68,9 @@ func TestClaudeSessionTitleHandling(t *testing.T) {
 	// First create a worktree
 	resp, body, err := ts.MakeRequest("POST", "/v1/git/checkout/testorg/claude-pty-test-repo", map[string]interface{}{})
 	require.NoError(t, err)
+	if resp.StatusCode != http.StatusOK {
+		t.Logf("Checkout failed (%d): %s", resp.StatusCode, string(body))
+	}
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var checkoutResp handlers.CheckoutResponse
