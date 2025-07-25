@@ -22,14 +22,6 @@ interface ClaudeSession {
   header?: string;
 }
 
-interface GeminiSession {
-  uuid: string;
-  title: string;
-  turnCount: number;
-  lastUpdated: string; // This is a time string
-  worktree: string;
-}
-
 export interface ConflictStatus {
   has_conflicts?: boolean;
   operation?: string;
@@ -45,7 +37,6 @@ export interface GitState {
   repositories: Repository[];
   repoBranches: Record<string, string[]>;
   claudeSessions: Record<string, ClaudeSession>;
-  geminiSessions: Record<string, GeminiSession>;
   activeSessions: Record<string, ConflictStatus>;
   syncConflicts: Record<string, ConflictStatus>;
   mergeConflicts: Record<string, ConflictStatus>;
@@ -71,7 +62,6 @@ export function useGitState() {
     repositories: [],
     repoBranches: {},
     claudeSessions: {},
-    geminiSessions: {},
     activeSessions: {},
     syncConflicts: {},
     mergeConflicts: {},
@@ -147,15 +137,6 @@ export function useGitState() {
       setState((prev) => ({ ...prev, claudeSessions: data }));
     } catch (error) {
       console.error("Failed to fetch claude sessions:", error);
-    }
-  };
-
-  const fetchGeminiSessions = async () => {
-    try {
-      const data = await gitApi.fetchGeminiSessions();
-      setState((prev) => ({ ...prev, geminiSessions: data }));
-    } catch (error) {
-      console.error("Failed to fetch gemini sessions:", error);
     }
   };
 
@@ -364,7 +345,6 @@ export function useGitState() {
       fetchGitStatus(),
       fetchWorktrees(),
       fetchClaudeSessions(),
-      fetchGeminiSessions(),
       fetchActiveSessions(),
     ]);
   };
@@ -382,7 +362,6 @@ export function useGitState() {
     void fetchWorktrees();
     void fetchRepositories();
     void fetchClaudeSessions();
-    void fetchGeminiSessions();
     void fetchActiveSessions();
   }, []);
 
@@ -473,15 +452,6 @@ export function useGitState() {
       setState((prev) => ({ ...prev, claudeSessions: data }));
     } catch (error) {
       console.error("Failed to fetch claude sessions:", error);
-    }
-  };
-
-  const backgroundRefreshGeminiSessions = async () => {
-    try {
-      const data = await gitApi.fetchGeminiSessions();
-      setState((prev) => ({ ...prev, geminiSessions: data }));
-    } catch (error) {
-      console.error("Failed to fetch gemini sessions:", error);
     }
   };
 
@@ -736,7 +706,6 @@ export function useGitState() {
     fetchWorktrees,
     fetchRepositories,
     fetchClaudeSessions,
-    fetchGeminiSessions,
     fetchActiveSessions,
     checkConflicts,
     fetchDiffStats,
@@ -751,7 +720,6 @@ export function useGitState() {
     backgroundRefreshGitStatus,
     backgroundRefreshWorktrees,
     backgroundRefreshClaudeSessions,
-    backgroundRefreshGeminiSessions,
     backgroundRefreshActiveSessions,
     updateWorktree,
     addWorktree,
