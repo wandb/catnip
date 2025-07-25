@@ -413,8 +413,11 @@ func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensi
 	// Try to fix ownership (might fail if not root)
 	_ = os.Chown(destPath, 1000, 1000)
 
+	// Only log sync for non-routine files or first sync
+	if _, exists := s.lastModTimes[sourcePath]; !exists || (!strings.Contains(destName, ".json") && !strings.Contains(destName, ".yml")) {
+		log.Printf("📋 Synced %s to volume", destName)
+	}
 	s.lastModTimes[sourcePath] = info.ModTime()
-	log.Printf("📋 Synced %s to volume", destName)
 }
 
 // isFileBeingAccessed checks if a file might be currently being written to

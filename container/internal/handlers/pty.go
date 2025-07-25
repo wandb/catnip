@@ -786,12 +786,9 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		log.Printf("🔍 Checkpoint monitor tick for session %s (Title: %q)", session.ID, session.Title)
-
 		// Check if we have a title set and if checkpoint is needed
 		if session.Title != "" {
 			shouldCreate := session.checkpointManager.ShouldCreateCheckpoint()
-			log.Printf("🔍 Should create checkpoint: %v (title: %q)", shouldCreate, session.Title)
 
 			if shouldCreate {
 				log.Printf("📝 Creating checkpoint for session %s with title: %q", session.ID, session.Title)
@@ -800,8 +797,6 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 					log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
 				}
 			}
-		} else {
-			log.Printf("🔍 No title set for session %s, skipping checkpoint", session.ID)
 		}
 
 		// If no connections, stop monitoring
@@ -1057,8 +1052,8 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 		return
 	}
 
-	// Log broadcasts for debugging (limit to prevent spam)
-	if len(data) > 100 || connectionCount > 1 {
+	// Log broadcasts for debugging (only for multiple connections or very large data)
+	if connectionCount > 1 || len(data) > 10000 {
 		log.Printf("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
 	}
 

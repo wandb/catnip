@@ -469,7 +469,10 @@ func (c *WorktreeStatusCache) refreshAllStatuses() {
 	}
 	c.mu.RUnlock()
 
-	log.Printf("🔄 Starting periodic refresh of %d worktree statuses", len(worktreeIDs))
+	// Only log if there are many worktrees
+	if len(worktreeIDs) > 5 {
+		log.Printf("🔄 Starting periodic refresh of %d worktree statuses", len(worktreeIDs))
+	}
 
 	pendingUpdates := make(map[string]bool)
 	for _, worktreeID := range worktreeIDs {
