@@ -204,23 +204,12 @@ function GitPage() {
     const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
       (repo) => (repo.id.startsWith("local/") ? repo.id : repo.url) === url,
     );
-    console.log(
-      "handleRepoChange - url:",
-      url,
-      "currentRepo found:",
-      !!currentRepo,
-      currentRepo?.id,
-    );
 
     if (currentRepo) {
       // For current repos, get the current branch and default branch
       setBranchesLoading(true);
       try {
         const branches = await gitApi.fetchBranches(currentRepo.id);
-        console.log(
-          `Fetched ${branches.length} branches for ${currentRepo.id}:`,
-          branches,
-        );
         setSelectedRepoBranches(branches);
 
         // Set default branch as selected for current repos

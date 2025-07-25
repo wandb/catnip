@@ -42,18 +42,16 @@ export function BranchSelector({
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
-  console.log("BranchSelector props:", {
-    branchCount: branches.length,
-    branches,
-    currentBranch,
-    defaultBranch,
-    loading,
-    disabled,
-  });
-
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue);
     setOpen(false);
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (newOpen) {
+      setSearchValue("");
+    }
   };
 
   // Sort branches: default branch first, current/mounted branch second (if different), then all others
@@ -77,8 +75,6 @@ export function BranchSelector({
     return a.localeCompare(b);
   });
 
-  console.log("Sorted branches:", sortedBranches);
-
   const getBranchBadge = (branch: string) => {
     if (
       branch === defaultBranch &&
@@ -101,7 +97,7 @@ export function BranchSelector({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
