@@ -10,7 +10,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/lib/auth-context";
 import { useAuth } from "@/lib/hooks";
 import { LoginModal } from "@/components/LoginModal";
-import { GitHubAuthProvider, useGitHubAuth } from "@/lib/github-auth-context";
+import { GitHubAuthProvider } from "@/lib/github-auth-context";
+import { useGitHubAuth } from "@/lib/hooks";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 
 function RootLayout() {

@@ -1,10 +1,5 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { GitHubAuthContext } from "./contexts/github-auth";
 
 interface GitHubUser {
   username: string;
@@ -22,20 +17,6 @@ interface GitHubAuthStatus {
   error?: string;
   user?: GitHubUser;
 }
-
-interface GitHubAuthContextType {
-  authStatus: GitHubAuthStatus;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  showAuthModal: boolean;
-  setShowAuthModal: (show: boolean) => void;
-  checkAuthStatus: () => Promise<void>;
-  resetAuthState: () => Promise<void>;
-}
-
-const GitHubAuthContext = createContext<GitHubAuthContextType | undefined>(
-  undefined,
-);
 
 export function GitHubAuthProvider({ children }: { children: ReactNode }) {
   const [authStatus, setAuthStatus] = useState<GitHubAuthStatus>({
@@ -99,13 +80,4 @@ export function GitHubAuthProvider({ children }: { children: ReactNode }) {
       {children}
     </GitHubAuthContext.Provider>
   );
-}
-
-// eslint-disable-next-line react-refresh/only-export-components
-export function useGitHubAuth() {
-  const context = useContext(GitHubAuthContext);
-  if (context === undefined) {
-    throw new Error("useGitHubAuth must be used within a GitHubAuthProvider");
-  }
-  return context;
 }

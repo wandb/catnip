@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useGitHubAuth } from "@/lib/github-auth-context";
+import { useGitHubAuth } from "@/lib/hooks";
 import {
   Dialog,
   DialogContent,
