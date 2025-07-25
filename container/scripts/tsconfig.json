@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es2017",
+    "module": "none",
+    "lib": ["dom", "es2017"],
+    "outDir": "../internal/assets/scripts",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmitOnError": true,
+    "removeComments": false,
+    "types": []
+  },
+  "include": ["*.ts"],
+  "exclude": ["node_modules", "../node_modules", "../../node_modules"]
+}
