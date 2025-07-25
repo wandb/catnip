@@ -42,7 +42,7 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
       setTimeout(() => {
         void navigate({
           to: "/terminal/$sessionId",
-          params: { sessionId: encodeURIComponent(worktree.name) },
+          params: { sessionId: worktree.name },
           search: {
             agent: "claude",
             prompt: prompt,
@@ -71,7 +71,7 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
         <div className="flex items-start justify-between">
           <Link
             to="/terminal/$sessionId"
-            params={{ sessionId: encodeURIComponent(worktree.name) }}
+            params={{ sessionId: worktree.name }}
             className="flex-1 min-w-0"
           >
             <h2 className="text-xl font-semibold break-all hover:underline">
@@ -290,7 +290,7 @@ function WorkspaceActions({ worktree, onDelete }: WorkspaceActionsProps) {
         <DropdownMenuItem asChild>
           <Link
             to="/terminal/$sessionId"
-            params={{ sessionId: encodeURIComponent(worktree.name) }}
+            params={{ sessionId: worktree.name }}
             className="flex items-center gap-2"
           >
             <Terminal size={16} />
@@ -301,7 +301,7 @@ function WorkspaceActions({ worktree, onDelete }: WorkspaceActionsProps) {
         <DropdownMenuItem asChild>
           <Link
             to="/terminal/$sessionId"
-            params={{ sessionId: encodeURIComponent(worktree.name) }}
+            params={{ sessionId: worktree.name }}
             search={{ agent: "claude" }}
             className="flex items-center gap-2"
           >

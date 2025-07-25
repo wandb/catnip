@@ -128,7 +128,7 @@ function GitPage() {
   }) => {
     if (alert.worktreeName && alert.conflictFiles && alert.operation) {
       // This is a conflict - add Claude assistance
-      const sessionId = encodeURIComponent(alert.worktreeName);
+      const sessionId = alert.worktreeName;
       const conflictText =
         alert.conflictFiles.length > 0
           ? `Conflicts detected in: ${alert.conflictFiles.join(", ")}`
