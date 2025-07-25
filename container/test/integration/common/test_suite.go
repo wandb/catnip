@@ -1,3 +1,5 @@
+//go:build integration
+
 // Package common provides shared testing utilities
 package common //nolint:revive
 
