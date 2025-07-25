@@ -955,6 +955,13 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 
 	repo, exists := s.repositories[repoID]
 	if !exists {
+		// For remote GitHub repos that haven't been checked out yet,
+		// we can still fetch branches using git ls-remote
+		if !strings.HasPrefix(repoID, "local/") {
+			// Convert repoID (e.g., "vanpelt/vllmulator") to GitHub URL
+			remoteURL := fmt.Sprintf("https://github.com/%s.git", repoID)
+			return s.operations.GetRemoteBranchesFromURL(remoteURL)
+		}
 		return nil, fmt.Errorf("repository %s not found", repoID)
 	}
 
