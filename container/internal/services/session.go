@@ -109,7 +109,14 @@ func (s *SessionService) LoadSessionState(sessionID string) (*SessionState, erro
 // FindSessionByDirectory finds an active Claude session in the given directory
 func (s *SessionService) FindSessionByDirectory(workDir string) (*SessionState, error) {
 	// First, try to find the newest session file directly from .claude/projects
-	claudeProjectsDir := filepath.Join(workDir, ".claude", "projects")
+	// Claude stores projects in ~/.claude/projects/{transformed-path}/
+	// where the path is transformed: /workspace/catnip/buddy -> -workspace-catnip-buddy
+	homeDir := "/home/catnip"
+	transformedPath := strings.ReplaceAll(workDir, "/", "-")
+	transformedPath = strings.TrimPrefix(transformedPath, "-")
+	transformedPath = "-" + transformedPath // Add back the leading dash
+
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
 	if newestSessionID := s.findNewestClaudeSessionFile(claudeProjectsDir); newestSessionID != "" {
 		// Create a minimal state for the newest session found
 		return &SessionState{
