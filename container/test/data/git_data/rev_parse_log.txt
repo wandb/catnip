@@ -1,0 +1,26 @@
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --is-inside-work-tree
+rev-parse rev-parse --abbrev-ref origin/HEAD
+rev-parse rev-parse --abbrev-ref HEAD
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --is-inside-work-tree
+rev-parse rev-parse --abbrev-ref origin/HEAD
+rev-parse rev-parse --abbrev-ref HEAD
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --is-inside-work-tree
+rev-parse rev-parse --abbrev-ref origin/HEAD
+rev-parse rev-parse --abbrev-ref HEAD
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --is-inside-work-tree
+rev-parse rev-parse --abbrev-ref origin/HEAD
+rev-parse rev-parse --abbrev-ref HEAD
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel
+rev-parse rev-parse --show-toplevel

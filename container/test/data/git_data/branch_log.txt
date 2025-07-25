@@ -1,0 +1,4 @@
+branch branch --show-current
+branch branch --show-current
+branch branch --show-current
+branch branch --show-current
