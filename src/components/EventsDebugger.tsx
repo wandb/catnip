@@ -1,20 +1,20 @@
-import { useAppStore } from '../stores/appStore';
-import { Badge } from './ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { useAppStore } from "../stores/appStore";
+import { Badge } from "./ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 
 export function EventsDebugger() {
-  const { 
-    sseConnected, 
-    sseError, 
+  const {
+    sseConnected,
+    sseError,
     lastEventId,
     containerStatus,
     getActivePorts,
-    getDirtyWorkspaces,
-    getRunningProcesses
+    getDirtyWorktrees,
+    getRunningProcesses,
   } = useAppStore();
 
   const activePorts = getActivePorts();
-  const dirtyWorkspaces = getDirtyWorkspaces();
+  const dirtyWorktrees = getDirtyWorktrees();
   const runningProcesses = getRunningProcesses();
 
   return (
@@ -23,16 +23,20 @@ export function EventsDebugger() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             SSE Connection
-            <Badge variant={sseConnected ? 'default' : 'destructive'}>
-              {sseConnected ? 'Connected' : 'Disconnected'}
+            <Badge variant={sseConnected ? "default" : "destructive"}>
+              {sseConnected ? "Connected" : "Disconnected"}
             </Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
             <div className="text-sm">
-              <span className="font-medium">Container Status:</span>{' '}
-              <Badge variant={containerStatus === 'running' ? 'default' : 'secondary'}>
+              <span className="font-medium">Container Status:</span>{" "}
+              <Badge
+                variant={
+                  containerStatus === "running" ? "default" : "secondary"
+                }
+              >
                 {containerStatus}
               </Badge>
             </div>
@@ -43,7 +47,8 @@ export function EventsDebugger() {
             )}
             {lastEventId && (
               <div className="text-sm text-gray-600">
-                <span className="font-medium">Last Event ID:</span> {lastEventId.slice(-8)}
+                <span className="font-medium">Last Event ID:</span>{" "}
+                {lastEventId.slice(-8)}
               </div>
             )}
           </div>
@@ -60,11 +65,12 @@ export function EventsDebugger() {
               <div className="text-sm text-gray-500">No active ports</div>
             ) : (
               activePorts.map((port) => (
-                <div key={port.port} className="flex items-center justify-between">
+                <div
+                  key={port.port}
+                  className="flex items-center justify-between"
+                >
                   <span className="font-mono">{port.port}</span>
-                  <Badge variant="outline">
-                    {port.service || 'unknown'}
-                  </Badge>
+                  <Badge variant="outline">{port.service || "unknown"}</Badge>
                 </div>
               ))
             )}
@@ -78,17 +84,20 @@ export function EventsDebugger() {
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {dirtyWorkspaces.length === 0 ? (
-              <div className="text-sm text-gray-500">All workspaces clean</div>
+            {dirtyWorktrees.length === 0 ? (
+              <div className="text-sm text-gray-500">All worktrees clean</div>
             ) : (
-              dirtyWorkspaces.map((workspace) => (
-                <div key={workspace.workspace} className="space-y-1">
+              dirtyWorktrees.map((worktree) => (
+                <div key={worktree.id} className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm">{workspace.workspace}</span>
+                    <span className="font-mono text-sm">{worktree.name}</span>
                     <Badge variant="destructive">dirty</Badge>
                   </div>
                   <div className="text-xs text-gray-600">
-                    {workspace.dirtyFiles.length} files changed
+                    {worktree.dirty_files?.length || 0} files changed
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {worktree.branch} • {worktree.commit_count} commits ahead
                   </div>
                 </div>
               ))

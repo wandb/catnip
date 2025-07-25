@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { AppEvent, SSEMessage } from "../types/events";
+import type { Worktree } from "../lib/git-api";
 
 interface Port {
   port: number;
@@ -8,13 +9,6 @@ interface Port {
   protocol?: "http" | "tcp";
   title?: string;
   timestamp: number;
-}
-
-interface GitWorkspace {
-  workspace: string;
-  isDirty: boolean;
-  dirtyFiles: string[];
-  lastUpdated: number;
 }
 
 interface Process {
@@ -32,7 +26,7 @@ interface AppState {
 
   // Application state
   ports: Map<number, Port>;
-  gitWorkspaces: Map<string, GitWorkspace>;
+  worktrees: Map<string, Worktree>;
   processes: Map<number, Process>;
   containerStatus: "running" | "stopped" | "error";
   containerMessage?: string;
@@ -41,11 +35,15 @@ interface AppState {
   connectSSE: () => void;
   disconnectSSE: () => void;
   handleEvent: (event: AppEvent) => void;
+  setWorktrees: (worktrees: Worktree[]) => void;
+  updateWorktree: (worktreeId: string, updates: Partial<Worktree>) => void;
 
   // Getters
   getActivePorts: () => Port[];
-  getDirtyWorkspaces: () => GitWorkspace[];
+  getDirtyWorktrees: () => Worktree[];
   getRunningProcesses: () => Process[];
+  getWorktreesList: () => Worktree[];
+  getWorktreeById: (id: string) => Worktree | undefined;
 }
 
 let eventSource: EventSource | null = null;
@@ -57,7 +55,7 @@ export const useAppStore = create<AppState>()(
     sseError: null,
     lastEventId: null,
     ports: new Map(),
-    gitWorkspaces: new Map(),
+    worktrees: new Map(),
     processes: new Map(),
     containerStatus: "stopped",
 
@@ -142,7 +140,7 @@ export const useAppStore = create<AppState>()(
     },
 
     handleEvent: (event: AppEvent) => {
-      const { ports, gitWorkspaces, processes } = get();
+      const { ports, worktrees, processes } = get();
 
       switch (event.type) {
         case "port:opened": {
@@ -166,29 +164,42 @@ export const useAppStore = create<AppState>()(
         }
 
         case "git:dirty": {
-          const newGitWorkspaces = new Map(gitWorkspaces);
-          newGitWorkspaces.set(event.payload.workspace, {
-            workspace: event.payload.workspace,
-            isDirty: true,
-            dirtyFiles: event.payload.files,
-            lastUpdated: Date.now(),
-          });
-          set({ gitWorkspaces: newGitWorkspaces });
+          const updatedWorktrees = new Map(worktrees);
+          // Find worktree by path/workspace name
+          const worktreeEntry = Array.from(worktrees.entries()).find(
+            ([_, worktree]) =>
+              worktree.path === event.payload.workspace ||
+              worktree.name === event.payload.workspace,
+          );
+          if (worktreeEntry) {
+            const [worktreeId, worktree] = worktreeEntry;
+            updatedWorktrees.set(worktreeId, {
+              ...worktree,
+              is_dirty: true,
+              dirty_files: event.payload.files,
+            });
+            set({ worktrees: updatedWorktrees });
+          }
           break;
         }
 
         case "git:clean": {
-          const cleanGitWorkspaces = new Map(gitWorkspaces);
-          const workspace = cleanGitWorkspaces.get(event.payload.workspace);
-          if (workspace) {
-            cleanGitWorkspaces.set(event.payload.workspace, {
-              ...workspace,
-              isDirty: false,
-              dirtyFiles: [],
-              lastUpdated: Date.now(),
+          const updatedWorktrees = new Map(worktrees);
+          // Find worktree by path/workspace name
+          const worktreeEntry = Array.from(worktrees.entries()).find(
+            ([_, worktree]) =>
+              worktree.path === event.payload.workspace ||
+              worktree.name === event.payload.workspace,
+          );
+          if (worktreeEntry) {
+            const [worktreeId, worktree] = worktreeEntry;
+            updatedWorktrees.set(worktreeId, {
+              ...worktree,
+              is_dirty: false,
+              dirty_files: [],
             });
+            set({ worktrees: updatedWorktrees });
           }
-          set({ gitWorkspaces: cleanGitWorkspaces });
           break;
         }
 
@@ -221,14 +232,116 @@ export const useAppStore = create<AppState>()(
         case "heartbeat":
           // Heartbeat keeps connection alive, no state update needed
           break;
+
+        case "worktree:status_updated": {
+          const updatedWorktrees = new Map(worktrees);
+          const existingWorktree = updatedWorktrees.get(
+            event.payload.worktree_id,
+          );
+          if (existingWorktree) {
+            // Merge cache status with existing worktree data
+            updatedWorktrees.set(event.payload.worktree_id, {
+              ...existingWorktree,
+              is_dirty: event.payload.status.is_dirty,
+              commit_count: event.payload.status.commit_count,
+              commits_behind: event.payload.status.commits_behind,
+              has_conflicts: event.payload.status.has_conflicts,
+              cache_status: {
+                is_cached: event.payload.status.is_cached,
+                is_loading: event.payload.status.is_loading,
+                last_updated: event.payload.status.last_updated,
+              },
+            });
+            set({ worktrees: updatedWorktrees });
+          }
+          break;
+        }
+
+        case "worktree:batch_updated": {
+          const updatedWorktrees = new Map(worktrees);
+          for (const [worktreeId, status] of Object.entries(
+            event.payload.updates,
+          )) {
+            const existingWorktree = updatedWorktrees.get(worktreeId);
+            if (existingWorktree) {
+              // Apply cached status updates
+              updatedWorktrees.set(worktreeId, {
+                ...existingWorktree,
+                is_dirty: status.is_dirty,
+                commit_count: status.commit_count,
+                commits_behind: status.commits_behind,
+                has_conflicts: status.has_conflicts,
+                cache_status: {
+                  is_cached: status.is_cached,
+                  is_loading: status.is_loading,
+                  last_updated: status.last_updated,
+                },
+              });
+            }
+          }
+          set({ worktrees: updatedWorktrees });
+          break;
+        }
+
+        case "worktree:dirty": {
+          const updatedWorktrees = new Map(worktrees);
+          const existingWorktree = updatedWorktrees.get(
+            event.payload.worktree_id,
+          );
+          if (existingWorktree) {
+            updatedWorktrees.set(event.payload.worktree_id, {
+              ...existingWorktree,
+              is_dirty: true,
+              dirty_files: event.payload.files,
+            });
+            set({ worktrees: updatedWorktrees });
+          }
+          break;
+        }
+
+        case "worktree:clean": {
+          const updatedWorktrees = new Map(worktrees);
+          const existingWorktree = updatedWorktrees.get(
+            event.payload.worktree_id,
+          );
+          if (existingWorktree) {
+            updatedWorktrees.set(event.payload.worktree_id, {
+              ...existingWorktree,
+              is_dirty: false,
+              dirty_files: [],
+            });
+            set({ worktrees: updatedWorktrees });
+          }
+          break;
+        }
+      }
+    },
+
+    setWorktrees: (worktrees: Worktree[]) => {
+      const worktreeMap = new Map<string, Worktree>();
+      worktrees.forEach((worktree) => {
+        worktreeMap.set(worktree.id, worktree);
+      });
+      set({ worktrees: worktreeMap });
+    },
+
+    updateWorktree: (worktreeId: string, updates: Partial<Worktree>) => {
+      const { worktrees } = get();
+      const existingWorktree = worktrees.get(worktreeId);
+      if (existingWorktree) {
+        const updatedWorktrees = new Map(worktrees);
+        updatedWorktrees.set(worktreeId, { ...existingWorktree, ...updates });
+        set({ worktrees: updatedWorktrees });
       }
     },
 
     // Getters
     getActivePorts: () => Array.from(get().ports.values()),
-    getDirtyWorkspaces: () =>
-      Array.from(get().gitWorkspaces.values()).filter((w) => w.isDirty),
+    getDirtyWorktrees: () =>
+      Array.from(get().worktrees.values()).filter((w) => w.is_dirty),
     getRunningProcesses: () => Array.from(get().processes.values()),
+    getWorktreesList: () => Array.from(get().worktrees.values()),
+    getWorktreeById: (id: string) => get().worktrees.get(id),
   })),
 );
 

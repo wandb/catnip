@@ -11,6 +11,12 @@ export interface TitleEntry {
   commit_hash?: string;
 }
 
+export interface CacheStatus {
+  is_cached: boolean;
+  is_loading: boolean;
+  last_updated: number;
+}
+
 export interface Worktree {
   id: string;
   repo_id: string;
@@ -23,10 +29,12 @@ export interface Worktree {
   commits_behind: number;
   is_dirty: boolean;
   has_conflicts: boolean;
+  dirty_files?: string[];
   created_at: string;
   last_accessed: string;
   session_title?: TitleEntry;
   session_title_history?: TitleEntry[];
+  cache_status?: CacheStatus;
 }
 
 interface Owner {
