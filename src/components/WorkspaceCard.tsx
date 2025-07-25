@@ -163,7 +163,8 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
           </div>
         </div>
 
-        {!worktree.cache_status?.is_cached ? (
+        {!worktree.cache_status?.is_cached &&
+        worktree.commits_behind === undefined ? (
           <Skeleton className="w-24 h-4" />
         ) : (
           worktree.commits_behind > 0 && (
@@ -221,13 +222,13 @@ interface CommitsBadgeProps {
 }
 
 function CommitsBadge({ count, isLoading }: CommitsBadgeProps) {
-  if (isLoading) {
+  if (isLoading && count === undefined) {
     return <Skeleton className="w-12 h-6" />;
   }
 
   return (
     <Badge variant={count && count > 0 ? "default" : "secondary"}>
-      {count} commit{count === 1 ? "" : "s"}
+      {count || 0} commit{count === 1 ? "" : "s"}
     </Badge>
   );
 }
@@ -238,7 +239,7 @@ interface DirtyIndicatorProps {
 }
 
 function DirtyIndicator({ isDirty, isLoading }: DirtyIndicatorProps) {
-  if (isLoading) {
+  if (isLoading && isDirty === undefined) {
     return <Skeleton className="w-12 h-6" />;
   }
 

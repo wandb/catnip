@@ -8,6 +8,7 @@ import { gitApi, type Worktree } from "@/lib/git-api";
  */
 export function useWorktreeStore() {
   const [loading, setLoading] = useState(false);
+  const [hasLoadedInitial, setHasLoadedInitial] = useState(false);
   const {
     worktrees,
     getWorktreesList,
@@ -37,6 +38,7 @@ export function useWorktreeStore() {
         );
 
         setWorktrees(enhancedWorktrees);
+        setHasLoadedInitial(true);
       } catch (error) {
         console.error("Failed to load initial worktrees:", error);
       } finally {
@@ -44,11 +46,11 @@ export function useWorktreeStore() {
       }
     };
 
-    // Only load if we don't have worktrees yet
-    if (worktrees.size === 0) {
+    // Load initial data once on mount
+    if (!hasLoadedInitial) {
       void loadInitialWorktrees();
     }
-  }, [worktrees.size, setWorktrees]);
+  }, [hasLoadedInitial, setWorktrees]);
 
   return {
     // Worktree data

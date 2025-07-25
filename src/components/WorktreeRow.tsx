@@ -178,7 +178,7 @@ function StatusBadges({
           {badgeContent}
         </Badge>
       )}
-      {!worktree.cache_status?.is_cached ? (
+      {!worktree.cache_status?.is_cached && worktree.is_dirty === undefined ? (
         <Skeleton className="w-12 h-6" />
       ) : worktree.has_conflicts ? (
         <Badge variant="destructive" className="text-xs">
@@ -775,7 +775,8 @@ export function WorktreeRow({
               source branch:{" "}
               <span className="font-bold">{worktree.source_branch}</span>
             </span>
-            {!worktree.cache_status?.is_cached ? (
+            {!worktree.cache_status?.is_cached &&
+            worktree.commit_count === undefined ? (
               <Skeleton className="w-16 h-4" />
             ) : (
               worktree.commit_count > 0 && (
@@ -792,7 +793,8 @@ export function WorktreeRow({
                 /<span className="text-red-600">-{totalDeletions}</span>
               </span>
             )} */}
-            {!worktree.cache_status?.is_cached ? (
+            {!worktree.cache_status?.is_cached &&
+            worktree.commits_behind === undefined ? (
               <Skeleton className="w-12 h-4" />
             ) : (
               worktree.commits_behind > 0 && (
