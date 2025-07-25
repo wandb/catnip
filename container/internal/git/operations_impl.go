@@ -81,6 +81,31 @@ func (o *OperationsImpl) GetRemoteBranches(repoPath string, defaultBranch string
 	return o.branchOps.GetRemoteBranches(repoPath, defaultBranch)
 }
 
+func (o *OperationsImpl) GetRemoteBranchesFromURL(remoteURL string) ([]string, error) {
+	// Use git ls-remote to fetch branches from remote URL without cloning
+	output, err := o.ExecuteGit("", "ls-remote", "--heads", remoteURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list remote branches from %s: %v", remoteURL, err)
+	}
+
+	var branches []string
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Each line is in format: <commit-hash> refs/heads/<branch-name>
+		parts := strings.Fields(line)
+		if len(parts) >= 2 && strings.HasPrefix(parts[1], "refs/heads/") {
+			branchName := strings.TrimPrefix(parts[1], "refs/heads/")
+			branches = append(branches, branchName)
+		}
+	}
+
+	return branches, nil
+}
+
 func (o *OperationsImpl) CreateBranch(repoPath, branch, fromRef string) error {
 	args := []string{"branch", branch}
 	if fromRef != "" {

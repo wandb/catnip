@@ -24,6 +24,7 @@ type Operations interface {
 	GetDefaultBranch(repoPath string) (string, error)
 	GetLocalBranches(repoPath string) ([]string, error)
 	GetRemoteBranches(repoPath string, defaultBranch string) ([]string, error)
+	GetRemoteBranchesFromURL(remoteURL string) ([]string, error)
 	CreateBranch(repoPath, branch, fromRef string) error
 	DeleteBranch(repoPath, branch string, force bool) error
 	ListBranches(repoPath string, options ListBranchesOptions) ([]string, error)
