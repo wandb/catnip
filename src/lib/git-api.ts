@@ -149,19 +149,6 @@ export const gitApi = {
     }
   },
 
-  async fetchGeminiSessions(): Promise<Record<string, any>> {
-    try {
-      const response = await fetch("/v1/gemini/sessions");
-      if (response.ok) {
-        return (await response.json()) || {};
-      }
-      return {};
-    } catch (error) {
-      console.error("Failed to fetch Gemini sessions:", error);
-      return {};
-    }
-  },
-
   async fetchActiveSessions(): Promise<Record<string, any>> {
     try {
       const response = await fetch("/v1/sessions/active");
