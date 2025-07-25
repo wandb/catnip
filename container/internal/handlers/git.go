@@ -483,6 +483,7 @@ func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
 
 	conflictErr, err := h.gitService.CheckMergeConflicts(worktreeID)
 	if err != nil {
+		log.Printf("❌ CheckMergeConflicts failed for worktree %s: %v", worktreeID, err)
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})

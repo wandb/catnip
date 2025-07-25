@@ -30,17 +30,21 @@ func (c *ConflictResolver) CheckMergeConflicts(repoPath, worktreePath, sourceBra
 	tempBranch := fmt.Sprintf("temp-merge-check-%d", GetCurrentTimestamp())
 
 	// Push the source branch to temp branch in main repo
-	if _, err := c.operations.ExecuteGit(worktreePath, "push", repoPath, fmt.Sprintf("%s:%s", sourceBranch, tempBranch)); err != nil {
+	// Ensure the destination is fully qualified as a branch ref
+	tempBranchRef := fmt.Sprintf("refs/heads/%s", tempBranch)
+	_, err := c.operations.ExecuteGit(worktreePath, "push", repoPath, fmt.Sprintf("%s:%s", sourceBranch, tempBranchRef))
+	if err != nil {
 		return nil, fmt.Errorf("failed to push temp branch for conflict check: %v", err)
 	}
 
 	// Clean up temp branch when done
 	defer func() {
 		_ = c.operations.DeleteBranch(repoPath, tempBranch, true)
+		// Ignore cleanup errors - temp branch will be garbage collected
 	}()
 
 	// Try a dry-run merge to detect conflicts
-	output, err := c.operations.MergeTree(repoPath, targetBranch, tempBranch)
+	output, err := c.operations.MergeTree(repoPath, targetBranch, tempBranchRef)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check merge conflicts: %v", err)
 	}
