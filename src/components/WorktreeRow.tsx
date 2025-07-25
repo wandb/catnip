@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DiffViewer } from "@/components/DiffViewer";
 import {
   DropdownMenu,
@@ -23,6 +24,7 @@ import {
   Trash2,
   Copy,
   Check,
+  Loader2,
 } from "lucide-react";
 import {
   type Worktree,
@@ -176,7 +178,9 @@ function StatusBadges({
           {badgeContent}
         </Badge>
       )}
-      {worktree.has_conflicts ? (
+      {!worktree.cache_status?.is_cached ? (
+        <Skeleton className="w-12 h-6" />
+      ) : worktree.has_conflicts ? (
         <Badge variant="destructive" className="text-xs">
           <AlertTriangle size={12} className="mr-1" />
           Conflicts
@@ -194,6 +198,12 @@ function StatusBadges({
           className="text-xs bg-green-100 text-green-800 border-green-200"
         >
           Clean
+        </Badge>
+      )}
+      {worktree.cache_status?.is_loading && (
+        <Badge variant="secondary" className="text-xs">
+          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+          Updating...
         </Badge>
       )}
       {claudeSession && (
@@ -765,11 +775,15 @@ export function WorktreeRow({
               source branch:{" "}
               <span className="font-bold">{worktree.source_branch}</span>
             </span>
-            {worktree.commit_count > 0 && (
-              <span>
-                {worktree.commit_count} commit
-                {worktree.commit_count !== 1 ? "s" : ""}
-              </span>
+            {!worktree.cache_status?.is_cached ? (
+              <Skeleton className="w-16 h-4" />
+            ) : (
+              worktree.commit_count > 0 && (
+                <span>
+                  {worktree.commit_count} commit
+                  {worktree.commit_count !== 1 ? "s" : ""}
+                </span>
+              )
             )}
             {/* TODO: Add total changes */}
             {/* {diffStat && (diffStat.file_diffs?.length ?? 0) > 0 && (
@@ -778,10 +792,14 @@ export function WorktreeRow({
                 /<span className="text-red-600">-{totalDeletions}</span>
               </span>
             )} */}
-            {worktree.commits_behind > 0 && (
-              <span className="text-orange-600">
-                {worktree.commits_behind} behind
-              </span>
+            {!worktree.cache_status?.is_cached ? (
+              <Skeleton className="w-12 h-4" />
+            ) : (
+              worktree.commits_behind > 0 && (
+                <span className="text-orange-600">
+                  {worktree.commits_behind} behind
+                </span>
+              )
             )}
           </div>
 

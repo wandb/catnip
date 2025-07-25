@@ -1,13 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Loader2, Plus } from "lucide-react";
 import { WorkspaceCard } from "@/components/WorkspaceCard";
-import { useGitState } from "@/hooks/useGitState";
+import { useWorktreeStore } from "@/hooks/useWorktreeStore";
 import { useGitActions } from "@/hooks/useGitActions";
+import { useGitState } from "@/hooks/useGitState";
 
 function Index() {
+  // Use the new SSE-driven worktree store
+  const { worktrees, loading } = useWorktreeStore();
+
+  // Still need useGitState for delete operations and other functionality
   const {
-    worktrees,
-    loading,
     // Functions needed by useGitActions
     addNewWorktrees,
     backgroundRefreshGitStatus,
