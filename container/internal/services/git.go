@@ -236,6 +236,14 @@ type SetupExecutor interface {
 	ExecuteSetupScript(worktreePath string)
 }
 
+// EventsEmitter interface for emitting worktree status events
+type EventsEmitter interface {
+	EmitWorktreeStatusUpdated(worktreeID string, status *CachedWorktreeStatus)
+	EmitWorktreeBatchUpdated(updates map[string]*CachedWorktreeStatus)
+	EmitWorktreeDirty(worktreeID, worktreeName string, files []string)
+	EmitWorktreeClean(worktreeID, worktreeName string)
+}
+
 type GitService struct {
 	repositories     map[string]*models.Repository // key: repoID (e.g., "owner/repo")
 	worktrees        map[string]*models.Worktree   // key: worktree ID
@@ -245,6 +253,7 @@ type GitService struct {
 	githubManager    *git.GitHubManager            // Handles all GitHub CLI operations
 	commitSync       *CommitSyncService            // Handles automatic checkpointing and commit sync
 	setupExecutor    SetupExecutor                 // Handles setup.sh execution in PTY sessions
+	worktreeCache    *WorktreeStatusCache          // Handles worktree status caching with event updates
 	mu               sync.RWMutex
 }
 
@@ -378,6 +387,20 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 
 	// Initialize CommitSync service
 	s.commitSync = NewCommitSyncServiceWithOperations(s, operations)
+
+	// Initialize worktree cache (will be connected to events handler later)
+	s.worktreeCache = NewWorktreeStatusCache(operations, nil)
+
+	// Connect cache to worktree resolution
+	s.worktreeCache.SetWorktreePathResolver(func(worktreeID string) (string, *models.Worktree) {
+		s.mu.RLock()
+		worktree, exists := s.worktrees[worktreeID]
+		s.mu.RUnlock()
+		if !exists {
+			return "", nil
+		}
+		return worktree.Path, worktree
+	})
 
 	// Ensure workspace directory exists
 	_ = os.MkdirAll(getWorkspaceDir(), 0755)
@@ -570,37 +593,21 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 	return repository, worktree, nil
 }
 
-// ListWorktrees returns all worktrees
+// ListWorktrees returns all worktrees with fast cache-enhanced responses
 func (s *GitService) ListWorktrees() []*models.Worktree {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	worktrees := make([]*models.Worktree, 0, len(s.worktrees))
-	hasUpdates := false
 
 	for _, wt := range s.worktrees {
-		// Store previous values to detect changes
-		prevCommitCount := wt.CommitCount
-		prevCommitsBehind := wt.CommitsBehind
-		prevSourceBranch := wt.SourceBranch
-		prevBranch := wt.Branch
-		prevCommitHash := wt.CommitHash
+		// Create a copy to avoid modifying the original
+		worktreeCopy := *wt
 
-		// Use the services layer's UpdateWorktreeStatus which includes dynamic state detection
-		s.worktreeService.UpdateWorktreeStatus(wt, false, s.isLocalRepo(wt.RepoID))
+		// Enhance with cached status (this is extremely fast - O(1) lookup)
+		s.worktreeCache.EnhanceWorktreeWithCache(&worktreeCopy)
 
-		// Check if any values changed
-		if wt.CommitCount != prevCommitCount || wt.CommitsBehind != prevCommitsBehind ||
-			wt.SourceBranch != prevSourceBranch || wt.Branch != prevBranch || wt.CommitHash != prevCommitHash {
-			hasUpdates = true
-		}
-
-		worktrees = append(worktrees, wt)
-	}
-
-	// Save state if any worktree was updated
-	if hasUpdates {
-		_ = s.saveState()
+		worktrees = append(worktrees, &worktreeCopy)
 	}
 
 	return worktrees
@@ -977,6 +984,9 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	if err := s.worktreeService.DeleteWorktree(repo, worktree); err != nil {
 		return err
 	}
+
+	// Remove from cache
+	s.worktreeCache.RemoveWorktree(worktreeID, worktree.Path)
 
 	// Remove from service memory
 	delete(s.worktrees, worktreeID)
@@ -1617,6 +1627,11 @@ func (s *GitService) Stop() {
 	if s.commitSync != nil {
 		s.commitSync.Stop()
 	}
+
+	// Stop worktree cache
+	if s.worktreeCache != nil {
+		s.worktreeCache.Stop()
+	}
 }
 
 // GitAddCommitGetHash performs git add, commit, and returns the commit hash
@@ -1716,6 +1731,9 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 
 	// Store worktree in service map
 	s.worktrees[worktree.ID] = worktree
+
+	// Add to cache and start watching
+	s.worktreeCache.AddWorktree(worktree.ID, worktree.Path)
 
 	// Notify CommitSync service about the new worktree
 	if s.commitSync != nil {
@@ -2056,4 +2074,22 @@ func (s *GitService) checkHasCommitsAhead(worktree *models.Worktree) (bool, erro
 	}
 
 	return commitCount > 0, nil
+}
+
+// SetEventsHandler connects the events handler to the worktree cache
+func (s *GitService) SetEventsHandler(eventsHandler EventsEmitter) {
+	if s.worktreeCache != nil {
+		// Update the cache's events handler
+		s.worktreeCache.mu.Lock()
+		s.worktreeCache.eventsHandler = eventsHandler
+		s.worktreeCache.mu.Unlock()
+	}
+}
+
+// IsWorktreeStatusCached returns true if we have cached status for a worktree
+func (s *GitService) IsWorktreeStatusCached(worktreeID string) bool {
+	if s.worktreeCache == nil {
+		return false
+	}
+	return s.worktreeCache.IsStatusCached(worktreeID)
 }

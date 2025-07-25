@@ -512,6 +512,74 @@ definitions:
         example: /workspace/my-project
         type: string
     type: object
+  internal_handlers.EnhancedWorktree:
+    properties:
+      branch:
+        description: Current git branch name in this worktree
+        example: feature/api-docs
+        type: string
+      cache_status:
+        $ref: '#/definitions/internal_handlers.WorktreeCacheStatus'
+      commit_count:
+        description: Number of commits ahead of the divergence point (CommitHash)
+        example: 3
+        type: integer
+      commit_hash:
+        description: Commit hash where this worktree diverged from source branch (updated
+          after merges)
+        example: abc123def456
+        type: string
+      commits_behind:
+        description: Number of commits the source branch is ahead of our divergence
+          point
+        example: 2
+        type: integer
+      created_at:
+        description: When this worktree was created
+        example: "2024-01-15T14:00:00Z"
+        type: string
+      has_conflicts:
+        description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
+        example: false
+        type: boolean
+      id:
+        description: Unique identifier for this worktree
+        example: abc123-def456-ghi789
+        type: string
+      is_dirty:
+        description: Whether there are uncommitted changes in the worktree
+        example: true
+        type: boolean
+      last_accessed:
+        description: When this worktree was last accessed
+        example: "2024-01-15T16:30:00Z"
+        type: string
+      name:
+        description: User-friendly name for this worktree (e.g., 'vectorize-quasar')
+        example: feature-api-docs
+        type: string
+      path:
+        description: Absolute path to the worktree directory
+        example: /workspace/worktrees/feature-api-docs
+        type: string
+      repo_id:
+        description: Repository this worktree belongs to
+        example: anthropics/claude-code
+        type: string
+      session_title:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry'
+        description: Current session title (from terminal title escape sequences)
+      session_title_history:
+        description: History of session titles
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry'
+        type: array
+      source_branch:
+        description: Branch this worktree was originally created from
+        example: main
+        type: string
+    type: object
   internal_handlers.EventType:
     enum:
     - port:opened
@@ -522,6 +590,10 @@ definitions:
     - process:stopped
     - container:status
     - heartbeat
+    - worktree:status_updated
+    - worktree:batch_updated
+    - worktree:dirty
+    - worktree:clean
     type: string
     x-enum-varnames:
     - PortOpenedEvent
@@ -532,6 +604,10 @@ definitions:
     - ProcessStoppedEvent
     - ContainerStatusEvent
     - HeartbeatEvent
+    - WorktreeStatusUpdatedEvent
+    - WorktreeBatchUpdatedEvent
+    - WorktreeDirtyEvent
+    - WorktreeCleanEvent
   internal_handlers.GitHubRepository:
     description: GitHub repository information from the GitHub API
     properties:
@@ -593,6 +669,16 @@ definitions:
         description: Whether the upload succeeded
         example: true
         type: boolean
+    type: object
+  internal_handlers.WorktreeCacheStatus:
+    properties:
+      is_cached:
+        type: boolean
+      is_loading:
+        type: boolean
+      last_updated:
+        description: Unix timestamp in milliseconds
+        type: integer
     type: object
   internal_handlers.WorktreeDiffResponse:
     description: Response containing git diff information for a worktree
@@ -904,7 +990,8 @@ paths:
       - git
   /v1/git/worktrees:
     get:
-      description: Returns a list of all worktrees for the current repository
+      description: Returns a list of all worktrees for the current repository with
+        fast cache-enhanced responses
       produces:
       - application/json
       responses:
@@ -912,7 +999,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+              $ref: '#/definitions/internal_handlers.EnhancedWorktree'
             type: array
       summary: List all worktrees
       tags:
