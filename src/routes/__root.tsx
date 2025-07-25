@@ -10,10 +10,13 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/lib/auth-context";
 import { useAuth } from "@/lib/hooks";
 import { LoginModal } from "@/components/LoginModal";
+import { GitHubAuthProvider, useGitHubAuth } from "@/lib/github-auth-context";
+import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 
 function RootLayout() {
   const { isConnected } = useWebSocket();
   const { isAuthenticated, isLoading, authRequired } = useAuth();
+  const { showAuthModal, setShowAuthModal } = useGitHubAuth();
 
   // Show login modal if auth is required and user is not authenticated
   const showLoginModal = !isLoading && authRequired && !isAuthenticated;
@@ -71,6 +74,9 @@ function RootLayout() {
       {/* Login Modal */}
       <LoginModal open={showLoginModal} />
 
+      {/* GitHub Auth Modal */}
+      <GitHubAuthModal open={showAuthModal} onOpenChange={setShowAuthModal} />
+
       <TanStackRouterDevtools position="bottom-right" />
     </>
   );
@@ -80,7 +86,9 @@ function RootComponent() {
   return (
     <AuthProvider>
       <WebSocketProvider>
-        <RootLayout />
+        <GitHubAuthProvider>
+          <RootLayout />
+        </GitHubAuthProvider>
       </WebSocketProvider>
     </AuthProvider>
   );

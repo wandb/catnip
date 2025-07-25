@@ -130,6 +130,7 @@ func main() {
 	// Auth routes
 	v1.Post("/auth/github/start", authHandler.StartGitHubAuth)
 	v1.Get("/auth/github/status", authHandler.GetAuthStatus)
+	v1.Post("/auth/github/reset", authHandler.ResetAuthState)
 
 	// Upload routes
 	v1.Post("/upload", uploadHandler.UploadFile)

@@ -1,5 +1,6 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+import { useGitHubAuth } from "@/lib/github-auth-context";
 import {
   Home,
   Terminal,
@@ -14,7 +15,6 @@ import {
   Globe,
   MessageSquare,
 } from "lucide-react";
-import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,7 +26,7 @@ import { useAppStore } from "@/stores/appStore";
 export function Navbar() {
   const { sseConnected, ports } = useAppStore();
   const router = useRouter();
-  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const { setShowAuthModal } = useGitHubAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const activePorts = Array.from(ports.values());
 
@@ -45,7 +45,7 @@ export function Navbar() {
   };
 
   const handleGitHubLogin = () => {
-    setAuthModalOpen(true);
+    setShowAuthModal(true);
   };
 
   return (
@@ -328,9 +328,6 @@ export function Navbar() {
           </div>
         </div>
       </nav>
-
-      {/* GitHub Auth Modal */}
-      <GitHubAuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
     </>
   );
 }

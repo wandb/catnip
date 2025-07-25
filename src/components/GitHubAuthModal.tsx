@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useGitHubAuth } from "@/lib/github-auth-context";
 import {
   Dialog,
   DialogContent,
@@ -22,11 +23,22 @@ interface AuthResponse {
 }
 
 interface AuthStatus {
-  status: "none" | "pending" | "waiting" | "success" | "error";
+  status:
+    | "none"
+    | "pending"
+    | "waiting"
+    | "success"
+    | "error"
+    | "authenticated";
   error?: string;
+  user?: {
+    username: string;
+    scopes: string[];
+  };
 }
 
 export function GitHubAuthModal({ open, onOpenChange }: GitHubAuthModalProps) {
+  const { resetAuthState } = useGitHubAuth();
   const [authData, setAuthData] = useState<AuthResponse | null>(null);
   const [status, setStatus] = useState<AuthStatus>({ status: "none" });
   const [loading, setLoading] = useState(false);
@@ -131,26 +143,42 @@ export function GitHubAuthModal({ open, onOpenChange }: GitHubAuthModalProps) {
     }
   };
 
-  const handleClose = () => {
-    if (status.status === "success" || status.status === "error") {
-      onOpenChange(false);
-      // Reset state after closing
-      setTimeout(() => {
-        setAuthData(null);
-        setStatus({ status: "none" });
-        setPolling(false);
-      }, 300);
+  const handleClose = async (dismissed = false) => {
+    // If user dismisses modal (not successful auth), remember their choice and reset backend state
+    if (dismissed) {
+      localStorage.setItem("github-auth-dismissed", "true");
+      await resetAuthState();
     }
+
+    onOpenChange(false);
+    // Reset state after closing
+    setTimeout(() => {
+      setAuthData(null);
+      setStatus({ status: "none" });
+      setPolling(false);
+    }, 300);
+  };
+
+  const handleSuccessClose = () => {
+    // For successful auth, just close the modal without resetting anything
+    onOpenChange(false);
+    // Reset only the local modal state
+    setTimeout(() => {
+      setAuthData(null);
+      setStatus({ status: "none" });
+      setPolling(false);
+    }, 300);
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={(open) => !open && handleClose(true)}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>GitHub Authentication</DialogTitle>
           <DialogDescription>
             Authenticate with GitHub to enable repository access and CLI
-            features
+            features. If you don't want to connect to GitHub, you can dismiss
+            this modal.
           </DialogDescription>
         </DialogHeader>
 
@@ -223,7 +251,7 @@ export function GitHubAuthModal({ open, onOpenChange }: GitHubAuthModalProps) {
                   Successfully authenticated with GitHub!
                 </AlertDescription>
               </Alert>
-              <Button onClick={handleClose} className="w-full">
+              <Button onClick={handleSuccessClose} className="w-full">
                 Close
               </Button>
             </div>
@@ -246,7 +274,7 @@ export function GitHubAuthModal({ open, onOpenChange }: GitHubAuthModalProps) {
                   Try Again
                 </Button>
                 <Button
-                  onClick={handleClose}
+                  onClick={() => handleClose(true)}
                   variant="outline"
                   className="flex-1"
                 >
