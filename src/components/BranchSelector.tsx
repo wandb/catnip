@@ -41,6 +41,15 @@ export function BranchSelector({
 }: BranchSelectorProps) {
   const [open, setOpen] = useState(false);
 
+  console.log("BranchSelector props:", {
+    branchCount: branches.length,
+    branches,
+    currentBranch,
+    defaultBranch,
+    loading,
+    disabled,
+  });
+
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue);
     setOpen(false);
@@ -48,24 +57,30 @@ export function BranchSelector({
 
   // Sort branches: default branch first, current/mounted branch second (if different), then all others
   const sortedBranches = [...branches].sort((a, b) => {
+    // Ensure we have valid branch names
+    if (!a || !b) return 0;
+
     // Default branch always comes first
     if (defaultBranch) {
       if (a === defaultBranch) return -1;
       if (b === defaultBranch) return 1;
     }
-    
+
     // Current/mounted branch comes second (if it's different from default)
     if (currentBranch && currentBranch !== defaultBranch) {
       if (a === currentBranch) return -1;
       if (b === currentBranch) return 1;
     }
-    
+
     // All other branches alphabetically
     return a.localeCompare(b);
   });
 
   const getBranchBadge = (branch: string) => {
-    if (branch === defaultBranch && (!isLocalRepo || branch !== currentBranch)) {
+    if (
+      branch === defaultBranch &&
+      (!isLocalRepo || branch !== currentBranch)
+    ) {
       return (
         <Badge variant="secondary" className="text-xs ml-2">
           default

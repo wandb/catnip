@@ -210,6 +210,10 @@ function GitPage() {
       setBranchesLoading(true);
       try {
         const branches = await gitApi.fetchBranches(currentRepo.id);
+        console.log(
+          `Fetched ${branches.length} branches for ${currentRepo.id}:`,
+          branches,
+        );
         setSelectedRepoBranches(branches);
 
         // Set default branch as selected for current repos
@@ -332,7 +336,7 @@ function GitPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Checkout Repository</CardTitle>
+              <CardTitle>Checkout Repository!</CardTitle>
               <CardDescription>
                 Select from your repositories or enter a GitHub URL
               </CardDescription>
