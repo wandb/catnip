@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# Simple git mock for integration tests
+# Only blocks network operations (clone remote, fetch, push, pull)
+# Everything else uses real git
+
+MOCK_LOG="/tmp/git-mock.log"
+
+# Initialize mock log
+echo "=== Git Mock Session Started at $(date) ===" >> "$MOCK_LOG"
+
+# Log the command
+echo "$(date): git $*" >> "$MOCK_LOG"
+
+# Handle network operations that we want to block/mock
+case "$1" in
+    "clone")
+        # For clone commands, we need to check if it's a local test repository
+        # The git clone command structure is: git clone [options] <repository> [<directory>]
+        # We need to find the repository URL (last argument that's not an option or directory)
+        
+        local repo_url=""
+        local last_non_option=""
+        
+        # Find the repository URL - it's typically the second-to-last argument
+        # or the last argument if no destination directory is specified
+        for arg in "$@"; do
+            if [[ "$arg" != --* && "$arg" != "clone" ]]; then
+                last_non_option="$arg"
+            fi
+        done
+        
+        # In "clone --bare --depth 1 --single-branch /tmp/test-repos/repo /workspace/repo.git"
+        # we want the /tmp/test-repos/repo part
+        local args=("$@")
+        for ((i=1; i<${#args[@]}; i++)); do
+            if [[ "${args[i]}" != --* && "${args[i]}" != "clone" && "${args[i]}" =~ ^/ ]]; then
+                repo_url="${args[i]}"
+                break
+            fi
+        done
+        
+        # If this is a local test repository, use real git for proper cloning
+        if [[ "$repo_url" =~ ^/tmp/test-repos/ ]]; then
+            echo "Mock git: using real git for local test repository clone: $repo_url" >> "$MOCK_LOG"
+            exec /usr/bin/git "$@"
+        fi
+        
+        # For remote clones, simulate failure to prevent network calls
+        echo "Mock git: blocking remote clone: $repo_url" >> "$MOCK_LOG"
+        echo "fatal: unable to access '$repo_url': Could not resolve host" >&2
+        exit 128
+        ;;
+    "fetch")
+        # Block remote fetches to prevent network calls
+        echo "Mock git: blocking fetch to prevent network access" >> "$MOCK_LOG"
+        echo "Already up to date."
+        ;;
+    "pull")
+        # Block remote pulls to prevent network calls
+        echo "Mock git: blocking pull to prevent network access" >> "$MOCK_LOG"
+        echo "Already up to date."
+        ;;
+    "push")
+        # Block remote pushes to prevent network calls
+        echo "Mock git: blocking push to prevent network access" >> "$MOCK_LOG"
+        echo "Everything up-to-date"
+        ;;
+    *)
+        # For all other commands (status, branch, log, worktree, add, commit, etc.)
+        # use real git - they don't make network calls
+        echo "Mock git: using real git for: $1" >> "$MOCK_LOG"
+        exec /usr/bin/git "$@"
+        ;;
+esac
+
+exit 0

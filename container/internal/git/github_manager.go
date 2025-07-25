@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/vanpelt/catnip/internal/models"
@@ -184,34 +185,42 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 
 	log.Printf("✅ Updated PR for branch %s", worktree.Branch)
 
-	// Get the PR URL
-	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "url")
+	// Get the PR details
+	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "number,url,title,body")
 	output, err = cmd.Output()
 	if err != nil {
-		log.Printf("⚠️ Could not get PR URL: %v", err)
+		log.Printf("⚠️ Could not get PR details: %v", err)
 		return &models.PullRequestResponse{
-			URL:   "",
-			Title: title,
-			Body:  body,
+			Number: 0,
+			URL:    "",
+			Title:  title,
+			Body:   body,
 		}, nil
 	}
 
 	var result struct {
-		URL string `json:"url"`
+		Number int    `json:"number"`
+		URL    string `json:"url"`
+		Title  string `json:"title"`
+		Body   string `json:"body"`
 	}
 	if err := json.Unmarshal(output, &result); err != nil {
-		log.Printf("⚠️ Could not parse PR URL: %v", err)
+		log.Printf("⚠️ Could not parse PR details: %v", err)
 		return &models.PullRequestResponse{
-			URL:   "",
-			Title: title,
-			Body:  body,
+			Number: 0,
+			URL:    "",
+			Title:  title,
+			Body:   body,
 		}, nil
 	}
 
 	return &models.PullRequestResponse{
-		URL:   result.URL,
-		Title: title,
-		Body:  body,
+		Number:     result.Number,
+		URL:        result.URL,
+		Title:      result.Title,
+		Body:       result.Body,
+		HeadBranch: branchToPush,
+		BaseBranch: worktree.SourceBranch,
 	}, nil
 }
 
@@ -280,10 +289,24 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 	// Extract URL from output (gh pr create returns the URL)
 	url := strings.TrimSpace(string(output))
 
+	// Extract PR number from URL (e.g., https://github.com/owner/repo/pull/123)
+	prNumber := 0
+	if strings.Contains(url, "/pull/") {
+		parts := strings.Split(url, "/pull/")
+		if len(parts) == 2 {
+			if num, err := strconv.Atoi(parts[1]); err == nil {
+				prNumber = num
+			}
+		}
+	}
+
 	return &models.PullRequestResponse{
-		URL:   url,
-		Title: title,
-		Body:  body,
+		Number:     prNumber,
+		URL:        url,
+		Title:      title,
+		Body:       body,
+		HeadBranch: branchToPush,
+		BaseBranch: worktree.SourceBranch,
 	}, nil
 }
 

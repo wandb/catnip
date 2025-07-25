@@ -1,0 +1,36 @@
+services:
+  catnip-test:
+    image: catnip:test
+    container_name: catnip-test
+    ports:
+      - "8181:8181"
+    volumes:
+      # Mount the entire project for live editing during tests
+      - ../../:/live/catnip:cached
+      # Cache Go modules for faster builds
+      - go-mod-cache:/home/catnip/go/pkg/mod
+      - go-build-cache:/home/catnip/.cache/go-build
+      # Optional: Override mock scripts and test data for development
+      - ./mocks:/opt/catnip/test/bin:ro
+      - ./data:/opt/catnip/test/data:rw
+    environment:
+      - CATNIP_TEST_MODE=1
+      - PORT=8181
+    networks:
+      - catnip-test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  go-mod-cache:
+    driver: local
+  go-build-cache:
+    driver: local
+
+networks:
+  catnip-test-network:
+    driver: bridge

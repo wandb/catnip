@@ -1,0 +1,202 @@
+#!/bin/bash
+
+# Mock GitHub CLI for integration tests
+# This script prevents network calls and returns test data
+
+MOCK_LOG="/tmp/gh-mock.log"
+DATA_DIR="${CATNIP_TEST_DATA_DIR:-/opt/catnip/test/data}/gh_data"
+
+# Initialize mock log
+echo "=== GitHub CLI Mock Session Started at $(date) ===" >> "$MOCK_LOG"
+
+# Ensure data directory exists
+mkdir -p "$DATA_DIR"
+
+# Log the command
+echo "$(date): gh $*" >> "$MOCK_LOG"
+
+# Handle different gh commands
+case "$1" in
+    "auth")
+        case "$2" in
+            "status")
+                # Return auth status from test data
+                if [[ -f "$DATA_DIR/auth_status.json" ]]; then
+                    cat "$DATA_DIR/auth_status.json"
+                else
+                    echo '{"hostname": "github.com", "username": "testuser", "scopes": ["repo", "workflow"]}'
+                fi
+                ;;
+            "login")
+                echo "Authentication successful"
+                echo '{"hostname": "github.com", "username": "testuser", "scopes": ["repo", "workflow"]}' > "$DATA_DIR/auth_status.json"
+                ;;
+            *)
+                echo "Mock gh auth: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    "repo")
+        case "$2" in
+            "list")
+                # Return repository list from test data
+                if [[ -f "$DATA_DIR/repos.json" ]]; then
+                    cat "$DATA_DIR/repos.json"
+                else
+                    echo '[
+                        {"id": "", "url": "local/catnip", "path": "", "defaultBranch": "", "createdAt": "0001-01-01T00:00:00Z", "lastAccessed": "0001-01-01T00:00:00Z", "description": "Local repository (mounted)"},
+                        {"id": "", "url": "https://github.com/testorg/test-repo", "path": "", "defaultBranch": "", "createdAt": "0001-01-01T00:00:00Z", "lastAccessed": "0001-01-01T00:00:00Z", "description": "Test repository for integration tests"},
+                        {"id": "", "url": "https://github.com/wandb/catnip", "path": "", "defaultBranch": "", "createdAt": "0001-01-01T00:00:00Z", "lastAccessed": "0001-01-01T00:00:00Z", "description": "Agentic coding environment"}
+                    ]'
+                fi
+                ;;
+            "create")
+                echo "Created repository $3"
+                echo "repo create $*" >> "$DATA_DIR/repo_create_log.txt"
+                ;;
+            *)
+                echo "Mock gh repo: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    "pr")
+        case "$2" in
+            "create")
+                # The real gh pr create command returns the URL to the created PR
+                # Parse arguments to get repo name for realistic URL
+                repo=""
+                title=""
+                body=""
+                base=""
+                head=""
+                
+                # Parse arguments
+                for ((i=3; i<=$#; i++)); do
+                    case "${!i}" in
+                        --repo)
+                            ((i++))
+                            repo="${!i}"
+                            ;;
+                        --title)
+                            ((i++))
+                            title="${!i}"
+                            ;;
+                        --body)
+                            ((i++))
+                            body="${!i}"
+                            ;;
+                        --base)
+                            ((i++))
+                            base="${!i}"
+                            ;;
+                        --head)
+                            ((i++))
+                            head="${!i}"
+                            ;;
+                    esac
+                done
+                
+                # Generate a realistic PR URL (what gh pr create actually returns)
+                pr_number=123
+                if [[ -n "$repo" ]]; then
+                    echo "https://github.com/$repo/pull/$pr_number"
+                else
+                    echo "https://github.com/testorg/test-repo/pull/$pr_number"
+                fi
+                
+                # Log the PR creation for debugging
+                echo "pr create: title=\"$title\" body=\"$body\" repo=\"$repo\" base=\"$base\" head=\"$head\"" >> "$DATA_DIR/pr_create_log.txt"
+                ;;
+            "edit")
+                # Handle pr edit command for updating PRs
+                branch="$3"
+                repo=""
+                title=""
+                body=""
+                
+                # Parse arguments  
+                for ((i=4; i<=$#; i++)); do
+                    case "${!i}" in
+                        --repo)
+                            ((i++))
+                            repo="${!i}"
+                            ;;
+                        --title)
+                            ((i++))
+                            title="${!i}"
+                            ;;
+                        --body)
+                            ((i++))
+                            body="${!i}"
+                            ;;
+                    esac
+                done
+                
+                echo "Updated PR for branch $branch"
+                echo "pr edit: branch=\"$branch\" title=\"$title\" body=\"$body\" repo=\"$repo\"" >> "$DATA_DIR/pr_edit_log.txt"
+                ;;
+            "view")
+                # Handle pr view command for checking existing PRs
+                # This is used by the backend to get PR details
+                branch="$3"
+                repo=""
+                format=""
+                
+                # Parse arguments
+                for ((i=4; i<=$#; i++)); do
+                    case "${!i}" in
+                        --repo)
+                            ((i++))
+                            repo="${!i}"
+                            ;;
+                        --json)
+                            ((i++))
+                            format="${!i}"
+                            ;;
+                    esac
+                done
+                
+                # Return JSON format with PR details if requested
+                if [[ "$format" == "number,url,title,body" ]]; then
+                    cat << EOF
+{
+  "number": 123,
+  "url": "https://github.com/${repo:-testorg/test-repo}/pull/123",
+  "title": "Test PR",
+  "body": "This is a test pull request"
+}
+EOF
+                else
+                    echo "PR #123: Test PR"
+                fi
+                ;;
+            "list")
+                echo "[]"  # No PRs in test
+                ;;
+            *)
+                echo "Mock gh pr: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    "issue")
+        case "$2" in
+            "list")
+                echo "[]"  # No issues in test
+                ;;
+            *)
+                echo "Mock gh issue: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    *)
+        echo "Mock gh: unknown command '$1'" >> "$MOCK_LOG"
+        echo "Mock gh: command not implemented: $*" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

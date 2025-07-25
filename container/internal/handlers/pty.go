@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,6 +21,19 @@ import (
 	"github.com/gofiber/websocket/v2"
 	"github.com/vanpelt/catnip/internal/services"
 )
+
+// DefaultCheckpointTimeoutSeconds is the default checkpoint timeout in seconds
+const DefaultCheckpointTimeoutSeconds = 30
+
+// getCheckpointTimeout returns the checkpoint timeout duration from environment or default
+func getCheckpointTimeout() time.Duration {
+	if timeoutStr := os.Getenv("CATNIP_COMMIT_TIMEOUT_SECONDS"); timeoutStr != "" {
+		if timeout, err := strconv.Atoi(timeoutStr); err == nil && timeout > 0 {
+			return time.Duration(timeout) * time.Second
+		}
+	}
+	return DefaultCheckpointTimeoutSeconds * time.Second
+}
 
 // PTYHandler handles PTY WebSocket connections
 type PTYHandler struct {
@@ -1269,7 +1283,7 @@ type SessionCheckpointManager struct {
 func (cm *SessionCheckpointManager) ShouldCreateCheckpoint() bool {
 	cm.checkpointMutex.RLock()
 	defer cm.checkpointMutex.RUnlock()
-	return time.Since(cm.lastCommitTime) >= 30*time.Second
+	return time.Since(cm.lastCommitTime) >= getCheckpointTimeout()
 }
 
 // CreateCheckpoint creates a checkpoint commit
