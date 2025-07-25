@@ -326,7 +326,7 @@ function WorktreeActionDropdown({
           <DropdownMenuItem asChild>
             <Link
               to="/terminal/$sessionId"
-              params={{ sessionId: encodeURIComponent(worktree.name) }}
+              params={{ sessionId: worktree.name }}
               search={{
                 agent: "claude",
                 prompt:
@@ -345,7 +345,7 @@ function WorktreeActionDropdown({
         <DropdownMenuItem asChild>
           <Link
             to="/terminal/$sessionId"
-            params={{ sessionId: encodeURIComponent(worktree.name) }}
+            params={{ sessionId: worktree.name }}
             className="flex items-center gap-2"
           >
             <Terminal size={16} />
@@ -441,7 +441,7 @@ function WorktreeHeader({
       <div className="flex items-center gap-2">
         <Link
           to="/terminal/$sessionId"
-          params={{ sessionId: encodeURIComponent(worktree.name) }}
+          params={{ sessionId: worktree.name }}
           className="text-lg font-medium hover:underline"
         >
           {worktree.name}
