@@ -6,6 +6,7 @@ catnip
 # Air temporary files
 tmp/
 build-errors.log
+.air.test.toml
 
 # Go build cache
 *.out
