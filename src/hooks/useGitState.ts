@@ -112,7 +112,16 @@ export function useGitState() {
     setState((prev) => ({ ...prev, worktreesLoading: true }));
     try {
       const data = await gitApi.fetchWorktrees();
-      setState((prev) => ({ ...prev, worktrees: data }));
+      // Transform REST response to include cache status (consistent with useWorktreeStore)
+      const enhancedWorktrees = data.map((worktree) => ({
+        ...worktree,
+        cache_status: {
+          is_cached: true, // Assume fresh data from REST
+          is_loading: false,
+          last_updated: Date.now(),
+        },
+      }));
+      setState((prev) => ({ ...prev, worktrees: enhancedWorktrees }));
     } catch (error) {
       console.error("Failed to fetch worktrees:", error);
     } finally {
@@ -443,7 +452,16 @@ export function useGitState() {
   const backgroundRefreshWorktrees = async () => {
     try {
       const data = await gitApi.fetchWorktrees();
-      setState((prev) => ({ ...prev, worktrees: data }));
+      // Transform REST response to include cache status (consistent with useWorktreeStore)
+      const enhancedWorktrees = data.map((worktree) => ({
+        ...worktree,
+        cache_status: {
+          is_cached: true, // Assume fresh data from REST
+          is_loading: false,
+          last_updated: Date.now(),
+        },
+      }));
+      setState((prev) => ({ ...prev, worktrees: enhancedWorktrees }));
     } catch (error) {
       console.error("Failed to fetch worktrees:", error);
     }
@@ -587,7 +605,16 @@ export function useGitState() {
       );
 
       if (updatedWorktree) {
-        updateWorktree(updatedWorktree);
+        // Add cache status before updating
+        const enhancedWorktree = {
+          ...updatedWorktree,
+          cache_status: {
+            is_cached: true, // Assume fresh data from REST
+            is_loading: false,
+            last_updated: Date.now(),
+          },
+        };
+        updateWorktree(enhancedWorktree);
       }
 
       // Update related data for this worktree
@@ -614,8 +641,18 @@ export function useGitState() {
       const currentWorktreeIds = new Set(state.worktrees.map((wt) => wt.id));
       const allWorktrees = await gitApi.fetchWorktrees();
 
+      // Transform REST response to include cache status (consistent with useWorktreeStore)
+      const enhancedWorktrees = allWorktrees.map((worktree) => ({
+        ...worktree,
+        cache_status: {
+          is_cached: true, // Assume fresh data from REST
+          is_loading: false,
+          last_updated: Date.now(),
+        },
+      }));
+
       // Find new worktrees
-      const newWorktrees = allWorktrees.filter(
+      const newWorktrees = enhancedWorktrees.filter(
         (wt) => !currentWorktreeIds.has(wt.id),
       );
 

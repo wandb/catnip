@@ -527,8 +527,9 @@ func (h *GitHandler) GetWorktreeDiff(c *fiber.Ctx) error {
 
 // CreatePullRequestRequest represents a request to create a pull request
 type CreatePullRequestRequest struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	ForcePush bool   `json:"force_push,omitempty"`
 }
 
 // CreatePullRequest creates a pull request for a worktree
@@ -551,7 +552,7 @@ func (h *GitHandler) CreatePullRequest(c *fiber.Ctx) error {
 		})
 	}
 
-	pr, err := h.gitService.CreatePullRequest(worktreeID, req.Title, req.Body)
+	pr, err := h.gitService.CreatePullRequest(worktreeID, req.Title, req.Body, req.ForcePush)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
@@ -581,7 +582,7 @@ func (h *GitHandler) UpdatePullRequest(c *fiber.Ctx) error {
 		})
 	}
 
-	pr, err := h.gitService.UpdatePullRequest(worktreeID, req.Title, req.Body)
+	pr, err := h.gitService.UpdatePullRequest(worktreeID, req.Title, req.Body, req.ForcePush)
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),

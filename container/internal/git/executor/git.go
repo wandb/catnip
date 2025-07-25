@@ -3,6 +3,7 @@ package executor
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 
@@ -50,9 +51,39 @@ func (e *GitExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...string
 		return nil, fmt.Errorf("no git command provided")
 	}
 
-	command := args[0]
+	// Find the actual git command, skipping over git config flags (-c)
+	command := ""
+	commandIndex := -1
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if arg == "-c" {
+			// Skip -c and its value
+			i += 2 // Skip both -c and the config value
+			continue
+		} else if !strings.HasPrefix(arg, "-") {
+			// Found the git command (not a flag)
+			command = arg
+			commandIndex = i
+			break
+		}
+		i++
+	}
 
-	// Handle commands that we can implement with go-git
+	if command == "" {
+		return nil, fmt.Errorf("no git command found in arguments")
+	}
+
+	// For commands with config flags, we need to pass all args to shell executor
+	// since go-git doesn't handle -c config flags
+	if commandIndex > 0 {
+		// Has config flags, use shell executor for all operations
+		log.Printf("🔧 GitExecutor: detected config flags, using shell fallback for: %v", args)
+		log.Printf("🔍 GitExecutor: command=%s, commandIndex=%d, workingDir=%s", command, commandIndex, workingDir)
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, args...)
+	}
+
+	// Handle commands that we can implement with go-git (no config flags)
 	switch command {
 	case "status":
 		return e.handleStatus(workingDir, args[1:])

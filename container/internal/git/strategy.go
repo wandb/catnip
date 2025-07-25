@@ -26,6 +26,7 @@ type PushStrategy struct {
 	SyncOnFail   bool   // Whether to sync with upstream on push failure
 	SetUpstream  bool   // Whether to set upstream (-u flag)
 	ConvertHTTPS bool   // Whether to convert SSH URLs to HTTPS (includes workflow detection)
+	Force        bool   // Whether to force push (--force-with-lease)
 }
 
 // FetchExecutor handles fetch operations with strategy pattern
@@ -168,6 +169,9 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 	if strategy.SetUpstream {
 		args = append(args, "-u")
 	}
+	if strategy.Force {
+		args = append(args, "--force-with-lease")
+	}
 	args = append(args, strategy.Remote, strategy.Branch)
 
 	// Execute push with URL rewriting if HTTPS is needed (safer than modifying .git/config)
@@ -177,9 +181,11 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 		// Use git config URL rewriting - works for SSH (converts) and HTTPS (no-op)
 		// This avoids OAuth scope issues and doesn't modify .git/config
 		gitArgs := append([]string{"-c", "url.https://github.com/.insteadOf=git@github.com:"}, args...)
+		log.Printf("🔄 Executing git push with URL rewriting: %v", gitArgs)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, gitArgs...)
 	} else {
 		// Normal push execution
+		log.Printf("🔄 Executing git push without URL rewriting: %v", args)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, args...)
 	}
 	if err != nil {
