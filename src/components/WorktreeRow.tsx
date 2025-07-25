@@ -370,17 +370,13 @@ function WorktreeActionDropdown({
               ? "text-muted-foreground"
               : "text-green-600"
           }
-          disabled={
-            prStatus?.has_commits_ahead === false || worktree.commit_count === 0
-          }
+          disabled={worktree.commit_count === 0}
           title={
-            prStatus?.has_commits_ahead === false
-              ? "No new commits to push to GitHub"
-              : worktree.commit_count === 0
-                ? "No commits in this worktree"
-                : prStatus?.exists
-                  ? "Update existing pull request on GitHub"
-                  : "Create new pull request on GitHub"
+            worktree.commit_count === 0
+              ? "No commits in this worktree"
+              : prStatus?.exists
+                ? "Update existing pull request on GitHub"
+                : "Create new pull request on GitHub"
           }
         >
           <GitMerge size={16} />

@@ -61,6 +61,7 @@ type CreatePullRequestRequest struct {
 	Title            string
 	Body             string
 	IsUpdate         bool
+	ForcePush        bool
 	FetchFullHistory func(*models.Worktree)
 	CreateTempCommit func(string) (string, error)
 	RevertTempCommit func(string, string)
@@ -120,18 +121,18 @@ func (g *GitHubManager) CreatePullRequest(req CreatePullRequestRequest) (*models
 	}
 
 	if req.IsUpdate {
-		return g.updatePullRequestWithGH(req.Worktree, ownerRepo, req.Title, req.Body)
+		return g.updatePullRequestWithGH(req.Worktree, ownerRepo, req.Title, req.Body, req.ForcePush)
 	} else {
-		return g.createPullRequestWithGH(req.Worktree, ownerRepo, req.Title, req.Body)
+		return g.createPullRequestWithGH(req.Worktree, ownerRepo, req.Title, req.Body, req.ForcePush)
 	}
 }
 
 // GetPullRequestInfo retrieves PR information for a worktree
 func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository *models.Repository) (*models.PullRequestInfo, error) {
 	// For local repos, we still want to check if there are commits
-	// The UI will show the PR button if HasCommitsAhead is true
+	// Allow PR creation if there are commits, regardless of being behind base branch
 	prInfo := &models.PullRequestInfo{
-		HasCommitsAhead: worktree.CommitCount > 0, // Enable PR if there are commits
+		HasCommitsAhead: worktree.CommitCount > 0, // Enable PR if there are commits in worktree
 		Exists:          false,
 	}
 
@@ -153,7 +154,7 @@ func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository
 }
 
 // updatePullRequestWithGH updates an existing PR using GitHub CLI
-func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
+func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string, forcePush bool) (*models.PullRequestResponse, error) {
 	log.Printf("🔄 Updating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
 	// Handle custom refs (e.g., refs/catnip/ninja) by using the simple branch name
@@ -165,9 +166,11 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 
 	// First, push the branch to ensure it's up to date
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:      branchToPush,
-		Remote:      "origin",
-		SetUpstream: true,
+		Branch:       branchToPush,
+		Remote:       "origin",
+		SetUpstream:  true,
+		ConvertHTTPS: true,
+		Force:        forcePush,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to push branch before PR update: %v", err)
 	}
@@ -225,7 +228,7 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 }
 
 // createPullRequestWithGH creates a new PR using GitHub CLI
-func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string) (*models.PullRequestResponse, error) {
+func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string, forcePush bool) (*models.PullRequestResponse, error) {
 	log.Printf("🚀 Creating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
 	// Handle custom refs (e.g., refs/catnip/ninja) by creating a regular branch
@@ -259,15 +262,21 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 	}
 
 	// Push the branch
+	log.Printf("🔍 PR Creation: About to push branch %s with ConvertHTTPS=true, Force=%v", branchToPush, forcePush)
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
-		Branch:      branchToPush,
-		Remote:      "origin",
-		SetUpstream: true,
+		Branch:       branchToPush,
+		Remote:       "origin",
+		SetUpstream:  true,
+		ConvertHTTPS: true,
+		Force:        forcePush,
 	}); err != nil {
+		log.Printf("❌ PR Creation: Push failed: %v", err)
 		return nil, fmt.Errorf("failed to push branch before PR creation: %v", err)
 	}
+	log.Printf("✅ PR Creation: Push successful for branch %s", branchToPush)
 
 	// Create the PR
+	log.Printf("🔍 PR Creation: About to create PR with gh pr create --repo %s", ownerRepo)
 	cmd := g.execCommand("gh", "pr", "create",
 		"--repo", ownerRepo,
 		"--base", worktree.SourceBranch,

@@ -3,6 +3,7 @@ package executor
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os/exec"
 	"strings"
 )
@@ -57,6 +58,7 @@ func (e *ShellExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...stri
 	if workingDir != "" {
 		args = append([]string{"-C", workingDir}, args...)
 	}
+	log.Printf("🐚 ShellExecutor: executing git %v", args)
 	return e.Execute("", args...)
 }
 

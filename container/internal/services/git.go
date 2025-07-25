@@ -1831,7 +1831,7 @@ func (s *GitService) GetWorktreeDiff(worktreeID string) (*git.WorktreeDiffRespon
 }
 
 // CreatePullRequest creates a pull request for a worktree branch
-func (s *GitService) CreatePullRequest(worktreeID, title, body string) (*models.PullRequestResponse, error) {
+func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush bool) (*models.PullRequestResponse, error) {
 	s.mu.RLock()
 	worktree, exists := s.worktrees[worktreeID]
 	if !exists {
@@ -1859,6 +1859,7 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string) (*models.
 		Title:            title,
 		Body:             body,
 		IsUpdate:         false,
+		ForcePush:        forcePush,
 		FetchFullHistory: s.fetchFullHistory,
 		CreateTempCommit: s.createTemporaryCommit,
 		RevertTempCommit: s.revertTemporaryCommit,
@@ -1866,7 +1867,7 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string) (*models.
 }
 
 // UpdatePullRequest updates an existing pull request for a worktree branch
-func (s *GitService) UpdatePullRequest(worktreeID, title, body string) (*models.PullRequestResponse, error) {
+func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush bool) (*models.PullRequestResponse, error) {
 	s.mu.RLock()
 	worktree, exists := s.worktrees[worktreeID]
 	if !exists {
@@ -1894,6 +1895,7 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string) (*models.
 		Title:            title,
 		Body:             body,
 		IsUpdate:         true,
+		ForcePush:        forcePush,
 		FetchFullHistory: s.fetchFullHistory,
 		CreateTempCommit: s.createTemporaryCommit,
 		RevertTempCommit: s.revertTemporaryCommit,
@@ -1936,8 +1938,12 @@ func (s *GitService) ensureBaseBranchOnRemote(worktree *models.Worktree, repo *m
 
 // checkBaseBranchOnRemote checks if the base branch exists on the remote repository
 func (s *GitService) checkBaseBranchOnRemote(worktree *models.Worktree, remoteURL string) error {
+	// Convert SSH URLs to HTTPS to avoid authentication issues
+	httpsURL := git.ConvertSSHToHTTPS(remoteURL)
+	log.Printf("🔍 Checking base branch on remote: %s -> %s", remoteURL, httpsURL)
+
 	// Use git ls-remote to check if the base branch exists on remote
-	output, err := s.runGitCommand("", "ls-remote", "--heads", remoteURL, worktree.SourceBranch)
+	output, err := s.runGitCommand("", "ls-remote", "--heads", httpsURL, worktree.SourceBranch)
 	if err != nil {
 		return fmt.Errorf("failed to check remote branches: %v", err)
 	}

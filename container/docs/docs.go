@@ -1652,6 +1652,9 @@ const docTemplate = `{
                 "body": {
                     "type": "string"
                 },
+                "force_push": {
+                    "type": "boolean"
+                },
                 "title": {
                     "type": "string"
                 }

@@ -277,20 +277,20 @@ func TestGitServiceGitHubOperationsFunctional(t *testing.T) {
 
 	t.Run("CreatePullRequest_ValidatesWorktree", func(t *testing.T) {
 		// Test with non-existent worktree
-		pr, err := service.CreatePullRequest("non-existent", "Test PR", "Test body")
+		pr, err := service.CreatePullRequest("non-existent", "Test PR", "Test body", false)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "worktree non-existent not found")
 		assert.Nil(t, pr)
 
 		// Test with valid worktree (will fail at git operations, but validates worktree exists)
-		pr, err = service.CreatePullRequest("gh-test-worktree", "Test PR", "Test body")
+		pr, err = service.CreatePullRequest("gh-test-worktree", "Test PR", "Test body", false)
 		assert.Error(t, err) // Expected - no real git repo
 		assert.Nil(t, pr)
 	})
 
 	t.Run("UpdatePullRequest_ValidatesWorktree", func(t *testing.T) {
 		// Test with non-existent worktree
-		pr, err := service.UpdatePullRequest("non-existent", "Updated PR", "Updated body")
+		pr, err := service.UpdatePullRequest("non-existent", "Updated PR", "Updated body", false)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "worktree non-existent not found")
 		assert.Nil(t, pr)

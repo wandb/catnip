@@ -77,7 +77,7 @@ func TestGitServiceGitHubOperations(t *testing.T) {
 	})
 
 	t.Run("CreatePullRequest", func(t *testing.T) {
-		pr, err := service.CreatePullRequest("worktree-id", "title", "body")
+		pr, err := service.CreatePullRequest("worktree-id", "title", "body", false)
 		// Should error for non-existent worktree
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "worktree worktree-id not found")
@@ -85,7 +85,7 @@ func TestGitServiceGitHubOperations(t *testing.T) {
 	})
 
 	t.Run("UpdatePullRequest", func(t *testing.T) {
-		pr, err := service.UpdatePullRequest("worktree-id", "title", "body")
+		pr, err := service.UpdatePullRequest("worktree-id", "title", "body", false)
 		// Should error for non-existent worktree
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "worktree worktree-id not found")
