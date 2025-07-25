@@ -164,7 +164,7 @@ run_tests() {
     # Check if go is available locally
     if command -v go >/dev/null 2>&1; then
         log_info "Running tests with local Go installation..."
-        go test -v -timeout 30m ./... 2>&1
+        go test -v -timeout 30m -tags=integration ./... 2>&1
     else
         log_info "Go not found locally, using Docker to run tests..."
         # Use a Go container to run the tests, connected to our test server
@@ -177,7 +177,7 @@ run_tests() {
             -w /test \
             --add-host=host.docker.internal:host-gateway \
             golang:1.21 \
-            go test -v -timeout 30m ./...
+            go test -v -timeout 30m -tags=integration ./...
     fi
     
     local test_exit_code=$?
@@ -208,7 +208,7 @@ run_specific_test() {
     # Check if go is available locally
     if command -v go >/dev/null 2>&1; then
         log_info "Running test with local Go installation..."
-        go test -v -timeout 30m -run "$test_name" ./...
+        go test -v -timeout 30m -tags=integration -run "$test_name" ./...
     else
         log_info "Go not found locally, using Docker to run test..."
         docker run --rm \
@@ -220,7 +220,7 @@ run_specific_test() {
             -w /test \
             --add-host=host.docker.internal:host-gateway \
             golang:1.21 \
-            go test -v -timeout 30m -run "$test_name" ./...
+            go test -v -timeout 30m -tags=integration -run "$test_name" ./...
     fi
 }
 
@@ -241,7 +241,7 @@ run_benchmarks() {
     # Check if go is available locally
     if command -v go >/dev/null 2>&1; then
         log_info "Running benchmarks with local Go installation..."
-        go test -v -bench=. -benchmem ./...
+        go test -v -bench=. -benchmem -tags=integration ./...
     else
         log_info "Go not found locally, using Docker to run benchmarks..."
         docker run --rm \
@@ -253,7 +253,7 @@ run_benchmarks() {
             -w /test \
             --add-host=host.docker.internal:host-gateway \
             golang:1.21 \
-            go test -v -bench=. -benchmem ./...
+            go test -v -bench=. -benchmem -tags=integration ./...
     fi
 }
 

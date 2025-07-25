@@ -47,9 +47,13 @@ swagger:
 	@command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
 	swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
 
-# Run tests
+# Run unit tests (excludes integration tests)
 test:
 	go test -v ./...
+
+# Run integration tests (requires test container)
+test-integration:
+	go test -v -tags=integration ./test/integration/...
 
 # Clean build artifacts
 clean:
