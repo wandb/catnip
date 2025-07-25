@@ -21,14 +21,18 @@ type EventType string
 
 // Event type constants that match the frontend TypeScript definitions
 const (
-	PortOpenedEvent      EventType = "port:opened"
-	PortClosedEvent      EventType = "port:closed"
-	GitDirtyEvent        EventType = "git:dirty"
-	GitCleanEvent        EventType = "git:clean"
-	ProcessStartedEvent  EventType = "process:started"
-	ProcessStoppedEvent  EventType = "process:stopped"
-	ContainerStatusEvent EventType = "container:status"
-	HeartbeatEvent       EventType = "heartbeat"
+	PortOpenedEvent            EventType = "port:opened"
+	PortClosedEvent            EventType = "port:closed"
+	GitDirtyEvent              EventType = "git:dirty"
+	GitCleanEvent              EventType = "git:clean"
+	ProcessStartedEvent        EventType = "process:started"
+	ProcessStoppedEvent        EventType = "process:stopped"
+	ContainerStatusEvent       EventType = "container:status"
+	HeartbeatEvent             EventType = "heartbeat"
+	WorktreeStatusUpdatedEvent EventType = "worktree:status_updated"
+	WorktreeBatchUpdatedEvent  EventType = "worktree:batch_updated"
+	WorktreeDirtyEvent         EventType = "worktree:dirty"
+	WorktreeCleanEvent         EventType = "worktree:clean"
 )
 
 type AppEvent struct {
@@ -69,6 +73,21 @@ type ContainerStatusPayload struct {
 type HeartbeatPayload struct {
 	Timestamp int64 `json:"timestamp"`
 	Uptime    int64 `json:"uptime"`
+}
+
+type WorktreeStatusPayload struct {
+	WorktreeID string                         `json:"worktree_id"`
+	Status     *services.CachedWorktreeStatus `json:"status"`
+}
+
+type WorktreeBatchPayload struct {
+	Updates map[string]*services.CachedWorktreeStatus `json:"updates"`
+}
+
+type WorktreeDirtyPayload struct {
+	WorktreeID   string   `json:"worktree_id"`
+	WorktreeName string   `json:"worktree_name"`
+	Files        []string `json:"files,omitempty"`
 }
 
 type SSEMessage struct {
@@ -511,6 +530,50 @@ func (h *EventsHandler) EmitContainerStatus(status string, message *string) {
 		Payload: ContainerStatusPayload{
 			Status:  status,
 			Message: message,
+		},
+	})
+}
+
+// EmitWorktreeStatusUpdated broadcasts a single worktree status update to all connected clients
+func (h *EventsHandler) EmitWorktreeStatusUpdated(worktreeID string, status *services.CachedWorktreeStatus) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeStatusUpdatedEvent,
+		Payload: WorktreeStatusPayload{
+			WorktreeID: worktreeID,
+			Status:     status,
+		},
+	})
+}
+
+// EmitWorktreeBatchUpdated broadcasts multiple worktree status updates to all connected clients
+func (h *EventsHandler) EmitWorktreeBatchUpdated(updates map[string]*services.CachedWorktreeStatus) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeBatchUpdatedEvent,
+		Payload: WorktreeBatchPayload{
+			Updates: updates,
+		},
+	})
+}
+
+// EmitWorktreeDirty broadcasts a worktree dirty event to all connected clients
+func (h *EventsHandler) EmitWorktreeDirty(worktreeID, worktreeName string, files []string) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeDirtyEvent,
+		Payload: WorktreeDirtyPayload{
+			WorktreeID:   worktreeID,
+			WorktreeName: worktreeName,
+			Files:        files,
+		},
+	})
+}
+
+// EmitWorktreeClean broadcasts a worktree clean event to all connected clients
+func (h *EventsHandler) EmitWorktreeClean(worktreeID, worktreeName string) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeCleanEvent,
+		Payload: WorktreeDirtyPayload{
+			WorktreeID:   worktreeID,
+			WorktreeName: worktreeName,
 		},
 	})
 }

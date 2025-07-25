@@ -142,18 +142,32 @@ func (h *GitHandler) GetStatus(c *fiber.Ctx) error {
 	return c.JSON(status)
 }
 
-// ListWorktrees returns all worktrees
+// EnhancedWorktree represents a worktree with cache status metadata
+type EnhancedWorktree struct {
+	*models.Worktree
+	CacheStatus *WorktreeCacheStatus `json:"cache_status,omitempty"`
+}
+
+// WorktreeCacheStatus represents the cache status for a worktree
+type WorktreeCacheStatus struct {
+	IsCached    bool   `json:"is_cached"`
+	IsLoading   bool   `json:"is_loading"`
+	LastUpdated *int64 `json:"last_updated,omitempty"` // Unix timestamp in milliseconds
+}
+
+// ListWorktrees returns all worktrees with cache-enhanced responses
 // @Summary List all worktrees
-// @Description Returns a list of all worktrees for the current repository
+// @Description Returns a list of all worktrees for the current repository with fast cache-enhanced responses
 // @Tags git
 // @Produce json
-// @Success 200 {array} models.Worktree
+// @Success 200 {array} EnhancedWorktree
 // @Router /v1/git/worktrees [get]
 func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 	worktrees := h.gitService.ListWorktrees()
+	enhancedWorktrees := make([]*EnhancedWorktree, 0, len(worktrees))
 
-	// Enhance worktrees with session information
 	for _, worktree := range worktrees {
+		// Enhance worktrees with session information
 		if sessionInfo, exists := h.sessionService.GetActiveSession(worktree.Path); exists {
 			// Convert services.TitleEntry to models.TitleEntry
 			if sessionInfo.Title != nil {
@@ -177,9 +191,20 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 				worktree.SessionTitleHistory = history
 			}
 		}
+
+		// Create enhanced worktree with cache status
+		enhanced := &EnhancedWorktree{
+			Worktree: worktree,
+			CacheStatus: &WorktreeCacheStatus{
+				IsCached:  h.gitService.IsWorktreeStatusCached(worktree.ID),
+				IsLoading: !h.gitService.IsWorktreeStatusCached(worktree.ID), // Loading if not cached
+			},
+		}
+
+		enhancedWorktrees = append(enhancedWorktrees, enhanced)
 	}
 
-	return c.JSON(worktrees)
+	return c.JSON(enhancedWorktrees)
 }
 
 // ListGitHubRepositories returns user's GitHub repositories

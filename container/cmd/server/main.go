@@ -117,6 +117,10 @@ func main() {
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
 	defer eventsHandler.Stop()
 
+	// Connect events handler to GitService for worktree status events
+	gitService.SetEventsHandler(eventsHandler)
+	log.Printf("✅ EventsHandler connected to GitService for worktree cache events")
+
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
 
