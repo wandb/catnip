@@ -40,37 +40,56 @@ export function BranchSelector({
   isLocalRepo = false,
 }: BranchSelectorProps) {
   const [open, setOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
 
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue);
     setOpen(false);
   };
 
-  // Sort branches with current branch first (if it exists), then default branch, then others
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (newOpen) {
+      setSearchValue("");
+    }
+  };
+
+  // Sort branches: default branch first, current/mounted branch second (if different), then all others
   const sortedBranches = [...branches].sort((a, b) => {
-    if (isLocalRepo && currentBranch) {
+    // Ensure we have valid branch names
+    if (!a || !b) return 0;
+
+    // Default branch always comes first
+    if (defaultBranch) {
+      if (a === defaultBranch) return -1;
+      if (b === defaultBranch) return 1;
+    }
+
+    // Current/mounted branch comes second (if it's different from default)
+    if (currentBranch && currentBranch !== defaultBranch) {
       if (a === currentBranch) return -1;
       if (b === currentBranch) return 1;
     }
-    if (defaultBranch) {
-      if (a === defaultBranch) return isLocalRepo && currentBranch ? 1 : -1;
-      if (b === defaultBranch) return isLocalRepo && currentBranch ? -1 : 1;
-    }
+
+    // All other branches alphabetically
     return a.localeCompare(b);
   });
 
   const getBranchBadge = (branch: string) => {
-    if (isLocalRepo && branch === currentBranch) {
-      return (
-        <Badge variant="outline" className="text-xs ml-2">
-          current
-        </Badge>
-      );
-    }
-    if (branch === defaultBranch) {
+    if (
+      branch === defaultBranch &&
+      (!isLocalRepo || branch !== currentBranch)
+    ) {
       return (
         <Badge variant="secondary" className="text-xs ml-2">
           default
+        </Badge>
+      );
+    }
+    if (isLocalRepo && branch === currentBranch) {
+      return (
+        <Badge variant="outline" className="text-xs ml-2">
+          {branch === defaultBranch ? "default/mounted" : "mounted"}
         </Badge>
       );
     }
@@ -78,7 +97,7 @@ export function BranchSelector({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -98,8 +117,8 @@ export function BranchSelector({
         <Command>
           <CommandInput
             placeholder="Search branches..."
-            value={value}
-            onValueChange={onValueChange}
+            value={searchValue}
+            onValueChange={setSearchValue}
           />
           <CommandList>
             <CommandEmpty>

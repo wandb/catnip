@@ -180,7 +180,7 @@ func main() {
 	// Handle static files and SPA routing
 	if handlers.IsDevMode() {
 		// In development mode, proxy to Vite dev server
-		log.Println("🔧 Development mode: proxying to Vite dev server")
+		log.Println("🔧 Development mode: proxying to Vite dev server", handlers.ViteServerURL())
 		app.Use(func(c *fiber.Ctx) error {
 			// Skip API routes and health/swagger
 			path := c.Path()

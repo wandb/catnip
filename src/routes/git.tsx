@@ -332,7 +332,7 @@ function GitPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Checkout Repository</CardTitle>
+              <CardTitle>Checkout Repository!</CardTitle>
               <CardDescription>
                 Select from your repositories or enter a GitHub URL
               </CardDescription>
@@ -573,16 +573,8 @@ function GitPage() {
                         repoBranches[repo.id].length > 0 && (
                           <>
                             {(() => {
-                              // For local repos, only show branches that have worktrees
-                              let branchesToShow = repoBranches[repo.id];
-                              if (repo.id.startsWith("local/")) {
-                                const worktreeBranches = worktrees
-                                  .filter((wt) => wt.repo_id === repo.id)
-                                  .map((wt) => wt.source_branch);
-                                branchesToShow = repoBranches[repo.id].filter(
-                                  (branch) => worktreeBranches.includes(branch),
-                                );
-                              }
+                              // Show all branches for both local and remote repos
+                              const branchesToShow = repoBranches[repo.id];
 
                               return branchesToShow.map((branch) => (
                                 <Badge

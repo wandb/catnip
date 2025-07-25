@@ -3,6 +3,7 @@ package handlers
 import (
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -14,8 +15,7 @@ func IsDevMode() bool {
 	return os.Getenv("CATNIP_DEV") == "true"
 }
 
-// ProxyToVite proxies requests to Vite dev server
-func ProxyToVite(c *fiber.Ctx) error {
+func ViteServerURL() string {
 	viteServer := os.Getenv("VITE_DEV_SERVER")
 	if viteServer == "" {
 		port := os.Getenv("VITE_PORT")
@@ -24,9 +24,20 @@ func ProxyToVite(c *fiber.Ctx) error {
 		}
 		viteServer = "http://localhost:" + port
 	}
+	return viteServer
+}
+
+// ProxyToVite proxies requests to Vite dev server
+func ProxyToVite(c *fiber.Ctx) error {
+	viteServer := ViteServerURL()
 
 	// Build the target URL
 	targetURL := viteServer + c.OriginalURL()
+	viteServerURL, err := url.Parse(viteServer)
+	if err != nil {
+		return c.Status(500).SendString("Failed to parse Vite server URL")
+	}
+	viteHost := viteServerURL.Host
 
 	// Create HTTP client
 	client := &http.Client{}
@@ -43,7 +54,7 @@ func ProxyToVite(c *fiber.Ctx) error {
 	})
 
 	// Set Host header for proper proxying
-	req.Header.Set("Host", "localhost:5173")
+	req.Header.Set("Host", viteHost)
 
 	// Make the request
 	resp, err := client.Do(req)
