@@ -182,7 +182,8 @@ dev:
     echo ""
     
     # Export VITE_PORT for both processes
-    export VITE_PORT
+    export VITE_PORT=$VITE_PORT
+    export VITE_DEV_SERVER=http://localhost:$VITE_PORT
     
     # Function to cleanup background processes
     cleanup() {
