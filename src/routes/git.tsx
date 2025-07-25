@@ -577,26 +577,56 @@ function GitPage() {
                         repoBranches[repo.id].length > 0 && (
                           <>
                             {(() => {
-                              // Show all branches for both local and remote repos
-                              const branchesToShow = repoBranches[repo.id];
+                              // Show only the default/current branch for the repo
+                              const allBranches = repoBranches[repo.id];
 
-                              return branchesToShow.map((branch) => (
-                                <Badge
-                                  key={branch}
-                                  variant="secondary"
-                                  className="text-xs cursor-pointer hover:bg-secondary/80"
-                                  onClick={() => {
-                                    if (!repo.id.startsWith("local/")) {
-                                      window.open(
-                                        `${repo.url}/tree/${branch}`,
-                                        "_blank",
-                                      );
-                                    }
-                                  }}
-                                >
-                                  {branch}
-                                </Badge>
-                              ));
+                              // For local repos, get the current branch from worktrees
+                              if (repo.id.startsWith("local/")) {
+                                const repoWorktrees = worktrees.filter(
+                                  (wt) => wt.repo_id === repo.id,
+                                );
+                                const currentBranch =
+                                  repoWorktrees.length > 0
+                                    ? repoWorktrees[0].source_branch
+                                    : repo.default_branch || allBranches?.[0];
+
+                                if (currentBranch) {
+                                  return (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs"
+                                    >
+                                      {currentBranch}
+                                    </Badge>
+                                  );
+                                }
+                              } else {
+                                // For remote repos, show default branch
+                                const defaultBranch =
+                                  repo.default_branch ||
+                                  allBranches?.find((b) => b === "main") ||
+                                  allBranches?.find((b) => b === "master") ||
+                                  allBranches?.[0];
+
+                                if (defaultBranch) {
+                                  return (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-xs cursor-pointer hover:bg-secondary/80"
+                                      onClick={() => {
+                                        window.open(
+                                          `${repo.url}/tree/${defaultBranch}`,
+                                          "_blank",
+                                        );
+                                      }}
+                                    >
+                                      {defaultBranch}
+                                    </Badge>
+                                  );
+                                }
+                              }
+
+                              return null;
                             })()}
                           </>
                         )}
