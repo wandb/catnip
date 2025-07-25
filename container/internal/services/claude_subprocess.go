@@ -29,17 +29,8 @@ type ClaudeSubprocessWrapper struct {
 
 // NewClaudeSubprocessWrapper creates a new subprocess wrapper
 func NewClaudeSubprocessWrapper() *ClaudeSubprocessWrapper {
-	// Default to "claude" in PATH, but could be configurable
-	claudePath := "claude"
-
-	// Check if claude is available in PATH
-	if _, err := exec.LookPath(claudePath); err != nil {
-		// Could fall back to specific paths or return error
-		claudePath = "claude" // Still try the default
-	}
-
 	return &ClaudeSubprocessWrapper{
-		claudePath: claudePath,
+		claudePath: "claude",
 	}
 }
 
@@ -116,6 +107,9 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
+
+	// Set environment to inherit from current process
+	cmd.Env = os.Environ()
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
@@ -304,7 +298,7 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 		}
 	}
 
-	// Set environment
+	// Set environment to inherit from current process
 	cmd.Env = os.Environ()
 
 	// Set up pipes

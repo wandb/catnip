@@ -1,0 +1,414 @@
+#!/bin/bash
+
+# Mock Claude CLI for integration tests
+# This script simulates Claude API responses without making real API calls
+
+MOCK_LOG="/tmp/claude-mock.log"
+DATA_DIR="${CATNIP_TEST_DATA_DIR:-/opt/catnip/test/data}/claude_responses"
+
+# Initialize mock log
+echo "=== Claude Mock Session Started at $(date) ===" >> "$MOCK_LOG"
+
+# Ensure data directory exists
+mkdir -p "$DATA_DIR"
+
+# Generate session UUID
+get_session_uuid() {
+    echo $(openssl rand -hex 16 | sed 's/\(..\)/\1-/g' | sed 's/-$//')
+}
+
+# Save session state for PTY mode
+save_session_state() {
+    local session_id="$1"
+    local title="$2"
+    local state_file="$DATA_DIR/session_${session_id}.json"
+    
+    cat > "$state_file" << EOF
+{
+    "session_id": "$session_id",
+    "title": "$title",
+    "created_at": "$(date -Iseconds)",
+    "active": true
+}
+EOF
+    
+    echo "Saved session state: $session_id with title: $title" >> "$MOCK_LOG"
+}
+
+# Send terminal title escape sequence
+send_title_escape() {
+    local title="$1"
+    printf "\033]0;%s\007" "$title"
+    echo "🪧 New terminal title detected: $title" >> "$MOCK_LOG"
+}
+
+# Get mock response for various prompts
+get_response_for_prompt() {
+    local prompt="$1"
+    
+    case "$prompt" in
+        *"hello world"*|*"Hello World"*)
+            echo "Here's a simple hello world function:
+
+\`\`\`python
+def hello_world():
+    print(\"Hello, World!\")
+
+hello_world()
+\`\`\`"
+            ;;
+        *"function"*|*"create"*)
+            echo "I'll help you create a function. Here's a basic template:
+
+\`\`\`python
+def my_function(param1, param2):
+    \"\"\"
+    Brief description of what the function does.
+    
+    Args:
+        param1: Description of first parameter
+        param2: Description of second parameter
+        
+    Returns:
+        Description of return value
+    \"\"\"
+    result = param1 + param2
+    return result
+\`\`\`"
+            ;;
+        *"error"*|*"bug"*|*"fix"*)
+            echo "Let me help you debug this issue. Here are some common troubleshooting steps:
+
+1. Check the error message carefully
+2. Verify input parameters
+3. Add logging or print statements
+4. Test with simple cases first
+
+Could you share the specific error you're seeing?"
+            ;;
+        *)
+            echo "I understand you want help with: \"$prompt\"
+
+I'm a mock Claude instance for testing purposes. In a real scenario, I would provide detailed assistance with your coding tasks, including:
+
+- Writing and explaining code
+- Debugging issues
+- Suggesting improvements
+- Answering technical questions
+
+For testing purposes, I'm returning this generic response."
+            ;;
+    esac
+}
+
+# Simulate file operations
+simulate_file_operations() {
+    local action="$1"
+    local filename="$2"
+    local content="$3"
+    
+    case "$action" in
+        "addFile"|"create")
+            echo "$content" > "$filename"
+            echo "Created file: $filename" >> "$MOCK_LOG"
+            ;;
+        "updateFile"|"edit")
+            if [[ -f "$filename" ]]; then
+                echo "$content" >> "$filename"
+                echo "Updated file: $filename" >> "$MOCK_LOG"
+            else
+                echo "$content" > "$filename"
+                echo "Created new file during update: $filename" >> "$MOCK_LOG"
+            fi
+            ;;
+        "read")
+            if [[ -f "$filename" ]]; then
+                cat "$filename"
+            else
+                echo "File not found: $filename" >> "$MOCK_LOG"
+                return 1
+            fi
+            ;;
+        *)
+            echo "Unknown file operation: $action" >> "$MOCK_LOG"
+            return 1
+            ;;
+    esac
+}
+
+# Function to handle test commands from PTY input
+handle_test_command() {
+    local input="$1"
+    
+    # Check for test commands that trigger file operations
+    case "$input" in
+        "addFile:"*)
+            local file_spec="${input#addFile:}"
+            local filename="${file_spec%%:*}"
+            local content="${file_spec#*:}"
+            if [[ -z "$content" ]]; then
+                content="This is a test file created by mock Claude"
+            fi
+            simulate_file_operations "addFile" "$filename" "$content"
+            echo "✅ Created file: $filename"
+            ;;
+        "updateFile:"*)
+            local file_spec="${input#updateFile:}"
+            local filename="${file_spec%%:*}"
+            local content="${file_spec#*:}"
+            if [[ -z "$content" ]]; then
+                content="Additional line added by mock Claude"
+            fi
+            simulate_file_operations "updateFile" "$filename" "$content"
+            echo "✅ Updated file: $filename"
+            ;;
+        "setTitle:"*)
+            local new_title="${input#setTitle:}"
+            send_title_escape "$new_title"
+            echo "🪧 Set terminal title to: $new_title"
+            save_session_state "$(get_session_uuid)" "$new_title"
+            ;;
+        *)
+            return 1  # Not a test command
+            ;;
+    esac
+    return 0
+}
+
+# Function to process JSON input from stdin
+process_json_input() {
+    echo "Processing JSON input from subprocess" >> "$MOCK_LOG" 2>/dev/null || true
+    
+    # Read the first line of JSON input
+    local input_line
+    if IFS= read -r input_line; then
+        echo "Input line: $input_line" >> "$MOCK_LOG" 2>/dev/null || true
+        
+        # Extract content from the subprocess JSON format
+        # Format: {"type":"user","message":{"role":"user","content":"hello world"}}
+        local prompt=""
+        if [[ "$input_line" == *'"message"'* && "$input_line" == *'"content"'* ]]; then
+            # Use a more robust extraction method
+            prompt=$(echo "$input_line" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if 'message' in data and 'content' in data['message']:
+        print(data['message']['content'])
+except:
+    pass
+" 2>/dev/null || echo "$input_line" | sed -n 's/.*"content"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        fi
+        
+        if [[ -n "$prompt" ]]; then
+            echo "Extracted prompt: $prompt" >> "$MOCK_LOG" 2>/dev/null || true
+            
+            # Get response and format it properly for subprocess
+            local response_text=$(get_response_for_prompt "$prompt")
+            
+            # Escape quotes and newlines for JSON
+            local escaped_response=$(echo "$response_text" | sed 's/"/\\"/g' | tr '\n' ' ')
+            
+            # Return properly formatted streaming JSON response
+            cat << EOF
+{
+    "type": "assistant",
+    "message": {
+        "role": "assistant", 
+        "content": [{"type": "text", "text": "$escaped_response"}]
+    }
+}
+EOF
+            echo "Sent response to subprocess" >> "$MOCK_LOG" 2>/dev/null || true
+        else
+            echo "Could not extract prompt from input" >> "$MOCK_LOG" 2>/dev/null || true
+            # Send error response
+            cat << EOF
+{
+    "type": "assistant",
+    "message": {
+        "role": "assistant", 
+        "content": [{"type": "text", "text": "Mock Claude: Could not parse prompt from input"}]
+    }
+}
+EOF
+        fi
+    else
+        echo "No input received" >> "$MOCK_LOG" 2>/dev/null || true
+        # Send error response
+        cat << EOF
+{
+    "type": "assistant",
+    "message": {
+        "role": "assistant", 
+        "content": [{"type": "text", "text": "Mock Claude: No input received"}]
+    }
+}
+EOF
+    fi
+}
+
+# Log the command
+echo "$(date): claude $*" >> "$MOCK_LOG"
+
+# Main function
+main() {
+    # Parse command line arguments
+    local mode=""
+    local prompt=""
+    local workspace=""
+    local session_id=""
+    local api_mode=false
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --mode)
+                mode="$2"
+                shift 2
+                ;;
+            --prompt)
+                prompt="$2"
+                shift 2
+                ;;
+            --workspace)
+                workspace="$2"
+                shift 2
+                ;;
+            --session)
+                session_id="$2"
+                shift 2
+                ;;
+            -p)
+                # API mode flag
+                api_mode=true
+                shift 1
+                ;;
+            --dangerously-skip-permissions|--continue|--resume|--verbose)
+                # Ignore these Claude CLI flags for testing
+                if [[ "$1" == "--resume" && -n "$2" && ! "$2" =~ ^-- ]]; then
+                    shift 2  # Skip --resume <session_id>
+                else
+                    shift 1  # Skip standalone flags
+                fi
+                ;;
+            --output-format|--input-format|--model|--max-turns|--system-prompt)
+                # These flags take a parameter, skip both flag and value
+                if [[ "$1" == "--output-format" || "$1" == "--input-format" ]]; then
+                    api_mode=true
+                fi
+                shift 2
+                ;;
+            *)
+                # Handle other arguments or treat as prompt
+                if [[ -z "$prompt" ]]; then
+                    prompt="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Determine mode based on parsed flags
+    if [[ "$api_mode" == true ]]; then
+        # API mode - subprocess communication
+        echo "API mode detected, streaming mock response" >> "$MOCK_LOG" 2>/dev/null || true
+        
+        # Sleep briefly to simulate processing
+        sleep 1
+        
+        # Stream the JSON response format expected by subprocess
+        # Use a simple, clean JSON response
+        cat << 'EOF'
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello World function created successfully!"}]}}
+EOF
+        echo "Mock sent simple JSON response" >> "$MOCK_LOG" 2>/dev/null || true
+        return
+    elif [[ ! -t 0 ]]; then
+        # JSON input mode (piped input)
+        echo "Processing JSON input from stdin (non-tty)" >> "$MOCK_LOG" 2>/dev/null || true
+        process_json_input
+        return
+    elif [[ -z "$mode" && -z "$prompt" ]]; then
+        # Interactive mode (terminal input)
+        mode="interactive"
+    fi
+    
+    case "$mode" in
+        "messages"|"completion")
+            # API mode - return JSON response
+            local response=$(get_response_for_prompt "$prompt")
+            cat << EOF
+{
+    "response": "Invalid API key · Please run /login",
+    "isChunk": false,
+    "isLast": true,
+    "error": ""
+}
+EOF
+            ;;
+        "interactive"|"pty"|"")
+            # Interactive PTY mode
+            if [[ -z "$session_id" ]]; then
+                session_id=$(get_session_uuid)
+            fi
+            
+            # Generate title from workspace or use default
+            local title
+            if [[ -n "$workspace" ]]; then
+                title="Claude: $(basename "$workspace")"
+            else
+                title="Claude Session"
+            fi
+            
+            # Save session state
+            save_session_state "$session_id" "$title"
+            
+            # Wait a bit to ensure PTY read goroutine is set up
+            sleep 1
+            
+            # Send initial title escape sequence for PTY
+            send_title_escape "$title"
+            
+            # Small delay to ensure title sequence is processed
+            sleep 0.1
+            
+            # Simulate interactive Claude session
+            echo "Welcome to Claude! I'm ready to help with your coding tasks."
+            echo "Type your questions or commands, and I'll assist you."
+            echo ""
+            echo "Test commands available:"
+            echo "  addFile:filename.txt:content - Create a new file"
+            echo "  updateFile:filename.txt:content - Add content to existing file"  
+            echo "  setTitle:New Title - Change terminal title"
+            echo ""
+            
+            # Interactive loop simulation
+            while true; do
+                read -p "Claude> " user_input
+                if [[ "$user_input" == "exit" || "$user_input" == "quit" ]]; then
+                    break
+                fi
+                
+                # Check for test commands first
+                if handle_test_command "$user_input"; then
+                    # Test command was handled
+                    echo ""
+                    continue
+                fi
+                
+                # Simulate processing and response for regular prompts
+                response=$(get_response_for_prompt "$user_input")
+                echo "$response"
+                echo ""
+            done
+            ;;
+        *)
+            echo "Mock Claude: unknown mode '$mode'" >&2
+            echo "Available modes: messages, completion, interactive, pty" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# Run main function with all arguments
+main "$@"

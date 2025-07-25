@@ -1,0 +1,7 @@
+# Test data files
+data/claude_responses/session_*.json
+data/git_data/
+data/gh_data/
+
+# Test logs
+*.log
