@@ -203,6 +203,24 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	session := h.getOrCreateSession(sessionID, agent, reset)
 	if session == nil {
 		log.Printf("❌ Failed to create session: %s", sessionID)
+
+		// Send error message to client before closing
+		errorMsg := struct {
+			Type    string `json:"type"`
+			Error   string `json:"error"`
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		}{
+			Type:    "error",
+			Error:   "Worktree not found",
+			Message: fmt.Sprintf("The worktree '%s' does not exist", sessionID),
+			Code:    "WORKTREE_NOT_FOUND",
+		}
+
+		if data, err := json.Marshal(errorMsg); err == nil {
+			_ = conn.WriteMessage(websocket.TextMessage, data)
+		}
+
 		conn.Close()
 		return
 	}
@@ -555,7 +573,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		return session
 	}
 
-	// Set workspace directory
+	// Set workspace directory with validation
 	var workDir string
 
 	// Extract base session ID without agent suffix for directory lookups
@@ -564,15 +582,10 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		baseSessionID = sessionID[:idx]
 	}
 
-	// Priority order for workspace directory:
-	// 1. Session ID "default" maps to /workspace/current symlink if it exists
-	// 2. Session ID in repo/branch format maps to Git worktree
-	// 3. Active Git worktree (if available and no specific session)
-	// 4. Mounted directory at /workspace/{sessionID}
-	// 5. Default /workspace
-
-	// Check if session ID is "default" and /workspace/current symlink exists
+	// Validate session ID and get workspace directory
+	// Only allow "default" or existing worktree directories
 	if baseSessionID == "default" {
+		// Check if /workspace/current symlink exists
 		currentSymlinkPath := filepath.Join("/workspace", "current")
 		if target, err := os.Readlink(currentSymlinkPath); err == nil {
 			// Symlink exists, check if target is valid
@@ -580,15 +593,15 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 				workDir = target
 				log.Printf("📁 Using current workspace symlink for default session: %s", workDir)
 			} else {
-				log.Printf("⚠️ /workspace/current symlink target is invalid: %s", target)
+				log.Printf("❌ /workspace/current symlink target is invalid: %s", target)
+				return nil
 			}
+		} else {
+			log.Printf("❌ Default session requested but /workspace/current symlink does not exist")
+			return nil
 		}
-	}
-
-	// Check if session ID is in repo/branch format (e.g., "myrepo/main")
-	if workDir == "" && strings.Contains(baseSessionID, "/") && h.gitService != nil {
-		// This might be a Git worktree session
-		// The session format is "repo/branch" which maps to /workspace/repo/branch or /workspace/repo
+	} else if strings.Contains(baseSessionID, "/") {
+		// Check if session ID is in repo/branch format (e.g., "catnip/pirate")
 		parts := strings.SplitN(baseSessionID, "/", 2)
 		if len(parts) == 2 {
 			repo := parts[0]
@@ -597,47 +610,38 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			// Check for worktree at /workspace/repo/branch (our standard pattern)
 			branchWorktreePath := filepath.Join("/workspace", repo, branch)
 			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
+				// Additional validation: check if it's actually a git worktree
 				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
 					workDir = branchWorktreePath
 					log.Printf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
+				} else {
+					log.Printf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
+					return nil
 				}
-			}
-		}
-	}
-
-	// If not a Git session, check if Git service has a default worktree
-	if workDir == "" && h.gitService != nil {
-		gitWorkDir := h.gitService.GetDefaultWorktreePath()
-		if gitWorkDir != "/workspace" && gitWorkDir != "" {
-			workDir = gitWorkDir
-			log.Printf("📁 Using default Git worktree directory: %s", workDir)
-		}
-	}
-
-	// If no Git worktree, check for session-based directory
-	if workDir == "" {
-		sessionWorkDir := filepath.Join("/workspace", baseSessionID)
-		if info, err := os.Stat(sessionWorkDir); err == nil {
-			// Directory exists - could be mounted or created
-			if info.IsDir() {
-				workDir = sessionWorkDir
-				log.Printf("📁 Using existing workspace directory: %s", workDir)
-			}
-		} else if os.IsNotExist(err) {
-			// Directory doesn't exist, try to create it
-			if err := os.MkdirAll(sessionWorkDir, 0755); err != nil {
-				log.Printf("⚠️  Failed to create workspace directory: %v", err)
 			} else {
-				workDir = sessionWorkDir
-				log.Printf("📁 Created workspace directory: %s", workDir)
+				log.Printf("❌ Worktree directory does not exist: %s", branchWorktreePath)
+				return nil
 			}
+		} else {
+			log.Printf("❌ Invalid session format: %s", baseSessionID)
+			return nil
+		}
+	} else {
+		// Single name session - check if directory exists
+		sessionWorkDir := filepath.Join("/workspace", baseSessionID)
+		if info, err := os.Stat(sessionWorkDir); err == nil && info.IsDir() {
+			workDir = sessionWorkDir
+			log.Printf("📁 Using existing workspace directory: %s", workDir)
+		} else {
+			log.Printf("❌ Workspace directory does not exist: %s", sessionWorkDir)
+			return nil
 		}
 	}
 
-	// Fallback to default workspace
+	// workDir should be set at this point or we would have returned nil
 	if workDir == "" {
-		workDir = "/workspace"
-		log.Printf("📁 Using default workspace directory: %s", workDir)
+		log.Printf("❌ Failed to determine valid workspace directory for session: %s", baseSessionID)
+		return nil
 	}
 
 	// Check for existing Claude session in this directory for auto-resume

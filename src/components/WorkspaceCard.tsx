@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
   Trash2,
   Clock,
   User,
+  Loader2,
 } from "lucide-react";
 import { type Worktree } from "@/lib/git-api";
 import { getRelativeTime } from "@/lib/git-utils";
@@ -40,7 +42,7 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
       setTimeout(() => {
         void navigate({
           to: "/terminal/$sessionId",
-          params: { sessionId: encodeURIComponent(worktree.name) },
+          params: { sessionId: worktree.name },
           search: {
             agent: "claude",
             prompt: prompt,
@@ -69,7 +71,7 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
         <div className="flex items-start justify-between">
           <Link
             to="/terminal/$sessionId"
-            params={{ sessionId: encodeURIComponent(worktree.name) }}
+            params={{ sessionId: worktree.name }}
             className="flex-1 min-w-0"
           >
             <h2 className="text-xl font-semibold break-all hover:underline">
@@ -87,16 +89,14 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
           <Badge variant="outline" className="text-xs">
             {worktree.branch}
           </Badge>
-          {worktree.is_dirty ? (
-            <Badge variant="destructive" className="text-xs">
-              Dirty
-            </Badge>
-          ) : (
-            <Badge
-              variant="secondary"
-              className="text-xs bg-green-100 text-green-800 border-green-200"
-            >
-              Clean
+          <DirtyIndicator
+            isDirty={worktree.is_dirty}
+            isLoading={!worktree.cache_status?.is_cached}
+          />
+          {worktree.cache_status?.is_loading && (
+            <Badge variant="secondary" className="text-xs">
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              Updating...
             </Badge>
           )}
         </div>
@@ -155,16 +155,23 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
             <Clock size={14} />
             <span>{getRelativeTime(worktree.created_at)}</span>
           </div>
-          <div>
-            {worktree.commit_count} commit
-            {worktree.commit_count === 1 ? "" : "s"}
+          <div className="flex items-center gap-2">
+            <CommitsBadge
+              count={worktree.commit_count}
+              isLoading={!worktree.cache_status?.is_cached}
+            />
           </div>
         </div>
 
-        {worktree.commits_behind > 0 && (
-          <div className="text-xs text-orange-600">
-            {worktree.commits_behind} commits behind {worktree.source_branch}
-          </div>
+        {!worktree.cache_status?.is_cached &&
+        worktree.commits_behind === undefined ? (
+          <Skeleton className="w-24 h-4" />
+        ) : (
+          worktree.commits_behind > 0 && (
+            <div className="text-xs text-orange-600">
+              {worktree.commits_behind} commits behind {worktree.source_branch}
+            </div>
+          )
         )}
       </div>
     </div>
@@ -209,6 +216,47 @@ function CommitHashDisplay({ commitHash }: CommitHashDisplayProps) {
   );
 }
 
+interface CommitsBadgeProps {
+  count?: number;
+  isLoading: boolean;
+}
+
+function CommitsBadge({ count, isLoading }: CommitsBadgeProps) {
+  if (isLoading && count === undefined) {
+    return <Skeleton className="w-12 h-6" />;
+  }
+
+  return (
+    <Badge variant={count && count > 0 ? "default" : "secondary"}>
+      {count || 0} commit{count === 1 ? "" : "s"}
+    </Badge>
+  );
+}
+
+interface DirtyIndicatorProps {
+  isDirty?: boolean;
+  isLoading: boolean;
+}
+
+function DirtyIndicator({ isDirty, isLoading }: DirtyIndicatorProps) {
+  if (isLoading && isDirty === undefined) {
+    return <Skeleton className="w-12 h-6" />;
+  }
+
+  return (
+    <Badge
+      variant={isDirty ? "destructive" : "secondary"}
+      className={
+        isDirty
+          ? "text-xs"
+          : "text-xs bg-green-100 text-green-800 border-green-200"
+      }
+    >
+      {isDirty ? "Dirty" : "Clean"}
+    </Badge>
+  );
+}
+
 interface WorkspaceActionsProps {
   worktree: Worktree;
   onDelete?: (id: string, name: string) => void;
@@ -242,7 +290,7 @@ function WorkspaceActions({ worktree, onDelete }: WorkspaceActionsProps) {
         <DropdownMenuItem asChild>
           <Link
             to="/terminal/$sessionId"
-            params={{ sessionId: encodeURIComponent(worktree.name) }}
+            params={{ sessionId: worktree.name }}
             className="flex items-center gap-2"
           >
             <Terminal size={16} />
@@ -253,7 +301,7 @@ function WorkspaceActions({ worktree, onDelete }: WorkspaceActionsProps) {
         <DropdownMenuItem asChild>
           <Link
             to="/terminal/$sessionId"
-            params={{ sessionId: encodeURIComponent(worktree.name) }}
+            params={{ sessionId: worktree.name }}
             search={{ agent: "claude" }}
             className="flex items-center gap-2"
           >
