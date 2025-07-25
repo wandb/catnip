@@ -58,7 +58,10 @@ func (e *ShellExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...stri
 	if workingDir != "" {
 		args = append([]string{"-C", workingDir}, args...)
 	}
-	log.Printf("🐚 ShellExecutor: executing git %v", args)
+	// Only log non-routine git commands
+	if len(args) > 0 && args[0] != "-C" && (len(args) < 2 || (args[1] != "symbolic-ref" && args[1] != "rev-list" && args[1] != "rev-parse" && !strings.HasPrefix(args[1], "diff"))) {
+		log.Printf("🐚 ShellExecutor: executing git %v", args)
+	}
 	return e.Execute("", args...)
 }
 
