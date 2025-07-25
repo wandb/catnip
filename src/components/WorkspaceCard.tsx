@@ -116,63 +116,90 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
           </div>
         </div>
 
-        {/* Prompt input form */}
-        <form onSubmit={handlePromptSubmit} className="space-y-2">
-          <Textarea
-            placeholder="Ask Claude to help with this workspace..."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="text-sm resize-none min-h-[40px] max-h-[80px]"
-            rows={1}
-            style={{
-              height: "auto",
-              minHeight: "40px",
-              maxHeight: "80px",
-              overflowY: prompt.length > 0 ? "auto" : "hidden",
-            }}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              target.style.height = "auto";
-              target.style.height = Math.min(target.scrollHeight, 80) + "px";
-            }}
-          />
-          <Button
-            type="submit"
-            size="sm"
-            className="w-full"
-            disabled={!prompt.trim()}
-          >
-            Chat with Claude
-          </Button>
-        </form>
+        {/* Prompt input form (only show if no active session) */}
+        {!worktree.has_active_claude_session && (
+          <form onSubmit={handlePromptSubmit} className="space-y-2">
+            <Textarea
+              placeholder="Ask Claude to help with this workspace..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="text-sm resize-none min-h-[40px] max-h-[80px]"
+              rows={1}
+              style={{
+                height: "auto",
+                minHeight: "40px",
+                maxHeight: "80px",
+                overflowY: prompt.length > 0 ? "auto" : "hidden",
+              }}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = "auto";
+                target.style.height = Math.min(target.scrollHeight, 80) + "px";
+              }}
+            />
+            <Button
+              type="submit"
+              size="sm"
+              className="w-full"
+              disabled={!prompt.trim()}
+            >
+              Chat with Claude
+            </Button>
+          </form>
+        )}
       </div>
 
-      {/* Footer with stats */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-1">
-            <Clock size={14} />
-            <span>{getRelativeTime(worktree.created_at)}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CommitsBadge
-              count={worktree.commit_count}
-              isLoading={!worktree.cache_status?.is_cached}
-            />
-          </div>
-        </div>
+      {/* Footer with Connect button and stats */}
+      <div className="space-y-3">
+        {/* Connect to Claude button (positioned above footer stats) */}
+        {worktree.has_active_claude_session && (
+          <Button
+            onClick={() => {
+              setIsAnimating(true);
+              setTimeout(() => {
+                void navigate({
+                  to: "/terminal/$sessionId",
+                  params: { sessionId: worktree.name },
+                  search: { agent: "claude" },
+                });
+              }, 250);
+            }}
+            size="sm"
+            className="w-full"
+          >
+            Connect to Claude
+          </Button>
+        )}
 
-        {!worktree.cache_status?.is_cached &&
-        worktree.commits_behind === undefined ? (
-          <Skeleton className="w-24 h-4" />
-        ) : (
-          worktree.commits_behind > 0 && (
+        {/* Footer stats */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex items-center gap-1">
+              <Clock size={14} />
+              <span>{getRelativeTime(worktree.created_at)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <CommitsBadge
+                count={worktree.commit_count}
+                isLoading={!worktree.cache_status?.is_cached}
+              />
+            </div>
+          </div>
+
+          {!worktree.cache_status?.is_cached &&
+          worktree.commits_behind === undefined ? (
+            <Skeleton className="w-24 h-4" />
+          ) : worktree.commits_behind > 0 ? (
             <div className="text-xs text-orange-600">
               {worktree.commits_behind} commits behind {worktree.source_branch}
             </div>
-          )
-        )}
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              In sync with {worktree.source_branch}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -227,7 +254,7 @@ function CommitsBadge({ count, isLoading }: CommitsBadgeProps) {
   }
 
   return (
-    <Badge variant={count && count > 0 ? "default" : "secondary"}>
+    <Badge variant="secondary">
       {count || 0} commit{count === 1 ? "" : "s"}
     </Badge>
   );

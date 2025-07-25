@@ -76,6 +76,8 @@ type Worktree struct {
 	SessionTitle *TitleEntry `json:"session_title,omitempty"`
 	// History of session titles
 	SessionTitleHistory []TitleEntry `json:"session_title_history,omitempty"`
+	// Whether there's an active Claude session for this worktree
+	HasActiveClaudeSession bool `json:"has_active_claude_session"`
 }
 
 // WorktreeCreateRequest represents a request to create a new worktree

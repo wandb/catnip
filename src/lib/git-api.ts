@@ -35,6 +35,7 @@ export interface Worktree {
   session_title?: TitleEntry;
   session_title_history?: TitleEntry[];
   cache_status?: CacheStatus;
+  has_active_claude_session?: boolean;
 }
 
 interface Owner {
