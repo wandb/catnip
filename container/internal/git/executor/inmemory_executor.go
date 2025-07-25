@@ -78,6 +78,21 @@ func (e *InMemoryExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...s
 	return e.handleGitCommand(repo, workingDir, args...)
 }
 
+// ExecuteGitWithStdErr implements CommandExecutor.ExecuteGitWithStdErr for testing
+func (e *InMemoryExecutor) ExecuteGitWithStdErr(workingDir string, args ...string) ([]byte, []byte, error) {
+	// For testing, we'll simulate merge-tree behavior
+	if len(args) >= 1 && args[0] == "merge-tree" {
+		// Simulate merge-tree output with no conflicts for testing
+		stdout := []byte("mock-tree-hash\n")
+		stderr := []byte("")
+		return stdout, stderr, nil
+	}
+
+	// For other commands, delegate to regular execution and return empty stderr
+	output, err := e.ExecuteGitWithWorkingDir(workingDir, args...)
+	return output, []byte(""), err
+}
+
 // findRepository finds the test repository that corresponds to the working directory
 func (e *InMemoryExecutor) findRepository(workingDir string) *TestRepository {
 	// Try exact match first

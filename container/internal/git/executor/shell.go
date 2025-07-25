@@ -81,3 +81,42 @@ func (e *ShellExecutor) ExecuteCommand(command string, args ...string) ([]byte, 
 
 	return stdout.Bytes(), nil
 }
+
+// ExecuteGitWithStdErr runs a git command and returns both stdout and stderr
+func (e *ShellExecutor) ExecuteGitWithStdErr(workingDir string, args ...string) ([]byte, []byte, error) {
+	if workingDir != "" {
+		args = append([]string{"-C", workingDir}, args...)
+	}
+
+	cmd := exec.Command("git", args...)
+	cmd.Env = append(cmd.Environ(), e.defaultEnv...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// For merge-tree, exit status 1 just means conflicts detected, not an error
+	err := cmd.Run()
+	if err != nil {
+		// Check if this is a merge-tree command with exit status 1
+		// Need to search through args since -C flag shifts the position
+		isMergeTree := false
+		for _, arg := range args {
+			if arg == "merge-tree" {
+				isMergeTree = true
+				break
+			}
+		}
+
+		if isMergeTree {
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+				// Exit status 1 for merge-tree just means conflicts detected
+				return stdout.Bytes(), stderr.Bytes(), nil
+			}
+		}
+		// For other errors, return them normally
+		return nil, nil, fmt.Errorf("git %s failed: %v", strings.Join(args, " "), err)
+	}
+
+	return stdout.Bytes(), stderr.Bytes(), nil
+}

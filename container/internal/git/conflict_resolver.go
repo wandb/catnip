@@ -26,15 +26,26 @@ func (c *ConflictResolver) CheckSyncConflicts(worktreePath, sourceRef string) (*
 
 // CheckMergeConflicts checks if merging would cause conflicts (for local repos)
 func (c *ConflictResolver) CheckMergeConflicts(repoPath, worktreePath, sourceBranch, targetBranch, worktreeName string) (*models.MergeConflictError, error) {
-	// Create a temporary branch to test the merge
-	tempBranch := fmt.Sprintf("temp-merge-check-%d", GetCurrentTimestamp())
+	// Create a unique temporary branch name with timestamp + random component
+	tempBranch := fmt.Sprintf("temp-merge-check-%d-%d", GetCurrentTimestamp(), GetRandomInt())
+
+	// Clean up any existing temp branch first (in case of previous failures)
+	_ = c.operations.DeleteBranch(repoPath, tempBranch, true)
 
 	// Push the source branch to temp branch in main repo
 	// Ensure the destination is fully qualified as a branch ref
 	tempBranchRef := fmt.Sprintf("refs/heads/%s", tempBranch)
 	_, err := c.operations.ExecuteGit(worktreePath, "push", repoPath, fmt.Sprintf("%s:%s", sourceBranch, tempBranchRef))
 	if err != nil {
-		return nil, fmt.Errorf("failed to push temp branch for conflict check: %v", err)
+		// If it still fails due to ref lock, try with a different name
+		if strings.Contains(err.Error(), "cannot lock ref") || strings.Contains(err.Error(), "reference already exists") {
+			tempBranch = fmt.Sprintf("temp-merge-check-%d-%d-%d", GetCurrentTimestamp(), GetRandomInt(), GetRandomInt())
+			tempBranchRef = fmt.Sprintf("refs/heads/%s", tempBranch)
+			_, err = c.operations.ExecuteGit(worktreePath, "push", repoPath, fmt.Sprintf("%s:%s", sourceBranch, tempBranchRef))
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to push temp branch for conflict check: %v", err)
+		}
 	}
 
 	// Clean up temp branch when done
@@ -52,6 +63,7 @@ func (c *ConflictResolver) CheckMergeConflicts(repoPath, worktreePath, sourceBra
 	// Check if merge-tree output indicates conflicts
 	if c.hasConflictMarkers(output) {
 		conflictFiles := c.parseConflictFiles(output)
+		fmt.Printf("🔥 CONFLICT DETECTED: %s has conflicts in files: %v\n", worktreeName, conflictFiles)
 		return &models.MergeConflictError{
 			Operation:     "merge",
 			WorktreeName:  worktreeName,
@@ -61,6 +73,7 @@ func (c *ConflictResolver) CheckMergeConflicts(repoPath, worktreePath, sourceBra
 		}, nil
 	}
 
+	fmt.Printf("🟢 NO CONFLICTS: %s can merge cleanly\n", worktreeName)
 	return nil, nil
 }
 
@@ -145,11 +158,17 @@ func (c *ConflictResolver) checkConflicts(worktreePath, sourceRef, operation, wo
 	return nil, nil
 }
 
-// hasConflictMarkers checks if the output contains conflict markers
+// hasConflictMarkers checks if the output contains conflict markers or CONFLICT messages
 func (c *ConflictResolver) hasConflictMarkers(output string) bool {
-	return strings.Contains(output, "<<<<<<< ") ||
+	// Check for traditional conflict markers
+	hasTraditionalMarkers := strings.Contains(output, "<<<<<<< ") ||
 		strings.Contains(output, "======= ") ||
 		strings.Contains(output, ">>>>>>> ")
+
+	// Check for CONFLICT messages from merge-tree --write-tree
+	hasConflictMessages := strings.Contains(output, "CONFLICT")
+
+	return hasTraditionalMarkers || hasConflictMessages
 }
 
 // parseConflictFiles extracts file names from merge-tree conflict output

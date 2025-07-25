@@ -448,12 +448,16 @@ func (o *OperationsImpl) DiffNameOnly(worktreePath, filter string) ([]string, er
 
 func (o *OperationsImpl) MergeTree(worktreePath, base, head string) (string, error) {
 	// Use the modern merge-tree command which automatically finds the merge base
-	output, _ := o.ExecuteGit(worktreePath, "merge-tree", "--write-tree", base, head)
+	// We need to capture both stdout and stderr since conflict messages go to stderr
+	stdout, stderr, err := o.executor.ExecuteGitWithStdErr(worktreePath, "merge-tree", "--write-tree", base, head)
+	if err != nil {
+		return "", fmt.Errorf("merge-tree command failed: %v", err)
+	}
 
-	// Note: merge-tree --write-tree returns exit status 1 when there are conflicts
-	// but still provides useful output. We should return the output even if there's an "error"
-	// since exit status 1 just means "conflicts detected" which is valuable information
-	return string(output), nil
+	// Combine stdout and stderr - conflict info is in stderr
+	combinedOutput := string(stdout) + string(stderr)
+
+	return combinedOutput, nil
 }
 
 // Stash operations

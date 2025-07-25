@@ -281,6 +281,10 @@ function GitPage() {
   };
 
   const onMerge = (id: string, name: string) => {
+    console.log("🔍 DEBUG: onMerge called for", { id, name });
+    console.log("🔍 DEBUG: mergeConflicts state:", mergeConflicts);
+    console.log("🔍 DEBUG: mergeConflicts[id]:", mergeConflicts[id]);
+
     const hasConflicts = mergeConflicts[id]?.has_conflicts ?? false;
     const conflictFilesString =
       mergeConflicts[id]?.conflict_files?.join(", ") ??

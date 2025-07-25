@@ -1,10 +1,10 @@
-import { getCompletion, createCompletionRequest } from './completion';
+// Removed completion imports - no longer using AI for summary generation
 
 export interface WorktreeSummary {
   worktreeId: string;
   title: string;
   summary: string;
-  status: 'pending' | 'generating' | 'completed' | 'error';
+  status: "pending" | "generating" | "completed" | "error";
   error?: string;
   generatedAt?: Date;
 }
@@ -29,25 +29,27 @@ export interface FileDiff {
 }
 
 // Function to get diff data for a worktree
-export async function getWorktreeDiff(worktreeId: string): Promise<WorktreeDiffResponse | null> {
+export async function getWorktreeDiff(
+  worktreeId: string,
+): Promise<WorktreeDiffResponse | null> {
   // Create abort controller for request timeout
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();
   }, 30000); // 30 seconds timeout for diff requests
-  
+
   try {
     const response = await fetch(`/v1/git/worktrees/${worktreeId}/diff`, {
       signal: controller.signal,
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     if (!response.ok) {
       return null;
     }
-    
-    return await response.json() as WorktreeDiffResponse;
+
+    return (await response.json()) as WorktreeDiffResponse;
   } catch {
     clearTimeout(timeoutId);
     return null;
@@ -55,85 +57,47 @@ export async function getWorktreeDiff(worktreeId: string): Promise<WorktreeDiffR
 }
 
 // Function to generate a summary from diff data
-export async function generateWorktreeSummary(worktreeId: string): Promise<WorktreeSummary> {
+export async function generateWorktreeSummary(
+  worktreeId: string,
+): Promise<WorktreeSummary> {
   const diffData = await getWorktreeDiff(worktreeId);
-  
+
   if (!diffData?.file_diffs) {
     return {
       worktreeId,
-      title: '',
-      summary: '',
-      status: 'error',
-      error: 'Failed to fetch diff data'
+      title: "",
+      summary: "",
+      status: "error",
+      error: "Failed to fetch diff data",
     };
   }
 
   try {
-    // Create a concise diff summary for the AI
+    // Create a concise diff summary
     const diffSummary = createDiffSummary(diffData);
-    
-    // Generate PR title with timeout and error handling
-    const titleRequest = createCompletionRequest({
-      message: `Generate a concise, descriptive pull request title for these changes. The title should be 10 words or less and clearly indicate what was changed or added. Focus on the main feature or fix. 
-      Only return the title, no additional text or quotes.
 
-Changes in ${diffData.worktree_name}:
-${diffSummary}
-
-Return only the title, no additional text or quotes.`,
-      maxTokens: 50,
-      system: 'You are a helpful assistant that generates concise, professional pull request titles based on code changes.'
-    });
-
-    // Generate PR body/summary with timeout and error handling
-    const summaryRequest = createCompletionRequest({
-      message: `Generate a comprehensive pull request description for these changes. Include:
-1. A brief overview of what was changed
-2. Any especially notable implementation details
-3. Use bullet points for clarity
-
-!! Only return the description, no additional text or quotes. !!
-
-Changes in ${diffData.worktree_name}:
-${diffSummary}
-
-Format the response as a proper pull request description with clear sections.`,
-      maxTokens: 500,
-      system: 'You are a helpful assistant that generates professional pull request descriptions based on code changes. Focus on being clear, concise, and informative.'
-    });
-
-    const [titleResult, summaryResult] = await Promise.allSettled([
-      getCompletion({ request: titleRequest, cacheKey: `title-${worktreeId}` }),
-      getCompletion({ request: summaryRequest, cacheKey: `summary-${worktreeId}` })
-    ]);
-    
-    // Handle results with fallbacks
-    let title = diffData.worktree_name || 'Changes';
-    let summary = '';
-
-    if (titleResult.status === 'fulfilled' && titleResult.value?.response) {
-      title = titleResult.value.response.trim();
-    }
-
-    if (summaryResult.status === 'fulfilled' && summaryResult.value?.response) {
-      summary = summaryResult.value.response.trim();
-    }
+    // Generate a simple title and summary based on file changes (no AI needed)
+    const title = generateSimpleTitle(diffData);
+    const summary = generateSimpleSummary(diffData, diffSummary);
 
     return {
       worktreeId,
       title,
       summary,
-      status: 'completed',
-      generatedAt: new Date()
+      status: "completed",
+      generatedAt: new Date(),
     };
   } catch (error) {
-    console.error(`Failed to generate summary for worktree ${worktreeId}:`, error);
+    console.error(
+      `Failed to generate summary for worktree ${worktreeId}:`,
+      error,
+    );
     return {
       worktreeId,
-      title: 'Failed to generate summary',
-      summary: 'An error occurred while generating the summary',
-      status: 'error',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      title: "Failed to generate summary",
+      summary: "An error occurred while generating the summary",
+      status: "error",
+      error: error instanceof Error ? error.message : "Unknown error",
     };
   }
 }
@@ -141,35 +105,35 @@ Format the response as a proper pull request description with clear sections.`,
 // Create a concise diff summary for the AI
 function createDiffSummary(diffData: WorktreeDiffResponse): string {
   const { file_diffs, total_files, summary } = diffData;
-  
+
   let diffSummary = `Summary: ${summary}\n`;
   diffSummary += `Total files changed: ${total_files}\n\n`;
-  
+
   // Group files by change type
-  const added = file_diffs.filter(f => f.change_type === 'added');
-  const modified = file_diffs.filter(f => f.change_type === 'modified');
-  const deleted = file_diffs.filter(f => f.change_type === 'deleted');
-  
+  const added = file_diffs.filter((f) => f.change_type === "added");
+  const modified = file_diffs.filter((f) => f.change_type === "modified");
+  const deleted = file_diffs.filter((f) => f.change_type === "deleted");
+
   if (added.length > 0) {
     diffSummary += `Added files (${added.length}):\n`;
-    added.slice(0, 5).forEach(f => {
+    added.slice(0, 5).forEach((f) => {
       diffSummary += `  - ${f.file_path}\n`;
     });
     if (added.length > 5) {
       diffSummary += `  ... and ${added.length - 5} more\n`;
     }
-    diffSummary += '\n';
+    diffSummary += "\n";
   }
-  
+
   if (modified.length > 0) {
     diffSummary += `Modified files (${modified.length}):\n`;
-    modified.slice(0, 5).forEach(f => {
+    modified.slice(0, 5).forEach((f) => {
       diffSummary += `  - ${f.file_path}\n`;
       // Include a snippet of the diff for context
       if (f.diff_text) {
-        const lines = f.diff_text.split('\n').slice(0, 3);
-        lines.forEach(line => {
-          if (line.startsWith('+') || line.startsWith('-')) {
+        const lines = f.diff_text.split("\n").slice(0, 3);
+        lines.forEach((line) => {
+          if (line.startsWith("+") || line.startsWith("-")) {
             diffSummary += `    ${line}\n`;
           }
         });
@@ -178,26 +142,118 @@ function createDiffSummary(diffData: WorktreeDiffResponse): string {
     if (modified.length > 5) {
       diffSummary += `  ... and ${modified.length - 5} more\n`;
     }
-    diffSummary += '\n';
+    diffSummary += "\n";
   }
-  
+
   if (deleted.length > 0) {
     diffSummary += `Deleted files (${deleted.length}):\n`;
-    deleted.slice(0, 5).forEach(f => {
+    deleted.slice(0, 5).forEach((f) => {
       diffSummary += `  - ${f.file_path}\n`;
     });
     if (deleted.length > 5) {
       diffSummary += `  ... and ${deleted.length - 5} more\n`;
     }
   }
-  
+
   return diffSummary;
 }
 
 // Function to check if a worktree should have a summary generated
-export function shouldGenerateSummary(worktree: { 
-  repo_id: string; 
-  commit_count: number; 
+export function shouldGenerateSummary(worktree: {
+  repo_id: string;
+  commit_count: number;
 }): boolean {
   return worktree.repo_id.startsWith("local/") && worktree.commit_count > 0;
-} 
+}
+
+// Generate a simple title based on file changes (no AI needed)
+function generateSimpleTitle(diffData: WorktreeDiffResponse): string {
+  const { file_diffs, worktree_name } = diffData;
+
+  if (file_diffs.length === 0) {
+    return worktree_name || "No changes";
+  }
+
+  // Group files by change type
+  const added = file_diffs.filter((f) => f.change_type === "added");
+  const modified = file_diffs.filter((f) => f.change_type === "modified");
+  const deleted = file_diffs.filter((f) => f.change_type === "deleted");
+
+  // Generate title based on predominant change type
+  if (added.length > modified.length && added.length > deleted.length) {
+    if (added.length === 1) {
+      return `Add ${added[0].file_path}`;
+    }
+    return `Add ${added.length} files`;
+  } else if (
+    deleted.length > modified.length &&
+    deleted.length > added.length
+  ) {
+    if (deleted.length === 1) {
+      return `Remove ${deleted[0].file_path}`;
+    }
+    return `Remove ${deleted.length} files`;
+  } else if (modified.length > 0) {
+    if (modified.length === 1 && added.length === 0 && deleted.length === 0) {
+      return `Update ${modified[0].file_path}`;
+    }
+    return `Update ${file_diffs.length} files`;
+  }
+
+  return worktree_name || "Changes";
+}
+
+// Generate a simple summary based on file changes (no AI needed)
+function generateSimpleSummary(
+  diffData: WorktreeDiffResponse,
+  _diffSummary: string,
+): string {
+  const { file_diffs, total_files, worktree_name } = diffData;
+
+  if (file_diffs.length === 0) {
+    return "No changes in this worktree.";
+  }
+
+  let summary = `## Changes in ${worktree_name}\n\n`;
+
+  // Group files by change type
+  const added = file_diffs.filter((f) => f.change_type === "added");
+  const modified = file_diffs.filter((f) => f.change_type === "modified");
+  const deleted = file_diffs.filter((f) => f.change_type === "deleted");
+
+  summary += `**${total_files} file${total_files === 1 ? "" : "s"} changed**\n\n`;
+
+  if (added.length > 0) {
+    summary += `### Added (${added.length})\n`;
+    added.slice(0, 3).forEach((f) => {
+      summary += `- \`${f.file_path}\`\n`;
+    });
+    if (added.length > 3) {
+      summary += `- ... and ${added.length - 3} more\n`;
+    }
+    summary += "\n";
+  }
+
+  if (modified.length > 0) {
+    summary += `### Modified (${modified.length})\n`;
+    modified.slice(0, 3).forEach((f) => {
+      summary += `- \`${f.file_path}\`\n`;
+    });
+    if (modified.length > 3) {
+      summary += `- ... and ${modified.length - 3} more\n`;
+    }
+    summary += "\n";
+  }
+
+  if (deleted.length > 0) {
+    summary += `### Deleted (${deleted.length})\n`;
+    deleted.slice(0, 3).forEach((f) => {
+      summary += `- \`${f.file_path}\`\n`;
+    });
+    if (deleted.length > 3) {
+      summary += `- ... and ${deleted.length - 3} more\n`;
+    }
+  }
+
+  return summary;
+}

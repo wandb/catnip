@@ -126,6 +126,11 @@ func (e *GitExecutor) ExecuteCommand(command string, args ...string) ([]byte, er
 	return e.fallbackExecutor.ExecuteCommand(command, args...)
 }
 
+// ExecuteGitWithStdErr runs a git command and returns both stdout and stderr - delegates to fallback
+func (e *GitExecutor) ExecuteGitWithStdErr(workingDir string, args ...string) ([]byte, []byte, error) {
+	return e.fallbackExecutor.ExecuteGitWithStdErr(workingDir, args...)
+}
+
 // getRepository gets or opens a repository, caching the result
 func (e *GitExecutor) getRepository(repoPath string) (*gogit.Repository, error) {
 	if repoPath == "" {
