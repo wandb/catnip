@@ -107,6 +107,9 @@ func main() {
 	gitService.SetSetupExecutor(ptyHandler)
 	log.Printf("✅ setupExecutor configured successfully")
 
+	// Now initialize local repositories with setup executor properly configured
+	gitService.InitializeLocalRepos()
+
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, ptyHandler.GetSessionService())

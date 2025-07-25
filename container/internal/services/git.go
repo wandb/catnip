@@ -266,6 +266,13 @@ func (s *GitService) SetSetupExecutor(executor SetupExecutor) {
 	s.setupExecutor = executor
 }
 
+// InitializeLocalRepos detects and loads any local repositories in /live
+// This should be called after SetSetupExecutor to ensure setup.sh execution works
+func (s *GitService) InitializeLocalRepos() {
+	log.Printf("🔍 Initializing local repositories with setup executor configured")
+	s.detectLocalRepos()
+}
+
 // Repository type detection helpers
 func (s *GitService) isLocalRepo(repoID string) bool {
 	return strings.HasPrefix(repoID, "local/")
@@ -414,8 +421,7 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 		log.Printf("⚠️ Failed to load GitService state: %v", err)
 	}
 
-	// Detect and load any local repositories in /live
-	s.detectLocalRepos()
+	// Note: detectLocalRepos() will be called after setupExecutor is configured
 
 	// Clean up unused catnip branches (skip in dev mode to avoid deleting active branches)
 	if os.Getenv("CATNIP_DEV") != "true" {
