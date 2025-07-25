@@ -15,6 +15,26 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/v1/auth/github/reset": {
+            "post": {
+                "description": "Clears any active authentication process",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Reset authentication state",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/github/start": {
             "post": {
                 "description": "Initiates GitHub device flow authentication",
@@ -1580,9 +1600,40 @@ const docTemplate = `{
                     "example": "authentication timeout"
                 },
                 "status": {
-                    "description": "Authentication status: pending, waiting, success, or error",
+                    "description": "Authentication status: pending, waiting, success, none, or error",
                     "type": "string",
                     "example": "success"
+                },
+                "user": {
+                    "description": "User information when authenticated",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/internal_handlers.AuthUser"
+                        }
+                    ]
+                }
+            }
+        },
+        "internal_handlers.AuthUser": {
+            "description": "User information when authenticated with GitHub",
+            "type": "object",
+            "properties": {
+                "scopes": {
+                    "description": "Token scopes",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "repo",
+                        "read:org",
+                        "workflow"
+                    ]
+                },
+                "username": {
+                    "description": "GitHub username",
+                    "type": "string",
+                    "example": "vanpelt"
                 }
             }
         },

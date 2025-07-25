@@ -7,12 +7,14 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"gopkg.in/yaml.v2"
 )
 
 // AuthHandler handles authentication flows
@@ -45,15 +47,142 @@ type AuthStartResponse struct {
 // AuthStatusResponse represents the auth status response
 // @Description Response containing the current authentication status
 type AuthStatusResponse struct {
-	// Authentication status: pending, waiting, success, or error
+	// Authentication status: pending, waiting, success, none, or error
 	Status string `json:"status" example:"success"`
 	// Error message if authentication failed
 	Error string `json:"error,omitempty" example:"authentication timeout"`
+	// User information when authenticated
+	User *AuthUser `json:"user,omitempty"`
+}
+
+// AuthUser represents authenticated user information
+// @Description User information when authenticated with GitHub
+type AuthUser struct {
+	// GitHub username
+	Username string `json:"username" example:"vanpelt"`
+	// Token scopes
+	Scopes []string `json:"scopes" example:"repo,read:org,workflow"`
+}
+
+// GitHubHosts represents the structure of GitHub CLI hosts.yml file
+type GitHubHosts struct {
+	GitHubCom GitHubHost `yaml:"github.com"`
+}
+
+type GitHubHost struct {
+	Users      map[string]GitHubUser `yaml:"users"`
+	OAuthToken string                `yaml:"oauth_token"`
+	User       string                `yaml:"user"`
+}
+
+type GitHubUser struct {
+	OAuthToken string `yaml:"oauth_token"`
 }
 
 // NewAuthHandler creates a new auth handler
 func NewAuthHandler() *AuthHandler {
 	return &AuthHandler{}
+}
+
+// checkGitHubAuthStatus checks if user is authenticated with GitHub CLI
+func (h *AuthHandler) checkGitHubAuthStatus() (*AuthUser, error) {
+	// First try reading the hosts.yml file
+	if user, err := h.readGitHubHosts(); err == nil && user != nil {
+		return user, nil
+	}
+
+	// Fallback to running gh auth status command
+	return h.runGitHubAuthStatus()
+}
+
+// readGitHubHosts reads the GitHub CLI hosts.yml file
+func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
+	hostsPath := filepath.Join("/home/catnip", ".config", "gh", "hosts.yml")
+
+	data, err := os.ReadFile(hostsPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var hosts GitHubHosts
+	if err := yaml.Unmarshal(data, &hosts); err != nil {
+		return nil, err
+	}
+
+	if hosts.GitHubCom.User == "" {
+		return nil, fmt.Errorf("no authenticated user found")
+	}
+
+	// Get token scopes using gh command
+	scopes := h.getTokenScopes()
+
+	return &AuthUser{
+		Username: hosts.GitHubCom.User,
+		Scopes:   scopes,
+	}, nil
+}
+
+// runGitHubAuthStatus runs gh auth status command
+func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
+	cmd := exec.Command("bash", "--login", "-c", "gh auth status --show-token 2>/dev/null")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	outputStr := string(output)
+
+	// Parse username
+	usernameRegex := regexp.MustCompile(`account (\w+)`)
+	usernameMatches := usernameRegex.FindStringSubmatch(outputStr)
+	if len(usernameMatches) < 2 {
+		return nil, fmt.Errorf("could not parse username")
+	}
+
+	// Get token scopes
+	scopes := h.getTokenScopes()
+
+	return &AuthUser{
+		Username: usernameMatches[1],
+		Scopes:   scopes,
+	}, nil
+}
+
+// getTokenScopes gets the token scopes from gh auth status
+func (h *AuthHandler) getTokenScopes() []string {
+	cmd := exec.Command("bash", "--login", "-c", "gh auth status 2>&1 | grep 'Token scopes'")
+	cmd.Env = append(os.Environ(),
+		"HOME=/home/catnip",
+		"USER=catnip",
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return []string{}
+	}
+
+	outputStr := string(output)
+	scopesRegex := regexp.MustCompile(`Token scopes: '(.+)'`)
+	scopesMatches := scopesRegex.FindStringSubmatch(outputStr)
+	if len(scopesMatches) < 2 {
+		return []string{}
+	}
+
+	// Split by ', ' and clean up each scope
+	scopesStr := scopesMatches[1]
+	scopes := strings.Split(scopesStr, "', '")
+
+	// Clean up the scopes - remove any remaining quotes and whitespace
+	for i, scope := range scopes {
+		scopes[i] = strings.Trim(scope, "' ")
+	}
+
+	return scopes
 }
 
 // StartGitHubAuth starts the GitHub authentication flow
@@ -109,6 +238,11 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 		err := h.activeAuth.Cmd.Wait()
 		h.authMutex.Lock()
 		defer h.authMutex.Unlock()
+
+		// Check if activeAuth is still valid (might have been reset)
+		if h.activeAuth == nil {
+			return
+		}
 
 		if err != nil && h.activeAuth.Status != "success" {
 			log.Printf("❌ Auth process error: %v", err)
@@ -166,16 +300,49 @@ func (h *AuthHandler) GetAuthStatus(c *fiber.Ctx) error {
 	h.authMutex.Lock()
 	defer h.authMutex.Unlock()
 
-	if h.activeAuth == nil {
+	// If there's an active auth process, return its status
+	if h.activeAuth != nil {
 		return c.JSON(AuthStatusResponse{
-			Status: "none",
+			Status: h.activeAuth.Status,
+			Error:  h.activeAuth.Error,
 		})
 	}
 
+	// Check if user is already authenticated via GitHub CLI
+	user, err := h.checkGitHubAuthStatus()
+	if err == nil && user != nil {
+		return c.JSON(AuthStatusResponse{
+			Status: "authenticated",
+			User:   user,
+		})
+	}
+
+	// No active auth and not authenticated
 	return c.JSON(AuthStatusResponse{
-		Status: h.activeAuth.Status,
-		Error:  h.activeAuth.Error,
+		Status: "none",
 	})
+}
+
+// ResetAuthState resets the current authentication state
+// @Summary Reset authentication state
+// @Description Clears any active authentication process
+// @Tags auth
+// @Success 200 {object} map[string]string
+// @Router /v1/auth/github/reset [post]
+func (h *AuthHandler) ResetAuthState(c *fiber.Ctx) error {
+	h.authMutex.Lock()
+	defer h.authMutex.Unlock()
+
+	// Kill any existing auth process
+	if h.activeAuth != nil && h.activeAuth.Cmd != nil && h.activeAuth.Cmd.Process != nil {
+		_ = h.activeAuth.Cmd.Process.Kill()
+		_ = h.activeAuth.Cmd.Wait()
+	}
+
+	// Clear the active auth state
+	h.activeAuth = nil
+
+	return c.JSON(fiber.Map{"status": "reset"})
 }
 
 func (h *AuthHandler) parseAuthOutput(stdout io.Reader) {
@@ -188,17 +355,21 @@ func (h *AuthHandler) parseAuthOutput(stdout io.Reader) {
 		// Check for code
 		if matches := codeRegex.FindStringSubmatch(line); len(matches) > 1 {
 			h.authMutex.Lock()
-			h.activeAuth.Code = matches[1]
-			// Set the known GitHub device URL when we get the code
-			h.activeAuth.URL = "https://github.com/login/device"
-			h.activeAuth.Status = "waiting"
+			if h.activeAuth != nil {
+				h.activeAuth.Code = matches[1]
+				// Set the known GitHub device URL when we get the code
+				h.activeAuth.URL = "https://github.com/login/device"
+				h.activeAuth.Status = "waiting"
+			}
 			h.authMutex.Unlock()
 		}
 
 		// Check for success indicators
 		if strings.Contains(line, "Logged in as") || strings.Contains(line, "✓ Logged in") {
 			h.authMutex.Lock()
-			h.activeAuth.Status = "success"
+			if h.activeAuth != nil {
+				h.activeAuth.Status = "success"
+			}
 			h.authMutex.Unlock()
 		}
 	}

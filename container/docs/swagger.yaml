@@ -448,8 +448,29 @@ definitions:
         example: authentication timeout
         type: string
       status:
-        description: 'Authentication status: pending, waiting, success, or error'
+        description: 'Authentication status: pending, waiting, success, none, or error'
         example: success
+        type: string
+      user:
+        allOf:
+        - $ref: '#/definitions/internal_handlers.AuthUser'
+        description: User information when authenticated
+    type: object
+  internal_handlers.AuthUser:
+    description: User information when authenticated with GitHub
+    properties:
+      scopes:
+        description: Token scopes
+        example:
+        - repo
+        - read:org
+        - workflow
+        items:
+          type: string
+        type: array
+      username:
+        description: GitHub username
+        example: vanpelt
         type: string
     type: object
   internal_handlers.CheckoutResponse:
@@ -739,6 +760,19 @@ info:
   title: Catnip Container API
   version: "1.0"
 paths:
+  /v1/auth/github/reset:
+    post:
+      description: Clears any active authentication process
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Reset authentication state
+      tags:
+      - auth
   /v1/auth/github/start:
     post:
       description: Initiates GitHub device flow authentication
