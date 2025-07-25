@@ -204,6 +204,13 @@ function GitPage() {
     const currentRepo = Object.values(gitStatus.repositories ?? {}).find(
       (repo) => (repo.id.startsWith("local/") ? repo.id : repo.url) === url,
     );
+    console.log(
+      "handleRepoChange - url:",
+      url,
+      "currentRepo found:",
+      !!currentRepo,
+      currentRepo?.id,
+    );
 
     if (currentRepo) {
       // For current repos, get the current branch and default branch
