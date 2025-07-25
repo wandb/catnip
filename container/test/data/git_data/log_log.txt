@@ -1,0 +1,12 @@
+log log --oneline -n 5
+log log -n 1000 --pretty=format: --name-only --diff-filter=M --author=whiskers@catnip.run
+log log -n 1000 --pretty=format: --name-only --diff-filter=M
+log log --oneline -n 5
+log log -n 1000 --pretty=format: --name-only --diff-filter=M --author=whiskers@catnip.run
+log log -n 1000 --pretty=format: --name-only --diff-filter=M
+log log -n 1000 --pretty=format: --name-only --diff-filter=M --author=whiskers@catnip.run
+log log --oneline -n 5
+log log -n 1000 --pretty=format: --name-only --diff-filter=M
+log log -n 1000 --pretty=format: --name-only --diff-filter=M --author=whiskers@catnip.run
+log log --oneline -n 5
+log log -n 1000 --pretty=format: --name-only --diff-filter=M

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "",
+    "url": "local/catnip",
+    "path": "",
+    "defaultBranch": "",
+    "createdAt": "0001-01-01T00:00:00Z",
+    "lastAccessed": "0001-01-01T00:00:00Z",
+    "description": "Local repository (mounted)"
+  },
+  {
+    "id": "",
+    "url": "https://github.com/testorg/test-repo",
+    "path": "",
+    "defaultBranch": "",
+    "createdAt": "0001-01-01T00:00:00Z",
+    "lastAccessed": "0001-01-01T00:00:00Z",
+    "description": "Test repository for integration tests"
+  },
+  {
+    "id": "",
+    "url": "https://github.com/wandb/catnip",
+    "path": "",
+    "defaultBranch": "",
+    "createdAt": "0001-01-01T00:00:00Z",
+    "lastAccessed": "0001-01-01T00:00:00Z",
+    "description": "Agentic coding environment"
+  }
+]

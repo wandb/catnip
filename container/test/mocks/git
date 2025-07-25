@@ -1,0 +1,276 @@
+#!/bin/bash
+
+# Mock git command for integration tests
+# This script prevents network calls and logs operations
+
+MOCK_LOG="/tmp/git-mock.log"
+DATA_DIR="${CATNIP_TEST_DATA_DIR:-/opt/catnip/test/data}/git_data"
+
+# Initialize mock log
+echo "=== Git Mock Session Started at $(date) ===" >> "$MOCK_LOG"
+
+# Ensure data directory exists
+mkdir -p "$DATA_DIR"
+
+# Log the command
+echo "$(date): git $*" >> "$MOCK_LOG"
+
+# Handle different git commands
+case "$1" in
+    "status")
+        echo "On branch main"
+        echo "Your branch is up to date with 'origin/main'."
+        echo ""
+        echo "nothing to commit, working tree clean"
+        echo "status" >> "$DATA_DIR/status_log.txt"
+        ;;
+    "branch")
+        if [[ "$2" == "-r" ]]; then
+            echo "  origin/main"
+        else
+            echo "  main"
+            echo "* task/integration-tests"
+        fi
+        echo "branch $*" >> "$DATA_DIR/branch_log.txt"
+        ;;
+    "log")
+        echo "commit 8d9d4958cd2d9d58842b4b03e2884eb4642a095c (HEAD -> main)"
+        echo "Author: Test User <test@example.com>"
+        echo "Date:   $(date)"
+        echo ""
+        echo "    Initial commit"
+        echo "log $*" >> "$DATA_DIR/log_log.txt"
+        ;;
+    "remote")
+        if [[ "$2" == "-v" ]]; then
+            echo "origin  https://github.com/testorg/test-repo.git (fetch)"
+            echo "origin  https://github.com/testorg/test-repo.git (push)"
+        fi
+        echo "remote $*" >> "$DATA_DIR/remote_log.txt"
+        ;;
+    "clone")
+        # Check if the source is a local test repository - if so, use real git
+        local repo_url=""
+        local found_repo_url=false
+        
+        # Find the repository URL in the arguments
+        for arg in "$@"; do
+            if [[ "$found_repo_url" == false && "$arg" != --* && "$arg" != "clone" ]]; then
+                repo_url="$arg"
+                found_repo_url=true
+                break
+            fi
+        done
+        
+        # If this is a local test repository, use real git for proper cloning
+        if [[ "$repo_url" =~ ^/tmp/test-repos/ ]]; then
+            echo "Mock git: using real git for local test repository clone: $repo_url" >> "$MOCK_LOG"
+            exec /usr/bin/git "$@"
+        fi
+        
+        # Otherwise use our original mock logic for remote repositories
+        # Parse clone arguments
+        local is_bare=false
+        local depth=""
+        local single_branch=false
+        local branch=""
+        local target_dir=""
+        
+        # Parse arguments
+        shift # remove "clone"
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --bare)
+                    is_bare=true
+                    shift
+                    ;;
+                --depth)
+                    depth="$2"
+                    shift 2
+                    ;;
+                --single-branch)
+                    single_branch=true
+                    shift
+                    ;;
+                --branch)
+                    branch="$2"
+                    shift 2
+                    ;;
+                *)
+                    if [[ -z "$repo_url" ]]; then
+                        repo_url="$1"
+                    elif [[ -z "$target_dir" ]]; then
+                        target_dir="$1"
+                    fi
+                    shift
+                    ;;
+            esac
+        done
+        
+        # Set default target directory if not provided
+        if [[ -z "$target_dir" ]]; then
+            if [[ "$is_bare" == true ]]; then
+                target_dir=$(basename "$repo_url")
+                # Add .git suffix if not present for bare repos
+                if [[ "$target_dir" != *.git ]]; then
+                    target_dir="${target_dir}.git"
+                fi
+            else
+                target_dir=$(basename "$repo_url" .git)
+            fi
+        fi
+        
+        # Create directory
+        mkdir -p "$target_dir"
+        
+        if [[ "$is_bare" == true ]]; then
+            # Create bare repository structure
+            echo "Cloning into bare repository '$target_dir'..."
+            
+            # Create essential bare repo directories
+            mkdir -p "$target_dir/refs/heads"
+            mkdir -p "$target_dir/refs/tags"
+            mkdir -p "$target_dir/objects"
+            mkdir -p "$target_dir/hooks"
+            
+            # Create HEAD file pointing to main branch
+            local default_branch="${branch:-main}"
+            echo "ref: refs/heads/$default_branch" > "$target_dir/HEAD"
+            
+            # Create a dummy commit hash for the default branch
+            local commit_hash="8d9d4958cd2d9d58842b4b03e2884eb4642a095c"
+            echo "$commit_hash" > "$target_dir/refs/heads/$default_branch"
+            
+            # Create basic config for bare repo
+            cat > "$target_dir/config" << EOF
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = true
+[remote "origin"]
+	url = $repo_url
+	fetch = +refs/heads/*:refs/heads/*
+EOF
+            
+            echo "done."
+        else
+            # Regular clone
+            echo "Cloning into '$target_dir'..."
+            # Create basic git structure for non-bare repos
+            mkdir -p "$target_dir/.git"
+            echo "done."
+        fi
+        
+        echo "clone $repo_url -> $target_dir (bare: $is_bare, mock)" >> "$DATA_DIR/clone_log.txt"
+        ;;
+    "fetch")
+        echo "Already up to date."
+        echo "fetch $*" >> "$DATA_DIR/fetch_log.txt"
+        ;;
+    "pull")
+        echo "Already up to date."
+        echo "pull $*" >> "$DATA_DIR/pull_log.txt"
+        ;;
+    "push")
+        echo "Everything up-to-date"
+        echo "push $*" >> "$DATA_DIR/push_log.txt"
+        ;;
+    "checkout")
+        if [[ "$2" == "-b" ]]; then
+            echo "Switched to a new branch '$3'"
+        else
+            echo "Switched to branch '$2'"
+        fi
+        echo "checkout $*" >> "$DATA_DIR/checkout_log.txt"
+        ;;
+    "add")
+        echo "add $*" >> "$DATA_DIR/add_log.txt"
+        ;;
+    "commit")
+        echo "[main $(openssl rand -hex 4)] Mock commit message"
+        echo " 1 file changed, 1 insertion(+)"
+        echo "commit $*" >> "$DATA_DIR/commit_log.txt"
+        ;;
+    "merge-tree")
+        # Mock merge-tree for conflict checking
+        echo "merge-tree $*" >> "$DATA_DIR/merge_tree_log.txt"
+        exit 1  # Simulate conflicts
+        ;;
+    "rev-parse")
+        if [[ "$2" == "HEAD" ]]; then
+            echo "8d9d4958cd2d9d58842b4b03e2884eb4642a095c"
+        fi
+        echo "rev-parse $*" >> "$DATA_DIR/rev_parse_log.txt"
+        ;;
+    "worktree")
+        case "$2" in
+            "add")
+                # git worktree add [--detach] <path> <branch>
+                local detach=false
+                local worktree_path=""
+                local branch=""
+                
+                shift 2 # remove "worktree add"
+                while [[ $# -gt 0 ]]; do
+                    case $1 in
+                        --detach)
+                            detach=true
+                            shift
+                            ;;
+                        *)
+                            if [[ -z "$worktree_path" ]]; then
+                                worktree_path="$1"
+                            elif [[ -z "$branch" ]]; then
+                                branch="$1"
+                            fi
+                            shift
+                            ;;
+                    esac
+                done
+                
+                # Create worktree directory
+                mkdir -p "$worktree_path"
+                
+                # Create basic working directory structure
+                echo "# Test Repository" > "$worktree_path/README.md"
+                
+                # Create .git file pointing to the main repo (simulated)
+                if [[ -n "$worktree_path" ]]; then
+                    echo "gitdir: $(pwd)/.git/worktrees/$(basename "$worktree_path")" > "$worktree_path/.git"
+                fi
+                
+                echo "Preparing worktree (identifier '$(basename "$worktree_path")')"
+                if [[ "$detach" == true ]]; then
+                    echo "HEAD is now at 8d9d495 Initial commit"
+                else
+                    echo "Switched to branch '$branch'"
+                fi
+                
+                echo "worktree add $worktree_path $branch (detach: $detach)" >> "$DATA_DIR/worktree_log.txt"
+                ;;
+            "list")
+                # List existing worktrees
+                echo "$(pwd)  8d9d495 [main]"
+                echo "worktree list" >> "$DATA_DIR/worktree_log.txt"
+                ;;
+            "remove")
+                local worktree_path="$3"
+                if [[ -n "$worktree_path" && -d "$worktree_path" ]]; then
+                    rm -rf "$worktree_path"
+                    echo "worktree remove $worktree_path" >> "$DATA_DIR/worktree_log.txt"
+                fi
+                ;;
+            *)
+                echo "Unknown worktree subcommand: $2" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    *)
+        # For commands we don't need to mock (like config), fall through to real git
+        echo "Mock git: falling through to real git for: $*" >> "$MOCK_LOG"
+        exec /usr/bin/git "$@"
+        ;;
+esac
+
+exit 0

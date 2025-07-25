@@ -421,7 +421,15 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 		return s.handleLocalRepoWorktree(repoID, branch)
 	}
 
-	repoURL := fmt.Sprintf("https://github.com/%s/%s.git", org, repo)
+	var repoURL string
+	if os.Getenv("CATNIP_TEST_MODE") == "1" {
+		// In test mode, use local test repositories
+		repoURL = filepath.Join("/tmp", "test-repos", repo)
+	} else {
+		// In production, use GitHub URLs
+		repoURL = fmt.Sprintf("https://github.com/%s/%s.git", org, repo)
+	}
+
 	repoName := strings.ReplaceAll(repo, "/", "-")
 	barePath := filepath.Join(getWorkspaceDir(), fmt.Sprintf("%s.git", repoName))
 

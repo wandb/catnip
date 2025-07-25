@@ -1,0 +1,5 @@
+{
+  "hostname": "github.com",
+  "username": "testuser",
+  "scopes": ["repo", "workflow", "user"]
+}

@@ -1,0 +1,41 @@
+# Git clone operations log
+# This file tracks mock git clone operations for testing
+
+# Format: timestamp: clone source_url -> target_directoryclone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone --bare -> --depth
+clone /tmp/test-repos/claude-test-repo -> /workspace/claude-test-repo.git (bare: true, mock)
+clone /tmp/test-repos/claude-pty-test-repo -> /workspace/claude-pty-test-repo.git (bare: true, mock)
+clone /tmp/test-repos/checkpoint-test-repo -> /workspace/checkpoint-test-repo.git (bare: true, mock)
+clone /tmp/test-repos/test-repo -> /workspace/test-repo.git (bare: true, mock)

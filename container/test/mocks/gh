@@ -1,0 +1,97 @@
+#!/bin/bash
+
+# Mock GitHub CLI for integration tests
+# This script prevents network calls and returns test data
+
+MOCK_LOG="/tmp/gh-mock.log"
+DATA_DIR="${CATNIP_TEST_DATA_DIR:-/opt/catnip/test/data}/gh_data"
+
+# Initialize mock log
+echo "=== GitHub CLI Mock Session Started at $(date) ===" >> "$MOCK_LOG"
+
+# Ensure data directory exists
+mkdir -p "$DATA_DIR"
+
+# Log the command
+echo "$(date): gh $*" >> "$MOCK_LOG"
+
+# Handle different gh commands
+case "$1" in
+    "auth")
+        case "$2" in
+            "status")
+                # Return auth status from test data
+                if [[ -f "$DATA_DIR/auth_status.json" ]]; then
+                    cat "$DATA_DIR/auth_status.json"
+                else
+                    echo '{"hostname": "github.com", "username": "testuser", "scopes": ["repo", "workflow"]}'
+                fi
+                ;;
+            "login")
+                echo "Authentication successful"
+                echo '{"hostname": "github.com", "username": "testuser", "scopes": ["repo", "workflow"]}' > "$DATA_DIR/auth_status.json"
+                ;;
+            *)
+                echo "Mock gh auth: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    "repo")
+        case "$2" in
+            "list")
+                # Return repository list from test data
+                if [[ -f "$DATA_DIR/repos.json" ]]; then
+                    cat "$DATA_DIR/repos.json"
+                else
+                    echo '[
+                        {"id": "", "url": "local/catnip", "path": "", "defaultBranch": "", "createdAt": "0001-01-01T00:00:00Z", "lastAccessed": "0001-01-01T00:00:00Z", "description": "Local repository (mounted)"},
+                        {"id": "", "url": "https://github.com/testorg/test-repo", "path": "", "defaultBranch": "", "createdAt": "0001-01-01T00:00:00Z", "lastAccessed": "0001-01-01T00:00:00Z", "description": "Test repository for integration tests"},
+                        {"id": "", "url": "https://github.com/wandb/catnip", "path": "", "defaultBranch": "", "createdAt": "0001-01-01T00:00:00Z", "lastAccessed": "0001-01-01T00:00:00Z", "description": "Agentic coding environment"}
+                    ]'
+                fi
+                ;;
+            "create")
+                echo "Created repository $3"
+                echo "repo create $*" >> "$DATA_DIR/repo_create_log.txt"
+                ;;
+            *)
+                echo "Mock gh repo: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    "pr")
+        case "$2" in
+            "create")
+                echo "Created pull request #123"
+                echo "pr create $*" >> "$DATA_DIR/pr_create_log.txt"
+                ;;
+            "list")
+                echo "[]"  # No PRs in test
+                ;;
+            *)
+                echo "Mock gh pr: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    "issue")
+        case "$2" in
+            "list")
+                echo "[]"  # No issues in test
+                ;;
+            *)
+                echo "Mock gh issue: unknown subcommand '$2'" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    *)
+        echo "Mock gh: unknown command '$1'" >> "$MOCK_LOG"
+        echo "Mock gh: command not implemented: $*" >&2
+        exit 1
+        ;;
+esac
+
+exit 0
