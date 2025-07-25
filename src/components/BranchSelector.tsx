@@ -40,6 +40,7 @@ export function BranchSelector({
   isLocalRepo = false,
 }: BranchSelectorProps) {
   const [open, setOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
 
   console.log("BranchSelector props:", {
     branchCount: branches.length,
@@ -120,8 +121,8 @@ export function BranchSelector({
         <Command>
           <CommandInput
             placeholder="Search branches..."
-            value={value}
-            onValueChange={onValueChange}
+            value={searchValue}
+            onValueChange={setSearchValue}
           />
           <CommandList>
             <CommandEmpty>
