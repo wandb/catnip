@@ -111,14 +111,6 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 	// Set environment to inherit from current process
 	cmd.Env = os.Environ()
 
-	// Debug: Print PATH being used
-	for _, env := range cmd.Env {
-		if strings.HasPrefix(env, "PATH=") {
-			log.Printf("[DEBUG] Claude subprocess streaming PATH: %s", env)
-			break
-		}
-	}
-
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start claude command: %w", err)
@@ -308,14 +300,6 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 
 	// Set environment to inherit from current process
 	cmd.Env = os.Environ()
-
-	// Debug: Print PATH being used
-	for _, env := range cmd.Env {
-		if strings.HasPrefix(env, "PATH=") {
-			log.Printf("[DEBUG] Claude subprocess sync PATH: %s", env)
-			break
-		}
-	}
 
 	// Set up pipes
 	stdin, err := cmd.StdinPipe()

@@ -846,14 +846,6 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		)
 		// Add port environment variables
 		cmd.Env = append(cmd.Env, portEnvVars...)
-
-		// Debug: Print PATH being used
-		for _, env := range cmd.Env {
-			if strings.HasPrefix(env, "PATH=") {
-				log.Printf("[DEBUG] PTY handler claude PATH: %s", env)
-				break
-			}
-		}
 	case "setup":
 		// For setup sessions, run bash that cats the setup log file
 		setupLogPath := filepath.Join(workDir, ".catnip", "logs", "setup.log")
