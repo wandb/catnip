@@ -327,7 +327,7 @@ const docTemplate = `{
         },
         "/v1/git/worktrees": {
             "get": {
-                "description": "Returns a list of all worktrees for the current repository",
+                "description": "Returns a list of all worktrees for the current repository with fast cache-enhanced responses",
                 "produces": [
                     "application/json"
                 ],
@@ -341,7 +341,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+                                "$ref": "#/definitions/internal_handlers.EnhancedWorktree"
                             }
                         }
                     }
@@ -1673,6 +1673,94 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_handlers.EnhancedWorktree": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "description": "Current git branch name in this worktree",
+                    "type": "string",
+                    "example": "feature/api-docs"
+                },
+                "cache_status": {
+                    "$ref": "#/definitions/internal_handlers.WorktreeCacheStatus"
+                },
+                "commit_count": {
+                    "description": "Number of commits ahead of the divergence point (CommitHash)",
+                    "type": "integer",
+                    "example": 3
+                },
+                "commit_hash": {
+                    "description": "Commit hash where this worktree diverged from source branch (updated after merges)",
+                    "type": "string",
+                    "example": "abc123def456"
+                },
+                "commits_behind": {
+                    "description": "Number of commits the source branch is ahead of our divergence point",
+                    "type": "integer",
+                    "example": 2
+                },
+                "created_at": {
+                    "description": "When this worktree was created",
+                    "type": "string",
+                    "example": "2024-01-15T14:00:00Z"
+                },
+                "has_conflicts": {
+                    "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
+                    "type": "boolean",
+                    "example": false
+                },
+                "id": {
+                    "description": "Unique identifier for this worktree",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "is_dirty": {
+                    "description": "Whether there are uncommitted changes in the worktree",
+                    "type": "boolean",
+                    "example": true
+                },
+                "last_accessed": {
+                    "description": "When this worktree was last accessed",
+                    "type": "string",
+                    "example": "2024-01-15T16:30:00Z"
+                },
+                "name": {
+                    "description": "User-friendly name for this worktree (e.g., 'vectorize-quasar')",
+                    "type": "string",
+                    "example": "feature-api-docs"
+                },
+                "path": {
+                    "description": "Absolute path to the worktree directory",
+                    "type": "string",
+                    "example": "/workspace/worktrees/feature-api-docs"
+                },
+                "repo_id": {
+                    "description": "Repository this worktree belongs to",
+                    "type": "string",
+                    "example": "anthropics/claude-code"
+                },
+                "session_title": {
+                    "description": "Current session title (from terminal title escape sequences)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry"
+                        }
+                    ]
+                },
+                "session_title_history": {
+                    "description": "History of session titles",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.TitleEntry"
+                    }
+                },
+                "source_branch": {
+                    "description": "Branch this worktree was originally created from",
+                    "type": "string",
+                    "example": "main"
+                }
+            }
+        },
         "internal_handlers.EventType": {
             "type": "string",
             "enum": [
@@ -1683,7 +1771,11 @@ const docTemplate = `{
                 "process:started",
                 "process:stopped",
                 "container:status",
-                "heartbeat"
+                "heartbeat",
+                "worktree:status_updated",
+                "worktree:batch_updated",
+                "worktree:dirty",
+                "worktree:clean"
             ],
             "x-enum-varnames": [
                 "PortOpenedEvent",
@@ -1693,7 +1785,11 @@ const docTemplate = `{
                 "ProcessStartedEvent",
                 "ProcessStoppedEvent",
                 "ContainerStatusEvent",
-                "HeartbeatEvent"
+                "HeartbeatEvent",
+                "WorktreeStatusUpdatedEvent",
+                "WorktreeBatchUpdatedEvent",
+                "WorktreeDirtyEvent",
+                "WorktreeCleanEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {
@@ -1776,6 +1872,21 @@ const docTemplate = `{
                     "description": "Whether the upload succeeded",
                     "type": "boolean",
                     "example": true
+                }
+            }
+        },
+        "internal_handlers.WorktreeCacheStatus": {
+            "type": "object",
+            "properties": {
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "is_loading": {
+                    "type": "boolean"
+                },
+                "last_updated": {
+                    "description": "Unix timestamp in milliseconds",
+                    "type": "integer"
                 }
             }
         },
