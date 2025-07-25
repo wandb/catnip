@@ -31,6 +31,12 @@ func (m *MockExecutorForURLRewrite) ExecuteCommand(command string, args ...strin
 	return []byte(""), m.mockError
 }
 
+func (m *MockExecutorForURLRewrite) ExecuteGitWithStdErr(workingDir string, args ...string) ([]byte, []byte, error) {
+	// Record the git command for verification
+	m.recordedCommands = append(m.recordedCommands, args)
+	return []byte(""), []byte(""), m.mockError
+}
+
 // TestPushStrategyConvertHTTPS verifies that ConvertHTTPS properly adds URL rewriting config
 func TestPushStrategyConvertHTTPS(t *testing.T) {
 	t.Run("ConvertHTTPS_true_adds_config", func(t *testing.T) {

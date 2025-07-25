@@ -16,6 +16,16 @@ func GetCurrentTimestamp() int64 {
 	return time.Now().Unix()
 }
 
+// GetRandomInt returns a random integer for uniqueness
+func GetRandomInt() int64 {
+	maxInt := int64(999999) // 6 digits max
+	if n, err := rand.Int(rand.Reader, big.NewInt(maxInt)); err == nil {
+		return n.Int64()
+	}
+	// Fallback to timestamp-based randomness
+	return time.Now().UnixNano() % maxInt
+}
+
 var (
 	// Cat names for branch generation (max 7 characters)
 	catNames = []string{

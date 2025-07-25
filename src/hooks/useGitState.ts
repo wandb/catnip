@@ -154,7 +154,22 @@ export function useGitState() {
       const { syncConflicts, mergeConflicts } = await gitApi.checkAllConflicts(
         state.worktrees,
       );
-      setState((prev) => ({ ...prev, syncConflicts, mergeConflicts }));
+
+      // Update worktrees with conflict status
+      const updatedWorktrees = state.worktrees.map((worktree) => ({
+        ...worktree,
+        has_conflicts:
+          syncConflicts[worktree.id]?.has_conflicts ||
+          mergeConflicts[worktree.id]?.has_conflicts ||
+          false,
+      }));
+
+      setState((prev) => ({
+        ...prev,
+        syncConflicts,
+        mergeConflicts,
+        worktrees: updatedWorktrees,
+      }));
     } catch (error) {
       console.error("Failed to check conflicts:", error);
     }
