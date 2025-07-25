@@ -76,6 +76,8 @@ export function BranchSelector({
     return a.localeCompare(b);
   });
 
+  console.log("Sorted branches:", sortedBranches);
+
   const getBranchBadge = (branch: string) => {
     if (
       branch === defaultBranch &&
