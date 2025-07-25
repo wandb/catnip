@@ -4,7 +4,7 @@
 GOLANGCI_LINT_VERSION := "2.3.0"
 
 # Build the server binary
-build: swagger build-cli
+build: swagger build-cli build-scripts
 	go build -o bin/catnip cmd/server/main.go
 
 # Build the CLI binary
@@ -122,6 +122,15 @@ build-dev:
 # All-in-one development setup
 setup: deps swagger build
 	@echo "✅ Catnip is ready for development!"
+
+# Build proxy injection script
+build-scripts:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	echo "Building proxy injection script..."
+	mkdir -p internal/assets/scripts
+	cd scripts && pnpm run build
+	echo "✅ Proxy injection script built"
 
 # Show available commands
 default:

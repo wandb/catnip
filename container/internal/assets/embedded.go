@@ -5,7 +5,7 @@ import (
 	"io/fs"
 )
 
-//go:embed dist
+//go:embed dist scripts
 var embeddedAssets embed.FS
 
 // GetEmbeddedAssets returns the embedded frontend assets filesystem
@@ -29,4 +29,9 @@ func GetEmbeddedAssets() fs.FS {
 func HasEmbeddedAssets() bool {
 	_, err := embeddedAssets.ReadDir("dist")
 	return err == nil
+}
+
+// GetProxyInjectionScript returns the proxy injection JavaScript code
+func GetProxyInjectionScript() ([]byte, error) {
+	return embeddedAssets.ReadFile("scripts/proxy-injection.js")
 }
