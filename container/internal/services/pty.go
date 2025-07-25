@@ -86,15 +86,11 @@ func (s *PTYService) getOrCreateSetupSession(sessionID, workDir string) *SetupSe
 		Buffer:    make([]byte, 0),
 	}
 
-	// Create setup log file path
-	setupLogPath := filepath.Join(workDir, ".catnip", "logs", "setup.log")
-	if err := os.MkdirAll(filepath.Dir(setupLogPath), 0755); err != nil {
-		log.Printf("❌ Failed to create .catnip/logs directory for setup log: %v", err)
-		return nil
-	}
-
-	// Ensure .catnip/logs/* is in .gitignore
-	s.ensureGitIgnore(workDir)
+	// Create setup log file path using session ID
+	// Replace slashes in sessionID with underscores for valid filename
+	safeSessionID := strings.ReplaceAll(sessionID, "/", "_")
+	safeSessionID = strings.ReplaceAll(safeSessionID, ":", "_")
+	setupLogPath := fmt.Sprintf("/tmp/%s.log", safeSessionID)
 
 	// Create setup log file
 	logFile, err := os.Create(setupLogPath)
@@ -157,7 +153,7 @@ func (s *PTYService) GetSetupSessionBuffer(sessionID string) ([]byte, bool) {
 	sessionID = strings.ReplaceAll(sessionID, "%2F", "/")
 
 	s.sessionMutex.RLock()
-	session, exists := s.sessions[sessionID]
+	_, exists := s.sessions[sessionID]
 	s.sessionMutex.RUnlock()
 
 	if !exists {
@@ -166,7 +162,10 @@ func (s *PTYService) GetSetupSessionBuffer(sessionID string) ([]byte, bool) {
 	}
 
 	// Read from the setup log file
-	setupLogPath := filepath.Join(session.WorkDir, ".catnip", "logs", "setup.log")
+	// Replace slashes in sessionID with underscores for valid filename
+	safeSessionID := strings.ReplaceAll(sessionID, "/", "_")
+	safeSessionID = strings.ReplaceAll(safeSessionID, ":", "_")
+	setupLogPath := fmt.Sprintf("/tmp/%s.log", safeSessionID)
 	content, err := os.ReadFile(setupLogPath)
 	if err != nil {
 		log.Printf("⚠️ Failed to read setup log file %s: %v", setupLogPath, err)
@@ -204,37 +203,4 @@ func (s *PTYService) ListSetupSessions() map[string]*SetupSession {
 		sessions[id] = session
 	}
 	return sessions
-}
-
-// ensureGitIgnore adds .catnip/logs/* to .gitignore if not already present
-func (s *PTYService) ensureGitIgnore(workDir string) {
-	gitignorePath := filepath.Join(workDir, ".gitignore")
-	ignorePattern := ".catnip/logs/*"
-
-	// Read existing .gitignore content
-	content, err := os.ReadFile(gitignorePath)
-	if err != nil && !os.IsNotExist(err) {
-		log.Printf("⚠️ Failed to read .gitignore: %v", err)
-		return
-	}
-
-	contentStr := string(content)
-
-	// Check if pattern already exists
-	if strings.Contains(contentStr, ignorePattern) {
-		return // Already present
-	}
-
-	// Add the ignore pattern
-	if len(contentStr) > 0 && !strings.HasSuffix(contentStr, "\n") {
-		contentStr += "\n"
-	}
-	contentStr += ignorePattern + "\n"
-
-	// Write back to .gitignore
-	if err := os.WriteFile(gitignorePath, []byte(contentStr), 0644); err != nil {
-		log.Printf("⚠️ Failed to update .gitignore: %v", err)
-	} else {
-		log.Printf("✅ Added .catnip/logs/* to .gitignore")
-	}
 }
