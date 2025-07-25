@@ -79,10 +79,8 @@ function run(command: string, options: Record<string, any> = {}): string {
 
 function getCurrentVersion(): string {
   try {
-    // Try to get latest tag
-    const latestTag = run(
-      'git describe --tags --abbrev=0 2>/dev/null || echo ""',
-    );
+    // Get the latest tag by version, regardless of current commit
+    const latestTag = run("git tag --list --sort=-version:refname | head -1");
     if (latestTag && latestTag.startsWith("v")) {
       return latestTag.substring(1); // Remove 'v' prefix
     }
