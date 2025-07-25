@@ -192,6 +192,12 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 			}
 		}
 
+		// Check if there's an existing Claude session that would trigger --continue behavior
+		// This matches the same logic used in pty.go for determining whether to use --continue
+		if existingState, err := h.sessionService.FindSessionByDirectory(worktree.Path); err == nil && existingState != nil {
+			worktree.HasActiveClaudeSession = true
+		}
+
 		// Create enhanced worktree with cache status
 		enhanced := &EnhancedWorktree{
 			Worktree: worktree,

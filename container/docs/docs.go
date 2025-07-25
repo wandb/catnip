@@ -1422,6 +1422,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": "2024-01-15T14:00:00Z"
                 },
+                "has_active_claude_session": {
+                    "description": "Whether there's an active Claude session for this worktree",
+                    "type": "boolean"
+                },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
                     "type": "boolean",
@@ -1706,6 +1710,10 @@ const docTemplate = `{
                     "description": "When this worktree was created",
                     "type": "string",
                     "example": "2024-01-15T14:00:00Z"
+                },
+                "has_active_claude_session": {
+                    "description": "Whether there's an active Claude session for this worktree",
+                    "type": "boolean"
                 },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
