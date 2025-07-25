@@ -158,7 +158,7 @@ func TestSetupScriptExecution(t *testing.T) {
 	assert.Contains(t, checkoutResp.Worktree.Name, "test-live-repo", "Worktree should be based on test-live-repo")
 
 	t.Logf("Setup script test completed. Worktree created from repository with setup.sh script.")
-	t.Logf("Note: In a real environment, setup.sh would have executed and logged to .catnip/logs/setup.log")
+	t.Logf("Note: In a real environment, setup.sh would have executed and logged to /tmp/{sessionId}.log")
 }
 
 // TestUpstreamSyncing tests upstream syncing functionality

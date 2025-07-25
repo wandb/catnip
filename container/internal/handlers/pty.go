@@ -852,7 +852,10 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		cmd.Env = append(cmd.Env, portEnvVars...)
 	case "setup":
 		// For setup sessions, run bash that cats the setup log file
-		setupLogPath := filepath.Join(workDir, ".catnip", "logs", "setup.log")
+		// Replace slashes in sessionID with underscores for valid filename
+		safeSessionID := strings.ReplaceAll(sessionID, "/", "_")
+		safeSessionID = strings.ReplaceAll(safeSessionID, ":", "_")
+		setupLogPath := fmt.Sprintf("/tmp/%s.log", safeSessionID)
 		cmd = exec.Command("bash", "-c", fmt.Sprintf("cat '%s' 2>/dev/null || echo 'Setup log not found or setup not yet completed.'", setupLogPath))
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
