@@ -1,6 +1,6 @@
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { useGitHubAuth } from "@/lib/github-auth-context";
+import { useGitHubAuth } from "@/lib/hooks";
 import {
   Home,
   Terminal,
