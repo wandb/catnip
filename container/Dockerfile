@@ -112,6 +112,8 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     pipx \
     gosu \
+    psmisc \
+    locales \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
@@ -166,9 +168,7 @@ ENV NVM_DIR="${CATNIP_ROOT}/nvm"
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${RUST_VERSION} && \
     mv /root/.cargo ${CATNIP_ROOT}/cargo && \
     mv /root/.rustup ${CATNIP_ROOT}/rustup && \
-    chown -R catnip:catnip ${CATNIP_ROOT}/cargo ${CATNIP_ROOT}/rustup && \
-    sed -i "s|/root/\.cargo|${CATNIP_ROOT}/cargo|g" /root/.bashrc /root/.profile && \
-    sed -i "s|\$HOME/\.nvm|\$NVM_DIR|g" /root/.bashrc
+    chown -R catnip:catnip ${CATNIP_ROOT}/cargo ${CATNIP_ROOT}/rustup
 ENV CARGO_HOME="${CATNIP_ROOT}/cargo"
 ENV RUSTUP_HOME="${CATNIP_ROOT}/rustup"
 
@@ -251,8 +251,10 @@ RUN set -e; \
     rm -f /tmp/vscode.tgz; \
     chmod +x "$CATNIP_ROOT/bin/code"
 
-# Install Starship prompt
-RUN curl -sS https://starship.rs/install.sh | sh -s -- -y
+# Install Starship prompt and make install the default locale
+RUN curl -sS https://starship.rs/install.sh | sh -s -- -y && \
+    echo '[ -n "$WORKDIR" ] && [ -d "$WORKDIR" ] && cd "$WORKDIR"' >> /home/catnip/.bashrc && \
+    locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 
 # Configure Starship with catnip config
 COPY container/setup/starship.toml /etc/starship.toml

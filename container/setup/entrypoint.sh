@@ -39,10 +39,13 @@ if [ -f "/root/.gitconfig" ] && [ ! -f "/home/catnip/.gitconfig" ]; then
     chown 1000:1000 /home/catnip/.gitconfig 2>/dev/null || true
 fi
 
+# Fix cargo and nvm locations in root
+sed -i "s|/root/\.cargo|${CATNIP_ROOT}/cargo|g" /root/.bashrc /root/.profile && \
+sed -i "s|\$HOME/\.nvm|\$NVM_DIR|g" /root/.bashrc
+
 # Copy other common configuration files that might be in /root
 for config_dir in .ssh .aws .config .local .cargo .rustup; do
     if [ -d "/root/$config_dir" ] && [ ! -d "/home/catnip/$config_dir" ]; then
-        echo "📋 Migrating $config_dir from /root to /home/catnip"
         cp -r "/root/$config_dir" "/home/catnip/" 2>/dev/null || true
         chown -R 1000:1000 "/home/catnip/$config_dir" 2>/dev/null || true
     fi
@@ -136,10 +139,10 @@ PasswordAuthentication no
 PermitUserEnvironment yes
 ChallengeResponseAuthentication no
 UsePAM no
-AllowUsers ${ACTUAL_USERNAME}
+AllowUsers ${ACTUAL_USERNAME} catnip
 X11Forwarding yes
 PermitUserEnvironment yes
-AcceptEnv LANG LC_*
+AcceptEnv LANG LC_* WORKDIR
 Subsystem sftp /usr/lib/openssh/sftp-server
 AuthorizedKeysFile /home/catnip/.ssh/authorized_keys
 EOF
