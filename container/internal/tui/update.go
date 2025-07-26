@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vanpelt/catnip/internal/tui/components"
 )
 
 // Update is the main update function that routes messages to appropriate handlers
@@ -95,6 +96,85 @@ func (m Model) handleKeyMessage(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Let current view handle the key
 	newModel, cmd := m.GetCurrentView().HandleKey(&m, msg)
 	return *newModel, cmd
+}
+
+// handleGlobalKeys processes global navigation keys (available in all views)
+func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case components.KeyQuit, components.KeyQuitAlt:
+		m.quitRequested = true
+		return &m, tea.Quit, true
+
+	case components.KeyOverview:
+		if m.currentView != OverviewView {
+			m.SwitchToView(OverviewView)
+		}
+		return &m, nil, true
+
+	case components.KeyLogs:
+		if m.currentView != LogsView {
+			m.SwitchToView(LogsView)
+			// Update viewport size and content when switching to logs
+			if m.height > 0 {
+				headerHeight := 4
+				m.logsViewport.Width = m.width - 4
+				m.logsViewport.Height = m.height - headerHeight
+			}
+			// Update log filter and fetch logs
+			logsView := m.views[LogsView].(*LogsViewImpl)
+			m = *logsView.updateLogFilter(&m)
+			return &m, logsView.fetchLogs(&m), true
+		}
+		return &m, nil, true
+
+	case components.KeyShell:
+		if m.currentView != ShellView {
+			// Check if we have existing sessions
+			if globalShellManager != nil && len(globalShellManager.sessions) > 0 {
+				m.showSessionList = true
+				m.SwitchToView(ShellView)
+			} else {
+				// Create new session
+				overviewView := m.views[OverviewView].(*OverviewViewImpl)
+				return overviewView.createNewShellSessionWithCmd(&m)
+			}
+		}
+		return &m, nil, true
+
+	case components.KeyOpenUI:
+		if m.appHealthy {
+			overviewView := m.views[OverviewView].(*OverviewViewImpl)
+			go func() {
+				_ = overviewView.openBrowser("http://localhost:8080")
+			}()
+		} else {
+			// App is not ready, show bold feedback
+			m.bootingBold = true
+			m.bootingBoldTimer = time.Now()
+		}
+		return &m, nil, true
+	}
+
+	// Handle port keys (Ctrl+1-9)
+	if components.IsPortKey(keyStr) {
+		portIndex := components.GetPortIndex(keyStr)
+		if portIndex >= 0 && portIndex < len(m.ports) {
+			portInfo := m.ports[portIndex]
+			url := fmt.Sprintf("http://localhost:8080/%s", portInfo.Port)
+			overviewView := m.views[OverviewView].(*OverviewViewImpl)
+			go func() {
+				if overviewView.isAppReady("http://localhost:8080") {
+					_ = overviewView.openBrowser(url)
+				}
+			}()
+		}
+		return &m, nil, true
+	}
+
+	// Key not handled globally
+	return &m, nil, false
 }
 
 // Spinner tick handler
