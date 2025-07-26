@@ -52,6 +52,7 @@ export interface ContainerStatusEvent {
   payload: {
     status: "running" | "stopped" | "error";
     message?: string;
+    sshEnabled: boolean;
   };
 }
 

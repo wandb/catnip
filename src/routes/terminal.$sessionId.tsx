@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
 
 // TerminalPage component
 function TerminalPage() {
@@ -29,6 +30,9 @@ function TerminalPage() {
   const observerRef = useRef<ResizeObserver | null>(null);
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [error, setError] = useState<{ title: string; message: string } | null>(
+    null,
+  );
 
   // Helper to generate a unique key for session storage
   const getPromptStorageKey = useCallback(
@@ -90,6 +94,7 @@ function TerminalPage() {
     bufferingRef.current = false;
     setupSessionClosed.current = false;
     lastConnectionAttempt.current = 0;
+    setError(null); // Reset error state
 
     // Close existing WebSocket if any
     if (wsRef.current) {
@@ -270,6 +275,13 @@ function TerminalPage() {
             // Handle read-only status from server
             setIsReadOnly(msg.data === true);
             return;
+          } else if (msg.type === "error") {
+            // Handle error messages from server
+            setError({
+              title: msg.error || "Error",
+              message: msg.message || "An unexpected error occurred",
+            });
+            return;
           }
         } catch (_e) {
           // Not JSON, treat as regular text
@@ -448,6 +460,22 @@ function TerminalPage() {
     hasPromptBeenExecuted,
     markPromptAsExecuted,
   ]);
+
+  // Show error display if there's an error
+  if (error) {
+    return (
+      <div className="h-full w-full bg-background flex items-center justify-center">
+        <ErrorDisplay
+          title={error.title}
+          message={error.message}
+          onRetry={() => {
+            setError(null);
+            window.location.reload();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full bg-black p-4 relative">

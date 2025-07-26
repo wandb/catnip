@@ -4,27 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DiffViewer } from "@/components/DiffViewer";
+import { WorkspaceActions } from "@/components/WorkspaceActions";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  AlertTriangle,
-  Bot,
   ChevronDown,
-  Eye,
   FileText,
-  GitMerge,
-  MoreHorizontal,
-  RefreshCw,
-  Terminal,
-  Trash2,
   Copy,
   Check,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   type Worktree,
@@ -259,163 +252,6 @@ function SessionHistoryItem({
         )}
       </div>
     </div>
-  );
-}
-
-interface WorktreeActionDropdownProps {
-  worktree: Worktree;
-  mergeConflicts: Record<string, ConflictStatus>;
-  prStatus?: PullRequestInfo;
-  onSync: (id: string) => void;
-  onMerge: (id: string, name: string) => void;
-  onCreatePreview: (id: string, branch: string) => void;
-  onConfirmDelete: (
-    id: string,
-    name: string,
-    isDirty: boolean,
-    commitCount: number,
-  ) => void;
-  onOpenPrDialog: (worktreeId: string, branchName: string) => void;
-  isSyncing?: boolean;
-  isMerging?: boolean;
-}
-
-function WorktreeActionDropdown({
-  worktree,
-  mergeConflicts,
-  prStatus,
-  onSync,
-  onMerge,
-  onCreatePreview,
-  onConfirmDelete,
-  onOpenPrDialog,
-  isSyncing = false,
-  isMerging = false,
-}: WorktreeActionDropdownProps) {
-  const handleDeleteClick = () => {
-    onConfirmDelete(
-      worktree.id,
-      worktree.name,
-      worktree.is_dirty,
-      worktree.commit_count,
-    );
-  };
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm">
-          <MoreHorizontal size={16} />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          onClick={() => onSync(worktree.id)}
-          disabled={isSyncing}
-        >
-          {isSyncing ? (
-            <RefreshCw size={16} className="animate-spin" />
-          ) : (
-            <RefreshCw size={16} />
-          )}
-          Sync with {worktree.source_branch}
-          {isSyncing && <span className="ml-2 text-xs">Syncing...</span>}
-        </DropdownMenuItem>
-
-        {worktree.has_conflicts && (
-          <DropdownMenuItem asChild>
-            <Link
-              to="/terminal/$sessionId"
-              params={{ sessionId: worktree.name }}
-              search={{
-                agent: "claude",
-                prompt:
-                  "Please help me resolve these conflicts and complete the rebase. Ask me for confirmation before completing the rebase.",
-              }}
-              className="flex items-center gap-2 text-blue-600"
-            >
-              <Bot size={16} />
-              Auto Resolve Conflicts
-            </Link>
-          </DropdownMenuItem>
-        )}
-
-        <DropdownMenuSeparator />
-
-        <DropdownMenuItem asChild>
-          <Link
-            to="/terminal/$sessionId"
-            params={{ sessionId: worktree.name }}
-            className="flex items-center gap-2"
-          >
-            <Terminal size={16} />
-            Open Terminal
-          </Link>
-        </DropdownMenuItem>
-
-        {worktree.repo_id.startsWith("local/") && (
-          <DropdownMenuItem
-            onClick={() => onCreatePreview(worktree.id, worktree.branch)}
-            className="text-purple-600"
-          >
-            <Eye size={16} />
-            Create Preview
-          </DropdownMenuItem>
-        )}
-
-        <DropdownMenuItem
-          onClick={() => onOpenPrDialog(worktree.id, worktree.branch)}
-          className={
-            prStatus?.has_commits_ahead === false
-              ? "text-muted-foreground"
-              : "text-green-600"
-          }
-          disabled={worktree.commit_count === 0}
-          title={
-            worktree.commit_count === 0
-              ? "No commits in this worktree"
-              : prStatus?.exists
-                ? "Update existing pull request on GitHub"
-                : "Create new pull request on GitHub"
-          }
-        >
-          <GitMerge size={16} />
-          {prStatus?.exists ? "Update PR (GitHub)" : "Create PR (GitHub)"}
-        </DropdownMenuItem>
-
-        {worktree.repo_id.startsWith("local/") && worktree.commit_count > 0 && (
-          <DropdownMenuItem
-            onClick={() => onMerge(worktree.id, worktree.name)}
-            disabled={isMerging}
-            className={
-              mergeConflicts[worktree.id]?.has_conflicts
-                ? "text-red-600"
-                : "text-blue-600"
-            }
-          >
-            {isMerging ? (
-              <RefreshCw size={16} className="animate-spin" />
-            ) : mergeConflicts[worktree.id]?.has_conflicts ? (
-              <AlertTriangle size={16} />
-            ) : (
-              <GitMerge size={16} />
-            )}
-            {isMerging
-              ? `Merging ${worktree.commit_count} commits...`
-              : mergeConflicts[worktree.id]?.has_conflicts
-                ? `Merge ${worktree.commit_count} commits (conflicts)`
-                : `Merge ${worktree.commit_count} commits`}
-          </DropdownMenuItem>
-        )}
-
-        <DropdownMenuSeparator />
-
-        <DropdownMenuItem onClick={handleDeleteClick} variant="destructive">
-          <Trash2 size={16} />
-          Delete Worktree
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -662,11 +498,15 @@ function WorktreeActions({
         search={{ agent: "claude" }}
       >
         <Button variant="outline" size="sm" asChild>
-          <span>Vibe</span>
+          <span className="flex items-center gap-1.5">
+            <img src="/anthropic.png" alt="Claude" className="w-4 h-4" />
+            Vibe
+          </span>
         </Button>
       </Link>
 
-      <WorktreeActionDropdown
+      <WorkspaceActions
+        mode="worktree"
         worktree={worktree}
         mergeConflicts={mergeConflicts}
         prStatus={prStatus}

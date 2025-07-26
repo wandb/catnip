@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -66,8 +67,9 @@ type ProcessStoppedPayload struct {
 }
 
 type ContainerStatusPayload struct {
-	Status  string  `json:"status"`
-	Message *string `json:"message,omitempty"`
+	Status     string  `json:"status"`
+	Message    *string `json:"message,omitempty"`
+	SSHEnabled bool    `json:"sshEnabled"`
 }
 
 type HeartbeatPayload struct {
@@ -307,11 +309,13 @@ func (h *EventsHandler) makeHeartbeat() SSEMessage {
 }
 
 func (h *EventsHandler) makeContainerStatus() SSEMessage {
+	sshEnabled := os.Getenv("CATNIP_SSH_ENABLED") == "true"
 	return SSEMessage{
 		Event: AppEvent{
 			Type: ContainerStatusEvent,
 			Payload: ContainerStatusPayload{
-				Status: "running",
+				Status:     "running",
+				SSHEnabled: sshEnabled,
 			},
 		},
 		Timestamp: time.Now().UnixMilli(),
@@ -525,11 +529,13 @@ func (h *EventsHandler) EmitProcessStopped(pid int, exitCode int) {
 
 // EmitContainerStatus broadcasts a container status event to all connected clients
 func (h *EventsHandler) EmitContainerStatus(status string, message *string) {
+	sshEnabled := os.Getenv("CATNIP_SSH_ENABLED") == "true"
 	h.broadcastEvent(AppEvent{
 		Type: ContainerStatusEvent,
 		Payload: ContainerStatusPayload{
-			Status:  status,
-			Message: message,
+			Status:     status,
+			Message:    message,
+			SSHEnabled: sshEnabled,
 		},
 	})
 }

@@ -3,27 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  MoreHorizontal,
-  Terminal,
-  GitBranch,
-  Copy,
-  Check,
-  Trash2,
-  Clock,
-  User,
-  Loader2,
-} from "lucide-react";
+import { GitBranch, Copy, Check, Clock, Loader2 } from "lucide-react";
 import { type Worktree } from "@/lib/git-api";
 import { getRelativeTime } from "@/lib/git-utils";
 import { useState } from "react";
+import { WorkspaceActions as SharedWorkspaceActions } from "@/components/WorkspaceActions";
 
 interface WorkspaceCardProps {
   worktree: Worktree;
@@ -79,7 +63,11 @@ export function WorkspaceCard({ worktree, onDelete }: WorkspaceCardProps) {
             </h2>
           </Link>
           <div className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <WorkspaceActions worktree={worktree} onDelete={onDelete} />
+            <SharedWorkspaceActions
+              mode="workspace"
+              worktree={worktree}
+              onDelete={onDelete}
+            />
           </div>
         </div>
 
@@ -281,71 +269,5 @@ function DirtyIndicator({ isDirty, isLoading }: DirtyIndicatorProps) {
     >
       {isDirty ? "Dirty" : "Clean"}
     </Badge>
-  );
-}
-
-interface WorkspaceActionsProps {
-  worktree: Worktree;
-  onDelete?: (id: string, name: string) => void;
-}
-
-function WorkspaceActions({ worktree, onDelete }: WorkspaceActionsProps) {
-  const handleDelete = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (onDelete) {
-      onDelete(worktree.id, worktree.name);
-    }
-  };
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-        >
-          <MoreHorizontal size={16} />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem asChild>
-          <Link
-            to="/terminal/$sessionId"
-            params={{ sessionId: worktree.name }}
-            className="flex items-center gap-2"
-          >
-            <Terminal size={16} />
-            Open Terminal
-          </Link>
-        </DropdownMenuItem>
-
-        <DropdownMenuItem asChild>
-          <Link
-            to="/terminal/$sessionId"
-            params={{ sessionId: worktree.name }}
-            search={{ agent: "claude" }}
-            className="flex items-center gap-2"
-          >
-            <User size={16} />
-            Open with Claude
-          </Link>
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-
-        {onDelete && (
-          <DropdownMenuItem onClick={handleDelete} className="text-red-600">
-            <Trash2 size={16} />
-            Delete Workspace
-          </DropdownMenuItem>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
