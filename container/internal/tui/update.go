@@ -125,7 +125,7 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			// Update log filter and fetch logs
 			logsView := m.views[LogsView].(*LogsViewImpl)
 			m = *logsView.updateLogFilter(&m)
-			return &m, logsView.fetchLogs(&m), true
+			return &m, m.fetchLogs(), true
 		}
 		return &m, nil, true
 
@@ -138,7 +138,8 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			} else {
 				// Create new session
 				overviewView := m.views[OverviewView].(*OverviewViewImpl)
-				return overviewView.createNewShellSessionWithCmd(&m)
+				newModel, cmd := overviewView.createNewShellSessionWithCmd(&m)
+				return newModel, cmd, true
 			}
 		}
 		return &m, nil, true
