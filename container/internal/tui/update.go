@@ -83,9 +83,14 @@ func (m Model) handleWindowResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return *newModel, cmd
 }
 
-// Key message router
+// Key message router with global key handling
 func (m Model) handleKeyMessage(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	debugLog("KeyMsg received: %s", msg.String())
+
+	// Handle global navigation keys first (available in all views)
+	if newModel, cmd, handled := m.handleGlobalKeys(msg); handled {
+		return *newModel, cmd
+	}
 
 	// Let current view handle the key
 	newModel, cmd := m.GetCurrentView().HandleKey(&m, msg)
