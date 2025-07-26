@@ -30,6 +30,7 @@ interface AppState {
   processes: Map<number, Process>;
   containerStatus: "running" | "stopped" | "error";
   containerMessage?: string;
+  sshEnabled: boolean;
 
   // Actions
   connectSSE: () => void;
@@ -58,6 +59,7 @@ export const useAppStore = create<AppState>()(
     worktrees: new Map(),
     processes: new Map(),
     containerStatus: "stopped",
+    sshEnabled: false,
 
     connectSSE: () => {
       // Prevent multiple simultaneous connections
@@ -226,6 +228,7 @@ export const useAppStore = create<AppState>()(
           set({
             containerStatus: event.payload.status,
             containerMessage: event.payload.message,
+            sshEnabled: event.payload.sshEnabled || false,
           });
           break;
 
