@@ -121,16 +121,28 @@ echo -e "${YELLOW}🎨 Running pre-commit formatters...${NC}"
 # Track files that were formatted
 formatted_files_list=""
 
+# Get list of staged TypeScript/JavaScript files before formatting
+staged_ts_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx)$' || true)
+
 # Format TypeScript/JavaScript files
 echo "Formatting TypeScript/JavaScript files..."
 if pnpm format:changed 2>/dev/null; then
-    # Check if any files have unstaged changes after formatting (indicating they were formatted)
-    unstaged_after_ts=$(git diff --name-only)
-    if [ -n "$unstaged_after_ts" ]; then
-        formatted_files_list="$formatted_files_list $unstaged_after_ts"
-        echo -e "${GREEN}✅ TypeScript/JavaScript files formatted${NC}"
+    # Check if any of the staged files have unstaged changes after formatting
+    if [ -n "$staged_ts_files" ]; then
+        formatted_ts_files=""
+        for file in $staged_ts_files; do
+            if git diff --name-only | grep -q "^$file$"; then
+                formatted_ts_files="$formatted_ts_files $file"
+            fi
+        done
+        if [ -n "$formatted_ts_files" ]; then
+            formatted_files_list="$formatted_files_list$formatted_ts_files"
+            echo -e "${GREEN}✅ TypeScript/JavaScript files formatted${NC}"
+        else
+            echo -e "${GREEN}✅ No TypeScript/JavaScript files needed formatting${NC}"
+        fi
     else
-        echo -e "${GREEN}✅ No TypeScript/JavaScript files needed formatting${NC}"
+        echo -e "${GREEN}✅ No TypeScript/JavaScript files to format${NC}"
     fi
 else
     echo -e "${RED}❌ Failed to format TypeScript/JavaScript files${NC}"
@@ -171,19 +183,31 @@ fi
 container_changes=$(git diff --cached --name-only --diff-filter=ACM | grep '^container/' || true)
 
 if [ -n "$container_changes" ]; then
+    # Get list of staged Go files before formatting
+    staged_go_files=$(echo "$container_changes" | grep '\.go$' || true)
+    
     # Format Go files
     echo "Formatting Go files..."
     cd container
     if just format-go-changed 2>/dev/null; then
-        # Check if any files have unstaged changes after formatting (indicating they were formatted)
-        unstaged_after_go=$(git diff --name-only)
-        if [ -n "$unstaged_after_go" ]; then
-            # Add container/ prefix to Go files
-            prefixed_go_files=$(echo "$unstaged_after_go" | sed 's|^|container/|')
-            formatted_files_list="$formatted_files_list $prefixed_go_files"
-            echo -e "${GREEN}✅ Go files formatted${NC}"
+        # Check if any of the staged Go files have unstaged changes after formatting
+        if [ -n "$staged_go_files" ]; then
+            formatted_go_files=""
+            for file in $staged_go_files; do
+                # Remove container/ prefix for checking
+                file_without_prefix=${file#container/}
+                if git diff --name-only | grep -q "^$file_without_prefix$"; then
+                    formatted_go_files="$formatted_go_files $file"
+                fi
+            done
+            if [ -n "$formatted_go_files" ]; then
+                formatted_files_list="$formatted_files_list$formatted_go_files"
+                echo -e "${GREEN}✅ Go files formatted${NC}"
+            else
+                echo -e "${GREEN}✅ No Go files needed formatting${NC}"
+            fi
         else
-            echo -e "${GREEN}✅ No Go files needed formatting${NC}"
+            echo -e "${GREEN}✅ No Go files to format${NC}"
         fi
     else
         echo -e "${RED}❌ Failed to format Go files${NC}"
