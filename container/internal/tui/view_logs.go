@@ -37,6 +37,7 @@ func (v *LogsViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 // HandleKey processes key messages for the logs view
+// Note: Global navigation keys (Ctrl+O, Ctrl+L, Ctrl+Q, etc.) are handled in the global handler
 func (v *LogsViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 	// Handle search mode keys first
 	if m.searchMode {
@@ -58,7 +59,7 @@ func (v *LogsViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 		}
 	}
 
-	// Handle normal logs view keys
+	// Handle view-specific logs navigation keys
 	switch msg.String() {
 	case components.KeyLogsSearch:
 		m.searchMode = true
@@ -94,17 +95,6 @@ func (v *LogsViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 	case components.KeyEnd, components.KeyVimBottom:
 		m.logsViewport.GotoBottom()
 		return m, nil
-
-	case components.KeyOverview:
-		m.SwitchToView(OverviewView)
-		return m, nil
-
-	case components.KeyLogs:
-		m.SwitchToView(OverviewView)
-		return m, nil
-
-	case components.KeyQuit, components.KeyQuitAlt:
-		return m, tea.Quit
 	}
 
 	return m, nil
