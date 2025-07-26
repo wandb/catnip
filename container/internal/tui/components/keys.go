@@ -1,30 +1,42 @@
 package components
 
-// Global key bindings
+// Key Command Groups:
+// 1. Global Navigation - Always available with Ctrl modifier
+// 2. View-Specific - Available only in specific views
+// 3. Terminal Pass-through - All other keys in shell view
+
+// Global Navigation Keys (require Ctrl modifier)
 const (
-	KeyQuit      = "q"
-	KeyQuitAlt   = "ctrl+c"
-	KeyOverview  = "o"
-	KeyLogs      = "l"
-	KeyShell     = "t"
-	KeyOpenUI    = "0"
+	// Quit commands - available everywhere
+	KeyQuit    = "ctrl+q"
+	KeyQuitAlt = "ctrl+c"
+
+	// View navigation - consistent across all views
+	KeyOverview = "ctrl+o"
+	KeyLogs     = "ctrl+l"
+	KeyShell    = "ctrl+t"
+
+	// UI/Port shortcuts
+	KeyOpenUI = "ctrl+0"
+
+	// Common keys
 	KeyEscape    = "esc"
 	KeyEnter     = "enter"
 	KeyTab       = "tab"
 	KeyBackspace = "backspace"
 )
 
-// Port keys (1-9)
+// Port keys (require Ctrl modifier for consistency)
 const (
-	KeyPort1 = "1"
-	KeyPort2 = "2"
-	KeyPort3 = "3"
-	KeyPort4 = "4"
-	KeyPort5 = "5"
-	KeyPort6 = "6"
-	KeyPort7 = "7"
-	KeyPort8 = "8"
-	KeyPort9 = "9"
+	KeyPort1 = "ctrl+1"
+	KeyPort2 = "ctrl+2"
+	KeyPort3 = "ctrl+3"
+	KeyPort4 = "ctrl+4"
+	KeyPort5 = "ctrl+5"
+	KeyPort6 = "ctrl+6"
+	KeyPort7 = "ctrl+7"
+	KeyPort8 = "ctrl+8"
+	KeyPort9 = "ctrl+9"
 )
 
 // Navigation keys
@@ -59,14 +71,15 @@ const (
 
 // Shell view specific keys
 const (
-	KeyShellOverview   = "ctrl+o"
-	KeyShellQuit       = "ctrl+q"
+	// Scrolling (Alt/Option for Mac compatibility)
 	KeyShellScrollUp   = "alt+up"
 	KeyShellScrollDown = "alt+down"
-	KeyShellPageUp     = "ctrl+b"
-	KeyShellPageDown   = "ctrl+f"
-	KeyShellHome       = "ctrl+home"
-	KeyShellEnd        = "ctrl+end"
+	KeyShellPageUp     = "alt+pgup"
+	KeyShellPageDown   = "alt+pgdown"
+	KeyShellHome       = "alt+home"
+	KeyShellEnd        = "alt+end"
+
+	// Session management (only in session list mode)
 	KeyShellNewSession = "n"
 )
 
@@ -101,5 +114,18 @@ func GetPortIndex(key string) int {
 	if !IsPortKey(key) {
 		return -1
 	}
-	return int(key[0] - '1')
+	// Extract number from "ctrl+N" format
+	if len(key) >= 6 && key[:5] == "ctrl+" {
+		return int(key[5] - '1')
+	}
+	return -1
+}
+
+// IsGlobalNavigationKey checks if a key is a global navigation command
+func IsGlobalNavigationKey(key string) bool {
+	switch key {
+	case KeyQuit, KeyQuitAlt, KeyOverview, KeyLogs, KeyShell, KeyOpenUI:
+		return true
+	}
+	return IsPortKey(key)
 }
