@@ -227,6 +227,10 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 	// Add connection to session with read-only logic
 	session.connMutex.Lock()
+
+	// Clean up any stale connections from the same client before determining read-only status
+	h.cleanupStaleConnections(session, conn.RemoteAddr().String())
+
 	connectionCount := len(session.connections)
 
 	// First connection gets write access, subsequent ones are read-only
@@ -988,6 +992,33 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	// Remove from sessions map
 	delete(h.sessions, session.ID)
+}
+
+// cleanupStaleConnections removes stale connections from the same remote address
+// This prevents race conditions where old connections haven't been cleaned up yet
+func (h *PTYHandler) cleanupStaleConnections(session *Session, remoteAddr string) {
+	var staleConnections []*websocket.Conn
+
+	// Find connections from the same remote address that are no longer active
+	for conn, connInfo := range session.connections {
+		if connInfo.RemoteAddr == remoteAddr {
+			// Test if connection is still active by trying to ping it
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("🧹 Found stale connection [%s] from %s, removing", connInfo.ConnID, remoteAddr)
+				staleConnections = append(staleConnections, conn)
+			}
+		}
+	}
+
+	// Remove stale connections
+	for _, conn := range staleConnections {
+		delete(session.connections, conn)
+		conn.Close()
+	}
+
+	if len(staleConnections) > 0 {
+		log.Printf("🧹 Cleaned up %d stale connections from %s in session %s", len(staleConnections), remoteAddr, session.ID)
+	}
 }
 
 // performFinalGitAdd stages any uncommitted changes during cleanup
