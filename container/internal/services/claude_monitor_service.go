@@ -280,7 +280,6 @@ func (m *WorktreeCheckpointManager) Stop() {
 	}
 }
 
-
 // commitPreviousWork commits the previous work with the given title
 func (m *WorktreeCheckpointManager) commitPreviousWork(title string) {
 	if m.gitService == nil {
@@ -303,4 +302,3 @@ func (m *WorktreeCheckpointManager) commitPreviousWork(title string) {
 		}
 	}
 }
-
