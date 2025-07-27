@@ -1,0 +1,293 @@
+package git
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ClaudeSessionDetector detects and monitors Claude sessions running in a worktree
+type ClaudeSessionDetector struct {
+	workDir string
+}
+
+// NewClaudeSessionDetector creates a new Claude session detector
+func NewClaudeSessionDetector(workDir string) *ClaudeSessionDetector {
+	return &ClaudeSessionDetector{
+		workDir: workDir,
+	}
+}
+
+// ClaudeSessionInfo contains information about a detected Claude session
+type ClaudeSessionInfo struct {
+	SessionID   string
+	Title       string
+	PID         int
+	StartTime   time.Time
+	LastUpdated time.Time
+}
+
+// DetectClaudeSession looks for active Claude sessions in the worktree
+func (d *ClaudeSessionDetector) DetectClaudeSession() (*ClaudeSessionInfo, error) {
+	// First, try to find the Claude session file
+	sessionInfo := d.findClaudeSessionFromFiles()
+	if sessionInfo != nil {
+		// Try to enrich with process information
+		if pid := d.findClaudeProcess(); pid > 0 {
+			sessionInfo.PID = pid
+		}
+		return sessionInfo, nil
+	}
+
+	// If no session file, try to detect from running processes
+	pid := d.findClaudeProcess()
+	if pid > 0 {
+		return &ClaudeSessionInfo{
+			PID:       pid,
+			StartTime: time.Now(), // Approximate
+		}, nil
+	}
+
+	return nil, fmt.Errorf("no Claude session detected")
+}
+
+// findClaudeSessionFromFiles looks for Claude session files and extracts information
+func (d *ClaudeSessionDetector) findClaudeSessionFromFiles() *ClaudeSessionInfo {
+	claudeProjectsDir := filepath.Join(d.workDir, ".claude", "projects")
+	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	files, err := os.ReadDir(claudeProjectsDir)
+	if err != nil {
+		log.Printf("⚠️  Failed to read Claude projects directory: %v", err)
+		return nil
+	}
+
+	var newestFile string
+	var newestTime time.Time
+
+	// Find the most recent JSONL file
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
+			continue
+		}
+
+		// Extract session ID from filename (remove .jsonl extension)
+		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
+
+		// Validate that it looks like a UUID
+		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+			continue
+		}
+
+		filePath := filepath.Join(claudeProjectsDir, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+
+		if fileInfo.ModTime().After(newestTime) {
+			newestTime = fileInfo.ModTime()
+			newestFile = filePath
+		}
+	}
+
+	if newestFile == "" {
+		return nil
+	}
+
+	// Extract session ID from filename
+	sessionID := strings.TrimSuffix(filepath.Base(newestFile), ".jsonl")
+
+	// Try to extract title from the JSONL file
+	title := d.extractTitleFromJSONL(newestFile)
+
+	fileInfo, _ := os.Stat(newestFile)
+	return &ClaudeSessionInfo{
+		SessionID:   sessionID,
+		Title:       title,
+		StartTime:   fileInfo.ModTime(), // Approximate start time
+		LastUpdated: fileInfo.ModTime(),
+	}
+}
+
+// extractTitleFromJSONL reads a Claude JSONL file and extracts the current title
+func (d *ClaudeSessionDetector) extractTitleFromJSONL(filePath string) string {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	var lastTitle string
+	scanner := bufio.NewScanner(file)
+
+	// Read through the JSONL file to find title events
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+
+		// Parse the JSON line
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			continue
+		}
+
+		// Look for title updates
+		if eventType, ok := event["type"].(string); ok && eventType == "title_update" {
+			if data, ok := event["data"].(map[string]interface{}); ok {
+				if title, ok := data["title"].(string); ok && title != "" {
+					lastTitle = title
+				}
+			}
+		}
+	}
+
+	return lastTitle
+}
+
+// findClaudeProcess looks for Claude processes running with the worktree as working directory
+func (d *ClaudeSessionDetector) findClaudeProcess() int {
+	// Try using ps to find claude processes
+	cmd := exec.Command("ps", "aux")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		// Look for lines containing "claude" command
+		if !strings.Contains(line, "claude") || strings.Contains(line, "ps aux") {
+			continue
+		}
+
+		// Parse the ps output to get PID
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		pid, err := strconv.Atoi(fields[1])
+		if err != nil {
+			continue
+		}
+
+		// Try to verify this process is in our worktree
+		if d.isProcessInWorktree(pid) {
+			return pid
+		}
+	}
+
+	return 0
+}
+
+// isProcessInWorktree checks if a process is running in our worktree
+func (d *ClaudeSessionDetector) isProcessInWorktree(pid int) bool {
+	// Try to read the process's current working directory
+	// On Linux: /proc/[pid]/cwd
+	// On macOS: We need to use lsof or similar
+	
+	// Try lsof approach (works on both Linux and macOS)
+	cmd := exec.Command("lsof", "-p", strconv.Itoa(pid), "-Fn")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	// Parse lsof output to find cwd
+	lines := strings.Split(string(output), "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "fcwd") && i+1 < len(lines) {
+			// Next line should have the path
+			pathLine := lines[i+1]
+			if strings.HasPrefix(pathLine, "n") {
+				path := strings.TrimPrefix(pathLine, "n")
+				// Check if this path is within our worktree
+				if strings.HasPrefix(path, d.workDir) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// MonitorTitleChanges monitors a Claude session for title changes
+func (d *ClaudeSessionDetector) MonitorTitleChanges(sessionID string, titleChangedFunc func(string)) error {
+	if sessionID == "" {
+		return fmt.Errorf("session ID is required")
+	}
+
+	sessionFile := filepath.Join(d.workDir, ".claude", "projects", sessionID+".jsonl")
+	
+	// Open the file for reading
+	file, err := os.Open(sessionFile)
+	if err != nil {
+		return fmt.Errorf("failed to open session file: %w", err)
+	}
+	defer file.Close()
+
+	// Seek to end of file
+	_, err = file.Seek(0, io.SeekEnd)
+	if err != nil {
+		return fmt.Errorf("failed to seek to end: %w", err)
+	}
+
+	// Monitor for new lines
+	reader := bufio.NewReader(file)
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	var lastTitle string
+
+	for range ticker.C {
+		// Read any new lines
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break // No more data, wait for next tick
+				}
+				return fmt.Errorf("error reading file: %w", err)
+			}
+
+			// Parse the JSON line
+			var event map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				continue
+			}
+
+			// Look for title updates
+			if eventType, ok := event["type"].(string); ok && eventType == "title_update" {
+				if data, ok := event["data"].(map[string]interface{}); ok {
+					if title, ok := data["title"].(string); ok && title != "" && title != lastTitle {
+						lastTitle = title
+						if titleChangedFunc != nil {
+							titleChangedFunc(title)
+						}
+					}
+				}
+			}
+		}
+
+		// Check if file still exists (session might have ended)
+		if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
+			return fmt.Errorf("session file no longer exists")
+		}
+	}
+
+	return nil
+}
