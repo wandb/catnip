@@ -1014,15 +1014,22 @@ func (h *PTYHandler) cleanupStaleConnections(session *Session, remoteAddr string
 	var staleConnections []*websocket.Conn
 
 	// Find connections from the same remote address that are no longer active
+	existingFromSameAddr := 0
 	for conn, connInfo := range session.connections {
 		if connInfo.RemoteAddr == remoteAddr {
+			existingFromSameAddr++
+			log.Printf("🔍 Found existing connection [%s] from %s, testing if stale...", connInfo.ConnID, remoteAddr)
 			// Test if connection is still active by trying to ping it
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("🧹 Found stale connection [%s] from %s, removing", connInfo.ConnID, remoteAddr)
+				log.Printf("🧹 Found stale connection [%s] from %s, removing (ping failed: %v)", connInfo.ConnID, remoteAddr, err)
 				staleConnections = append(staleConnections, conn)
+			} else {
+				log.Printf("✅ Connection [%s] from %s is still active", connInfo.ConnID, remoteAddr)
 			}
 		}
 	}
+
+	log.Printf("🔍 Stale cleanup for %s: found %d existing connections, %d are stale", remoteAddr, existingFromSameAddr, len(staleConnections))
 
 	// Remove stale connections
 	for _, conn := range staleConnections {
