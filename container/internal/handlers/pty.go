@@ -228,13 +228,22 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	// Add connection to session with read-only logic
 	session.connMutex.Lock()
 
+	remoteAddr := conn.RemoteAddr().String()
+	log.Printf("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
+
 	// Clean up any stale connections from the same client before determining read-only status
-	h.cleanupStaleConnections(session, conn.RemoteAddr().String())
+	h.cleanupStaleConnections(session, remoteAddr)
 
 	connectionCount := len(session.connections)
+	log.Printf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
 
 	// First connection gets write access, subsequent ones are read-only
 	isReadOnly := connectionCount > 0
+	if isReadOnly {
+		log.Printf("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
+	} else {
+		log.Printf("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
+	}
 
 	session.connections[conn] = &ConnectionInfo{
 		ConnectedAt: time.Now(),
@@ -295,8 +304,13 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		connInfo, exists := session.connections[conn]
 		wasWriteConnection := exists && !connInfo.IsReadOnly
 
+		if exists {
+			log.Printf("🔌❌ Removing connection [%s] from session %s (was write: %v)", connInfo.ConnID, session.ID, !connInfo.IsReadOnly)
+		}
+
 		delete(session.connections, conn)
 		connectionCount := len(session.connections)
+		log.Printf("🔍 Connection count for session %s: %d (after removal)", session.ID, connectionCount)
 
 		// If the write connection disconnected, promote the oldest read-only connection
 		if wasWriteConnection && connectionCount > 0 {
