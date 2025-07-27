@@ -62,7 +62,7 @@ type SessionCheckpointManager struct {
 	watcherStopCh     chan struct{}
 	fileChangeHandler func()
 	claudeDetector    *ClaudeSessionDetector
-	ptyTitle          string      // PTY-extracted title (highest priority)
+	ptyTitle          string       // PTY-extracted title (highest priority)
 	ptyTitleMutex     sync.RWMutex // Protects ptyTitle
 }
 
