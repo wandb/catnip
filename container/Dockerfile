@@ -22,11 +22,16 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /build
 
+# Install Rust for building the interceptor
+RUN apk add --no-cache curl gcc musl-dev && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 # Copy go mod files
 COPY container/go.mod container/go.sum ./
 RUN go mod download && \
     go install github.com/swaggo/swag/cmd/swag@latest && \
-    apk add just gcc musl-dev make
+    apk add just make
 
 # Copy source code
 COPY container/ .
@@ -319,7 +324,7 @@ COPY --from=builder /build/catnip ${CATNIP_ROOT}/bin/catnip
 RUN chmod +x ${CATNIP_ROOT}/bin/catnip
 
 # Copy the title interceptor library from builder stage
-COPY --from=builder /build/c/libtitle_interceptor.so /usr/local/lib/libtitle_interceptor.so
+COPY --from=builder /build/rust-title-interceptor/libtitle_interceptor.so /usr/local/lib/libtitle_interceptor.so
 RUN ldconfig
 
 # Set working directory

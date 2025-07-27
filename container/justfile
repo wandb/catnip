@@ -58,7 +58,8 @@ test-integration:
 # Clean build artifacts
 clean:
 	rm -rf bin/
-	make -C c clean
+	cd rust-title-interceptor && cargo clean
+	rm -f rust-title-interceptor/*.so
 
 golangci-lint:
 	#!/usr/bin/env bash
@@ -138,7 +139,8 @@ build-interceptor:
 	#!/usr/bin/env bash
 	set -euo pipefail
 	echo "Building title interceptor library..."
-	make -C c
+	cd rust-title-interceptor && cargo build --release
+	cp rust-title-interceptor/target/release/libtitle_interceptor.so rust-title-interceptor/
 	echo "✅ Title interceptor library built"
 
 # Show available commands

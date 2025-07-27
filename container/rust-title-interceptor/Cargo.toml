@@ -1,0 +1,19 @@
+[package]
+name = "title_interceptor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "title_interceptor"
+crate-type = ["cdylib"]
+
+[dependencies]
+libc = "0.2"
+lazy_static = "1.4"
+chrono = "0.4"
+ctor = "0.2"
+
+
+[profile.release]
+opt-level = 2
+lto = true
