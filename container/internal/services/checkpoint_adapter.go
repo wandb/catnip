@@ -49,33 +49,3 @@ func (a *SessionServiceAdapter) GetActiveSession(workDir string) (interface{}, b
 
 	return result, true
 }
-
-// GitServiceWithWorktreesAdapter adapts GitService to implement git.ServiceWithWorktrees interface
-type GitServiceWithWorktreesAdapter struct {
-	*GitServiceAdapter
-}
-
-// NewGitServiceWithWorktreesAdapter creates a new adapter
-func NewGitServiceWithWorktreesAdapter(gs *GitService) *GitServiceWithWorktreesAdapter {
-	return &GitServiceWithWorktreesAdapter{
-		GitServiceAdapter: NewGitServiceAdapter(gs),
-	}
-}
-
-// ListWorktrees implements git.ServiceWithWorktrees interface
-func (a *GitServiceWithWorktreesAdapter) ListWorktrees() ([]git.WorktreeInfo, error) {
-	worktrees := a.GitService.ListWorktrees()
-
-	// Convert to git.WorktreeInfo
-	result := make([]git.WorktreeInfo, len(worktrees))
-	for i, wt := range worktrees {
-		result[i] = git.WorktreeInfo{
-			Path:   wt.Path,
-			Branch: wt.Branch,
-			Commit: wt.CommitHash,
-			Bare:   false, // Worktrees are never bare
-		}
-	}
-
-	return result, nil
-}
