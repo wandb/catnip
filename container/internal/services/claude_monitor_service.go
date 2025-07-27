@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -239,43 +238,29 @@ func (m *WorktreeCheckpointManager) HandleTitleChange(newTitle string) {
 		m.checkpointTimer.Stop()
 	}
 
-	// Start a new checkpoint timer
-	timeout := git.GetCheckpointTimeout()
-	m.checkpointTimer = time.AfterFunc(timeout, func() {
-		m.timerMutex.Lock()
-		defer m.timerMutex.Unlock()
-
-		if m.currentTitle != "" {
-			// Check if there are any uncommitted changes
-			if m.hasUncommittedChanges() {
-				log.Printf("📝 Creating checkpoint for %s with title: %q", m.workDir, m.currentTitle)
-				if err := m.checkpointManager.CreateCheckpoint(m.currentTitle); err != nil {
-					log.Printf("⚠️  Failed to create checkpoint: %v", err)
-				} else {
-					// Schedule next checkpoint check
-					m.scheduleNextCheckpoint()
-				}
-			}
-		}
-	})
+	// Start checkpoint timer
+	m.startCheckpointTimer()
 }
 
-// scheduleNextCheckpoint schedules the next checkpoint timer
-func (m *WorktreeCheckpointManager) scheduleNextCheckpoint() {
+// startCheckpointTimer starts or restarts the checkpoint timer
+func (m *WorktreeCheckpointManager) startCheckpointTimer() {
 	timeout := git.GetCheckpointTimeout()
 	m.checkpointTimer = time.AfterFunc(timeout, func() {
 		m.timerMutex.Lock()
 		defer m.timerMutex.Unlock()
 
 		if m.currentTitle != "" {
-			if m.hasUncommittedChanges() {
+			// Check if there are any uncommitted changes using git operations
+			if hasChanges, err := m.gitService.operations.HasUncommittedChanges(m.workDir); err != nil {
+				log.Printf("⚠️  Failed to check for uncommitted changes: %v", err)
+			} else if hasChanges {
 				log.Printf("📝 Creating checkpoint for %s with title: %q", m.workDir, m.currentTitle)
 				if err := m.checkpointManager.CreateCheckpoint(m.currentTitle); err != nil {
 					log.Printf("⚠️  Failed to create checkpoint: %v", err)
 				}
 			}
-			// Always schedule the next checkpoint as long as we have a title
-			m.scheduleNextCheckpoint()
+			// Always restart the timer as long as we have a title
+			m.startCheckpointTimer()
 		}
 	})
 }
@@ -295,17 +280,6 @@ func (m *WorktreeCheckpointManager) Stop() {
 	}
 }
 
-// hasUncommittedChanges checks if there are any uncommitted changes in the worktree
-func (m *WorktreeCheckpointManager) hasUncommittedChanges() bool {
-	// Use git status to check for changes
-	cmd := fmt.Sprintf("cd %s && git status --porcelain", m.workDir)
-	output, err := runCommand(cmd)
-	if err != nil {
-		log.Printf("⚠️  Failed to check git status: %v", err)
-		return false
-	}
-	return strings.TrimSpace(output) != ""
-}
 
 // commitPreviousWork commits the previous work with the given title
 func (m *WorktreeCheckpointManager) commitPreviousWork(title string) {
@@ -330,12 +304,3 @@ func (m *WorktreeCheckpointManager) commitPreviousWork(title string) {
 	}
 }
 
-// runCommand executes a shell command and returns the output
-func runCommand(cmd string) (string, error) {
-	execCmd := exec.Command("bash", "-c", cmd)
-	output, err := execCmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
-}
