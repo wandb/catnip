@@ -227,10 +227,23 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 	// Add connection to session with read-only logic
 	session.connMutex.Lock()
+
+	remoteAddr := conn.RemoteAddr().String()
+	log.Printf("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
+
+	// Clean up any stale connections from the same client before determining read-only status
+	h.cleanupStaleConnections(session, remoteAddr)
+
 	connectionCount := len(session.connections)
+	log.Printf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
 
 	// First connection gets write access, subsequent ones are read-only
 	isReadOnly := connectionCount > 0
+	if isReadOnly {
+		log.Printf("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
+	} else {
+		log.Printf("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
+	}
 
 	session.connections[conn] = &ConnectionInfo{
 		ConnectedAt: time.Now(),
@@ -291,8 +304,13 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		connInfo, exists := session.connections[conn]
 		wasWriteConnection := exists && !connInfo.IsReadOnly
 
+		if exists {
+			log.Printf("🔌❌ Removing connection [%s] from session %s (was write: %v)", connInfo.ConnID, session.ID, !connInfo.IsReadOnly)
+		}
+
 		delete(session.connections, conn)
 		connectionCount := len(session.connections)
+		log.Printf("🔍 Connection count for session %s: %d (after removal)", session.ID, connectionCount)
 
 		// If the write connection disconnected, promote the oldest read-only connection
 		if wasWriteConnection && connectionCount > 0 {
@@ -988,6 +1006,40 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	// Remove from sessions map
 	delete(h.sessions, session.ID)
+}
+
+// cleanupStaleConnections removes stale connections from the same remote address
+// This prevents race conditions where old connections haven't been cleaned up yet
+func (h *PTYHandler) cleanupStaleConnections(session *Session, remoteAddr string) {
+	var staleConnections []*websocket.Conn
+
+	// Find connections from the same remote address that are no longer active
+	existingFromSameAddr := 0
+	for conn, connInfo := range session.connections {
+		if connInfo.RemoteAddr == remoteAddr {
+			existingFromSameAddr++
+			log.Printf("🔍 Found existing connection [%s] from %s, testing if stale...", connInfo.ConnID, remoteAddr)
+			// Test if connection is still active by trying to ping it
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("🧹 Found stale connection [%s] from %s, removing (ping failed: %v)", connInfo.ConnID, remoteAddr, err)
+				staleConnections = append(staleConnections, conn)
+			} else {
+				log.Printf("✅ Connection [%s] from %s is still active", connInfo.ConnID, remoteAddr)
+			}
+		}
+	}
+
+	log.Printf("🔍 Stale cleanup for %s: found %d existing connections, %d are stale", remoteAddr, existingFromSameAddr, len(staleConnections))
+
+	// Remove stale connections
+	for _, conn := range staleConnections {
+		delete(session.connections, conn)
+		conn.Close()
+	}
+
+	if len(staleConnections) > 0 {
+		log.Printf("🧹 Cleaned up %d stale connections from %s in session %s", len(staleConnections), remoteAddr, session.ID)
+	}
 }
 
 // performFinalGitAdd stages any uncommitted changes during cleanup

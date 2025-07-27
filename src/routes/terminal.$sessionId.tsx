@@ -436,9 +436,15 @@ function TerminalPage() {
     resizeObserver.observe(ref.current);
     observerRef.current = resizeObserver;
 
-    // Cleanup function - dispose of addons when component unmounts
+    // Cleanup function - dispose of addons and close WebSocket when component unmounts
     return () => {
       disposer?.dispose();
+      // Close WebSocket connection on cleanup
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setIsConnected(false);
       fitAddon.current = null;
       webLinksAddon.current = null;
       renderAddon.current = null;
