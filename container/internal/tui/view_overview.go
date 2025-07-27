@@ -33,72 +33,10 @@ func (v *OverviewViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 // HandleKey processes key messages for the overview view
+// Note: Global navigation keys (Ctrl+O, Ctrl+L, Ctrl+T, etc.) are handled in the global handler
 func (v *OverviewViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
-	switch msg.String() {
-	case components.KeyQuit, components.KeyQuitAlt:
-		return m, tea.Quit
-
-	case components.KeyLogs:
-		if m.currentView == LogsView {
-			m.SwitchToView(OverviewView)
-		} else {
-			m.SwitchToView(LogsView)
-			// Update viewport size and content
-			if m.height > 0 {
-				headerHeight := 4
-				m.logsViewport.Width = m.width - 4
-				m.logsViewport.Height = m.height - headerHeight
-			}
-			m = v.updateLogFilter(m)
-			return m, v.fetchLogs(m)
-		}
-
-	case components.KeyOverview:
-		m.SwitchToView(OverviewView)
-
-	case components.KeyShell:
-		switch m.currentView {
-		case OverviewView:
-			// Check if we have existing sessions
-			if globalShellManager != nil && len(globalShellManager.sessions) > 0 {
-				m.showSessionList = true
-				m.SwitchToView(ShellView)
-			} else {
-				// Create new session
-				return v.createNewShellSessionWithCmd(m)
-			}
-		case ShellView:
-			// Already in shell view, do nothing
-			return m, nil
-		}
-
-	case components.KeyOpenUI:
-		if m.appHealthy {
-			go func() {
-				_ = v.openBrowser("http://localhost:8080")
-			}()
-		} else {
-			// App is not ready, show bold feedback
-			m.bootingBold = true
-			m.bootingBoldTimer = time.Now()
-		}
-
-	default:
-		// Handle port keys (1-9)
-		if components.IsPortKey(msg.String()) {
-			portIndex := components.GetPortIndex(msg.String())
-			if portIndex < len(m.ports) {
-				portInfo := m.ports[portIndex]
-				url := fmt.Sprintf("http://localhost:8080/%s", portInfo.Port)
-				go func() {
-					if v.isAppReady("http://localhost:8080") {
-						_ = v.openBrowser(url)
-					}
-				}()
-			}
-		}
-	}
-
+	// Overview view has no view-specific keys - all navigation is now global
+	// Any unhandled keys are just ignored in overview view
 	return m, nil
 }
 
