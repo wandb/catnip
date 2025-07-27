@@ -57,7 +57,7 @@ test-integration:
 
 # Clean build artifacts
 clean:
-	rm -rf bin/ docs/
+	rm -rf bin/
 	make -C c clean
 
 golangci-lint:
