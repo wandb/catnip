@@ -1263,9 +1263,6 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 	// Update the session's current title for display
 	session.Title = title
 
-	// Set the PTY title in the checkpoint manager (highest priority)
-	session.checkpointManager.SetPtyTitle(title)
-
 	// Reset checkpoint state for new title
 	session.checkpointManager.Reset()
 }

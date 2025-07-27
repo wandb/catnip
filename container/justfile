@@ -140,7 +140,7 @@ build-interceptor:
 	set -euo pipefail
 	echo "Building title interceptor library..."
 	cd rust-title-interceptor && cargo build --release
-	cp rust-title-interceptor/target/release/libtitle_interceptor.so rust-title-interceptor/
+	cp target/release/libtitle_interceptor.so .
 	echo "✅ Title interceptor library built"
 
 # Show available commands
