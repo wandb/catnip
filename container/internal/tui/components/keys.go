@@ -16,8 +16,8 @@ const (
 	KeyLogs     = "ctrl+l"
 	KeyShell    = "ctrl+t"
 
-	// UI/Port shortcuts
-	KeyOpenUI = "ctrl+0"
+	// Browser shortcuts
+	KeyOpenBrowser = "ctrl+b"
 
 	// Common keys
 	KeyEscape    = "esc"
@@ -26,18 +26,7 @@ const (
 	KeyBackspace = "backspace"
 )
 
-// Port keys (require Ctrl modifier for consistency)
-const (
-	KeyPort1 = "ctrl+1"
-	KeyPort2 = "ctrl+2"
-	KeyPort3 = "ctrl+3"
-	KeyPort4 = "ctrl+4"
-	KeyPort5 = "ctrl+5"
-	KeyPort6 = "ctrl+6"
-	KeyPort7 = "ctrl+7"
-	KeyPort8 = "ctrl+8"
-	KeyPort9 = "ctrl+9"
-)
+// Port selection keys (removed - now using ctrl+b with overlay menu)
 
 // Navigation keys
 const (
@@ -90,42 +79,13 @@ const (
 	KeyCtrlZ = "ctrl+z"
 )
 
-// GetPortKeys returns all port selection keys
-func GetPortKeys() []string {
-	return []string{
-		KeyPort1, KeyPort2, KeyPort3, KeyPort4, KeyPort5,
-		KeyPort6, KeyPort7, KeyPort8, KeyPort9,
-	}
-}
-
-// IsPortKey checks if the given key is a port selection key
-func IsPortKey(key string) bool {
-	portKeys := GetPortKeys()
-	for _, portKey := range portKeys {
-		if key == portKey {
-			return true
-		}
-	}
-	return false
-}
-
-// GetPortIndex returns the port index (0-8) for a given port key
-func GetPortIndex(key string) int {
-	if !IsPortKey(key) {
-		return -1
-	}
-	// Extract number from "ctrl+N" format
-	if len(key) >= 6 && key[:5] == "ctrl+" {
-		return int(key[5] - '1')
-	}
-	return -1
-}
+// Port selection functions removed - now using ctrl+b with overlay menu
 
 // IsGlobalNavigationKey checks if a key is a global navigation command
 func IsGlobalNavigationKey(key string) bool {
 	switch key {
-	case KeyQuit, KeyQuitAlt, KeyOverview, KeyLogs, KeyShell, KeyOpenUI:
+	case KeyQuit, KeyQuitAlt, KeyOverview, KeyLogs, KeyShell, KeyOpenBrowser:
 		return true
 	}
-	return IsPortKey(key)
+	return false
 }

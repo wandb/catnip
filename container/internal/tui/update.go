@@ -144,8 +144,14 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		}
 		return &m, nil, true
 
-	case components.KeyOpenUI:
-		if m.appHealthy {
+	case components.KeyOpenBrowser:
+		// Open browser with port selection overlay if multiple ports, or directly if only main app
+		if len(m.ports) > 0 {
+			// Show port selector overlay
+			m.showPortSelector = true
+			m.selectedPortIndex = 0 // Default to first port
+		} else if m.appHealthy {
+			// No other ports, open main app directly
 			overviewView := m.views[OverviewView].(*OverviewViewImpl)
 			go func() {
 				_ = overviewView.openBrowser("http://localhost:8080")
@@ -158,20 +164,9 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		return &m, nil, true
 	}
 
-	// Handle port keys (Ctrl+1-9)
-	if components.IsPortKey(keyStr) {
-		portIndex := components.GetPortIndex(keyStr)
-		if portIndex >= 0 && portIndex < len(m.ports) {
-			portInfo := m.ports[portIndex]
-			url := fmt.Sprintf("http://localhost:8080/%s", portInfo.Port)
-			overviewView := m.views[OverviewView].(*OverviewViewImpl)
-			go func() {
-				if overviewView.isAppReady("http://localhost:8080") {
-					_ = overviewView.openBrowser(url)
-				}
-			}()
-		}
-		return &m, nil, true
+	// Handle port selector overlay if active
+	if m.showPortSelector {
+		return m.handlePortSelectorKeys(msg)
 	}
 
 	// Key not handled globally
@@ -439,4 +434,128 @@ func (m Model) handleShellError(msg shellErrorMsg) (tea.Model, tea.Cmd) {
 		return *newModel, cmd
 	}
 	return m, nil
+}
+
+// handlePortSelectorKeys handles key input for the port selector overlay
+func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case components.KeyEscape:
+		// Close port selector
+		m.showPortSelector = false
+		return &m, nil, true
+
+	case components.KeyEnter:
+		// Open selected port
+		var url string
+		if m.selectedPortIndex == 0 {
+			// Main app selected (first item)
+			url = "http://localhost:8080"
+		} else {
+			// Find the corresponding port (skip index 0 which is main app)
+			portIndex := 0
+			for _, port := range m.ports {
+				if port.Port != "8080" {
+					portIndex++
+					if portIndex == m.selectedPortIndex {
+						url = fmt.Sprintf("http://localhost:8080/%s", port.Port)
+						break
+					}
+				}
+			}
+		}
+
+		if url != "" {
+			overviewView := m.views[OverviewView].(*OverviewViewImpl)
+			go func() {
+				if overviewView.isAppReady("http://localhost:8080") {
+					_ = overviewView.openBrowser(url)
+				}
+			}()
+		}
+		m.showPortSelector = false
+		return &m, nil, true
+
+	case components.KeyUp, "k":
+		// Move up in port list
+		// Calculate total items: 1 (main app) + filtered ports
+		totalItems := 1 // main app
+		for _, port := range m.ports {
+			if port.Port != "8080" {
+				totalItems++
+			}
+		}
+
+		if m.selectedPortIndex > 0 {
+			m.selectedPortIndex--
+		} else {
+			m.selectedPortIndex = totalItems - 1 // Wrap to bottom
+		}
+		return &m, nil, true
+
+	case components.KeyDown, "j":
+		// Move down in port list
+		// Calculate total items: 1 (main app) + filtered ports
+		totalItems := 1 // main app
+		for _, port := range m.ports {
+			if port.Port != "8080" {
+				totalItems++
+			}
+		}
+
+		if m.selectedPortIndex < totalItems-1 {
+			m.selectedPortIndex++
+		} else {
+			m.selectedPortIndex = 0 // Wrap to top
+		}
+		return &m, nil, true
+
+	default:
+		// Check for number keys 1-9 for direct selection
+		if len(keyStr) == 1 && keyStr >= "1" && keyStr <= "9" {
+			index := int(keyStr[0] - '1') // Convert to 0-based index
+
+			// Calculate total items: 1 (main app) + filtered ports
+			totalItems := 1 // main app
+			for _, port := range m.ports {
+				if port.Port != "8080" {
+					totalItems++
+				}
+			}
+
+			if index < totalItems {
+				var url string
+				if index == 0 {
+					// Main app selected (first item)
+					url = "http://localhost:8080"
+				} else {
+					// Find the corresponding port (skip index 0 which is main app)
+					portIndex := 0
+					for _, port := range m.ports {
+						if port.Port != "8080" {
+							portIndex++
+							if portIndex == index {
+								url = fmt.Sprintf("http://localhost:8080/%s", port.Port)
+								break
+							}
+						}
+					}
+				}
+
+				if url != "" {
+					overviewView := m.views[OverviewView].(*OverviewViewImpl)
+					go func() {
+						if overviewView.isAppReady("http://localhost:8080") {
+							_ = overviewView.openBrowser(url)
+						}
+					}()
+				}
+				m.showPortSelector = false
+			}
+			return &m, nil, true
+		}
+	}
+
+	return &m, nil, true
 }

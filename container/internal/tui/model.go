@@ -108,6 +108,10 @@ type Model struct {
 	shellLastInput   time.Time
 	terminalEmulator *TerminalEmulator
 
+	// Port selector overlay
+	showPortSelector  bool
+	selectedPortIndex int
+
 	// SSE connection state
 	sseConnected bool
 	sseStarted   bool

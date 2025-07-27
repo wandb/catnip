@@ -156,6 +156,13 @@ func (m Model) View() string {
 	mainContent := mainStyle.Render(content)
 
 	result := lipgloss.JoinVertical(lipgloss.Left, header, mainContent, footer)
+
+	// Overlay port selector if active
+	if m.showPortSelector {
+		overlay := m.renderPortSelector()
+		result = m.overlayOnContent(result, overlay)
+	}
+
 	return result
 }
 
@@ -170,13 +177,13 @@ func (m Model) renderFooter() string {
 		}
 		return footerStyle.Render("Initializing container... Press Ctrl+Q to quit")
 	case OverviewView:
-		return footerStyle.Render("Ctrl+L: logs | Ctrl+T: terminal | Ctrl+0: UI | Ctrl+1-9: ports | Ctrl+Q: quit")
+		return footerStyle.Render("Ctrl+L: logs | Ctrl+T: terminal | Ctrl+B: browser | Ctrl+Q: quit")
 	case ShellView:
 		scrollKey := "Alt"
 		if runtime.GOOS == "darwin" {
 			scrollKey = "Option"
 		}
-		return footerStyle.Render(fmt.Sprintf("Ctrl+O: overview | Ctrl+L: logs | Ctrl+Q: quit | %s+↑↓/PgUp/PgDn: scroll", scrollKey))
+		return footerStyle.Render(fmt.Sprintf("Ctrl+O: overview | Ctrl+L: logs | Ctrl+B: browser | Ctrl+Q: quit | %s+↑↓/PgUp/PgDn: scroll", scrollKey))
 	case LogsView:
 		if m.searchMode {
 			// Replace footer with search input
@@ -185,9 +192,9 @@ func (m Model) renderFooter() string {
 			return footerStyle.Render(searchContent)
 		} else {
 			if m.searchPattern != "" {
-				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, Ctrl+O overview, Ctrl+Q quit • Streaming filtered logs")
+				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, Ctrl+O overview, Ctrl+B browser, Ctrl+Q quit • Streaming filtered logs")
 			} else {
-				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, Ctrl+O overview, Ctrl+Q quit • Auto-refresh: ON")
+				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, Ctrl+O overview, Ctrl+B browser, Ctrl+Q quit • Auto-refresh: ON")
 			}
 		}
 	}
@@ -223,4 +230,70 @@ func isAppReady(baseURL string) bool {
 	defer resp.Body.Close()
 
 	return resp.StatusCode == http.StatusOK
+}
+
+// renderPortSelector renders the port selection overlay
+func (m Model) renderPortSelector() string {
+	// Create port list with main app option
+	items := []string{"🏠 Main App (localhost:8080)"}
+
+	// Add detected ports
+	for _, port := range m.ports {
+		if port.Port != "8080" {
+			title := port.Title
+			if title == "" {
+				title = fmt.Sprintf("Port %s", port.Port)
+			}
+			items = append(items, fmt.Sprintf("🔗 %s (localhost:8080/%s)", title, port.Port))
+		}
+	}
+
+	// Build the menu content
+	var menuItems []string
+	for i, item := range items {
+		prefix := "  "
+		if i == m.selectedPortIndex {
+			prefix = "▶ "
+		}
+		menuItems = append(menuItems, prefix+item)
+	}
+
+	// Add instructions
+	instructions := []string{
+		"",
+		"↑↓/jk: Navigate • Enter/1-9: Select • Esc: Cancel",
+	}
+
+	content := append(menuItems, instructions...)
+	menuContent := strings.Join(content, "\n")
+
+	// Style the menu box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("15"))
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("39")).
+		Align(lipgloss.Center)
+
+	title := titleStyle.Render("🌐 Select Browser Target")
+
+	return boxStyle.Render(title + "\n\n" + menuContent)
+}
+
+// overlayOnContent centers an overlay on top of the main content
+func (m Model) overlayOnContent(content, overlay string) string {
+	// Use lipgloss.Place to properly center the overlay
+	centeredOverlay := lipgloss.Place(
+		m.width, m.height,
+		lipgloss.Center, lipgloss.Center,
+		overlay,
+		lipgloss.WithWhitespaceChars(" "),
+	)
+
+	return centeredOverlay
 }
