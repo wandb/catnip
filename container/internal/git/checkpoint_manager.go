@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,15 +35,17 @@ type CheckpointManager interface {
 	StartFileWatcher() error
 	StopFileWatcher()
 	DetectClaudeTitle() (string, error)
+	SetPtyTitle(title string)
+	GetPtyTitle() string
 }
 
-// GitService interface defines the git operations needed by checkpoint manager
-type GitService interface {
+// Service interface defines the git operations needed by checkpoint manager
+type Service interface {
 	GitAddCommitGetHash(workDir, title string) (string, error)
 }
 
-// SessionService interface defines the session operations needed by checkpoint manager
-type SessionService interface {
+// SessionServiceInterface defines the session operations needed by checkpoint manager
+type SessionServiceInterface interface {
 	AddToSessionHistory(workDir, title, commitHash string) error
 	GetActiveSession(workDir string) (interface{}, bool)
 }
@@ -52,17 +55,19 @@ type SessionCheckpointManager struct {
 	lastCommitTime    time.Time
 	checkpointCount   int
 	checkpointMutex   sync.RWMutex
-	gitService        GitService
-	sessionService    SessionService
+	gitService        Service
+	sessionService    SessionServiceInterface
 	workDir           string
 	watcher           *fsnotify.Watcher
 	watcherStopCh     chan struct{}
 	fileChangeHandler func()
 	claudeDetector    *ClaudeSessionDetector
+	ptyTitle          string      // PTY-extracted title (highest priority)
+	ptyTitleMutex     sync.RWMutex // Protects ptyTitle
 }
 
 // NewSessionCheckpointManager creates a new checkpoint manager
-func NewSessionCheckpointManager(workDir string, gitService GitService, sessionService SessionService) *SessionCheckpointManager {
+func NewSessionCheckpointManager(workDir string, gitService Service, sessionService SessionServiceInterface) *SessionCheckpointManager {
 	return &SessionCheckpointManager{
 		lastCommitTime:  time.Now(),
 		checkpointCount: 0,
@@ -202,7 +207,8 @@ func (cm *SessionCheckpointManager) watcherLoop() {
 			}
 
 			// Ignore .git directory changes
-			if filepath.HasPrefix(event.Name, filepath.Join(cm.workDir, ".git")) {
+			gitDir := filepath.Join(cm.workDir, ".git")
+			if strings.HasPrefix(event.Name, gitDir) {
 				continue
 			}
 
@@ -238,25 +244,49 @@ func (cm *SessionCheckpointManager) watcherLoop() {
 	}
 }
 
+// SetPtyTitle sets the PTY-extracted title (highest priority)
+func (cm *SessionCheckpointManager) SetPtyTitle(title string) {
+	cm.ptyTitleMutex.Lock()
+	defer cm.ptyTitleMutex.Unlock()
+	cm.ptyTitle = title
+	log.Printf("🖥️  PTY title updated: %q", title)
+}
+
+// GetPtyTitle returns the current PTY-extracted title
+func (cm *SessionCheckpointManager) GetPtyTitle() string {
+	cm.ptyTitleMutex.RLock()
+	defer cm.ptyTitleMutex.RUnlock()
+	return cm.ptyTitle
+}
+
 // DetectClaudeTitle attempts to detect the title of a Claude session running in the worktree
+// Priority order: 1) PTY-extracted title, 2) Active session service, 3) JSONL file analysis
 func (cm *SessionCheckpointManager) DetectClaudeTitle() (string, error) {
-	// First check if there's an active session tracked by our session service
+	// HIGHEST PRIORITY: PTY-extracted title from terminal escape sequences
+	if ptyTitle := cm.GetPtyTitle(); ptyTitle != "" {
+		log.Printf("📺 Using PTY-extracted title: %q", ptyTitle)
+		return ptyTitle, nil
+	}
+
+	// SECOND PRIORITY: Active session tracked by our session service
 	if activeSessionInterface, exists := cm.sessionService.GetActiveSession(cm.workDir); exists {
 		// Type assert to access the title - this assumes the interface has a specific structure
 		// In a real implementation, you might want to define a more specific interface
 		if sessionMap, ok := activeSessionInterface.(map[string]interface{}); ok {
 			if titleInfo, ok := sessionMap["title"].(map[string]interface{}); ok {
 				if title, ok := titleInfo["title"].(string); ok && title != "" {
+					log.Printf("📋 Using session service title: %q", title)
 					return title, nil
 				}
 			}
 		}
 	}
 
-	// Use the Claude detector to find active sessions
+	// LOWEST PRIORITY: Use the Claude detector to find active sessions from JSONL files
 	if cm.claudeDetector != nil {
 		sessionInfo, err := cm.claudeDetector.DetectClaudeSession()
 		if err == nil && sessionInfo != nil && sessionInfo.Title != "" {
+			log.Printf("📄 Using JSONL summary title: %q", sessionInfo.Title)
 			return sessionInfo.Title, nil
 		}
 	}

@@ -22,7 +22,6 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
-
 // PTYHandler handles PTY WebSocket connections
 type PTYHandler struct {
 	sessions       map[string]*Session
@@ -1264,6 +1263,9 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 	// Update the session's current title for display
 	session.Title = title
 
+	// Set the PTY title in the checkpoint manager (highest priority)
+	session.checkpointManager.SetPtyTitle(title)
+
 	// Reset checkpoint state for new title
 	session.checkpointManager.Reset()
 }
@@ -1300,7 +1302,6 @@ func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) 
 func (h *PTYHandler) GetSessionService() *services.SessionService {
 	return h.sessionService
 }
-
 
 // ExecuteSetupScript checks for and executes setup.sh in a worktree's PTY session
 func (h *PTYHandler) ExecuteSetupScript(worktreePath string) {

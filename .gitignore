@@ -49,3 +49,8 @@ public/*.jsonl
 container/internal/assets/dist/*
 !container/internal/assets/dist/index.html
 !container/internal/assets/dist/.gitkeep
+
+# C compiled artifacts
+container/c/*.so
+container/c/*.so.*
+container/c/*.dSYM/

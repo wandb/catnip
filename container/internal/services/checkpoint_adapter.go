@@ -12,12 +12,12 @@ func NewGitServiceAdapter(gs *GitService) *GitServiceAdapter {
 	return &GitServiceAdapter{GitService: gs}
 }
 
-// GitAddCommitGetHash implements git.GitService interface
+// GitAddCommitGetHash implements git.Service interface
 func (a *GitServiceAdapter) GitAddCommitGetHash(workDir, title string) (string, error) {
 	return a.GitService.GitAddCommitGetHash(workDir, title)
 }
 
-// SessionServiceAdapter adapts SessionService to implement git.SessionService interface
+// SessionServiceAdapter adapts SessionService to implement git.SessionServiceInterface interface
 type SessionServiceAdapter struct {
 	*SessionService
 }
@@ -27,18 +27,18 @@ func NewSessionServiceAdapter(ss *SessionService) *SessionServiceAdapter {
 	return &SessionServiceAdapter{SessionService: ss}
 }
 
-// AddToSessionHistory implements git.SessionService interface
+// AddToSessionHistory implements git.SessionServiceInterface interface
 func (a *SessionServiceAdapter) AddToSessionHistory(workDir, title, commitHash string) error {
 	return a.SessionService.AddToSessionHistory(workDir, title, commitHash)
 }
 
-// GetActiveSession implements git.SessionService interface
+// GetActiveSession implements git.SessionServiceInterface interface
 func (a *SessionServiceAdapter) GetActiveSession(workDir string) (interface{}, bool) {
 	sessionInfo, exists := a.SessionService.GetActiveSession(workDir)
 	if !exists {
 		return nil, false
 	}
-	
+
 	// Convert to a map structure that the checkpoint manager expects
 	result := make(map[string]interface{})
 	if sessionInfo.Title != nil {
@@ -46,11 +46,11 @@ func (a *SessionServiceAdapter) GetActiveSession(workDir string) (interface{}, b
 			"title": sessionInfo.Title.Title,
 		}
 	}
-	
+
 	return result, true
 }
 
-// GitServiceWithWorktreesAdapter adapts GitService to implement git.GitServiceWithWorktrees interface
+// GitServiceWithWorktreesAdapter adapts GitService to implement git.ServiceWithWorktrees interface
 type GitServiceWithWorktreesAdapter struct {
 	*GitServiceAdapter
 }
@@ -62,10 +62,10 @@ func NewGitServiceWithWorktreesAdapter(gs *GitService) *GitServiceWithWorktreesA
 	}
 }
 
-// ListWorktrees implements git.GitServiceWithWorktrees interface
+// ListWorktrees implements git.ServiceWithWorktrees interface
 func (a *GitServiceWithWorktreesAdapter) ListWorktrees() ([]git.WorktreeInfo, error) {
 	worktrees := a.GitService.ListWorktrees()
-	
+
 	// Convert to git.WorktreeInfo
 	result := make([]git.WorktreeInfo, len(worktrees))
 	for i, wt := range worktrees {
@@ -76,6 +76,6 @@ func (a *GitServiceWithWorktreesAdapter) ListWorktrees() ([]git.WorktreeInfo, er
 			Bare:   false, // Worktrees are never bare
 		}
 	}
-	
+
 	return result, nil
 }
