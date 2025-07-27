@@ -108,6 +108,7 @@ function GitPage() {
     title: string;
     description: string;
     isUpdate: boolean;
+    isGenerating?: boolean;
   }>({
     open: false,
     worktreeId: "",
@@ -115,6 +116,7 @@ function GitPage() {
     title: "",
     description: "",
     isUpdate: false,
+    isGenerating: false,
   });
 
   // Enhanced error alert handler that can include Claude assistance for conflicts
@@ -702,6 +704,7 @@ function GitPage() {
         title={prDialog.title}
         description={prDialog.description}
         isUpdate={prDialog.isUpdate}
+        isGenerating={prDialog.isGenerating}
         onTitleChange={(title) => setPrDialog((prev) => ({ ...prev, title }))}
         onDescriptionChange={(description) =>
           setPrDialog((prev) => ({ ...prev, description }))

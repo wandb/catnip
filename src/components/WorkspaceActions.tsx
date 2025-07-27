@@ -257,7 +257,7 @@ export function WorkspaceActions({
               <DropdownMenuItem
                 onClick={() => onOpenPrDialog?.(worktree.id, worktree.branch)}
                 className={
-                  prStatus?.has_commits_ahead === false
+                  worktree.commit_count === 0
                     ? "text-muted-foreground"
                     : "text-green-600"
                 }
