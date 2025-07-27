@@ -185,24 +185,6 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 
 // Helper methods
 
-func (v *OverviewViewImpl) updateLogFilter(m *Model) *Model {
-	// Simplified log filter update for overview
-	if m.searchPattern == "" {
-		m.filteredLogs = m.logs
-		m.compiledRegex = nil
-	}
-	m.logsViewport.SetContent(strings.Join(m.filteredLogs, "\n"))
-	m.logsViewport.GotoBottom()
-	return m
-}
-
-func (v *OverviewViewImpl) fetchLogs(m *Model) tea.Cmd {
-	return func() tea.Msg {
-		// This will be moved to commands.go
-		return nil
-	}
-}
-
 func (v *OverviewViewImpl) createNewShellSessionWithCmd(m *Model) (*Model, tea.Cmd) {
 	var sessionID string
 	// Use "default" for the first shell, then fall back to timestamp format
