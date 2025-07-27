@@ -43,6 +43,7 @@ func (v *ShellViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
 }
 
 // HandleKey processes key messages for the shell view
+// Note: Global navigation keys (Ctrl+O, Ctrl+Q, Ctrl+T, etc.) are handled in the global handler
 func (v *ShellViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 	// Handle session list navigation
 	if m.showSessionList {
@@ -55,8 +56,8 @@ func (v *ShellViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 			m.showSessionList = false
 			newModel, cmd := v.createNewShellSessionWithCmd(m)
 			return newModel, cmd
-		case components.KeyPort1, components.KeyPort2, components.KeyPort3, components.KeyPort4, components.KeyPort5,
-			components.KeyPort6, components.KeyPort7, components.KeyPort8, components.KeyPort9:
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+			// Handle plain number keys for session selection when in session list mode
 			i := int(msg.String()[0] - '1')
 			if globalShellManager != nil {
 				sessionIDs := make([]string, 0, len(globalShellManager.sessions))
@@ -75,33 +76,8 @@ func (v *ShellViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 		}
 	}
 
-	// Handle active shell session keys
+	// Handle shell view-specific keys (Alt-modified for scrolling)
 	switch msg.String() {
-	case components.KeyShellOverview:
-		m.SwitchToView(OverviewView)
-		return m, nil
-
-	case components.KeyShellQuit:
-		return m, tea.Quit
-
-	// Handle viewport scrolling
-	case components.KeyPageUp, components.KeyShellPageUp:
-		m.shellViewport.PageUp()
-		return m, nil
-
-	case components.KeyPageDown, components.KeyShellPageDown:
-		m.shellViewport.PageDown()
-		return m, nil
-
-	case components.KeyHome, components.KeyShellHome:
-		m.shellViewport.GotoTop()
-		return m, nil
-
-	case components.KeyEnd, components.KeyShellEnd:
-		m.shellViewport.GotoBottom()
-		return m, nil
-
-	// Alt/Option key combinations (for Mac)
 	case components.KeyShellScrollUp:
 		m.shellViewport.ScrollUp(1)
 		return m, nil
@@ -110,8 +86,25 @@ func (v *ShellViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd) {
 		m.shellViewport.ScrollDown(1)
 		return m, nil
 
+	case components.KeyShellPageUp:
+		m.shellViewport.PageUp()
+		return m, nil
+
+	case components.KeyShellPageDown:
+		m.shellViewport.PageDown()
+		return m, nil
+
+	case components.KeyShellHome:
+		m.shellViewport.GotoTop()
+		return m, nil
+
+	case components.KeyShellEnd:
+		m.shellViewport.GotoBottom()
+		return m, nil
+
 	default:
 		// Forward all other input to PTY
+		// Global navigation keys are handled before this point, so they won't interfere
 		v.forwardPty(m, msg)
 		return m, nil
 	}

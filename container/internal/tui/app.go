@@ -166,17 +166,17 @@ func (m Model) renderFooter() string {
 	switch m.currentView {
 	case InitializationView:
 		if initView, ok := m.views[InitializationView].(*InitializationViewImpl); ok && initView.currentAction != "" {
-			return footerStyle.Render(fmt.Sprintf("%s • Press q to quit", initView.currentAction))
+			return footerStyle.Render(fmt.Sprintf("%s • Press Ctrl+Q to quit", initView.currentAction))
 		}
-		return footerStyle.Render("Initializing container... Press q to quit")
+		return footerStyle.Render("Initializing container... Press Ctrl+Q to quit")
 	case OverviewView:
-		return footerStyle.Render("Press l for logs, t for terminal, 0 to open UI, 1-9 to open ports, q to quit")
+		return footerStyle.Render("Ctrl+L: logs | Ctrl+T: terminal | Ctrl+0: UI | Ctrl+1-9: ports | Ctrl+Q: quit")
 	case ShellView:
 		scrollKey := "Alt"
 		if runtime.GOOS == "darwin" {
 			scrollKey = "Option"
 		}
-		return footerStyle.Render(fmt.Sprintf("Ctrl+O: overview | Ctrl+Q: quit | %s+↑↓/PgUp/PgDn: scroll", scrollKey))
+		return footerStyle.Render(fmt.Sprintf("Ctrl+O: overview | Ctrl+L: logs | Ctrl+Q: quit | %s+↑↓/PgUp/PgDn: scroll", scrollKey))
 	case LogsView:
 		if m.searchMode {
 			// Replace footer with search input
@@ -185,9 +185,9 @@ func (m Model) renderFooter() string {
 			return footerStyle.Render(searchContent)
 		} else {
 			if m.searchPattern != "" {
-				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, q quit • Streaming filtered logs")
+				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, Ctrl+O overview, Ctrl+Q quit • Streaming filtered logs")
 			} else {
-				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, o overview, q quit • Auto-refresh: ON")
+				return footerStyle.Render("/ search, c clear filter, ↑↓ scroll, Ctrl+O overview, Ctrl+Q quit • Auto-refresh: ON")
 			}
 		}
 	}
