@@ -61,23 +61,23 @@ func TestNewSessionCheckpointManager(t *testing.T) {
 
 func TestGetCheckpointTimeout(t *testing.T) {
 	// Test default timeout
-	os.Unsetenv("CATNIP_COMMIT_TIMEOUT_SECONDS")
+	_ = os.Unsetenv("CATNIP_COMMIT_TIMEOUT_SECONDS")
 	timeout := getCheckpointTimeout()
 	assert.Equal(t, DefaultCheckpointTimeoutSeconds*time.Second, timeout)
 
 	// Test custom timeout
-	os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "60")
-	defer os.Unsetenv("CATNIP_COMMIT_TIMEOUT_SECONDS")
+	_ = os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "60")
+	defer func() { _ = os.Unsetenv("CATNIP_COMMIT_TIMEOUT_SECONDS") }()
 	timeout = getCheckpointTimeout()
 	assert.Equal(t, 60*time.Second, timeout)
 
 	// Test invalid timeout (should use default)
-	os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "invalid")
+	_ = os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "invalid")
 	timeout = getCheckpointTimeout()
 	assert.Equal(t, DefaultCheckpointTimeoutSeconds*time.Second, timeout)
 
 	// Test zero timeout (should use default)
-	os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "0")
+	_ = os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "0")
 	timeout = getCheckpointTimeout()
 	assert.Equal(t, DefaultCheckpointTimeoutSeconds*time.Second, timeout)
 }
@@ -181,7 +181,7 @@ func TestUpdateLastCommitTime(t *testing.T) {
 func TestFileWatcher(t *testing.T) {
 	// Create a temporary directory for testing
 	tempDir := t.TempDir()
-	
+
 	cm := &SessionCheckpointManager{
 		workDir:        tempDir,
 		lastCommitTime: time.Now().Add(-1 * time.Hour), // Old time to trigger checkpoint
@@ -269,11 +269,11 @@ func TestAddWatchRecursive(t *testing.T) {
 	dirs := []string{
 		"src",
 		"src/components",
-		".git",           // Should be skipped
-		"node_modules",   // Should be skipped
-		"dist",           // Should be skipped
-		"build",          // Should be skipped
-		".next",          // Should be skipped
+		".git",         // Should be skipped
+		"node_modules", // Should be skipped
+		"dist",         // Should be skipped
+		"build",        // Should be skipped
+		".next",        // Should be skipped
 	}
 
 	for _, dir := range dirs {

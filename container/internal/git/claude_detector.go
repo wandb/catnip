@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -120,7 +119,7 @@ func (d *ClaudeSessionDetector) findClaudeSessionFromFiles() *ClaudeSessionInfo 
 	}
 }
 
-// extractTitleFromJSONL reads a Claude JSONL file and extracts the current title
+// extractTitleFromJSONL reads a Claude JSONL file and extracts the session title from summary records
 func (d *ClaudeSessionDetector) extractTitleFromJSONL(filePath string) string {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -131,7 +130,7 @@ func (d *ClaudeSessionDetector) extractTitleFromJSONL(filePath string) string {
 	var lastTitle string
 	scanner := bufio.NewScanner(file)
 
-	// Read through the JSONL file to find title events
+	// Read through the JSONL file to find summary records
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -144,12 +143,11 @@ func (d *ClaudeSessionDetector) extractTitleFromJSONL(filePath string) string {
 			continue
 		}
 
-		// Look for title updates
-		if eventType, ok := event["type"].(string); ok && eventType == "title_update" {
-			if data, ok := event["data"].(map[string]interface{}); ok {
-				if title, ok := data["title"].(string); ok && title != "" {
-					lastTitle = title
-				}
+		// Look for summary records which contain the session title
+		if eventType, ok := event["type"].(string); ok && eventType == "summary" {
+			if summary, ok := event["summary"].(string); ok && summary != "" {
+				lastTitle = summary
+				// Continue reading to get the most recent summary if there are multiple
 			}
 		}
 	}
@@ -198,7 +196,7 @@ func (d *ClaudeSessionDetector) isProcessInWorktree(pid int) bool {
 	// Try to read the process's current working directory
 	// On Linux: /proc/[pid]/cwd
 	// On macOS: We need to use lsof or similar
-	
+
 	// Try lsof approach (works on both Linux and macOS)
 	cmd := exec.Command("lsof", "-p", strconv.Itoa(pid), "-Fn")
 	output, err := cmd.Output()
@@ -225,67 +223,34 @@ func (d *ClaudeSessionDetector) isProcessInWorktree(pid int) bool {
 	return false
 }
 
-// MonitorTitleChanges monitors a Claude session for title changes
+// MonitorTitleChanges monitors a Claude session for new summary records (titles)
 func (d *ClaudeSessionDetector) MonitorTitleChanges(sessionID string, titleChangedFunc func(string)) error {
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required")
 	}
 
 	sessionFile := filepath.Join(d.workDir, ".claude", "projects", sessionID+".jsonl")
-	
-	// Open the file for reading
-	file, err := os.Open(sessionFile)
-	if err != nil {
-		return fmt.Errorf("failed to open session file: %w", err)
-	}
-	defer file.Close()
 
-	// Seek to end of file
-	_, err = file.Seek(0, io.SeekEnd)
-	if err != nil {
-		return fmt.Errorf("failed to seek to end: %w", err)
-	}
+	// Start by getting the current title
+	lastTitle := d.extractTitleFromJSONL(sessionFile)
 
-	// Monitor for new lines
-	reader := bufio.NewReader(file)
-	ticker := time.NewTicker(1 * time.Second)
+	// Monitor for file changes using polling
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	var lastTitle string
-
 	for range ticker.C {
-		// Read any new lines
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				if err == io.EOF {
-					break // No more data, wait for next tick
-				}
-				return fmt.Errorf("error reading file: %w", err)
-			}
-
-			// Parse the JSON line
-			var event map[string]interface{}
-			if err := json.Unmarshal([]byte(line), &event); err != nil {
-				continue
-			}
-
-			// Look for title updates
-			if eventType, ok := event["type"].(string); ok && eventType == "title_update" {
-				if data, ok := event["data"].(map[string]interface{}); ok {
-					if title, ok := data["title"].(string); ok && title != "" && title != lastTitle {
-						lastTitle = title
-						if titleChangedFunc != nil {
-							titleChangedFunc(title)
-						}
-					}
-				}
-			}
-		}
-
 		// Check if file still exists (session might have ended)
 		if _, err := os.Stat(sessionFile); os.IsNotExist(err) {
 			return fmt.Errorf("session file no longer exists")
+		}
+
+		// Re-extract title from the file
+		currentTitle := d.extractTitleFromJSONL(sessionFile)
+		if currentTitle != "" && currentTitle != lastTitle {
+			lastTitle = currentTitle
+			if titleChangedFunc != nil {
+				titleChangedFunc(currentTitle)
+			}
 		}
 	}
 

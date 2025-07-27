@@ -6,16 +6,16 @@ import (
 	"time"
 )
 
-// GitServiceWithWorktrees extends GitService with worktree operations
-type GitServiceWithWorktrees interface {
-	GitService
+// ServiceWithWorktrees extends Service with worktree operations
+type ServiceWithWorktrees interface {
+	Service
 	ListWorktrees() ([]WorktreeInfo, error)
 }
 
 // ClaudeMonitorService monitors all worktrees for Claude sessions and manages checkpoints
 type ClaudeMonitorService struct {
-	gitService     GitServiceWithWorktrees
-	sessionService SessionService
+	gitService     ServiceWithWorktrees
+	sessionService SessionServiceInterface
 	monitors       map[string]*WorktreeMonitor // Map of worktree path to monitor
 	monitorsMutex  sync.RWMutex
 	stopCh         chan struct{}
@@ -31,7 +31,7 @@ type WorktreeMonitor struct {
 }
 
 // NewClaudeMonitorService creates a new Claude monitor service
-func NewClaudeMonitorService(gitService GitServiceWithWorktrees, sessionService SessionService) *ClaudeMonitorService {
+func NewClaudeMonitorService(gitService ServiceWithWorktrees, sessionService SessionServiceInterface) *ClaudeMonitorService {
 	return &ClaudeMonitorService{
 		gitService:     gitService,
 		sessionService: sessionService,
@@ -126,7 +126,7 @@ func (s *ClaudeMonitorService) updateWorktreeMonitors() {
 // createWorktreeMonitor creates a monitor for a specific worktree
 func (s *ClaudeMonitorService) createWorktreeMonitor(workDir string) *WorktreeMonitor {
 	checkpointManager := NewSessionCheckpointManager(workDir, s.gitService, s.sessionService)
-	
+
 	monitor := &WorktreeMonitor{
 		workDir:           workDir,
 		checkpointManager: checkpointManager,
@@ -171,9 +171,9 @@ func (m *WorktreeMonitor) detectClaudeSessions() {
 			if err == nil && sessionInfo != nil {
 				// Update current title if changed
 				if sessionInfo.Title != "" && sessionInfo.Title != m.currentTitle {
-					log.Printf("🪧 Detected Claude title change in %s: %q -> %q", 
+					log.Printf("🪧 Detected Claude title change in %s: %q -> %q",
 						m.workDir, m.currentTitle, sessionInfo.Title)
-					
+
 					// Commit previous work if there was a title
 					if m.currentTitle != "" {
 						m.commitPreviousWork(m.currentTitle)

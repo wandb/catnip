@@ -26,7 +26,7 @@ WORKDIR /build
 COPY container/go.mod container/go.sum ./
 RUN go mod download && \
     go install github.com/swaggo/swag/cmd/swag@latest && \
-    apk add just
+    apk add just gcc musl-dev make
 
 # Copy source code
 COPY container/ .
@@ -38,6 +38,9 @@ COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
 # Install swag and generate swagger documentation
 RUN just swagger
+
+# Build the title interceptor library
+RUN just build-interceptor
 
 # Build the binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go
@@ -151,6 +154,11 @@ RUN mkdir -p /home/catnip/.ssh && \
 ENV CATNIP_ROOT="/opt/catnip"
 ENV WORKSPACE="/workspace"
 ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
+
+# Enable title interception by default
+ENV CATNIP_TITLE_INTERCEPT="1"
+ENV CATNIP_TITLE_LOG="/tmp/catnip_syscall_titles.log"
+ENV LD_PRELOAD="/usr/local/lib/libtitle_interceptor.so"
 
 # Create directory structure with full write permissions for catnip user
 RUN mkdir -p ${CATNIP_ROOT}/bin ${CATNIP_ROOT}/lib ${CATNIP_ROOT}/versions && \
@@ -309,6 +317,10 @@ RUN chmod +x /entrypoint.sh && \
 # Copy the catnip binary from builder stage
 COPY --from=builder /build/catnip ${CATNIP_ROOT}/bin/catnip
 RUN chmod +x ${CATNIP_ROOT}/bin/catnip
+
+# Copy the title interceptor library from builder stage
+COPY --from=builder /build/c/libtitle_interceptor.so /usr/local/lib/libtitle_interceptor.so
+RUN ldconfig
 
 # Set working directory
 WORKDIR /workspace
