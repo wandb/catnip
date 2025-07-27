@@ -110,11 +110,23 @@ func main() {
 	// Now initialize local repositories with setup executor properly configured
 	gitService.InitializeLocalRepos()
 
+	// Get session service for sharing
+	sessionService := ptyHandler.GetSessionService()
+
+	// Initialize and start Claude monitor service
+	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService)
+	if err := claudeMonitor.Start(); err != nil {
+		log.Printf("⚠️  Failed to start Claude monitor service: %v", err)
+	} else {
+		log.Printf("✅ Claude monitor service started successfully")
+	}
+	defer claudeMonitor.Stop()
+
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
-	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, ptyHandler.GetSessionService())
+	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService)
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
-	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService)
+	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService)
 	portsHandler := handlers.NewPortsHandler(portMonitor)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)

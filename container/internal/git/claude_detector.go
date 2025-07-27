@@ -14,6 +14,9 @@ import (
 )
 
 // ClaudeSessionDetector detects and monitors Claude sessions running in a worktree
+// DEPRECATED: This is a fallback mechanism that reads Claude's JSONL files to extract session information.
+// It's unreliable as the JSONL format may change and summary records are not always present.
+// Prefer using the title information from PTY escape sequences or the syscall title interceptor.
 type ClaudeSessionDetector struct {
 	workDir string
 }
@@ -35,6 +38,8 @@ type ClaudeSessionInfo struct {
 }
 
 // DetectClaudeSession looks for active Claude sessions in the worktree
+// NOTE: This is a best-effort approach and may not always return accurate information.
+// It attempts to find session files and running processes, but Claude's internal structure may change.
 func (d *ClaudeSessionDetector) DetectClaudeSession() (*ClaudeSessionInfo, error) {
 	// First, try to find the Claude session file
 	sessionInfo := d.findClaudeSessionFromFiles()
@@ -120,6 +125,8 @@ func (d *ClaudeSessionDetector) findClaudeSessionFromFiles() *ClaudeSessionInfo 
 }
 
 // extractTitleFromJSONL reads a Claude JSONL file and extracts the session title from summary records
+// WARNING: This is unreliable as Claude doesn't always write summary records and the format may change.
+// The "summary" field in JSONL is not guaranteed to contain the actual session title.
 func (d *ClaudeSessionDetector) extractTitleFromJSONL(filePath string) string {
 	file, err := os.Open(filePath)
 	if err != nil {

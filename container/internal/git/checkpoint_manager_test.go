@@ -2,7 +2,6 @@ package git
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -44,6 +43,18 @@ func (m *MockSessionService) GetActiveSession(workDir string) (interface{}, bool
 	return m.activeSession, m.sessionExists
 }
 
+func (m *MockSessionService) UpdateSessionTitle(workDir, title, commitHash string) error {
+	return nil
+}
+
+func (m *MockSessionService) GetPreviousTitle(workDir string) string {
+	return ""
+}
+
+func (m *MockSessionService) UpdatePreviousTitleCommitHash(workDir string, commitHash string) error {
+	return nil
+}
+
 func TestNewSessionCheckpointManager(t *testing.T) {
 	workDir := "/test/workspace"
 	gitService := &MockGitService{}
@@ -62,23 +73,23 @@ func TestNewSessionCheckpointManager(t *testing.T) {
 func TestGetCheckpointTimeout(t *testing.T) {
 	// Test default timeout
 	_ = os.Unsetenv("CATNIP_COMMIT_TIMEOUT_SECONDS")
-	timeout := getCheckpointTimeout()
+	timeout := GetCheckpointTimeout()
 	assert.Equal(t, DefaultCheckpointTimeoutSeconds*time.Second, timeout)
 
 	// Test custom timeout
 	_ = os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "60")
 	defer func() { _ = os.Unsetenv("CATNIP_COMMIT_TIMEOUT_SECONDS") }()
-	timeout = getCheckpointTimeout()
+	timeout = GetCheckpointTimeout()
 	assert.Equal(t, 60*time.Second, timeout)
 
 	// Test invalid timeout (should use default)
 	_ = os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "invalid")
-	timeout = getCheckpointTimeout()
+	timeout = GetCheckpointTimeout()
 	assert.Equal(t, DefaultCheckpointTimeoutSeconds*time.Second, timeout)
 
 	// Test zero timeout (should use default)
 	_ = os.Setenv("CATNIP_COMMIT_TIMEOUT_SECONDS", "0")
-	timeout = getCheckpointTimeout()
+	timeout = GetCheckpointTimeout()
 	assert.Equal(t, DefaultCheckpointTimeoutSeconds*time.Second, timeout)
 }
 
@@ -176,122 +187,6 @@ func TestUpdateLastCommitTime(t *testing.T) {
 
 	assert.True(t, cm.lastCommitTime.After(oldTime))
 	assert.True(t, time.Since(cm.lastCommitTime) < time.Second)
-}
-
-func TestFileWatcher(t *testing.T) {
-	// Create a temporary directory for testing
-	tempDir := t.TempDir()
-
-	cm := &SessionCheckpointManager{
-		workDir:        tempDir,
-		lastCommitTime: time.Now().Add(-1 * time.Hour), // Old time to trigger checkpoint
-	}
-
-	// Create subdirectories to test recursive watching
-	subDir := filepath.Join(tempDir, "subdir")
-	err := os.Mkdir(subDir, 0755)
-	require.NoError(t, err)
-
-	// Create .git directory that should be ignored
-	gitDir := filepath.Join(tempDir, ".git")
-	err = os.Mkdir(gitDir, 0755)
-	require.NoError(t, err)
-
-	// Start file watcher
-	err = cm.StartFileWatcher()
-	require.NoError(t, err)
-	defer cm.StopFileWatcher()
-
-	// Set up a channel to detect when file change handler is called
-	handlerCalled := make(chan bool, 1)
-	cm.SetFileChangeHandler(func() {
-		select {
-		case handlerCalled <- true:
-		default:
-		}
-	})
-
-	// Create a file in the watched directory
-	testFile := filepath.Join(tempDir, "test.txt")
-	err = os.WriteFile(testFile, []byte("test content"), 0644)
-	require.NoError(t, err)
-
-	// Wait for the file change handler to be called (with timeout)
-	select {
-	case <-handlerCalled:
-		// Success
-	case <-time.After(5 * time.Second):
-		t.Fatal("File change handler was not called within timeout")
-	}
-}
-
-func TestDetectClaudeTitle(t *testing.T) {
-	t.Run("active session with title", func(t *testing.T) {
-		mockSession := &MockSessionService{
-			activeSession: map[string]interface{}{
-				"title": map[string]interface{}{
-					"title": "Active Claude Session",
-				},
-			},
-			sessionExists: true,
-		}
-
-		cm := &SessionCheckpointManager{
-			sessionService: mockSession,
-			workDir:        "/test/workspace",
-		}
-
-		title, err := cm.DetectClaudeTitle()
-		require.NoError(t, err)
-		assert.Equal(t, "Active Claude Session", title)
-	})
-
-	t.Run("no active session", func(t *testing.T) {
-		mockSession := &MockSessionService{
-			sessionExists: false,
-		}
-
-		cm := &SessionCheckpointManager{
-			sessionService: mockSession,
-			workDir:        "/test/workspace",
-		}
-
-		_, err := cm.DetectClaudeTitle()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "no Claude session or title found")
-	})
-}
-
-func TestAddWatchRecursive(t *testing.T) {
-	tempDir := t.TempDir()
-
-	// Create directory structure
-	dirs := []string{
-		"src",
-		"src/components",
-		".git",         // Should be skipped
-		"node_modules", // Should be skipped
-		"dist",         // Should be skipped
-		"build",        // Should be skipped
-		".next",        // Should be skipped
-	}
-
-	for _, dir := range dirs {
-		err := os.MkdirAll(filepath.Join(tempDir, dir), 0755)
-		require.NoError(t, err)
-	}
-
-	cm := &SessionCheckpointManager{
-		workDir: tempDir,
-	}
-
-	// Start watcher
-	err := cm.StartFileWatcher()
-	require.NoError(t, err)
-	defer cm.StopFileWatcher()
-
-	// Verify watcher is set up
-	assert.NotNil(t, cm.watcher)
 }
 
 // TestConcurrentAccess tests thread safety of checkpoint manager
