@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ interface PullRequestDialogProps {
   onTitleChange: (title: string) => void;
   onDescriptionChange: (description: string) => void;
   onRefreshPrStatuses: () => Promise<void>;
+  isGenerating?: boolean;
 }
 
 interface PullRequestResponse {
@@ -48,6 +50,7 @@ export function PullRequestDialog({
   onTitleChange,
   onDescriptionChange,
   onRefreshPrStatuses,
+  isGenerating = false,
 }: PullRequestDialogProps) {
   const [loading, setLoading] = useState(false);
   const [errorDialog, setErrorDialog] = useState<{
@@ -247,25 +250,51 @@ export function PullRequestDialog({
             <Label htmlFor="pr-title" className="text-sm font-medium">
               Title
             </Label>
-            <Input
-              id="pr-title"
-              value={title}
-              onChange={(e) => onTitleChange(e.target.value)}
-              className="w-full"
-              placeholder="Enter a descriptive title for your pull request"
-            />
+            {isGenerating && !title ? (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground italic">
+                  Claude is generating a PR summary...
+                </div>
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : (
+              <Input
+                id="pr-title"
+                value={title}
+                onChange={(e) => onTitleChange(e.target.value)}
+                className="w-full"
+                placeholder="Enter a descriptive title for your pull request"
+              />
+            )}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="pr-body" className="text-sm font-medium">
               Description
             </Label>
-            <textarea
-              id="pr-body"
-              value={description}
-              onChange={(e) => onDescriptionChange(e.target.value)}
-              className="w-full min-h-[300px] rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm resize-vertical"
-              placeholder="Enter pull request description..."
-            />
+            {isGenerating && !description ? (
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground italic">
+                  Generating detailed description...
+                </div>
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-5/6" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              </div>
+            ) : (
+              <textarea
+                id="pr-body"
+                value={description}
+                onChange={(e) => onDescriptionChange(e.target.value)}
+                className="w-full min-h-[300px] rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm resize-vertical"
+                placeholder="Enter pull request description..."
+              />
+            )}
           </div>
         </div>
         <DialogFooter className="gap-2">
