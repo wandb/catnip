@@ -1647,6 +1647,21 @@ func (s *GitService) Stop() {
 	}
 }
 
+// RenameBranch renames a branch in the given repository
+func (s *GitService) RenameBranch(repoPath, oldBranch, newBranch string) error {
+	return s.operations.RenameBranch(repoPath, oldBranch, newBranch)
+}
+
+// ExecuteGit executes a git command in the given working directory (public wrapper)
+func (s *GitService) ExecuteGit(workingDir string, args ...string) ([]byte, error) {
+	return s.operations.ExecuteGit(workingDir, args...)
+}
+
+// BranchExists checks if a branch exists in the repository (public wrapper)
+func (s *GitService) BranchExists(repoPath, branch string, isRemote bool) bool {
+	return s.operations.BranchExists(repoPath, branch, isRemote)
+}
+
 // GitAddCommitGetHash performs git add, commit, and returns the commit hash
 // Returns empty string if not a git repository or no changes to commit
 func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {

@@ -28,6 +28,7 @@ type Operations interface {
 	CreateBranch(repoPath, branch, fromRef string) error
 	DeleteBranch(repoPath, branch string, force bool) error
 	ListBranches(repoPath string, options ListBranchesOptions) ([]string, error)
+	RenameBranch(repoPath, oldBranch, newBranch string) error
 
 	// Worktree operations
 	CreateWorktree(repoPath, worktreePath, branch, fromRef string) error

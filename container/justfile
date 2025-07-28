@@ -57,7 +57,7 @@ test-integration:
 
 # Clean build artifacts
 clean:
-	rm -rf bin/ docs/
+	rm -rf bin/
 
 golangci-lint:
 	#!/usr/bin/env bash
@@ -131,6 +131,7 @@ build-scripts:
 	mkdir -p internal/assets/scripts
 	cd scripts && pnpm run build
 	echo "✅ Proxy injection script built"
+
 
 # Show available commands
 default:

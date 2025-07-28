@@ -39,10 +39,6 @@ if [ -f "/root/.gitconfig" ] && [ ! -f "/home/catnip/.gitconfig" ]; then
     chown 1000:1000 /home/catnip/.gitconfig 2>/dev/null || true
 fi
 
-# Fix cargo and nvm locations in root
-sed -i "s|/root/\.cargo|${CATNIP_ROOT}/cargo|g" /root/.bashrc /root/.profile && \
-sed -i "s|\$HOME/\.nvm|\$NVM_DIR|g" /root/.bashrc
-
 # Copy other common configuration files that might be in /root
 for config_dir in .ssh .aws .config .local .cargo .rustup; do
     if [ -d "/root/$config_dir" ] && [ ! -d "/home/catnip/$config_dir" ]; then
@@ -63,6 +59,8 @@ if [ -n "$CATNIP_NODE_VERSION" ]; then
     echo "Installing Node.js version: $CATNIP_NODE_VERSION"
     gosu 1000:1000 bash -c 'source /etc/profile.d/catnip.sh && source "$NVM_DIR/nvm.sh" && nvm install "$CATNIP_NODE_VERSION" && nvm use "$CATNIP_NODE_VERSION"'
 fi
+# Fix nvm locations in root
+sed -i "s|\$HOME/\.nvm|\$NVM_DIR|g" /root/.bashrc
 
 if [ -n "$CATNIP_PYTHON_VERSION" ]; then
     if [ "$CATNIP_PYTHON_VERSION" != "system" ]; then
@@ -78,6 +76,8 @@ if [ -n "$CATNIP_RUST_VERSION" ]; then
     echo "Installing Rust version: $CATNIP_RUST_VERSION"
     gosu 1000:1000 bash -c 'source /etc/profile.d/catnip.sh && rustup install "$CATNIP_RUST_VERSION" && rustup default "$CATNIP_RUST_VERSION"'
 fi
+# Fix cargo paths again in case rustup modified root files
+sed -i "s|/root/\.cargo|${CATNIP_ROOT}/cargo|g" /root/.bashrc /root/.profile 2>/dev/null || true
 
 if [ -n "$CATNIP_GO_VERSION" ]; then
     echo "Installing Go version: $CATNIP_GO_VERSION"

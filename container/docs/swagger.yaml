@@ -669,6 +669,13 @@ definitions:
         example: false
         type: boolean
     type: object
+  internal_handlers.GraduateBranchRequest:
+    properties:
+      branch_name:
+        description: Optional custom branch name to graduate to
+        example: feature/add-auth
+        type: string
+    type: object
   internal_handlers.SSEMessage:
     properties:
       event:
@@ -1083,6 +1090,59 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.WorktreeDiffResponse'
       summary: Get worktree diff
+      tags:
+      - git
+  /v1/git/worktrees/{id}/graduate:
+    post:
+      consumes:
+      - application/json
+      description: Triggers renaming of any branch to a semantic name using Claude
+        or a custom name
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Graduation request with optional custom branch name
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handlers.GraduateBranchRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request (invalid branch name, branch already exists, etc.)
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Worktree not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "422":
+          description: No title available for automatic naming
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Rename branch
       tags:
       - git
   /v1/git/worktrees/{id}/merge:
