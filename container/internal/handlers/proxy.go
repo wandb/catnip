@@ -69,6 +69,17 @@ func rewriteAttribute(n *html.Node, attrName string, basePath string) {
 				}
 			}
 			n.Attr[i].Val = newVal
+		} else if attr.Key == attrName && isWebSocketRewritable(attr.Val, basePath) {
+			// Handle WebSocket URLs (ws:// and wss://)
+			if u, err := url.Parse(attr.Val); err == nil {
+				// Only rewrite same-host WebSocket URLs with absolute paths
+				if (u.Scheme == "ws" || u.Scheme == "wss") &&
+					strings.HasPrefix(u.Path, "/") &&
+					!strings.HasPrefix(u.Path, basePath) {
+					u.Path = basePath + strings.TrimPrefix(u.Path, "/")
+					n.Attr[i].Val = u.String()
+				}
+			}
 		}
 	}
 }
@@ -76,6 +87,11 @@ func rewriteAttribute(n *html.Node, attrName string, basePath string) {
 // isRewritable determines if a URL is an absolute path that should be rewritten
 func isRewritable(val string, basePath string) bool {
 	return strings.HasPrefix(val, "/") && !strings.HasPrefix(val, basePath)
+}
+
+// isWebSocketRewritable determines if a URL is a WebSocket URL that should be rewritten
+func isWebSocketRewritable(val string, basePath string) bool {
+	return strings.HasPrefix(val, "ws://") || strings.HasPrefix(val, "wss://")
 }
 
 // ProxyHandler handles reverse proxy requests to detected services
@@ -365,6 +381,29 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		// new URL("/path", ...) -> new URL("/PORT/path", ...)
 		{
 			regex: regexp.MustCompile("new\\s+URL\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]"),
+			replace: func(match, path string) string {
+				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+					return strings.Replace(match, path, basePath+path, 1)
+				}
+				return match
+			},
+		},
+		// new WebSocket("ws://host/path") or new WebSocket("wss://host/path") -> rewrite path
+		{
+			regex: regexp.MustCompile("new\\s+WebSocket\\s*\\(\\s*['\"`](wss?://[^'\"`]+)['\"`]"),
+			replace: func(match, wsUrl string) string {
+				if u, err := url.Parse(wsUrl); err == nil {
+					if strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, basePath+"/") {
+						u.Path = basePath + u.Path
+						return strings.Replace(match, wsUrl, u.String(), 1)
+					}
+				}
+				return match
+			},
+		},
+		// new WebSocket("/path") -> new WebSocket("ws://host/PORT/path")
+		{
+			regex: regexp.MustCompile("new\\s+WebSocket\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
 				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
 					return strings.Replace(match, path, basePath+path, 1)
