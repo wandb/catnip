@@ -1,0 +1,116 @@
+# Stage 1: Build the frontend
+FROM node:22-alpine AS frontend-builder
+
+WORKDIR /frontend
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Install pnpm and dependencies
+RUN corepack enable && \
+    corepack prepare pnpm@latest --activate && \
+    pnpm install --frozen-lockfile
+
+# Copy frontend source
+COPY . .
+
+# Build frontend
+RUN pnpm build
+
+# Stage 2: Build the Go binary
+FROM golang:1.24 AS builder
+
+WORKDIR /build
+
+# Install basic build tools
+RUN apt-get update && apt-get install -y curl build-essential make wget && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy go mod files
+COPY container/go.mod container/go.sum ./
+RUN go mod download && \
+    go install github.com/swaggo/swag/cmd/swag@latest
+
+# Copy source code
+COPY container/ .
+
+# Copy built frontend assets for embedding (relative to embedded.go)
+COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
+
+# Install swag and generate swagger documentation, then build the binary
+RUN swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal && \
+    CGO_ENABLED=0 GOOS=linux go build -a -o catnip cmd/server/main.go
+
+# Stage 3: Minimal runtime image
+FROM ubuntu:24.04
+
+# Multi-arch support
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+
+# Avoid prompts from apt during build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install only essential packages
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    git \
+    sudo \
+    gosu \
+    locales \
+    && rm -rf /var/lib/apt/lists/*
+
+# Remove default ubuntu user if it exists and create catnip user with UID 1000
+RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi && \
+    useradd -m -s /bin/bash -u 1000 catnip && \
+    usermod -aG sudo catnip && \
+    echo '#1000 ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+
+# Create global workspace directory
+RUN mkdir -p /workspace && \
+    chown catnip:catnip /workspace
+
+# Create .ssh directory for catnip user with proper permissions
+RUN mkdir -p /home/catnip/.ssh && \
+    chown catnip:catnip /home/catnip/.ssh && \
+    chmod 700 /home/catnip/.ssh
+
+# Set up global environment variables and PATH
+ENV CATNIP_ROOT="/opt/catnip"
+ENV WORKSPACE="/workspace"
+ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
+
+# Create directory structure
+RUN mkdir -p ${CATNIP_ROOT}/bin ${CATNIP_ROOT}/lib && \
+    chown -R catnip:catnip ${CATNIP_ROOT} && \
+    chmod -R 755 ${CATNIP_ROOT}
+
+# Setup locale
+RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
+
+# Set minimal git config for catnip user
+USER catnip
+RUN git config --global user.name "catnip" && \
+    git config --global user.email "catnip@catnip.run" && \
+    git config --global init.defaultBranch main && \
+    git config --global --add safe.directory /workspace
+
+# Switch back to root for final setup
+USER root
+
+# Copy the catnip binary from builder stage
+COPY --from=builder /build/catnip ${CATNIP_ROOT}/bin/catnip
+RUN chmod +x ${CATNIP_ROOT}/bin/catnip
+
+# Copy minimal entrypoint script
+COPY container/setup/entrypoint-base.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command
+EXPOSE 8080
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["catnip"]
