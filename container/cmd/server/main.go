@@ -98,9 +98,13 @@ func main() {
 
 	// Initialize services
 	claudeService := services.NewClaudeService()
+	sessionService := services.NewSessionService()
+
+	// Initialize and start Claude monitor service
+	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService)
 
 	// Initialize handlers
-	ptyHandler := handlers.NewPTYHandler(gitService)
+	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService)
 
 	// Wire up the setup executor to enable setup.sh execution in new worktrees
 	log.Printf("🔧 Setting up setupExecutor for gitService")
@@ -109,12 +113,6 @@ func main() {
 
 	// Now initialize local repositories with setup executor properly configured
 	gitService.InitializeLocalRepos()
-
-	// Get session service for sharing
-	sessionService := ptyHandler.GetSessionService()
-
-	// Initialize and start Claude monitor service
-	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService)
 	if err := claudeMonitor.Start(); err != nil {
 		log.Printf("⚠️  Failed to start Claude monitor service: %v", err)
 	} else {

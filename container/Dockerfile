@@ -168,12 +168,15 @@ ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
 
 # Enable title interception by default
 ENV CATNIP_TITLE_INTERCEPT="1"
-ENV CATNIP_TITLE_LOG="/tmp/catnip_syscall_titles.log"
+ENV CATNIP_TITLE_LOG="/home/catnip/.catnip/title_events.log"
 
 # Create directory structure with full write permissions for catnip user
 RUN mkdir -p ${CATNIP_ROOT}/bin ${CATNIP_ROOT}/lib ${CATNIP_ROOT}/versions && \
     chown -R catnip:catnip ${CATNIP_ROOT} && \
-    chmod -R 755 ${CATNIP_ROOT}
+    chmod -R 755 ${CATNIP_ROOT} && \
+    mkdir -p /home/catnip/.catnip && \
+    chown catnip:catnip /home/catnip/.catnip && \
+    chmod 755 /home/catnip/.catnip
 
 # Install language version managers globally
 # Install NVM globally
