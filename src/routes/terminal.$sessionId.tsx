@@ -30,9 +30,25 @@ function TerminalPage() {
   const observerRef = useRef<ResizeObserver | null>(null);
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [shakeReadOnlyBadge, setShakeReadOnlyBadge] = useState(false);
   const [error, setError] = useState<{ title: string; message: string } | null>(
     null,
   );
+
+  // Trigger shake animation for read-only badge
+  const triggerReadOnlyShake = useCallback(() => {
+    if (isReadOnly) {
+      setShakeReadOnlyBadge(true);
+      setTimeout(() => setShakeReadOnlyBadge(false), 600); // Animation duration
+    }
+  }, [isReadOnly]);
+
+  // Handle read-only badge click to request promotion
+  const handlePromoteRequest = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "promote" }));
+    }
+  }, []);
 
   // Helper to generate a unique key for session storage
   const getPromptStorageKey = useCallback(
@@ -426,6 +442,11 @@ function TerminalPage() {
 
     const disposer = instance?.onData((data: string) => {
       if (ws.readyState === WebSocket.OPEN) {
+        // Check if we're in read-only mode and trigger shake animation
+        if (isReadOnly) {
+          triggerReadOnlyShake();
+          return; // Don't send data if read-only
+        }
         ws.send(data);
       }
     });
@@ -465,6 +486,8 @@ function TerminalPage() {
     setDims,
     hasPromptBeenExecuted,
     markPromptAsExecuted,
+    triggerReadOnlyShake,
+    isReadOnly,
   ]);
 
   // Show error display if there's an error
@@ -487,7 +510,13 @@ function TerminalPage() {
     <div className="h-full w-full bg-black p-4 relative">
       {/* Read-only indicator */}
       {isReadOnly && (
-        <div className="absolute top-4 right-4 z-10 bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-3 py-1 rounded-md text-sm font-medium backdrop-blur-sm">
+        <div
+          className={`absolute top-4 right-4 z-10 bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-3 py-1 rounded-md text-sm font-medium backdrop-blur-sm cursor-pointer hover:bg-yellow-600/30 hover:border-yellow-500/70 transition-all duration-200 ${
+            shakeReadOnlyBadge ? "animate-pulse animate-bounce" : ""
+          }`}
+          onClick={handlePromoteRequest}
+          title="Click to request write access"
+        >
           👁️ Read Only
         </div>
       )}
