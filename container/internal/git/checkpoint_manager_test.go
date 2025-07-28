@@ -23,6 +23,10 @@ func (m *MockGitService) GitAddCommitGetHash(workDir, title string) (string, err
 	return m.returnHash, m.returnError
 }
 
+func (m *MockGitService) RefreshWorktreeStatus(workDir string) error {
+	return nil
+}
+
 // MockSessionService is a mock implementation of SessionService for testing
 type MockSessionService struct {
 	addToHistoryCalled bool

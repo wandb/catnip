@@ -740,24 +740,24 @@ func (s *GitService) detectWorktreeChanges(oldSnapshots map[string]worktreeSnaps
 }
 
 // compareSessionTitles compares two session titles for equality
-func compareSessionTitles(old, new *models.TitleEntry) bool {
-	if old == nil && new == nil {
+func compareSessionTitles(old, newEntry *models.TitleEntry) bool {
+	if old == nil && newEntry == nil {
 		return true
 	}
-	if old == nil || new == nil {
+	if old == nil || newEntry == nil {
 		return false
 	}
-	return old.Title == new.Title && old.Timestamp == new.Timestamp && old.CommitHash == new.CommitHash
+	return old.Title == newEntry.Title && old.Timestamp.Equal(newEntry.Timestamp) && old.CommitHash == newEntry.CommitHash
 }
 
 // compareSessionTitleHistory compares two session title histories for equality
-func compareSessionTitleHistory(old, new []models.TitleEntry) bool {
-	if len(old) != len(new) {
+func compareSessionTitleHistory(old, newHistory []models.TitleEntry) bool {
+	if len(old) != len(newHistory) {
 		return false
 	}
 	for i, oldEntry := range old {
-		newEntry := new[i]
-		if oldEntry.Title != newEntry.Title || oldEntry.Timestamp != newEntry.Timestamp || oldEntry.CommitHash != newEntry.CommitHash {
+		newEntry := newHistory[i]
+		if oldEntry.Title != newEntry.Title || !oldEntry.Timestamp.Equal(newEntry.Timestamp) || oldEntry.CommitHash != newEntry.CommitHash {
 			return false
 		}
 	}
@@ -2096,7 +2096,9 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 	s.mu.Lock()
 	if worktree, exists := s.worktrees[worktreeID]; exists {
 		worktree.PullRequestURL = pr.URL
-		s.saveState() // Persist the updated state
+		if err := s.saveState(); err != nil {
+			log.Printf("Failed to save state: %v", err)
+		}
 	}
 	s.mu.Unlock()
 
@@ -2146,7 +2148,9 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 	s.mu.Lock()
 	if worktree, exists := s.worktrees[worktreeID]; exists {
 		worktree.PullRequestURL = pr.URL
-		s.saveState() // Persist the updated state
+		if err := s.saveState(); err != nil {
+			log.Printf("Failed to save state: %v", err)
+		}
 	}
 	s.mu.Unlock()
 
