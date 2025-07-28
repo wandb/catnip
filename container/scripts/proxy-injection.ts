@@ -201,6 +201,7 @@ declare global {
     rewriteStaticResources();
     watchForDynamicInsertions();
     patchFetchAndXHR();
+    patchWebSocket();
   });
 
   /**
@@ -210,7 +211,6 @@ declare global {
    * - new EventSource("/stream") → would need to wrap EventSource
    * - import("/module.js") dynamic imports cannot be intercepted easily at runtime
    * - CSS url(/assets/foo.png) — rewriting stylesheet contents is out-of-scope unless you proxy/transform CSS
-   * - WebSocket URLs like ws://example.com/...
    * - Form actions (<form action="/post">) if used
    */
 
