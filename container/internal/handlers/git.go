@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log"
 	"net/url"
+	"os/exec"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/models"
@@ -15,6 +17,7 @@ type GitHandler struct {
 	gitService     *services.GitService
 	gitHTTPService *services.GitHTTPService
 	sessionService *services.SessionService
+	claudeMonitor  *services.ClaudeMonitorService
 }
 
 // CheckoutResponse represents the response when checking out a repository
@@ -89,11 +92,12 @@ type WorktreeDiffResponse struct {
 }
 
 // NewGitHandler creates a new Git handler
-func NewGitHandler(gitService *services.GitService, gitHTTPService *services.GitHTTPService, sessionService *services.SessionService) *GitHandler {
+func NewGitHandler(gitService *services.GitService, gitHTTPService *services.GitHTTPService, sessionService *services.SessionService, claudeMonitor *services.ClaudeMonitorService) *GitHandler {
 	return &GitHandler{
 		gitService:     gitService,
 		gitHTTPService: gitHTTPService,
 		sessionService: sessionService,
+		claudeMonitor:  claudeMonitor,
 	}
 }
 
@@ -618,4 +622,129 @@ func (h *GitHandler) GetPullRequestInfo(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(prInfo)
+}
+
+// GraduateBranchRequest represents the request to graduate a branch
+type GraduateBranchRequest struct {
+	// Optional custom branch name to graduate to
+	BranchName string `json:"branch_name,omitempty" example:"feature/add-auth"`
+}
+
+// GraduateBranch manually triggers renaming of a branch to a semantic name
+// @Summary Rename branch
+// @Description Triggers renaming of any branch to a semantic name using Claude or a custom name
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param request body GraduateBranchRequest false "Graduation request with optional custom branch name"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string "Bad request (invalid branch name, branch already exists, etc.)"
+// @Failure 404 {object} map[string]string "Worktree not found"
+// @Failure 422 {object} map[string]string "No title available for automatic naming"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /v1/git/worktrees/{id}/graduate [post]
+func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	// Parse request body (optional)
+	var req GraduateBranchRequest
+	_ = c.BodyParser(&req) // Don't fail if body is empty
+
+	// Find the worktree to get its path
+	worktrees := h.gitService.ListWorktrees()
+	var workDir string
+	for _, worktree := range worktrees {
+		if worktree.ID == worktreeID {
+			workDir = worktree.Path
+			break
+		}
+	}
+
+	if workDir == "" {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "Worktree not found",
+		})
+	}
+
+	// If custom branch name is provided, handle directly
+	if req.BranchName != "" {
+		// Get current branch name
+		output, err := exec.Command("git", "-C", workDir, "rev-parse", "--symbolic-full-name", "HEAD").Output()
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "Failed to get current branch name: " + err.Error(),
+			})
+		}
+		currentBranch := strings.TrimSpace(string(output))
+
+		// Validate the custom branch name
+		if err := exec.Command("git", "check-ref-format", "refs/heads/"+req.BranchName).Run(); err != nil {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "Invalid branch name: " + req.BranchName,
+			})
+		}
+
+		// Check if the new branch already exists
+		if err := exec.Command("git", "-C", workDir, "rev-parse", "--verify", "refs/heads/"+req.BranchName).Run(); err == nil {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "Branch already exists: " + req.BranchName,
+			})
+		}
+
+		// Create new branch from current HEAD
+		if err := exec.Command("git", "-C", workDir, "checkout", "-b", req.BranchName).Run(); err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "Failed to create new branch: " + err.Error(),
+			})
+		}
+
+		// Delete the old branch reference if it was a catnip ref
+		if strings.HasPrefix(currentBranch, "refs/catnip/") {
+			if err := exec.Command("git", "-C", workDir, "update-ref", "-d", currentBranch).Run(); err != nil {
+				// Log but don't fail - the new branch was created successfully
+				// This is just cleanup of the old catnip ref
+				log.Printf("⚠️  Failed to delete old catnip ref %q: %v", currentBranch, err)
+			}
+		}
+	} else {
+		// For automatic naming, use the Claude monitor service
+		if h.claudeMonitor == nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": "Claude monitor service not available",
+			})
+		}
+
+		// Trigger branch graduation via Claude monitor
+		if err := h.claudeMonitor.TriggerBranchRename(workDir, req.BranchName); err != nil {
+			// Check for specific error types to return appropriate status codes
+			errMsg := err.Error()
+
+			// No title available for automatic naming
+			if strings.Contains(errMsg, "no title available") {
+				return c.Status(422).JSON(fiber.Map{
+					"error": errMsg,
+					"code":  "NO_TITLE_AVAILABLE",
+				})
+			}
+
+			// Not a catnip branch, invalid branch name, branch already exists, etc.
+			return c.Status(400).JSON(fiber.Map{
+				"error": errMsg,
+			})
+		}
+	}
+
+	response := fiber.Map{
+		"message": "Branch rename triggered successfully",
+	}
+
+	if req.BranchName != "" {
+		response["branch_name"] = req.BranchName
+		response["method"] = "custom"
+	} else {
+		response["method"] = "claude_generated"
+	}
+
+	return c.JSON(response)
 }
