@@ -506,6 +506,12 @@ func (m *WorktreeCheckpointManager) renameBranch(oldBranchName, newBranchName st
 		// Don't fail the whole operation for this
 	}
 
+	// Update the worktree branch name in the GitService so the UI reflects the change
+	if err := m.gitService.UpdateWorktreeBranchName(m.workDir, newBranchName); err != nil {
+		log.Printf("⚠️  Failed to update worktree branch name in service: %v", err)
+		// Don't fail the whole operation for this, but log the error
+	}
+
 	return nil
 }
 
