@@ -242,19 +242,22 @@ type EventsEmitter interface {
 	EmitWorktreeBatchUpdated(updates map[string]*CachedWorktreeStatus)
 	EmitWorktreeDirty(worktreeID, worktreeName string, files []string)
 	EmitWorktreeClean(worktreeID, worktreeName string)
+	EmitWorktreeUpdated(worktreeID string, updates map[string]interface{})
 }
 
 type GitService struct {
-	repositories     map[string]*models.Repository // key: repoID (e.g., "owner/repo")
-	worktrees        map[string]*models.Worktree   // key: worktree ID
-	operations       git.Operations                // All git operations through this interface
-	worktreeService  *WorktreeManager              // Handles all worktree operations (services layer)
-	conflictResolver *git.ConflictResolver         // Handles conflict detection/resolution
-	githubManager    *git.GitHubManager            // Handles all GitHub CLI operations
-	commitSync       *CommitSyncService            // Handles automatic checkpointing and commit sync
-	setupExecutor    SetupExecutor                 // Handles setup.sh execution in PTY sessions
-	worktreeCache    *WorktreeStatusCache          // Handles worktree status caching with event updates
-	mu               sync.RWMutex
+	repositories       map[string]*models.Repository // key: repoID (e.g., "owner/repo")
+	worktrees          map[string]*models.Worktree   // key: worktree ID
+	operations         git.Operations                // All git operations through this interface
+	worktreeService    *WorktreeManager              // Handles all worktree operations (services layer)
+	conflictResolver   *git.ConflictResolver         // Handles conflict detection/resolution
+	githubManager      *git.GitHubManager            // Handles all GitHub CLI operations
+	commitSync         *CommitSyncService            // Handles automatic checkpointing and commit sync
+	setupExecutor      SetupExecutor                 // Handles setup.sh execution in PTY sessions
+	worktreeCache      *WorktreeStatusCache          // Handles worktree status caching with event updates
+	eventsEmitter      EventsEmitter                 // Handles emitting events to connected clients
+	lastSavedSnapshots map[string]worktreeSnapshot   // Stores last saved state for change detection
+	mu                 sync.RWMutex
 }
 
 // Helper functions for standardized command execution
@@ -384,12 +387,13 @@ func NewGitService() *GitService {
 // NewGitServiceWithOperations creates a new Git service instance with injectable git operations
 func NewGitServiceWithOperations(operations git.Operations) *GitService {
 	s := &GitService{
-		repositories:     make(map[string]*models.Repository),
-		worktrees:        make(map[string]*models.Worktree),
-		operations:       operations,
-		worktreeService:  NewWorktreeManager(operations),
-		conflictResolver: git.NewConflictResolver(operations),
-		githubManager:    git.NewGitHubManager(operations),
+		repositories:       make(map[string]*models.Repository),
+		worktrees:          make(map[string]*models.Worktree),
+		operations:         operations,
+		worktreeService:    NewWorktreeManager(operations),
+		conflictResolver:   git.NewConflictResolver(operations),
+		githubManager:      git.NewGitHubManager(operations),
+		lastSavedSnapshots: make(map[string]worktreeSnapshot),
 	}
 
 	// Initialize CommitSync service
@@ -643,6 +647,123 @@ func (s *GitService) updateCurrentSymlink(targetPath string) error {
 
 // State persistence
 
+// worktreeSnapshot captures the essential fields we want to track for changes
+type worktreeSnapshot struct {
+	ID                     string
+	Branch                 string
+	CommitHash             string
+	CommitCount            int
+	CommitsBehind          int
+	IsDirty                bool
+	HasConflicts           bool
+	SessionTitle           *models.TitleEntry
+	SessionTitleHistory    []models.TitleEntry
+	HasActiveClaudeSession bool
+}
+
+// createWorktreeSnapshot creates a snapshot of the current worktree state
+func createWorktreeSnapshot(wt *models.Worktree) worktreeSnapshot {
+	var sessionTitleHistory []models.TitleEntry
+	if wt.SessionTitleHistory != nil {
+		sessionTitleHistory = append([]models.TitleEntry(nil), wt.SessionTitleHistory...)
+	}
+
+	return worktreeSnapshot{
+		ID:                     wt.ID,
+		Branch:                 wt.Branch,
+		CommitHash:             wt.CommitHash,
+		CommitCount:            wt.CommitCount,
+		CommitsBehind:          wt.CommitsBehind,
+		IsDirty:                wt.IsDirty,
+		HasConflicts:           wt.HasConflicts,
+		SessionTitle:           wt.SessionTitle,
+		SessionTitleHistory:    sessionTitleHistory,
+		HasActiveClaudeSession: wt.HasActiveClaudeSession,
+	}
+}
+
+// detectWorktreeChanges compares old and new snapshots and returns changed worktrees
+func (s *GitService) detectWorktreeChanges(oldSnapshots map[string]worktreeSnapshot) map[string]map[string]interface{} {
+	changes := make(map[string]map[string]interface{})
+
+	for worktreeID, worktree := range s.worktrees {
+		newSnapshot := createWorktreeSnapshot(worktree)
+		oldSnapshot, existed := oldSnapshots[worktreeID]
+
+		// If worktree didn't exist before, it's a new one - don't emit individual changes
+		// (the worktree cache system will handle new worktrees)
+		if !existed {
+			continue
+		}
+
+		// Compare fields and collect changes
+		worktreeChanges := make(map[string]interface{})
+
+		if oldSnapshot.Branch != newSnapshot.Branch {
+			worktreeChanges["branch"] = newSnapshot.Branch
+		}
+		if oldSnapshot.CommitHash != newSnapshot.CommitHash {
+			worktreeChanges["commit_hash"] = newSnapshot.CommitHash
+		}
+		if oldSnapshot.CommitCount != newSnapshot.CommitCount {
+			worktreeChanges["commit_count"] = newSnapshot.CommitCount
+		}
+		if oldSnapshot.CommitsBehind != newSnapshot.CommitsBehind {
+			worktreeChanges["commits_behind"] = newSnapshot.CommitsBehind
+		}
+		if oldSnapshot.IsDirty != newSnapshot.IsDirty {
+			worktreeChanges["is_dirty"] = newSnapshot.IsDirty
+		}
+		if oldSnapshot.HasConflicts != newSnapshot.HasConflicts {
+			worktreeChanges["has_conflicts"] = newSnapshot.HasConflicts
+		}
+		if oldSnapshot.HasActiveClaudeSession != newSnapshot.HasActiveClaudeSession {
+			worktreeChanges["has_active_claude_session"] = newSnapshot.HasActiveClaudeSession
+		}
+
+		// Compare session title (more complex comparison)
+		if !compareSessionTitles(oldSnapshot.SessionTitle, newSnapshot.SessionTitle) {
+			worktreeChanges["session_title"] = newSnapshot.SessionTitle
+		}
+
+		// Compare session title history (basic length/content check)
+		if !compareSessionTitleHistory(oldSnapshot.SessionTitleHistory, newSnapshot.SessionTitleHistory) {
+			worktreeChanges["session_title_history"] = newSnapshot.SessionTitleHistory
+		}
+
+		if len(worktreeChanges) > 0 {
+			changes[worktreeID] = worktreeChanges
+		}
+	}
+
+	return changes
+}
+
+// compareSessionTitles compares two session titles for equality
+func compareSessionTitles(old, new *models.TitleEntry) bool {
+	if old == nil && new == nil {
+		return true
+	}
+	if old == nil || new == nil {
+		return false
+	}
+	return old.Title == new.Title && old.Timestamp == new.Timestamp && old.CommitHash == new.CommitHash
+}
+
+// compareSessionTitleHistory compares two session title histories for equality
+func compareSessionTitleHistory(old, new []models.TitleEntry) bool {
+	if len(old) != len(new) {
+		return false
+	}
+	for i, oldEntry := range old {
+		newEntry := new[i]
+		if oldEntry.Title != newEntry.Title || oldEntry.Timestamp != newEntry.Timestamp || oldEntry.CommitHash != newEntry.CommitHash {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *GitService) saveState() error {
 	state := map[string]interface{}{
 		"repositories": s.repositories,
@@ -654,7 +775,37 @@ func (s *GitService) saveState() error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(getGitStateDir(), "state.json"), data, 0644)
+	// Save to disk
+	if err := os.WriteFile(filepath.Join(getGitStateDir(), "state.json"), data, 0644); err != nil {
+		return err
+	}
+
+	// After successful save, detect and emit changes if events emitter is available
+	if s.eventsEmitter != nil {
+		// Use stored snapshots for comparison (they represent the previous state)
+		oldSnapshots := s.lastSavedSnapshots
+		if oldSnapshots == nil {
+			oldSnapshots = make(map[string]worktreeSnapshot)
+		}
+
+		changes := s.detectWorktreeChanges(oldSnapshots)
+
+		if len(changes) > 0 {
+			// Emit individual worktree updated events for all changes
+			for worktreeID, worktreeChanges := range changes {
+				s.eventsEmitter.EmitWorktreeUpdated(worktreeID, worktreeChanges)
+				log.Printf("🔄 Emitted worktree update for %s: %v", worktreeID, worktreeChanges)
+			}
+		}
+
+		// Update stored snapshots for next comparison
+		s.lastSavedSnapshots = make(map[string]worktreeSnapshot)
+		for worktreeID, worktree := range s.worktrees {
+			s.lastSavedSnapshots[worktreeID] = createWorktreeSnapshot(worktree)
+		}
+	}
+
+	return nil
 }
 
 func (s *GitService) loadState() error {
@@ -1005,6 +1156,36 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	delete(s.worktrees, worktreeID)
 
 	// Save state
+	_ = s.saveState()
+
+	return nil
+}
+
+// UpdateWorktreeBranchName updates the stored branch name for a worktree after a git branch rename
+func (s *GitService) UpdateWorktreeBranchName(worktreePath, newBranchName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Find worktree by path
+	var targetWorktree *models.Worktree
+	for _, worktree := range s.worktrees {
+		if worktree.Path == worktreePath {
+			targetWorktree = worktree
+			break
+		}
+	}
+
+	if targetWorktree == nil {
+		return fmt.Errorf("worktree not found for path: %s", worktreePath)
+	}
+
+	// Update the branch name
+	oldBranchName := targetWorktree.Branch
+	targetWorktree.Branch = newBranchName
+
+	log.Printf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
+
+	// Save state which will automatically detect changes and emit events
 	_ = s.saveState()
 
 	return nil
@@ -2110,8 +2291,12 @@ func (s *GitService) checkHasCommitsAhead(worktree *models.Worktree) (bool, erro
 	return commitCount > 0, nil
 }
 
-// SetEventsHandler connects the events handler to the worktree cache
+// SetEventsHandler connects the events handler to the worktree cache and GitService
 func (s *GitService) SetEventsHandler(eventsHandler EventsEmitter) {
+	s.mu.Lock()
+	s.eventsEmitter = eventsHandler
+	s.mu.Unlock()
+
 	if s.worktreeCache != nil {
 		// Update the cache's events handler
 		s.worktreeCache.mu.Lock()
