@@ -387,12 +387,13 @@ func NewGitService() *GitService {
 // NewGitServiceWithOperations creates a new Git service instance with injectable git operations
 func NewGitServiceWithOperations(operations git.Operations) *GitService {
 	s := &GitService{
-		repositories:     make(map[string]*models.Repository),
-		worktrees:        make(map[string]*models.Worktree),
-		operations:       operations,
-		worktreeService:  NewWorktreeManager(operations),
-		conflictResolver: git.NewConflictResolver(operations),
-		githubManager:    git.NewGitHubManager(operations),
+		repositories:       make(map[string]*models.Repository),
+		worktrees:          make(map[string]*models.Worktree),
+		operations:         operations,
+		worktreeService:    NewWorktreeManager(operations),
+		conflictResolver:   git.NewConflictResolver(operations),
+		githubManager:      git.NewGitHubManager(operations),
+		lastSavedSnapshots: make(map[string]worktreeSnapshot),
 	}
 
 	// Initialize CommitSync service
