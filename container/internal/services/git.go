@@ -268,13 +268,6 @@ func (s *GitService) SetSetupExecutor(executor SetupExecutor) {
 	s.setupExecutor = executor
 }
 
-// SetEventsHandler sets the events emitter for broadcasting worktree changes
-func (s *GitService) SetEventsHandler(emitter EventsEmitter) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.eventsEmitter = emitter
-}
-
 // InitializeLocalRepos detects and loads any local repositories in /live
 // This should be called after SetSetupExecutor to ensure setup.sh execution works
 func (s *GitService) InitializeLocalRepos() {

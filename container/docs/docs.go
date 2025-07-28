@@ -1916,7 +1916,8 @@ const docTemplate = `{
                 "worktree:status_updated",
                 "worktree:batch_updated",
                 "worktree:dirty",
-                "worktree:clean"
+                "worktree:clean",
+                "worktree:updated"
             ],
             "x-enum-varnames": [
                 "PortOpenedEvent",
@@ -1930,7 +1931,8 @@ const docTemplate = `{
                 "WorktreeStatusUpdatedEvent",
                 "WorktreeBatchUpdatedEvent",
                 "WorktreeDirtyEvent",
-                "WorktreeCleanEvent"
+                "WorktreeCleanEvent",
+                "WorktreeUpdatedEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {
