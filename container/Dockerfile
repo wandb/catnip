@@ -18,20 +18,29 @@ COPY . .
 RUN pnpm build
 
 # Stage 2: Build the Go binary
-FROM golang:1.24-alpine AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /build
 
-# Install Rust for building the interceptor
-RUN apk add --no-cache curl gcc musl-dev && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
-ENV PATH="/root/.cargo/bin:${PATH}"
+# Install basic build tools
+RUN apt-get update && apt-get install -y curl build-essential && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy go mod files
 COPY container/go.mod container/go.sum ./
 RUN go mod download && \
     go install github.com/swaggo/swag/cmd/swag@latest && \
-    apk add just make
+    apt-get update && apt-get install -y make wget && \
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        JUST_ARCH="x86_64-unknown-linux-musl"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        JUST_ARCH="aarch64-unknown-linux-musl"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    wget -qO- "https://github.com/casey/just/releases/download/1.16.0/just-1.16.0-${JUST_ARCH}.tar.gz" | tar -xz -C /usr/local/bin && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy source code
 COPY container/ .
@@ -43,9 +52,6 @@ COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
 # Install swag and generate swagger documentation
 RUN just swagger
-
-# Build the title interceptor library
-RUN just build-interceptor
 
 # Build the binary
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go
@@ -163,7 +169,6 @@ ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
 # Enable title interception by default
 ENV CATNIP_TITLE_INTERCEPT="1"
 ENV CATNIP_TITLE_LOG="/tmp/catnip_syscall_titles.log"
-ENV LD_PRELOAD="/usr/local/lib/libtitle_interceptor.so"
 
 # Create directory structure with full write permissions for catnip user
 RUN mkdir -p ${CATNIP_ROOT}/bin ${CATNIP_ROOT}/lib ${CATNIP_ROOT}/versions && \
@@ -217,6 +222,10 @@ RUN mkdir -p ${CATNIP_ROOT}/pipx && \
 # Copy and set up global shell environment for all users
 COPY container/setup/catnip-profile.sh /etc/profile.d/catnip.sh
 RUN chmod +x /etc/profile.d/catnip.sh
+
+# Copy the Node.js PTY title interceptor (needed before Node.js setup due to NODE_OPTIONS)
+COPY container/setup/pty-title-interceptor.js ${CATNIP_ROOT}/lib/pty-title-interceptor.js
+RUN chmod +x ${CATNIP_ROOT}/lib/pty-title-interceptor.js
 
 # Install default Node.js version and enable corepack for pnpm
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -322,10 +331,6 @@ RUN chmod +x /entrypoint.sh && \
 # Copy the catnip binary from builder stage
 COPY --from=builder /build/catnip ${CATNIP_ROOT}/bin/catnip
 RUN chmod +x ${CATNIP_ROOT}/bin/catnip
-
-# Copy the title interceptor library from builder stage
-COPY --from=builder /build/rust-title-interceptor/libtitle_interceptor.so /usr/local/lib/libtitle_interceptor.so
-RUN ldconfig
 
 # Set working directory
 WORKDIR /workspace
