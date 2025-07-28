@@ -764,12 +764,6 @@ func compareSessionTitleHistory(old, new []models.TitleEntry) bool {
 }
 
 func (s *GitService) saveState() error {
-	// Create snapshots of current worktrees before any state changes
-	oldSnapshots := make(map[string]worktreeSnapshot)
-	for worktreeID, worktree := range s.worktrees {
-		oldSnapshots[worktreeID] = createWorktreeSnapshot(worktree)
-	}
-
 	state := map[string]interface{}{
 		"repositories": s.repositories,
 		"worktrees":    s.worktrees,
@@ -787,6 +781,12 @@ func (s *GitService) saveState() error {
 
 	// After successful save, detect and emit changes if events emitter is available
 	if s.eventsEmitter != nil {
+		// Use stored snapshots for comparison (they represent the previous state)
+		oldSnapshots := s.lastSavedSnapshots
+		if oldSnapshots == nil {
+			oldSnapshots = make(map[string]worktreeSnapshot)
+		}
+
 		changes := s.detectWorktreeChanges(oldSnapshots)
 
 		if len(changes) > 0 {
@@ -795,6 +795,12 @@ func (s *GitService) saveState() error {
 				s.eventsEmitter.EmitWorktreeUpdated(worktreeID, worktreeChanges)
 				log.Printf("🔄 Emitted worktree update for %s: %v", worktreeID, worktreeChanges)
 			}
+		}
+
+		// Update stored snapshots for next comparison
+		s.lastSavedSnapshots = make(map[string]worktreeSnapshot)
+		for worktreeID, worktree := range s.worktrees {
+			s.lastSavedSnapshots[worktreeID] = createWorktreeSnapshot(worktree)
 		}
 	}
 
