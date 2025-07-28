@@ -1043,8 +1043,13 @@ func (s *GitService) UpdateWorktreeBranchName(worktreePath, newBranchName string
 
 	log.Printf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
 
-	// Save the updated state
-	_ = s.saveState()
+	// Emit event to notify connected clients about the worktree update
+	if s.eventsEmitter != nil {
+		updates := map[string]interface{}{
+			"branch": newBranchName,
+		}
+		s.eventsEmitter.EmitWorktreeUpdated(targetWorktree.ID, updates)
+	}
 
 	return nil
 }

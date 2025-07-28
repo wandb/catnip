@@ -317,6 +317,21 @@ export const useAppStore = create<AppState>()(
           }
           break;
         }
+
+        case "worktree:updated": {
+          const updatedWorktrees = new Map(worktrees);
+          const existingWorktree = updatedWorktrees.get(
+            event.payload.worktree_id,
+          );
+          if (existingWorktree) {
+            updatedWorktrees.set(event.payload.worktree_id, {
+              ...existingWorktree,
+              ...event.payload.updates,
+            });
+            set({ worktrees: updatedWorktrees });
+          }
+          break;
+        }
       }
     },
 
