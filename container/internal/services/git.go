@@ -1177,8 +1177,8 @@ func (s *GitService) UpdateWorktreeBranchName(worktreePath, newBranchName string
 
 	log.Printf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
 
-	// Note: Change detection and events are now handled automatically in saveState()
-	// when this function calls saveState, it will detect the branch name change and emit events
+	// Save state which will automatically detect changes and emit events
+	_ = s.saveState()
 
 	return nil
 }
