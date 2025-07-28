@@ -265,13 +265,15 @@ export function WorkspaceActions({
                 title={
                   worktree.commit_count === 0
                     ? "No commits in this worktree"
-                    : prStatus?.exists
+                    : worktree.pull_request_url
                       ? "Update existing pull request on GitHub"
                       : "Create new pull request on GitHub"
                 }
               >
                 <GitMerge size={16} />
-                {prStatus?.exists ? "Update PR (GitHub)" : "Create PR (GitHub)"}
+                {worktree.pull_request_url
+                  ? "Update PR (GitHub)"
+                  : "Create PR (GitHub)"}
               </DropdownMenuItem>
 
               {worktree.repo_id.startsWith("local/") &&

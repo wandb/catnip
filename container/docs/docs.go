@@ -1555,6 +1555,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "/workspace/worktrees/feature-api-docs"
                 },
+                "pull_request_url": {
+                    "description": "URL of the associated pull request (if one exists)",
+                    "type": "string",
+                    "example": "https://github.com/owner/repo/pull/123"
+                },
                 "repo_id": {
                     "description": "Repository this worktree belongs to",
                     "type": "string",
@@ -1874,6 +1879,11 @@ const docTemplate = `{
                     "description": "Absolute path to the worktree directory",
                     "type": "string",
                     "example": "/workspace/worktrees/feature-api-docs"
+                },
+                "pull_request_url": {
+                    "description": "URL of the associated pull request (if one exists)",
+                    "type": "string",
+                    "example": "https://github.com/owner/repo/pull/123"
                 },
                 "repo_id": {
                     "description": "Repository this worktree belongs to",
