@@ -30,9 +30,25 @@ function TerminalPage() {
   const observerRef = useRef<ResizeObserver | null>(null);
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [shakeReadOnlyBadge, setShakeReadOnlyBadge] = useState(false);
   const [error, setError] = useState<{ title: string; message: string } | null>(
     null,
   );
+
+  // Trigger shake animation for read-only badge
+  const triggerReadOnlyShake = useCallback(() => {
+    if (isReadOnly) {
+      setShakeReadOnlyBadge(true);
+      setTimeout(() => setShakeReadOnlyBadge(false), 600); // Animation duration
+    }
+  }, [isReadOnly]);
+
+  // Handle read-only badge click to request promotion
+  const handlePromoteRequest = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "promote" }));
+    }
+  }, []);
 
   // Helper to generate a unique key for session storage
   const getPromptStorageKey = useCallback(
