@@ -1843,6 +1843,26 @@ func (s *GitService) BranchExists(repoPath, branch string, isRemote bool) bool {
 	return s.operations.BranchExists(repoPath, branch, isRemote)
 }
 
+// RefreshWorktreeStatus triggers an immediate refresh of worktree status cache
+func (s *GitService) RefreshWorktreeStatus(workDir string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Find worktree by path
+	for worktreeID, worktree := range s.worktrees {
+		if worktree.Path == workDir {
+			// Trigger cache refresh if available
+			if s.worktreeCache != nil {
+				s.worktreeCache.ForceRefresh(worktreeID)
+				log.Printf("🔄 Triggered worktree status refresh for %s", worktree.Name)
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("worktree not found for path: %s", workDir)
+}
+
 // GitAddCommitGetHash performs git add, commit, and returns the commit hash
 // Returns empty string if not a git repository or no changes to commit
 func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {
