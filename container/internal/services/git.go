@@ -1010,6 +1010,36 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	return nil
 }
 
+// UpdateWorktreeBranchName updates the stored branch name for a worktree after a git branch rename
+func (s *GitService) UpdateWorktreeBranchName(worktreePath, newBranchName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Find worktree by path
+	var targetWorktree *models.Worktree
+	for _, worktree := range s.worktrees {
+		if worktree.Path == worktreePath {
+			targetWorktree = worktree
+			break
+		}
+	}
+
+	if targetWorktree == nil {
+		return fmt.Errorf("worktree not found for path: %s", worktreePath)
+	}
+
+	// Update the branch name
+	oldBranchName := targetWorktree.Branch
+	targetWorktree.Branch = newBranchName
+
+	log.Printf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
+
+	// Save the updated state
+	_ = s.saveState()
+
+	return nil
+}
+
 // CleanupMergedWorktrees removes worktrees that have been fully merged into their source branch
 func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 	s.mu.Lock()
