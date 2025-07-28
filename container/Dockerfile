@@ -23,15 +23,13 @@ FROM golang:1.24 AS builder
 WORKDIR /build
 
 # Install basic build tools
-RUN apt-get update && apt-get install -y curl build-essential && \
+RUN apt-get update && apt-get install -y curl build-essential make wget && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy go mod files
 COPY container/go.mod container/go.sum ./
 RUN go mod download && \
-    go install github.com/swaggo/swag/cmd/swag@latest && \
-    apt-get update && apt-get install -y make wget just && \
-    rm -rf /var/lib/apt/lists/*
+    go install github.com/swaggo/swag/cmd/swag@latest
 
 # Copy source code
 COPY container/ .
@@ -39,11 +37,9 @@ COPY container/ .
 # Copy built frontend assets for embedding (relative to embedded.go)
 COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
-# Install swag and generate swagger documentation
-RUN just swagger
-
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go
+# Install swag and generate swagger documentation, then build the binary
+RUN swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal && \
+    CGO_ENABLED=0 GOOS=linux go build -a -o catnip cmd/server/main.go
 
 # Stage 3: Final image
 FROM ubuntu:24.04
