@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log"
 	"net/url"
-	"os/exec"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -669,8 +668,8 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 
 	// If custom branch name is provided, handle directly
 	if req.BranchName != "" {
-		// Get current branch name
-		output, err := exec.Command("git", "-C", workDir, "rev-parse", "--symbolic-full-name", "HEAD").Output()
+		// Get current branch name using public ExecuteGit method
+		output, err := h.gitService.ExecuteGit(workDir, "rev-parse", "--symbolic-full-name", "HEAD")
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
 				"error": "Failed to get current branch name: " + err.Error(),
@@ -678,22 +677,22 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 		}
 		currentBranch := strings.TrimSpace(string(output))
 
-		// Validate the custom branch name
-		if err := exec.Command("git", "check-ref-format", "refs/heads/"+req.BranchName).Run(); err != nil {
+		// Validate the custom branch name using git check-ref-format
+		if _, err := h.gitService.ExecuteGit("", "check-ref-format", "refs/heads/"+req.BranchName); err != nil {
 			return c.Status(400).JSON(fiber.Map{
 				"error": "Invalid branch name: " + req.BranchName,
 			})
 		}
 
 		// Check if the new branch already exists
-		if err := exec.Command("git", "-C", workDir, "rev-parse", "--verify", "refs/heads/"+req.BranchName).Run(); err == nil {
+		if h.gitService.BranchExists(workDir, req.BranchName, false) {
 			return c.Status(400).JSON(fiber.Map{
 				"error": "Branch already exists: " + req.BranchName,
 			})
 		}
 
 		// Create new branch from current HEAD
-		if err := exec.Command("git", "-C", workDir, "checkout", "-b", req.BranchName).Run(); err != nil {
+		if _, err := h.gitService.ExecuteGit(workDir, "checkout", "-b", req.BranchName); err != nil {
 			return c.Status(500).JSON(fiber.Map{
 				"error": "Failed to create new branch: " + err.Error(),
 			})
@@ -701,7 +700,7 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 
 		// Delete the old branch reference if it was a catnip ref
 		if strings.HasPrefix(currentBranch, "refs/catnip/") {
-			if err := exec.Command("git", "-C", workDir, "update-ref", "-d", currentBranch).Run(); err != nil {
+			if _, err := h.gitService.ExecuteGit(workDir, "update-ref", "-d", currentBranch); err != nil {
 				// Log but don't fail - the new branch was created successfully
 				// This is just cleanup of the old catnip ref
 				log.Printf("⚠️  Failed to delete old catnip ref %q: %v", currentBranch, err)
