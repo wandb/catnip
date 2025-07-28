@@ -510,6 +510,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 						}
 					}
 					continue
+				case "promote":
+					// Handle connection promotion request (swap read/write permissions)
+					log.Printf("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
+					h.promoteConnection(session, conn)
+					continue
 				}
 			}
 
@@ -1317,4 +1322,69 @@ func (h *PTYHandler) ExecuteSetupScript(worktreePath string) {
 // GetPTYService returns the PTY service for external access
 func (h *PTYHandler) GetPTYService() *services.PTYService {
 	return h.ptyService
+}
+
+// promoteConnection promotes a read-only connection to write access and demotes the current write connection
+func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websocket.Conn) {
+	session.connMutex.Lock()
+	defer session.connMutex.Unlock()
+
+	requestingConnInfo, exists := session.connections[requestingConn]
+	if !exists {
+		log.Printf("❌ Requesting connection not found in session connections")
+		return
+	}
+
+	// Find the current write connection (if any)
+	var currentWriteConn *websocket.Conn
+	var currentWriteConnInfo *ConnectionInfo
+	for conn, connInfo := range session.connections {
+		if !connInfo.IsReadOnly {
+			currentWriteConn = conn
+			currentWriteConnInfo = connInfo
+			break
+		}
+	}
+
+	// If requesting connection is already the write connection, do nothing
+	if currentWriteConn == requestingConn {
+		log.Printf("🔄 Connection [%s] is already the write connection", requestingConnInfo.ConnID)
+		return
+	}
+
+	// If there's a current write connection, demote it to read-only
+	if currentWriteConn != nil && currentWriteConnInfo != nil {
+		currentWriteConnInfo.IsReadOnly = true
+		log.Printf("🔒 Demoted connection [%s] to read-only mode", currentWriteConnInfo.ConnID)
+
+		// Notify the demoted connection
+		readOnlyMsg := struct {
+			Type string `json:"type"`
+			Data bool   `json:"data"`
+		}{
+			Type: "read-only",
+			Data: true,
+		}
+		if data, err := json.Marshal(readOnlyMsg); err == nil {
+			_ = session.writeToConnection(currentWriteConn, websocket.TextMessage, data)
+		}
+	}
+
+	// Promote the requesting connection to write access
+	requestingConnInfo.IsReadOnly = false
+	log.Printf("✍️ Promoted connection [%s] to write mode", requestingConnInfo.ConnID)
+
+	// Notify the promoted connection
+	writeAccessMsg := struct {
+		Type string `json:"type"`
+		Data bool   `json:"data"`
+	}{
+		Type: "read-only",
+		Data: false,
+	}
+	if data, err := json.Marshal(writeAccessMsg); err == nil {
+		_ = session.writeToConnection(requestingConn, websocket.TextMessage, data)
+	}
+
+	log.Printf("🔄 Connection promotion completed in session %s", session.ID)
 }
