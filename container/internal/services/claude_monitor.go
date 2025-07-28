@@ -207,7 +207,6 @@ func (s *ClaudeMonitorService) isWorktreeDirectory(dir string) bool {
 	if _, err := os.Stat(gitDir); err != nil {
 		return false
 	}
-
 	return true
 }
 
@@ -325,20 +324,24 @@ func (m *WorktreeCheckpointManager) HandleTitleChange(newTitle string) {
 // startCheckpointTimer starts or restarts the checkpoint timer
 func (m *WorktreeCheckpointManager) startCheckpointTimer() {
 	timeout := git.GetCheckpointTimeout()
+	// Start timer silently
 	m.checkpointTimer = time.AfterFunc(timeout, func() {
 		m.timerMutex.Lock()
 		defer m.timerMutex.Unlock()
 
+		// Timer fired, check for changes
 		if m.currentTitle != "" {
 			// Check if there are any uncommitted changes using git operations
 			if hasChanges, err := m.gitService.operations.HasUncommittedChanges(m.workDir); err != nil {
 				log.Printf("⚠️  Failed to check for uncommitted changes: %v", err)
 			} else if hasChanges {
-				log.Printf("📝 Creating checkpoint for %s with title: %q", m.workDir, m.currentTitle)
 				if err := m.checkpointManager.CreateCheckpoint(m.currentTitle); err != nil {
 					log.Printf("⚠️  Failed to create checkpoint: %v", err)
+				} else {
+					log.Printf("✅ Created checkpoint for %s: %q", m.workDir, m.currentTitle)
 				}
 			}
+			// Skip logging when no changes - this is normal
 			// Always restart the timer as long as we have a title
 			m.startCheckpointTimer()
 		}

@@ -796,10 +796,11 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 			shouldCreate := session.checkpointManager.ShouldCreateCheckpoint()
 
 			if shouldCreate {
-				log.Printf("📝 Creating checkpoint for session %s with title: %q", session.ID, session.Title)
 				err := session.checkpointManager.CreateCheckpoint(session.Title)
 				if err != nil {
 					log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
+				} else {
+					log.Printf("✅ Created checkpoint for session %s: %q", session.ID, session.Title)
 				}
 			}
 		}

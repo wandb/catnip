@@ -333,7 +333,7 @@ func (c *WorktreeStatusCache) processBatchUpdates(worktreeIDs map[string]bool) {
 		if c.eventsHandler != nil {
 			c.eventsHandler.EmitWorktreeBatchUpdated(updates)
 		}
-		log.Printf("📊 Updated %d worktree statuses", len(updates))
+		// Removed noisy batch update log
 	}
 }
 
@@ -387,7 +387,6 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 	}
 
 	// Perform the expensive git operations
-	startTime := time.Now()
 
 	// Check if dirty
 	isDirty := c.operations.IsDirty(worktreePath)
@@ -434,9 +433,7 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 
 	cached.LastUpdated = time.Now()
 
-	// Log performance
-	duration := time.Since(startTime)
-	log.Printf("📊 Updated worktree %s status in %v", worktreeID, duration)
+	// Removed noisy worktree update logs
 
 	// Store updated status
 	c.mu.Lock()

@@ -67,7 +67,16 @@ func (s *SessionService) SaveSessionState(state *SessionState) error {
 		return fmt.Errorf("session ID cannot be empty")
 	}
 
-	filePath := filepath.Join(s.stateDir, fmt.Sprintf("%s.json", state.ID))
+	// Sanitize session ID to replace path separators with underscores
+	sanitizedID := strings.ReplaceAll(state.ID, "/", "_")
+	sanitizedID = strings.ReplaceAll(sanitizedID, ":", "_")
+
+	filePath := filepath.Join(s.stateDir, fmt.Sprintf("%s.json", sanitizedID))
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory for session state: %v", err)
+	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
@@ -87,7 +96,11 @@ func (s *SessionService) LoadSessionState(sessionID string) (*SessionState, erro
 		return nil, fmt.Errorf("session ID cannot be empty")
 	}
 
-	filePath := filepath.Join(s.stateDir, fmt.Sprintf("%s.json", sessionID))
+	// Sanitize session ID to match SaveSessionState behavior
+	sanitizedID := strings.ReplaceAll(sessionID, "/", "_")
+	sanitizedID = strings.ReplaceAll(sanitizedID, ":", "_")
+
+	filePath := filepath.Join(s.stateDir, fmt.Sprintf("%s.json", sanitizedID))
 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil, nil // Session state doesn't exist
