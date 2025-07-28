@@ -30,24 +30,13 @@ RUN apt-get update && apt-get install -y curl build-essential && \
 COPY container/go.mod container/go.sum ./
 RUN go mod download && \
     go install github.com/swaggo/swag/cmd/swag@latest && \
-    apt-get update && apt-get install -y make wget && \
-    ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then \
-        JUST_ARCH="x86_64-unknown-linux-musl"; \
-    elif [ "$ARCH" = "aarch64" ]; then \
-        JUST_ARCH="aarch64-unknown-linux-musl"; \
-    else \
-        echo "Unsupported architecture: $ARCH" && exit 1; \
-    fi && \
-    wget -qO- "https://github.com/casey/just/releases/download/1.16.0/just-1.16.0-${JUST_ARCH}.tar.gz" | tar -xz -C /usr/local/bin && \
+    apt-get update && apt-get install -y make wget just && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy source code
 COPY container/ .
 
-# Copy built frontend assets for embedding
-COPY --from=frontend-builder /frontend/dist ./dist
-# Also copy to where the embed expects it (relative to embedded.go)
+# Copy built frontend assets for embedding (relative to embedded.go)
 COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
 # Install swag and generate swagger documentation
