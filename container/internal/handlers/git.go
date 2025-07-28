@@ -698,6 +698,12 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 			})
 		}
 
+		// Update the worktree branch name in the GitService so the UI reflects the change
+		if err := h.gitService.UpdateWorktreeBranchName(workDir, req.BranchName); err != nil {
+			log.Printf("⚠️  Failed to update worktree branch name in service: %v", err)
+			// Don't fail the whole operation for this, but log the error
+		}
+
 		// Delete the old branch reference if it was a catnip ref
 		if strings.HasPrefix(currentBranch, "refs/catnip/") {
 			if _, err := h.gitService.ExecuteGit(workDir, "update-ref", "-d", currentBranch); err != nil {
