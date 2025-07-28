@@ -66,7 +66,7 @@ export function GitHubAuthProvider({ children }: { children: ReactNode }) {
   }, [isLoading, isAuthenticated]);
 
   return (
-    <GitHubAuthContext.Provider
+    <GitHubAuthContext
       value={{
         authStatus,
         isAuthenticated,
@@ -78,6 +78,6 @@ export function GitHubAuthProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-    </GitHubAuthContext.Provider>
+    </GitHubAuthContext>
   );
 }

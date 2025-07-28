@@ -65,7 +65,7 @@ export function WorkspaceActions({
   mode,
   worktree,
   mergeConflicts = {},
-  prStatus,
+  prStatus: _prStatus,
   isSyncing = false,
   isMerging = false,
   onDelete,
