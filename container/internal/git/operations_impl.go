@@ -135,6 +135,12 @@ func (o *OperationsImpl) DeleteBranch(repoPath, branch string, force bool) error
 	}
 }
 
+func (o *OperationsImpl) RenameBranch(repoPath, oldBranch, newBranch string) error {
+	// Use git branch -m to rename the branch
+	_, err := o.ExecuteGit(repoPath, "branch", "-m", oldBranch, newBranch)
+	return err
+}
+
 func (o *OperationsImpl) ListBranches(repoPath string, options ListBranchesOptions) ([]string, error) {
 	args := []string{"branch"}
 	if options.All {

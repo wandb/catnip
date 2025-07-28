@@ -1647,6 +1647,11 @@ func (s *GitService) Stop() {
 	}
 }
 
+// RenameBranch renames a branch in the given repository
+func (s *GitService) RenameBranch(repoPath, oldBranch, newBranch string) error {
+	return s.operations.RenameBranch(repoPath, oldBranch, newBranch)
+}
+
 // GitAddCommitGetHash performs git add, commit, and returns the commit hash
 // Returns empty string if not a git repository or no changes to commit
 func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {

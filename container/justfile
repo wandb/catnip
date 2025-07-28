@@ -4,7 +4,7 @@
 GOLANGCI_LINT_VERSION := "2.3.0"
 
 # Build the server binary
-build: swagger build-cli build-scripts build-interceptor
+build: swagger build-cli build-scripts
 	go build -o bin/catnip cmd/server/main.go
 
 # Build the CLI binary
@@ -58,8 +58,6 @@ test-integration:
 # Clean build artifacts
 clean:
 	rm -rf bin/
-	cd rust-title-interceptor && cargo clean
-	rm -f rust-title-interceptor/*.so
 
 golangci-lint:
 	#!/usr/bin/env bash
@@ -134,14 +132,6 @@ build-scripts:
 	cd scripts && pnpm run build
 	echo "✅ Proxy injection script built"
 
-# Build title interceptor library
-build-interceptor:
-	#!/usr/bin/env bash
-	set -euo pipefail
-	echo "Building title interceptor library..."
-	cd rust-title-interceptor && cargo build --release
-	cp target/release/libtitle_interceptor.so .
-	echo "✅ Title interceptor library built"
 
 # Show available commands
 default:

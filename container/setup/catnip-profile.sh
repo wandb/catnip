@@ -16,6 +16,12 @@ export PATH="${HOME}/.local/bin:${PATH}"
 export PIPX_BIN_DIR="${CATNIP_ROOT}/bin"
 export PIPX_HOME="${CATNIP_ROOT}/pipx"
 
+# Enable Node.js PTY title interceptor for Claude detection
+# Set CATNIP_DISABLE_PTY_INTERCEPTOR=1 to disable if it causes issues
+if [ "$CATNIP_DISABLE_PTY_INTERCEPTOR" != "1" ] && [ "$CATNIP_DISABLE_PTY_INTERCEPTOR" != "true" ]; then
+    export NODE_OPTIONS="--require ${CATNIP_ROOT}/lib/pty-title-interceptor.js"
+fi
+
 # Use custom username if provided
 if [ -n "$CATNIP_USERNAME" ]; then
     export USER="$CATNIP_USERNAME"
