@@ -18,29 +18,28 @@ COPY . .
 RUN pnpm build
 
 # Stage 2: Build the Go binary
-FROM golang:1.24-alpine AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /build
+
+# Install basic build tools
+RUN apt-get update && apt-get install -y curl build-essential make wget && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy go mod files
 COPY container/go.mod container/go.sum ./
 RUN go mod download && \
-    go install github.com/swaggo/swag/cmd/swag@latest && \
-    apk add just
+    go install github.com/swaggo/swag/cmd/swag@latest
 
 # Copy source code
 COPY container/ .
 
-# Copy built frontend assets for embedding
-COPY --from=frontend-builder /frontend/dist ./dist
-# Also copy to where the embed expects it (relative to embedded.go)
+# Copy built frontend assets for embedding (relative to embedded.go)
 COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
-# Install swag and generate swagger documentation
-RUN just swagger
-
-# Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go
+# Install swag and generate swagger documentation, then build the binary
+RUN swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal && \
+    CGO_ENABLED=0 GOOS=linux go build -a -o catnip cmd/server/main.go
 
 # Stage 3: Final image
 FROM ubuntu:24.04
@@ -152,10 +151,17 @@ ENV CATNIP_ROOT="/opt/catnip"
 ENV WORKSPACE="/workspace"
 ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
 
+# Enable title interception by default
+ENV CATNIP_TITLE_INTERCEPT="1"
+ENV CATNIP_TITLE_LOG="/home/catnip/.catnip/title_events.log"
+
 # Create directory structure with full write permissions for catnip user
 RUN mkdir -p ${CATNIP_ROOT}/bin ${CATNIP_ROOT}/lib ${CATNIP_ROOT}/versions && \
     chown -R catnip:catnip ${CATNIP_ROOT} && \
-    chmod -R 755 ${CATNIP_ROOT}
+    chmod -R 755 ${CATNIP_ROOT} && \
+    mkdir -p /home/catnip/.catnip && \
+    chown catnip:catnip /home/catnip/.catnip && \
+    chmod 755 /home/catnip/.catnip
 
 # Install language version managers globally
 # Install NVM globally
@@ -204,6 +210,10 @@ RUN mkdir -p ${CATNIP_ROOT}/pipx && \
 # Copy and set up global shell environment for all users
 COPY container/setup/catnip-profile.sh /etc/profile.d/catnip.sh
 RUN chmod +x /etc/profile.d/catnip.sh
+
+# Copy the Node.js PTY title interceptor (needed before Node.js setup due to NODE_OPTIONS)
+COPY container/setup/pty-title-interceptor.js ${CATNIP_ROOT}/lib/pty-title-interceptor.js
+RUN chmod +x ${CATNIP_ROOT}/lib/pty-title-interceptor.js
 
 # Install default Node.js version and enable corepack for pnpm
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0

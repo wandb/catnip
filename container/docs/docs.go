@@ -447,6 +447,85 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/git/worktrees/{id}/graduate": {
+            "post": {
+                "description": "Triggers renaming of any branch to a semantic name using Claude or a custom name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Rename branch",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Graduation request with optional custom branch name",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.GraduateBranchRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request (invalid branch name, branch already exists, etc.)",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Worktree not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "No title available for automatic naming",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/worktrees/{id}/merge": {
             "post": {
                 "description": "Merges a local repo worktree's changes back to the main repository",
@@ -1892,6 +1971,16 @@ const docTemplate = `{
                     "description": "Whether the repository is private",
                     "type": "boolean",
                     "example": false
+                }
+            }
+        },
+        "internal_handlers.GraduateBranchRequest": {
+            "type": "object",
+            "properties": {
+                "branch_name": {
+                    "description": "Optional custom branch name to graduate to",
+                    "type": "string",
+                    "example": "feature/add-auth"
                 }
             }
         },

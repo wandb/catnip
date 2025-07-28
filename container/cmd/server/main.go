@@ -98,9 +98,13 @@ func main() {
 
 	// Initialize services
 	claudeService := services.NewClaudeService()
+	sessionService := services.NewSessionService()
+
+	// Initialize and start Claude monitor service
+	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService)
 
 	// Initialize handlers
-	ptyHandler := handlers.NewPTYHandler(gitService)
+	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService)
 
 	// Wire up the setup executor to enable setup.sh execution in new worktrees
 	log.Printf("🔧 Setting up setupExecutor for gitService")
@@ -109,12 +113,18 @@ func main() {
 
 	// Now initialize local repositories with setup executor properly configured
 	gitService.InitializeLocalRepos()
+	if err := claudeMonitor.Start(); err != nil {
+		log.Printf("⚠️  Failed to start Claude monitor service: %v", err)
+	} else {
+		log.Printf("✅ Claude monitor service started successfully")
+	}
+	defer claudeMonitor.Stop()
 
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
-	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, ptyHandler.GetSessionService())
+	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService, claudeMonitor)
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
-	sessionHandler := handlers.NewSessionsHandler(ptyHandler.GetSessionService(), claudeService)
+	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService)
 	portsHandler := handlers.NewPortsHandler(portMonitor)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
@@ -150,6 +160,7 @@ func main() {
 	v1.Post("/git/worktrees/:id/pr", gitHandler.CreatePullRequest)
 	v1.Put("/git/worktrees/:id/pr", gitHandler.UpdatePullRequest)
 	v1.Get("/git/worktrees/:id/pr", gitHandler.GetPullRequestInfo)
+	v1.Post("/git/worktrees/:id/graduate", gitHandler.GraduateBranch)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
 

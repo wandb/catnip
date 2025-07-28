@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,21 +18,9 @@ import (
 	"github.com/creack/pty"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
+	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/services"
 )
-
-// DefaultCheckpointTimeoutSeconds is the default checkpoint timeout in seconds
-const DefaultCheckpointTimeoutSeconds = 30
-
-// getCheckpointTimeout returns the checkpoint timeout duration from environment or default
-func getCheckpointTimeout() time.Duration {
-	if timeoutStr := os.Getenv("CATNIP_COMMIT_TIMEOUT_SECONDS"); timeoutStr != "" {
-		if timeout, err := strconv.Atoi(timeoutStr); err == nil && timeout > 0 {
-			return time.Duration(timeout) * time.Second
-		}
-	}
-	return DefaultCheckpointTimeoutSeconds * time.Second
-}
 
 // PTYHandler handles PTY WebSocket connections
 type PTYHandler struct {
@@ -43,6 +30,7 @@ type PTYHandler struct {
 	sessionService *services.SessionService
 	portService    *services.PortAllocationService
 	ptyService     *services.PTYService
+	claudeMonitor  *services.ClaudeMonitorService
 }
 
 // ConnectionInfo tracks metadata for each WebSocket connection
@@ -80,7 +68,7 @@ type Session struct {
 	// WebSocket write protection
 	writeMutex sync.Mutex
 	// Checkpoint functionality
-	checkpointManager CheckpointManager
+	checkpointManager git.CheckpointManager
 }
 
 // ResizeMsg represents terminal resize message
@@ -134,13 +122,14 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 }
 
 // NewPTYHandler creates a new PTY handler
-func NewPTYHandler(gitService *services.GitService) *PTYHandler {
+func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService) *PTYHandler {
 	return &PTYHandler{
 		sessions:       make(map[string]*Session),
 		gitService:     gitService,
-		sessionService: services.NewSessionService(),
+		sessionService: sessionService,
 		portService:    services.NewPortAllocationService(),
 		ptyService:     services.NewPTYService(),
+		claudeMonitor:  claudeMonitor,
 	}
 }
 
@@ -710,13 +699,11 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		rows:          24,
 		bufferedCols:  80,
 		bufferedRows:  24,
-		checkpointManager: &SessionCheckpointManager{
-			lastCommitTime:  time.Now(),
-			checkpointCount: 0,
-			gitService:      h.gitService,
-			sessionService:  h.sessionService,
-			workDir:         workDir,
-		},
+		checkpointManager: git.NewSessionCheckpointManager(
+			workDir,
+			services.NewGitServiceAdapter(h.gitService),
+			services.NewSessionServiceAdapter(h.sessionService),
+		),
 	}
 
 	h.sessions[sessionID] = session
@@ -809,10 +796,11 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 			shouldCreate := session.checkpointManager.ShouldCreateCheckpoint()
 
 			if shouldCreate {
-				log.Printf("📝 Creating checkpoint for session %s with title: %q", session.ID, session.Title)
 				err := session.checkpointManager.CreateCheckpoint(session.Title)
 				if err != nil {
 					log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
+				} else {
+					log.Printf("✅ Created checkpoint for session %s: %q", session.ID, session.Title)
 				}
 			}
 		}
@@ -1275,6 +1263,11 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 		log.Printf("⚠️  Failed to update session title: %v", err)
 	}
 
+	// Notify Claude monitor service directly (fallback for when log monitoring fails)
+	if h.claudeMonitor != nil {
+		h.claudeMonitor.NotifyTitleChange(session.WorkDir, title)
+	}
+
 	// Update the session's current title for display
 	session.Title = title
 
@@ -1313,78 +1306,6 @@ func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) 
 // GetSessionService returns the session service for external access
 func (h *PTYHandler) GetSessionService() *services.SessionService {
 	return h.sessionService
-}
-
-// CheckpointManager handles checkpoint functionality for sessions
-type CheckpointManager interface {
-	ShouldCreateCheckpoint() bool
-	CreateCheckpoint(title string) error
-	Reset()
-	UpdateLastCommitTime()
-}
-
-// SessionCheckpointManager implements CheckpointManager
-type SessionCheckpointManager struct {
-	lastCommitTime  time.Time
-	checkpointCount int
-	checkpointMutex sync.RWMutex
-	gitService      *services.GitService
-	sessionService  *services.SessionService
-	workDir         string
-}
-
-// ShouldCreateCheckpoint returns true if a checkpoint should be created
-func (cm *SessionCheckpointManager) ShouldCreateCheckpoint() bool {
-	cm.checkpointMutex.RLock()
-	defer cm.checkpointMutex.RUnlock()
-	return time.Since(cm.lastCommitTime) >= getCheckpointTimeout()
-}
-
-// CreateCheckpoint creates a checkpoint commit
-func (cm *SessionCheckpointManager) CreateCheckpoint(title string) error {
-	if cm.gitService == nil {
-		return fmt.Errorf("git service not available")
-	}
-
-	cm.checkpointMutex.Lock()
-	defer cm.checkpointMutex.Unlock()
-
-	checkpointTitle := fmt.Sprintf("%s checkpoint: %d", title, cm.checkpointCount+1)
-	commitHash, err := cm.gitService.GitAddCommitGetHash(cm.workDir, checkpointTitle)
-	if err != nil {
-		return err
-	} else if commitHash == "" {
-		return nil
-	}
-
-	cm.checkpointCount++
-
-	log.Printf("✅ Created checkpoint commit: %q (hash: %s)", checkpointTitle, commitHash)
-
-	// Update last commit time
-	cm.lastCommitTime = time.Now()
-
-	// Add the checkpoint to session history (without updating the current title)
-	if err := cm.sessionService.AddToSessionHistory(cm.workDir, checkpointTitle, commitHash); err != nil {
-		log.Printf("⚠️  Failed to add checkpoint to session history: %v", err)
-	}
-
-	return nil
-}
-
-// Reset resets the checkpoint state for a new title
-func (cm *SessionCheckpointManager) Reset() {
-	cm.checkpointMutex.Lock()
-	defer cm.checkpointMutex.Unlock()
-	cm.checkpointCount = 0
-	cm.lastCommitTime = time.Now()
-}
-
-// UpdateLastCommitTime updates the last commit time
-func (cm *SessionCheckpointManager) UpdateLastCommitTime() {
-	cm.checkpointMutex.Lock()
-	defer cm.checkpointMutex.Unlock()
-	cm.lastCommitTime = time.Now()
 }
 
 // ExecuteSetupScript checks for and executes setup.sh in a worktree's PTY session
