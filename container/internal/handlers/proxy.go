@@ -69,6 +69,17 @@ func rewriteAttribute(n *html.Node, attrName string, basePath string) {
 				}
 			}
 			n.Attr[i].Val = newVal
+		} else if attr.Key == attrName && isWebSocketRewritable(attr.Val, basePath) {
+			// Handle WebSocket URLs (ws:// and wss://)
+			if u, err := url.Parse(attr.Val); err == nil {
+				// Only rewrite same-host WebSocket URLs with absolute paths
+				if (u.Scheme == "ws" || u.Scheme == "wss") &&
+					strings.HasPrefix(u.Path, "/") &&
+					!strings.HasPrefix(u.Path, basePath) {
+					u.Path = basePath + strings.TrimPrefix(u.Path, "/")
+					n.Attr[i].Val = u.String()
+				}
+			}
 		}
 	}
 }
