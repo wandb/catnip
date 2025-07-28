@@ -34,6 +34,7 @@ const (
 	WorktreeBatchUpdatedEvent  EventType = "worktree:batch_updated"
 	WorktreeDirtyEvent         EventType = "worktree:dirty"
 	WorktreeCleanEvent         EventType = "worktree:clean"
+	WorktreeUpdatedEvent       EventType = "worktree:updated"
 )
 
 type AppEvent struct {
@@ -90,6 +91,11 @@ type WorktreeDirtyPayload struct {
 	WorktreeID   string   `json:"worktree_id"`
 	WorktreeName string   `json:"worktree_name"`
 	Files        []string `json:"files,omitempty"`
+}
+
+type WorktreeUpdatedPayload struct {
+	WorktreeID string                 `json:"worktree_id"`
+	Updates    map[string]interface{} `json:"updates"`
 }
 
 type SSEMessage struct {
@@ -580,6 +586,17 @@ func (h *EventsHandler) EmitWorktreeClean(worktreeID, worktreeName string) {
 		Payload: WorktreeDirtyPayload{
 			WorktreeID:   worktreeID,
 			WorktreeName: worktreeName,
+		},
+	})
+}
+
+// EmitWorktreeUpdated broadcasts a worktree updated event to all connected clients
+func (h *EventsHandler) EmitWorktreeUpdated(worktreeID string, updates map[string]interface{}) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeUpdatedEvent,
+		Payload: WorktreeUpdatedPayload{
+			WorktreeID: worktreeID,
+			Updates:    updates,
 		},
 	})
 }
