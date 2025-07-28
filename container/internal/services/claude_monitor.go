@@ -383,6 +383,11 @@ func (m *WorktreeCheckpointManager) commitPreviousWork(title string) {
 		if err := m.sessionService.UpdatePreviousTitleCommitHash(m.workDir, commitHash); err != nil {
 			log.Printf("⚠️  Failed to update previous title commit hash: %v", err)
 		}
+
+		// Refresh worktree status to update commit count in frontend
+		if err := m.gitService.RefreshWorktreeStatus(m.workDir); err != nil {
+			log.Printf("⚠️  Failed to refresh worktree status after commit: %v", err)
+		}
 	}
 }
 

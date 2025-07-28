@@ -23,6 +23,11 @@ func (a *GitServiceAdapter) GitAddCommitGetHash(workDir, title string) (string, 
 	return a.GitService.GitAddCommitGetHash(workDir, title)
 }
 
+// RefreshWorktreeStatus implements git.Service interface
+func (a *GitServiceAdapter) RefreshWorktreeStatus(workDir string) error {
+	return a.GitService.RefreshWorktreeStatus(workDir)
+}
+
 // SessionServiceAdapter adapts SessionService to implement git.SessionServiceInterface interface
 type SessionServiceAdapter struct {
 	*SessionService

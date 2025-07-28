@@ -33,6 +33,7 @@ type CheckpointManager interface {
 // Service interface defines the git operations needed by checkpoint manager
 type Service interface {
 	GitAddCommitGetHash(workDir, title string) (string, error)
+	RefreshWorktreeStatus(workDir string) error
 }
 
 // SessionServiceInterface defines the session operations needed by checkpoint manager
@@ -99,6 +100,11 @@ func (cm *SessionCheckpointManager) CreateCheckpoint(title string) error {
 	// Add the checkpoint to session history (without updating the current title)
 	if err := cm.sessionService.AddToSessionHistory(cm.workDir, checkpointTitle, commitHash); err != nil {
 		log.Printf("⚠️  Failed to add checkpoint to session history: %v", err)
+	}
+
+	// Refresh worktree status to update commit count in frontend
+	if err := cm.gitService.RefreshWorktreeStatus(cm.workDir); err != nil {
+		log.Printf("⚠️  Failed to refresh worktree status after checkpoint: %v", err)
 	}
 
 	return nil

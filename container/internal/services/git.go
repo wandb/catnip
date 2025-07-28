@@ -1843,6 +1843,26 @@ func (s *GitService) BranchExists(repoPath, branch string, isRemote bool) bool {
 	return s.operations.BranchExists(repoPath, branch, isRemote)
 }
 
+// RefreshWorktreeStatus triggers an immediate refresh of worktree status cache
+func (s *GitService) RefreshWorktreeStatus(workDir string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Find worktree by path
+	for worktreeID, worktree := range s.worktrees {
+		if worktree.Path == workDir {
+			// Trigger cache refresh if available
+			if s.worktreeCache != nil {
+				s.worktreeCache.ForceRefresh(worktreeID)
+				log.Printf("🔄 Triggered worktree status refresh for %s", worktree.Name)
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("worktree not found for path: %s", workDir)
+}
+
 // GitAddCommitGetHash performs git add, commit, and returns the commit hash
 // Returns empty string if not a git repository or no changes to commit
 func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {
@@ -2056,7 +2076,7 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 		return nil, fmt.Errorf("failed to ensure base branch exists on remote: %v", err)
 	}
 
-	return s.githubManager.CreatePullRequest(git.CreatePullRequestRequest{
+	pr, err := s.githubManager.CreatePullRequest(git.CreatePullRequestRequest{
 		Worktree:         worktree,
 		Repository:       repo,
 		Title:            title,
@@ -2067,6 +2087,20 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 		CreateTempCommit: s.createTemporaryCommit,
 		RevertTempCommit: s.revertTemporaryCommit,
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Save PR URL to worktree state
+	s.mu.Lock()
+	if worktree, exists := s.worktrees[worktreeID]; exists {
+		worktree.PullRequestURL = pr.URL
+		s.saveState() // Persist the updated state
+	}
+	s.mu.Unlock()
+
+	return pr, nil
 }
 
 // UpdatePullRequest updates an existing pull request for a worktree branch
@@ -2092,7 +2126,7 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 		return nil, fmt.Errorf("failed to ensure base branch exists on remote: %v", err)
 	}
 
-	return s.githubManager.CreatePullRequest(git.CreatePullRequestRequest{
+	pr, err := s.githubManager.CreatePullRequest(git.CreatePullRequestRequest{
 		Worktree:         worktree,
 		Repository:       repo,
 		Title:            title,
@@ -2103,6 +2137,20 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 		CreateTempCommit: s.createTemporaryCommit,
 		RevertTempCommit: s.revertTemporaryCommit,
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Save PR URL to worktree state (in case it changed)
+	s.mu.Lock()
+	if worktree, exists := s.worktrees[worktreeID]; exists {
+		worktree.PullRequestURL = pr.URL
+		s.saveState() // Persist the updated state
+	}
+	s.mu.Unlock()
+
+	return pr, nil
 }
 
 // ensureBaseBranchOnRemote checks if the base branch exists on remote and pushes it if needed
