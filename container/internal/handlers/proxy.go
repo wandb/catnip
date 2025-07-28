@@ -89,6 +89,11 @@ func isRewritable(val string, basePath string) bool {
 	return strings.HasPrefix(val, "/") && !strings.HasPrefix(val, basePath)
 }
 
+// isWebSocketRewritable determines if a URL is a WebSocket URL that should be rewritten
+func isWebSocketRewritable(val string, basePath string) bool {
+	return strings.HasPrefix(val, "ws://") || strings.HasPrefix(val, "wss://")
+}
+
 // ProxyHandler handles reverse proxy requests to detected services
 type ProxyHandler struct {
 	monitor *services.PortMonitor
@@ -376,6 +381,29 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		// new URL("/path", ...) -> new URL("/PORT/path", ...)
 		{
 			regex: regexp.MustCompile("new\\s+URL\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]"),
+			replace: func(match, path string) string {
+				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+					return strings.Replace(match, path, basePath+path, 1)
+				}
+				return match
+			},
+		},
+		// new WebSocket("ws://host/path") or new WebSocket("wss://host/path") -> rewrite path
+		{
+			regex: regexp.MustCompile("new\\s+WebSocket\\s*\\(\\s*['\"`](wss?://[^'\"`]+)['\"`]"),
+			replace: func(match, wsUrl string) string {
+				if u, err := url.Parse(wsUrl); err == nil {
+					if strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, basePath+"/") {
+						u.Path = basePath + u.Path
+						return strings.Replace(match, wsUrl, u.String(), 1)
+					}
+				}
+				return match
+			},
+		},
+		// new WebSocket("/path") -> new WebSocket("ws://host/PORT/path")
+		{
+			regex: regexp.MustCompile("new\\s+WebSocket\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
 				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
 					return strings.Replace(match, path, basePath+path, 1)
