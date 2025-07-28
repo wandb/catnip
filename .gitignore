@@ -50,12 +50,3 @@ container/internal/assets/dist/*
 !container/internal/assets/dist/index.html
 !container/internal/assets/dist/.gitkeep
 
-# C compiled artifacts
-container/c/*.so
-container/c/*.so.*
-container/c/*.dSYM/
-
-# Rust compiled artifacts
-container/rust-title-interceptor/target/
-container/rust-title-interceptor/*.so
-container/rust-title-interceptor/Cargo.lock

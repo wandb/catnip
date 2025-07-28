@@ -2,7 +2,13 @@ package services
 
 import "github.com/vanpelt/catnip/internal/git"
 
-// GitServiceAdapter adapts GitService to implement git.GitService interface
+// Ensure adapters implement the required interfaces
+var (
+	_ git.Service                 = (*GitServiceAdapter)(nil)
+	_ git.SessionServiceInterface = (*SessionServiceAdapter)(nil)
+)
+
+// GitServiceAdapter adapts GitService to implement git.Service interface
 type GitServiceAdapter struct {
 	*GitService
 }

@@ -30,6 +30,7 @@ type PTYHandler struct {
 	sessionService *services.SessionService
 	portService    *services.PortAllocationService
 	ptyService     *services.PTYService
+	claudeMonitor  *services.ClaudeMonitorService
 }
 
 // ConnectionInfo tracks metadata for each WebSocket connection
@@ -121,13 +122,14 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 }
 
 // NewPTYHandler creates a new PTY handler
-func NewPTYHandler(gitService *services.GitService) *PTYHandler {
+func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService) *PTYHandler {
 	return &PTYHandler{
 		sessions:       make(map[string]*Session),
 		gitService:     gitService,
-		sessionService: services.NewSessionService(),
+		sessionService: sessionService,
 		portService:    services.NewPortAllocationService(),
 		ptyService:     services.NewPTYService(),
+		claudeMonitor:  claudeMonitor,
 	}
 }
 
@@ -794,10 +796,11 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 			shouldCreate := session.checkpointManager.ShouldCreateCheckpoint()
 
 			if shouldCreate {
-				log.Printf("📝 Creating checkpoint for session %s with title: %q", session.ID, session.Title)
 				err := session.checkpointManager.CreateCheckpoint(session.Title)
 				if err != nil {
 					log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
+				} else {
+					log.Printf("✅ Created checkpoint for session %s: %q", session.ID, session.Title)
 				}
 			}
 		}
@@ -1258,6 +1261,11 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 	// Update session service with the new title (no commit hash yet)
 	if err := h.sessionService.UpdateSessionTitle(session.WorkDir, title, ""); err != nil {
 		log.Printf("⚠️  Failed to update session title: %v", err)
+	}
+
+	// Notify Claude monitor service directly (fallback for when log monitoring fails)
+	if h.claudeMonitor != nil {
+		h.claudeMonitor.NotifyTitleChange(session.WorkDir, title)
 	}
 
 	// Update the session's current title for display
