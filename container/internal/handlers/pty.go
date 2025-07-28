@@ -510,6 +510,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 						}
 					}
 					continue
+				case "promote":
+					// Handle connection promotion request (swap read/write permissions)
+					log.Printf("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
+					h.promoteConnection(session, conn)
+					continue
 				}
 			}
 
