@@ -246,17 +246,18 @@ type EventsEmitter interface {
 }
 
 type GitService struct {
-	repositories     map[string]*models.Repository // key: repoID (e.g., "owner/repo")
-	worktrees        map[string]*models.Worktree   // key: worktree ID
-	operations       git.Operations                // All git operations through this interface
-	worktreeService  *WorktreeManager              // Handles all worktree operations (services layer)
-	conflictResolver *git.ConflictResolver         // Handles conflict detection/resolution
-	githubManager    *git.GitHubManager            // Handles all GitHub CLI operations
-	commitSync       *CommitSyncService            // Handles automatic checkpointing and commit sync
-	setupExecutor    SetupExecutor                 // Handles setup.sh execution in PTY sessions
-	worktreeCache    *WorktreeStatusCache          // Handles worktree status caching with event updates
-	eventsEmitter    EventsEmitter                 // Handles emitting events to connected clients
-	mu               sync.RWMutex
+	repositories       map[string]*models.Repository // key: repoID (e.g., "owner/repo")
+	worktrees          map[string]*models.Worktree   // key: worktree ID
+	operations         git.Operations                // All git operations through this interface
+	worktreeService    *WorktreeManager              // Handles all worktree operations (services layer)
+	conflictResolver   *git.ConflictResolver         // Handles conflict detection/resolution
+	githubManager      *git.GitHubManager            // Handles all GitHub CLI operations
+	commitSync         *CommitSyncService            // Handles automatic checkpointing and commit sync
+	setupExecutor      SetupExecutor                 // Handles setup.sh execution in PTY sessions
+	worktreeCache      *WorktreeStatusCache          // Handles worktree status caching with event updates
+	eventsEmitter      EventsEmitter                 // Handles emitting events to connected clients
+	lastSavedSnapshots map[string]worktreeSnapshot   // Stores last saved state for change detection
+	mu                 sync.RWMutex
 }
 
 // Helper functions for standardized command execution
