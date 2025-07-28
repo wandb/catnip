@@ -242,6 +242,7 @@ type EventsEmitter interface {
 	EmitWorktreeBatchUpdated(updates map[string]*CachedWorktreeStatus)
 	EmitWorktreeDirty(worktreeID, worktreeName string, files []string)
 	EmitWorktreeClean(worktreeID, worktreeName string)
+	EmitWorktreeUpdated(worktreeID string, updates map[string]interface{})
 }
 
 type GitService struct {
@@ -254,6 +255,7 @@ type GitService struct {
 	commitSync       *CommitSyncService            // Handles automatic checkpointing and commit sync
 	setupExecutor    SetupExecutor                 // Handles setup.sh execution in PTY sessions
 	worktreeCache    *WorktreeStatusCache          // Handles worktree status caching with event updates
+	eventsEmitter    EventsEmitter                 // Handles emitting events to connected clients
 	mu               sync.RWMutex
 }
 
@@ -264,6 +266,13 @@ func (s *GitService) SetSetupExecutor(executor SetupExecutor) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.setupExecutor = executor
+}
+
+// SetEventsHandler sets the events emitter for broadcasting worktree changes
+func (s *GitService) SetEventsHandler(emitter EventsEmitter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eventsEmitter = emitter
 }
 
 // InitializeLocalRepos detects and loads any local repositories in /live
