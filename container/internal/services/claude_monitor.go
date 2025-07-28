@@ -27,6 +27,15 @@ type ClaudeMonitorService struct {
 	stopCh             chan struct{}
 	titlesLogPath      string
 	lastLogPosition    int64
+	recentTitles       map[string]titleEvent // Track recent titles to avoid duplicates
+	recentTitlesMutex  sync.RWMutex
+}
+
+// titleEvent represents a title change event with timestamp
+type titleEvent struct {
+	title     string
+	timestamp time.Time
+	source    string // "log" or "pty"
 }
 
 // WorktreeCheckpointManager manages checkpoints for a single worktree
@@ -44,13 +53,20 @@ type WorktreeCheckpointManager struct {
 
 // NewClaudeMonitorService creates a new Claude monitor service
 func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService) *ClaudeMonitorService {
+	// Get log path from environment or use default
+	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
+	if titlesLogPath == "" {
+		titlesLogPath = "/home/catnip/.catnip/title_events.log"
+	}
+
 	return &ClaudeMonitorService{
 		gitService:         gitService,
 		sessionService:     sessionService,
 		claudeService:      claudeService,
 		checkpointManagers: make(map[string]*WorktreeCheckpointManager),
 		stopCh:             make(chan struct{}),
-		titlesLogPath:      "/tmp/catnip_syscall_titles.log",
+		titlesLogPath:      titlesLogPath,
+		recentTitles:       make(map[string]titleEvent),
 	}
 }
 
@@ -168,7 +184,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 			// Clean the title before processing
 			cleanedTitle := cleanTitle(title)
 			if cleanedTitle != "" { // Only process if title isn't empty after cleaning
-				s.handleTitleChange(cwd, cleanedTitle)
+				s.handleTitleChange(cwd, cleanedTitle, "log")
 			}
 		}
 	}
@@ -195,8 +211,42 @@ func (s *ClaudeMonitorService) isWorktreeDirectory(dir string) bool {
 	return true
 }
 
-// handleTitleChange processes a title change for a worktree
-func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle string) {
+// handleTitleChange processes a title change for a worktree with duplicate detection
+func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source string) {
+	// Check for recent duplicate events
+	key := workDir + ":" + newTitle
+	s.recentTitlesMutex.Lock()
+
+	// Clean up old events (older than 5 seconds)
+	cutoff := time.Now().Add(-5 * time.Second)
+	for k, event := range s.recentTitles {
+		if event.timestamp.Before(cutoff) {
+			delete(s.recentTitles, k)
+		}
+	}
+
+	// Check if we've seen this exact title recently
+	if recent, exists := s.recentTitles[key]; exists {
+		// If log source and we already have a log entry, skip
+		// If pty source and we already have any entry from last 2 seconds, skip
+		if source == "log" && recent.source == "log" {
+			s.recentTitlesMutex.Unlock()
+			return
+		}
+		if source == "pty" && time.Since(recent.timestamp) < 2*time.Second {
+			s.recentTitlesMutex.Unlock()
+			return
+		}
+	}
+
+	// Record this title event
+	s.recentTitles[key] = titleEvent{
+		title:     newTitle,
+		timestamp: time.Now(),
+		source:    source,
+	}
+	s.recentTitlesMutex.Unlock()
+
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
 	if !exists {
@@ -208,6 +258,18 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle string) {
 	s.managersMutex.Unlock()
 
 	manager.HandleTitleChange(newTitle)
+}
+
+// NotifyTitleChange allows direct notification of title changes (fallback for when log monitoring fails)
+func (s *ClaudeMonitorService) NotifyTitleChange(workDir, newTitle string) {
+	// Check if this is a worktree directory
+	if s.isWorktreeDirectory(workDir) {
+		// Clean the title before processing
+		cleanedTitle := cleanTitle(newTitle)
+		if cleanedTitle != "" { // Only process if title isn't empty after cleaning
+			s.handleTitleChange(workDir, cleanedTitle, "pty")
+		}
+	}
 }
 
 // createCheckpointManager creates a checkpoint manager for a worktree

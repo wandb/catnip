@@ -37,7 +37,8 @@ setTimeout(() => {
 
   // Check if log file was created
   const fs = require("fs");
-  const logPath = "/tmp/catnip_syscall_titles.log";
+  const logPath =
+    process.env.CATNIP_TITLE_LOG || "/home/catnip/.catnip/title_events.log";
 
   if (fs.existsSync(logPath)) {
     console.log("\n✅ Log file created successfully!");
