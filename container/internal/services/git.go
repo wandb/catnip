@@ -645,7 +645,130 @@ func (s *GitService) updateCurrentSymlink(targetPath string) error {
 
 // State persistence
 
+// worktreeSnapshot captures the essential fields we want to track for changes
+type worktreeSnapshot struct {
+	ID                     string
+	Branch                 string
+	CommitHash             string
+	CommitCount            int
+	CommitsBehind          int
+	IsDirty                bool
+	HasConflicts           bool
+	SessionTitle           *models.TitleEntry
+	SessionTitleHistory    []models.TitleEntry
+	HasActiveClaudeSession bool
+}
+
+// createWorktreeSnapshot creates a snapshot of the current worktree state
+func createWorktreeSnapshot(wt *models.Worktree) worktreeSnapshot {
+	var sessionTitleHistory []models.TitleEntry
+	if wt.SessionTitleHistory != nil {
+		sessionTitleHistory = append([]models.TitleEntry(nil), wt.SessionTitleHistory...)
+	}
+
+	return worktreeSnapshot{
+		ID:                     wt.ID,
+		Branch:                 wt.Branch,
+		CommitHash:             wt.CommitHash,
+		CommitCount:            wt.CommitCount,
+		CommitsBehind:          wt.CommitsBehind,
+		IsDirty:                wt.IsDirty,
+		HasConflicts:           wt.HasConflicts,
+		SessionTitle:           wt.SessionTitle,
+		SessionTitleHistory:    sessionTitleHistory,
+		HasActiveClaudeSession: wt.HasActiveClaudeSession,
+	}
+}
+
+// detectWorktreeChanges compares old and new snapshots and returns changed worktrees
+func (s *GitService) detectWorktreeChanges(oldSnapshots map[string]worktreeSnapshot) map[string]map[string]interface{} {
+	changes := make(map[string]map[string]interface{})
+
+	for worktreeID, worktree := range s.worktrees {
+		newSnapshot := createWorktreeSnapshot(worktree)
+		oldSnapshot, existed := oldSnapshots[worktreeID]
+
+		// If worktree didn't exist before, it's a new one - don't emit individual changes
+		// (the worktree cache system will handle new worktrees)
+		if !existed {
+			continue
+		}
+
+		// Compare fields and collect changes
+		worktreeChanges := make(map[string]interface{})
+
+		if oldSnapshot.Branch != newSnapshot.Branch {
+			worktreeChanges["branch"] = newSnapshot.Branch
+		}
+		if oldSnapshot.CommitHash != newSnapshot.CommitHash {
+			worktreeChanges["commit_hash"] = newSnapshot.CommitHash
+		}
+		if oldSnapshot.CommitCount != newSnapshot.CommitCount {
+			worktreeChanges["commit_count"] = newSnapshot.CommitCount
+		}
+		if oldSnapshot.CommitsBehind != newSnapshot.CommitsBehind {
+			worktreeChanges["commits_behind"] = newSnapshot.CommitsBehind
+		}
+		if oldSnapshot.IsDirty != newSnapshot.IsDirty {
+			worktreeChanges["is_dirty"] = newSnapshot.IsDirty
+		}
+		if oldSnapshot.HasConflicts != newSnapshot.HasConflicts {
+			worktreeChanges["has_conflicts"] = newSnapshot.HasConflicts
+		}
+		if oldSnapshot.HasActiveClaudeSession != newSnapshot.HasActiveClaudeSession {
+			worktreeChanges["has_active_claude_session"] = newSnapshot.HasActiveClaudeSession
+		}
+
+		// Compare session title (more complex comparison)
+		if !compareSessionTitles(oldSnapshot.SessionTitle, newSnapshot.SessionTitle) {
+			worktreeChanges["session_title"] = newSnapshot.SessionTitle
+		}
+
+		// Compare session title history (basic length/content check)
+		if !compareSessionTitleHistory(oldSnapshot.SessionTitleHistory, newSnapshot.SessionTitleHistory) {
+			worktreeChanges["session_title_history"] = newSnapshot.SessionTitleHistory
+		}
+
+		if len(worktreeChanges) > 0 {
+			changes[worktreeID] = worktreeChanges
+		}
+	}
+
+	return changes
+}
+
+// compareSessionTitles compares two session titles for equality
+func compareSessionTitles(old, new *models.TitleEntry) bool {
+	if old == nil && new == nil {
+		return true
+	}
+	if old == nil || new == nil {
+		return false
+	}
+	return old.Title == new.Title && old.Timestamp == new.Timestamp && old.CommitHash == new.CommitHash
+}
+
+// compareSessionTitleHistory compares two session title histories for equality
+func compareSessionTitleHistory(old, new []models.TitleEntry) bool {
+	if len(old) != len(new) {
+		return false
+	}
+	for i, oldEntry := range old {
+		newEntry := new[i]
+		if oldEntry.Title != newEntry.Title || oldEntry.Timestamp != newEntry.Timestamp || oldEntry.CommitHash != newEntry.CommitHash {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *GitService) saveState() error {
+	// Create snapshots of current worktrees before any state changes
+	oldSnapshots := make(map[string]worktreeSnapshot)
+	for worktreeID, worktree := range s.worktrees {
+		oldSnapshots[worktreeID] = createWorktreeSnapshot(worktree)
+	}
+
 	state := map[string]interface{}{
 		"repositories": s.repositories,
 		"worktrees":    s.worktrees,
@@ -656,7 +779,25 @@ func (s *GitService) saveState() error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(getGitStateDir(), "state.json"), data, 0644)
+	// Save to disk
+	if err := os.WriteFile(filepath.Join(getGitStateDir(), "state.json"), data, 0644); err != nil {
+		return err
+	}
+
+	// After successful save, detect and emit changes if events emitter is available
+	if s.eventsEmitter != nil {
+		changes := s.detectWorktreeChanges(oldSnapshots)
+
+		if len(changes) > 0 {
+			// Emit individual worktree updated events for all changes
+			for worktreeID, worktreeChanges := range changes {
+				s.eventsEmitter.EmitWorktreeUpdated(worktreeID, worktreeChanges)
+				log.Printf("🔄 Emitted worktree update for %s: %v", worktreeID, worktreeChanges)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *GitService) loadState() error {
@@ -1036,13 +1177,8 @@ func (s *GitService) UpdateWorktreeBranchName(worktreePath, newBranchName string
 
 	log.Printf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
 
-	// Emit event to notify connected clients about the worktree update
-	if s.eventsEmitter != nil {
-		updates := map[string]interface{}{
-			"branch": newBranchName,
-		}
-		s.eventsEmitter.EmitWorktreeUpdated(targetWorktree.ID, updates)
-	}
+	// Note: Change detection and events are now handled automatically in saveState()
+	// when this function calls saveState, it will detect the branch name change and emit events
 
 	return nil
 }
