@@ -1304,6 +1304,11 @@ func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) 
 		log.Printf("⚠️  Failed to update previous title commit hash: %v", err)
 	}
 
+	// Refresh worktree status to update commit count in frontend
+	if err := h.gitService.RefreshWorktreeStatus(session.WorkDir); err != nil {
+		log.Printf("⚠️  Failed to refresh worktree status after commit: %v", err)
+	}
+
 	// Update last commit time to reset checkpoint timer
 	session.checkpointManager.UpdateLastCommitTime()
 }
