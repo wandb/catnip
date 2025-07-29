@@ -14,6 +14,7 @@ import (
 
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
+	"github.com/vanpelt/catnip/internal/recovery"
 )
 
 const (
@@ -979,6 +980,12 @@ func (s *GitService) detectLocalRepos() {
 		// Check if any worktrees exist for this repo
 		if s.shouldCreateInitialWorktree(repoID) {
 			log.Printf("🌱 Creating initial worktree for %s", repoID)
+
+			// Proactively prune any missing worktrees before attempting to create new ones
+			if pruneErr := s.operations.PruneWorktrees(repo.Path); pruneErr != nil {
+				log.Printf("⚠️  Failed to prune worktrees for %s: %v", repoID, pruneErr)
+			}
+
 			if _, worktree, err := s.handleLocalRepoWorktree(repoID, repo.DefaultBranch); err != nil {
 				log.Printf("❌ Failed to create initial worktree for %s: %v", repoID, err)
 			} else {
@@ -1081,12 +1088,12 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	if s.setupExecutor != nil {
 		log.Printf("🚀 Scheduling setup.sh execution for local worktree: %s", worktree.Path)
 		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
-		go func() {
+		recovery.SafeGo("setup-script-local-"+worktree.Path, func() {
 			// Wait a moment to ensure the worktree is fully ready
 			time.Sleep(2 * time.Second)
 			log.Printf("⏰ Starting setup.sh execution for local worktree: %s", worktree.Path)
 			s.setupExecutor.ExecuteSetupScript(worktree.Path)
-		}()
+		})
 	} else {
 		log.Printf("⚠️ No setup executor configured, skipping setup.sh execution for local worktree: %s", worktree.Path)
 	}
@@ -1978,12 +1985,12 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	if s.setupExecutor != nil {
 		log.Printf("🚀 Scheduling setup.sh execution for worktree: %s", worktree.Path)
 		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
-		go func() {
+		recovery.SafeGo("setup-script-"+worktree.Path, func() {
 			// Wait a moment to ensure the worktree is fully ready
 			time.Sleep(2 * time.Second)
 			log.Printf("⏰ Starting setup.sh execution for worktree: %s", worktree.Path)
 			s.setupExecutor.ExecuteSetupScript(worktree.Path)
-		}()
+		})
 	} else {
 		log.Printf("⚠️ No setup executor configured, skipping setup.sh execution for worktree: %s", worktree.Path)
 	}

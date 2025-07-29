@@ -34,6 +34,7 @@ type Operations interface {
 	CreateWorktree(repoPath, worktreePath, branch, fromRef string) error
 	RemoveWorktree(repoPath, worktreePath string, force bool) error
 	ListWorktrees(repoPath string) ([]WorktreeInfo, error)
+	PruneWorktrees(repoPath string) error
 
 	// Status operations
 	IsDirty(worktreePath string) bool

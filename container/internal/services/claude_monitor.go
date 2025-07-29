@@ -482,9 +482,30 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 		return
 	}
 
-	// Check if the new branch name already exists
-	if m.gitService.branchExists(m.workDir, newBranch, false) {
-		log.Printf("⚠️  Branch %q already exists, skipping graduation", newBranch)
+	// Check if the new branch name already exists and append numbers if needed
+	log.Printf("🔍 Checking if branch %q exists in %s", newBranch, m.workDir)
+	finalBranch := newBranch
+	counter := 1
+	for m.gitService.branchExists(m.workDir, finalBranch, false) ||
+		m.gitService.branchExists(m.workDir, "refs/heads/"+finalBranch, false) {
+		log.Printf("🔍 Branch %q exists, trying next...", finalBranch)
+		finalBranch = fmt.Sprintf("%s-%d", newBranch, counter)
+		counter++
+		if counter > 100 { // Safety limit to prevent infinite loops
+			log.Printf("⚠️  Too many similar branches exist for %q, skipping graduation", newBranch)
+			return
+		}
+	}
+
+	if finalBranch != newBranch {
+		log.Printf("📝 Branch %q already exists, using %q instead", newBranch, finalBranch)
+	}
+	newBranch = finalBranch
+
+	// Double-check that the final branch name doesn't exist
+	if m.gitService.branchExists(m.workDir, newBranch, false) ||
+		m.gitService.branchExists(m.workDir, "refs/heads/"+newBranch, false) {
+		log.Printf("❌ ERROR: Branch %q still exists after collision detection!", newBranch)
 		return
 	}
 
@@ -620,10 +641,22 @@ func (s *ClaudeMonitorService) TriggerBranchRename(workDir string, customBranchN
 			return fmt.Errorf("invalid branch name: %q", customBranchName)
 		}
 
-		// Check if the branch already exists
-		if s.gitService.branchExists(workDir, customBranchName, false) {
-			return fmt.Errorf("branch %q already exists", customBranchName)
+		// Check if the branch already exists and append numbers if needed
+		finalBranch := customBranchName
+		counter := 1
+		for s.gitService.branchExists(workDir, finalBranch, false) ||
+			s.gitService.branchExists(workDir, "refs/heads/"+finalBranch, false) {
+			finalBranch = fmt.Sprintf("%s-%d", customBranchName, counter)
+			counter++
+			if counter > 100 { // Safety limit
+				return fmt.Errorf("too many similar branches exist for %q", customBranchName)
+			}
 		}
+
+		if finalBranch != customBranchName {
+			log.Printf("📝 Branch %q already exists, using %q instead", customBranchName, finalBranch)
+		}
+		customBranchName = finalBranch
 
 		// Rename directly to the custom name
 		log.Printf("🎓 Renaming branch %q to custom name %q", currentBranch, customBranchName)
