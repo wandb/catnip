@@ -153,3 +153,16 @@ type CreateCompletionResponse struct {
 	// Any error that occurred
 	Error string `json:"error,omitempty"`
 }
+
+// Todo represents a single todo item from the TodoWrite tool
+// @Description A todo item with status and priority tracking
+type Todo struct {
+	// Unique identifier for the todo item
+	ID string `json:"id" example:"1"`
+	// The content/description of the todo
+	Content string `json:"content" example:"Fix authentication bug"`
+	// Current status of the todo
+	Status string `json:"status" example:"in_progress" enums:"pending,in_progress,completed"`
+	// Priority level of the todo
+	Priority string `json:"priority" example:"high" enums:"high,medium,low"`
+}
