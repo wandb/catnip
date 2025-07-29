@@ -121,6 +121,21 @@ export interface WorktreeUpdatedEvent {
   };
 }
 
+export interface WorktreeCreatedEvent {
+  type: "worktree:created";
+  payload: {
+    worktree: any; // Will match the Worktree interface
+  };
+}
+
+export interface WorktreeDeletedEvent {
+  type: "worktree:deleted";
+  payload: {
+    worktree_id: string;
+    worktree_name: string;
+  };
+}
+
 export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
@@ -134,7 +149,9 @@ export type AppEvent =
   | WorktreeBatchUpdatedEvent
   | WorktreeDirtyEvent
   | WorktreeCleanEvent
-  | WorktreeUpdatedEvent;
+  | WorktreeUpdatedEvent
+  | WorktreeCreatedEvent
+  | WorktreeDeletedEvent;
 
 export interface SSEMessage {
   event: AppEvent;

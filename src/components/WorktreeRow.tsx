@@ -27,7 +27,7 @@ import {
 } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 import { getRelativeTime, getDuration } from "@/lib/git-utils";
-import type { ConflictStatus } from "@/hooks/useGitState";
+// ConflictStatus type moved - conflicts now tracked directly on worktree.has_conflicts
 
 interface ClaudeSession {
   sessionStartTime?: string | Date;
@@ -41,8 +41,8 @@ interface ClaudeSession {
 interface WorktreeRowProps {
   worktree: Worktree;
   claudeSessions: Record<string, ClaudeSession>;
-  _syncConflicts: Record<string, ConflictStatus>;
-  _mergeConflicts: Record<string, ConflictStatus>;
+  _syncConflicts: Record<string, any>; // ConflictStatus type removed
+  _mergeConflicts: Record<string, any>; // ConflictStatus type removed
   worktreeSummaries: Record<string, WorktreeSummary>;
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   diffStatsLoading: boolean;
@@ -426,7 +426,7 @@ function WorktreeClaudeStatus({
 
 interface WorktreeActionsProps {
   worktree: Worktree;
-  mergeConflicts: Record<string, ConflictStatus>;
+  mergeConflicts: Record<string, any>; // ConflictStatus type removed
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   diffStatsLoading: boolean;
   openDiffWorktreeId: string | null;
