@@ -688,42 +688,41 @@ func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, erro
 
 		// Check if this is a tool use message for TodoWrite
 		if message.Type == "tool_use" {
-			if messageData, ok := message.Message.(map[string]interface{}); ok {
-				if name, exists := messageData["name"]; exists && name == "TodoWrite" {
-					if input, exists := messageData["input"]; exists {
-						if inputMap, ok := input.(map[string]interface{}); ok {
-							if todos, exists := inputMap["todos"]; exists {
-								if todosArray, ok := todos.([]interface{}); ok {
-									var parsedTodos []models.Todo
-									for _, todoItem := range todosArray {
-										if todoMap, ok := todoItem.(map[string]interface{}); ok {
-											todo := models.Todo{}
-											if id, exists := todoMap["id"]; exists {
-												if idStr, ok := id.(string); ok {
-													todo.ID = idStr
-												}
+			messageData := message.Message
+			if name, exists := messageData["name"]; exists && name == "TodoWrite" {
+				if input, exists := messageData["input"]; exists {
+					if inputMap, ok := input.(map[string]interface{}); ok {
+						if todos, exists := inputMap["todos"]; exists {
+							if todosArray, ok := todos.([]interface{}); ok {
+								var parsedTodos []models.Todo
+								for _, todoItem := range todosArray {
+									if todoMap, ok := todoItem.(map[string]interface{}); ok {
+										todo := models.Todo{}
+										if id, exists := todoMap["id"]; exists {
+											if idStr, ok := id.(string); ok {
+												todo.ID = idStr
 											}
-											if content, exists := todoMap["content"]; exists {
-												if contentStr, ok := content.(string); ok {
-													todo.Content = contentStr
-												}
-											}
-											if status, exists := todoMap["status"]; exists {
-												if statusStr, ok := status.(string); ok {
-													todo.Status = statusStr
-												}
-											}
-											if priority, exists := todoMap["priority"]; exists {
-												if priorityStr, ok := priority.(string); ok {
-													todo.Priority = priorityStr
-												}
-											}
-											parsedTodos = append(parsedTodos, todo)
 										}
+										if content, exists := todoMap["content"]; exists {
+											if contentStr, ok := content.(string); ok {
+												todo.Content = contentStr
+											}
+										}
+										if status, exists := todoMap["status"]; exists {
+											if statusStr, ok := status.(string); ok {
+												todo.Status = statusStr
+											}
+										}
+										if priority, exists := todoMap["priority"]; exists {
+											if priorityStr, ok := priority.(string); ok {
+												todo.Priority = priorityStr
+											}
+										}
+										parsedTodos = append(parsedTodos, todo)
 									}
-									// Update latestTodos with the most recent one found
-									latestTodos = parsedTodos
 								}
+								// Update latestTodos with the most recent one found
+								latestTodos = parsedTodos
 							}
 						}
 					}
