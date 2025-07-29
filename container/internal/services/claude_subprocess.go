@@ -113,6 +113,20 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
+		// Add detailed debugging information
+		log.Printf("[DEBUG] Failed to start claude command (streaming)")
+		log.Printf("[DEBUG] Command path: %s", w.claudePath)
+		log.Printf("[DEBUG] Args: %v", args)
+		log.Printf("[DEBUG] Working directory: %s", cmd.Dir)
+		log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
+
+		// Try to find the actual claude binary location
+		if claudePath, lookErr := exec.LookPath("claude"); lookErr == nil {
+			log.Printf("[DEBUG] Found claude at: %s", claudePath)
+		} else {
+			log.Printf("[DEBUG] exec.LookPath failed: %v", lookErr)
+		}
+
 		return fmt.Errorf("failed to start claude command: %w", err)
 	}
 
@@ -319,6 +333,20 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
+		// Add detailed debugging information
+		log.Printf("[DEBUG] Failed to start claude command")
+		log.Printf("[DEBUG] Command path: %s", w.claudePath)
+		log.Printf("[DEBUG] Args: %v", args)
+		log.Printf("[DEBUG] Working directory: %s", cmd.Dir)
+		log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
+
+		// Try to find the actual claude binary location
+		if claudePath, lookErr := exec.LookPath("claude"); lookErr == nil {
+			log.Printf("[DEBUG] Found claude at: %s", claudePath)
+		} else {
+			log.Printf("[DEBUG] exec.LookPath failed: %v", lookErr)
+		}
+
 		return nil, fmt.Errorf("failed to start claude command: %w", err)
 	}
 

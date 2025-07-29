@@ -141,6 +141,117 @@
       return originalOpen.apply(this, [method, url].concat(args));
     };
 
+    // Patch WebSocket constructor
+    var originalWebSocket = window.WebSocket;
+    window.WebSocket = function (url, protocols) {
+      console.log("🔍 WebSocket intercepted, original URL:", url);
+
+      if (typeof url === "string") {
+        // Handle ws:// and wss:// protocols
+        if (url.startsWith("ws://") || url.startsWith("wss://")) {
+          try {
+            var wsUrl = new URL(url);
+
+            // If we're already on localhost:8080, check if the path needs basePath prefix
+            if (wsUrl.hostname === "localhost" && wsUrl.port === "8080") {
+              // Only rewrite if path doesn't already start with basePath
+              if (
+                wsUrl.pathname.startsWith("/") &&
+                !wsUrl.pathname.startsWith(basePath.slice(0, -1))
+              ) {
+                // Check if path already starts with a port pattern like /3001/
+                var portPattern = /^\/\d{4}\//;
+                if (!portPattern.test(wsUrl.pathname)) {
+                  wsUrl.pathname = basePath.slice(0, -1) + wsUrl.pathname;
+                  url = wsUrl.toString();
+                  console.log(
+                    "🔄 Rewritten WebSocket path (already on 8080):",
+                    url,
+                  );
+                } else {
+                  console.log(
+                    "✅ WebSocket URL already has port prefix, no rewrite needed:",
+                    url,
+                  );
+                }
+              } else {
+                console.log(
+                  "✅ WebSocket URL already correct, no rewrite needed:",
+                  url,
+                );
+              }
+            }
+            // Handle localhost:PORT URLs - rewrite to localhost:8080/PORT
+            else if (
+              wsUrl.hostname === "localhost" &&
+              wsUrl.port &&
+              wsUrl.port !== "8080"
+            ) {
+              var originalPort = wsUrl.port;
+              wsUrl.hostname = "localhost";
+              wsUrl.port = "8080";
+
+              // Check if the path already starts with the port (avoid double-prefixing)
+              var portPrefix = "/" + originalPort;
+              if (!wsUrl.pathname.startsWith(portPrefix)) {
+                wsUrl.pathname = portPrefix + wsUrl.pathname;
+              } else {
+                console.log(
+                  "✅ WebSocket path already has port prefix, keeping as-is:",
+                  wsUrl.pathname,
+                );
+              }
+
+              url = wsUrl.toString();
+              console.log("🔄 Rewritten WebSocket localhost URL:", url);
+            }
+            // Check if it's a same-origin WebSocket with an absolute path that needs rewriting
+            else if (
+              wsUrl.hostname === location.hostname &&
+              wsUrl.pathname.startsWith("/") &&
+              !wsUrl.pathname.startsWith(basePath.slice(0, -1))
+            ) {
+              // Rewrite the pathname to include the base path
+              wsUrl.pathname = basePath.slice(0, -1) + wsUrl.pathname;
+              url = wsUrl.toString();
+              console.log("🔄 Rewritten WebSocket path:", url);
+            }
+          } catch (e) {
+            console.warn("Failed to parse WebSocket URL:", url, e);
+          }
+        }
+        // Handle relative WebSocket URLs (starting with /)
+        else if (
+          url.startsWith("/") &&
+          !url.startsWith(basePath.slice(0, -1))
+        ) {
+          // Convert to full WebSocket URL with current protocol
+          var protocol = location.protocol === "https:" ? "wss:" : "ws:";
+          url = protocol + "//" + location.host + basePath.slice(0, -1) + url;
+          console.log("🔄 Rewritten relative WebSocket URL:", url);
+        }
+      }
+
+      if (protocols !== undefined) {
+        return new originalWebSocket(url, protocols);
+      } else {
+        return new originalWebSocket(url);
+      }
+    };
+
+    // Copy static properties and methods
+    Object.setPrototypeOf(window.WebSocket, originalWebSocket);
+    Object.defineProperty(window.WebSocket, "prototype", {
+      value: originalWebSocket.prototype,
+      writable: false,
+    });
+
+    // Copy static constants
+    window.WebSocket.CONNECTING = originalWebSocket.CONNECTING;
+    window.WebSocket.OPEN = originalWebSocket.OPEN;
+    window.WebSocket.CLOSING = originalWebSocket.CLOSING;
+    window.WebSocket.CLOSED = originalWebSocket.CLOSED;
+
     // Patch dynamic import() - intercept import calls
     // Note: This approach has limitations but covers many common cases
 
@@ -215,11 +326,13 @@
     }
   }
 
-  // Initialize on DOMContentLoaded
+  // Patch WebSocket immediately (before any modules load)
+  patchNetworkAPIs();
+
+  // Initialize other patches on DOMContentLoaded
   document.addEventListener("DOMContentLoaded", function () {
     rewriteStaticResources();
     watchForDynamicInsertions();
-    patchNetworkAPIs();
   });
 
   /**

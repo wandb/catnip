@@ -4,12 +4,6 @@
   "private": true,
   "description": "Scripts for proxy injection functionality",
   "scripts": {
-    "build:js": "cp proxy-injection.js ../internal/assets/scripts/",
-    "build:ts": "tsc proxy-injection.ts --outDir ../internal/assets/scripts --target es2017 --module none --lib dom,es2017",
-    "build": "pnpm run build:js",
-    "watch": "tsc proxy-injection.ts --outDir ../internal/assets/scripts --target es2017 --module none --lib dom,es2017 --watch"
-  },
-  "devDependencies": {
-    "typescript": "^5.0.0"
+    "build": "cp proxy-injection.js ../internal/assets/scripts/"
   }
 }

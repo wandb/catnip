@@ -35,7 +35,7 @@ export default defineConfig({
       // Configure HMR for container development
       host: "localhost",
       port: parseInt(process.env.VITE_PORT || "5173"),
-      path: process.env.CATNIP_DEV ? `/${process.env.VITE_PORT}` : undefined, // or whatever path your proxy uses for the socket
+      // path: process.env.CATNIP_DEV ? `/${process.env.VITE_PORT}` : undefined, // or whatever path your proxy uses for the socket
       // Use WebSocket for HMR in containers
       protocol: "ws",
     },
