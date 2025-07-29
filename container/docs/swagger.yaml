@@ -632,6 +632,8 @@ definitions:
     - worktree:dirty
     - worktree:clean
     - worktree:updated
+    - worktree:created
+    - worktree:deleted
     type: string
     x-enum-varnames:
     - PortOpenedEvent
@@ -647,6 +649,8 @@ definitions:
     - WorktreeDirtyEvent
     - WorktreeCleanEvent
     - WorktreeUpdatedEvent
+    - WorktreeCreatedEvent
+    - WorktreeDeletedEvent
   internal_handlers.GitHubRepository:
     description: GitHub repository information from the GitHub API
     properties:

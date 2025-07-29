@@ -204,11 +204,8 @@ func TestGitServiceStateManagement(t *testing.T) {
 		require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
 		defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
 
-		// Test save state (should not error)
-		_ = service.saveState()
-
-		// Test load state
-		_ = service.loadState()
+		// State management is now handled automatically by the state manager
+		// No explicit save/load needed
 
 		// Verify service still works after load
 		status := service.GetStatus()
