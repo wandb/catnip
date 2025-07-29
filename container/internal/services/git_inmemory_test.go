@@ -140,12 +140,11 @@ func testGitOperationsWithInMemory(t *testing.T, service *GitService, exec *exec
 
 func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec *executor.InMemoryExecutor) {
 	// Clear any existing state from previous test runs
-	for k := range service.worktrees {
-		delete(service.worktrees, k)
+	allWorktrees := service.stateManager.GetAllWorktrees()
+	for id := range allWorktrees {
+		_ = service.stateManager.DeleteWorktree(id)
 	}
-	for k := range service.repositories {
-		delete(service.repositories, k)
-	}
+	// Note: State manager doesn't have RemoveRepository method, repositories persist
 
 	// Create test repositories and add them to service state
 	repo1, err := executor.CreateTestRepositoryWithHistory()
@@ -161,7 +160,7 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec 
 		DefaultBranch: "main",
 		CreatedAt:     time.Now(),
 	}
-	service.repositories["test/worktree-repo"] = mockRepo
+	_ = service.stateManager.AddRepository(mockRepo)
 
 	t.Run("ListWorktrees", func(t *testing.T) {
 		// Initially empty
@@ -179,7 +178,7 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec 
 			CreatedAt:    time.Now(),
 			LastAccessed: time.Now(),
 		}
-		service.worktrees["wt-1"] = mockWorktree1
+		_ = service.stateManager.AddWorktree(mockWorktree1)
 
 		mockWorktree2 := &models.Worktree{
 			ID:           "wt-2",
@@ -191,7 +190,7 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec 
 			CreatedAt:    time.Now(),
 			LastAccessed: time.Now(),
 		}
-		service.worktrees["wt-2"] = mockWorktree2
+		_ = service.stateManager.AddWorktree(mockWorktree2)
 
 		// Now should have worktrees
 		worktrees = service.ListWorktrees()
@@ -280,9 +279,7 @@ func TestGitServiceInMemoryAdvanced(t *testing.T) {
 		// Test that service-level operations work with in-memory backend
 
 		// Clear any existing state from previous test runs
-		for k := range service.repositories {
-			delete(service.repositories, k)
-		}
+		// Note: State manager doesn't have RemoveRepository method, repositories persist
 
 		// Add repository to service state
 		mockRepo := &models.Repository{
@@ -292,7 +289,7 @@ func TestGitServiceInMemoryAdvanced(t *testing.T) {
 			DefaultBranch: "main",
 			CreatedAt:     time.Now(),
 		}
-		service.repositories["advanced/test"] = mockRepo
+		_ = service.stateManager.AddRepository(mockRepo)
 
 		// Test operations that should work with in-memory backend
 		repos := service.ListRepositories()
@@ -339,7 +336,7 @@ func TestGitServiceLocalRepositoryOperations(t *testing.T) {
 		CreatedAt:     time.Now(),
 		LastAccessed:  time.Now(),
 	}
-	service.repositories["local/test-project"] = localRepoModel
+	_ = service.stateManager.AddRepository(localRepoModel)
 
 	t.Run("LocalRepositoryOperations", func(t *testing.T) {
 		testLocalRepositoryOperations(t, service, nil) // No executor needed for real git operations
@@ -355,7 +352,7 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 
 	t.Run("GetLocalRepoBranches", func(t *testing.T) {
 		// Test the getLocalRepoBranches function
-		repo, exists := service.repositories[repoID]
+		repo, exists := service.stateManager.GetRepository(repoID)
 		require.True(t, exists)
 
 		branches, err := service.getLocalRepoBranches(repo.Path)
@@ -366,7 +363,7 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 	})
 
 	t.Run("GetLocalRepoDefaultBranch", func(t *testing.T) {
-		repo, exists := service.repositories[repoID]
+		repo, exists := service.stateManager.GetRepository(repoID)
 		require.True(t, exists)
 
 		defaultBranch := service.getLocalRepoDefaultBranch(repo.Path)
@@ -422,7 +419,7 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 
 	t.Run("CreateLocalRepoWorktreeDirectly", func(t *testing.T) {
 		// Test the createLocalRepoWorktree function directly
-		repo, exists := service.repositories[repoID]
+		repo, exists := service.stateManager.GetRepository(repoID)
 		require.True(t, exists)
 
 		// Generate a unique name for this test
@@ -460,7 +457,7 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 			CreatedAt:     time.Now(),
 			LastAccessed:  time.Now(),
 		}
-		service.repositories[freshRepoID] = freshRepoModel
+		_ = service.stateManager.AddRepository(freshRepoModel)
 
 		// Should return true for a repo with no worktrees
 		should := service.shouldCreateInitialWorktree(freshRepoID)
@@ -477,12 +474,13 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 
 	t.Run("CreateAndDeleteWorktree", func(t *testing.T) {
 		// Clear any existing worktrees from previous tests
-		for id := range service.worktrees {
+		allWorktrees := service.stateManager.GetAllWorktrees()
+		for id := range allWorktrees {
 			_ = service.DeleteWorktree(id)
 		}
 
 		// Get the repository
-		repo, exists := service.repositories[repoID]
+		repo, exists := service.stateManager.GetRepository(repoID)
 		require.True(t, exists)
 
 		// Create a worktree
@@ -525,7 +523,8 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 
 	t.Run("CreateMultipleWorktreesAndDeleteOne", func(t *testing.T) {
 		// Clear any existing worktrees from previous tests
-		for id := range service.worktrees {
+		allWorktrees := service.stateManager.GetAllWorktrees()
+		for id := range allWorktrees {
 			_ = service.DeleteWorktree(id)
 		}
 
@@ -541,7 +540,7 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		assert.Len(t, worktrees, 2)
 
 		// Verify both branches exist in live repo
-		repo := service.repositories[repoID]
+		repo, _ := service.stateManager.GetRepository(repoID)
 		// Verify both branches exist in the custom refs/catnip/ namespace
 		// Note: refs/catnip/ branches intentionally don't appear in regular branch list
 		exists1 := service.branchExists(repo.Path, worktree1.Branch, false)
