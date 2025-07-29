@@ -23,7 +23,6 @@ import { PullRequestDialog } from "@/components/PullRequestDialog";
 import { GitBranch, Copy, RefreshCw, Loader2 } from "lucide-react";
 import { copyRemoteCommand } from "@/lib/git-utils";
 import { type LocalRepository, gitApi } from "@/lib/git-api";
-import { useGitState } from "@/hooks/useGitState";
 import { useGitActions } from "@/hooks/useGitActions";
 import { useHighlight } from "@/hooks/useHighlight";
 

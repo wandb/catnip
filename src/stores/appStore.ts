@@ -1,7 +1,13 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { AppEvent, SSEMessage } from "../types/events";
-import type { Worktree } from "../lib/git-api";
+import type {
+  Worktree,
+  GitStatus,
+  Repository,
+  LocalRepository,
+} from "../lib/git-api";
+import { gitApi } from "../lib/git-api";
 
 interface Port {
   port: number;
@@ -28,16 +34,36 @@ interface AppState {
   ports: Map<number, Port>;
   worktrees: Map<string, Worktree>;
   processes: Map<number, Process>;
+  repositories: Map<string, LocalRepository>;
+  githubRepositories: Repository[];
+  gitStatus: GitStatus;
   containerStatus: "running" | "stopped" | "error";
   containerMessage?: string;
   sshEnabled: boolean;
+
+  // Loading states
+  initialLoading: boolean;
+  worktreesLoading: boolean;
+  repositoriesLoading: boolean;
+  gitStatusLoading: boolean;
 
   // Actions
   connectSSE: () => void;
   disconnectSSE: () => void;
   handleEvent: (event: AppEvent) => void;
+  loadInitialData: () => Promise<void>;
+  refreshData: () => Promise<void>;
+
+  // Worktree actions
   setWorktrees: (worktrees: Worktree[]) => void;
   updateWorktree: (worktreeId: string, updates: Partial<Worktree>) => void;
+  addWorktree: (worktree: Worktree) => void;
+  removeWorktree: (worktreeId: string) => void;
+
+  // Repository actions
+  setRepositories: (repositories: Record<string, LocalRepository>) => void;
+  setGithubRepositories: (repositories: Repository[]) => void;
+  setGitStatus: (status: GitStatus) => void;
 
   // Getters
   getActivePorts: () => Port[];
@@ -45,6 +71,10 @@ interface AppState {
   getRunningProcesses: () => Process[];
   getWorktreesList: () => Worktree[];
   getWorktreeById: (id: string) => Worktree | undefined;
+  getRepositoriesList: () => LocalRepository[];
+  getRepositoryById: (id: string) => LocalRepository | undefined;
+  getGithubRepositories: () => Repository[];
+  getWorktreesByRepo: (repoId: string) => Worktree[];
 }
 
 let eventSource: EventSource | null = null;
@@ -58,8 +88,17 @@ export const useAppStore = create<AppState>()(
     ports: new Map(),
     worktrees: new Map(),
     processes: new Map(),
+    repositories: new Map(),
+    githubRepositories: [],
+    gitStatus: {},
     containerStatus: "stopped",
     sshEnabled: false,
+
+    // Loading states
+    initialLoading: false,
+    worktreesLoading: false,
+    repositoriesLoading: false,
+    gitStatusLoading: false,
 
     connectSSE: () => {
       // Prevent multiple simultaneous connections
@@ -332,13 +371,99 @@ export const useAppStore = create<AppState>()(
           }
           break;
         }
+
+        case "worktree:created": {
+          const updatedWorktrees = new Map(worktrees);
+          const newWorktree = event.payload.worktree;
+          updatedWorktrees.set(newWorktree.id, {
+            ...newWorktree,
+            cache_status: {
+              is_cached: true,
+              is_loading: false,
+              last_updated: Date.now(),
+            },
+          });
+          set({ worktrees: updatedWorktrees });
+          break;
+        }
+
+        case "worktree:deleted": {
+          const updatedWorktrees = new Map(worktrees);
+          updatedWorktrees.delete(event.payload.worktree_id);
+          set({ worktrees: updatedWorktrees });
+          break;
+        }
       }
     },
 
+    // Load initial data from APIs
+    loadInitialData: async () => {
+      set({ initialLoading: true });
+      try {
+        // Load data in parallel
+        const [worktreesData, gitStatusData, githubReposData] =
+          await Promise.all([
+            gitApi.fetchWorktrees().catch(() => []),
+            gitApi.fetchGitStatus().catch(() => ({})),
+            gitApi.fetchRepositories().catch(() => []),
+          ]);
+
+        // Transform and set worktrees
+        const worktreeMap = new Map<string, Worktree>();
+        worktreesData.forEach((worktree) => {
+          // Add cache status to indicate fresh data
+          const enhancedWorktree = {
+            ...worktree,
+            cache_status: {
+              is_cached: true,
+              is_loading: false,
+              last_updated: Date.now(),
+            },
+          };
+          worktreeMap.set(worktree.id, enhancedWorktree);
+        });
+
+        // Transform repositories from git status
+        const repositoryMap = new Map<string, LocalRepository>();
+        if (gitStatusData.repositories) {
+          Object.entries(gitStatusData.repositories).forEach(([id, repo]) => {
+            repositoryMap.set(id, repo);
+          });
+        }
+
+        set({
+          worktrees: worktreeMap,
+          repositories: repositoryMap,
+          gitStatus: gitStatusData,
+          githubRepositories: githubReposData,
+        });
+      } catch (error) {
+        console.error("Failed to load initial data:", error);
+      } finally {
+        set({ initialLoading: false });
+      }
+    },
+
+    // Refresh all data
+    refreshData: async () => {
+      const state = get();
+      await state.loadInitialData();
+    },
+
+    // Worktree actions
     setWorktrees: (worktrees: Worktree[]) => {
       const worktreeMap = new Map<string, Worktree>();
       worktrees.forEach((worktree) => {
-        worktreeMap.set(worktree.id, worktree);
+        // Ensure cache status is present
+        const enhancedWorktree = {
+          ...worktree,
+          cache_status: worktree.cache_status || {
+            is_cached: true,
+            is_loading: false,
+            last_updated: Date.now(),
+          },
+        };
+        worktreeMap.set(worktree.id, enhancedWorktree);
       });
       set({ worktrees: worktreeMap });
     },
@@ -353,6 +478,54 @@ export const useAppStore = create<AppState>()(
       }
     },
 
+    addWorktree: (worktree: Worktree) => {
+      const { worktrees } = get();
+      const updatedWorktrees = new Map(worktrees);
+      // Ensure cache status is present
+      const enhancedWorktree = {
+        ...worktree,
+        cache_status: worktree.cache_status || {
+          is_cached: true,
+          is_loading: false,
+          last_updated: Date.now(),
+        },
+      };
+      updatedWorktrees.set(worktree.id, enhancedWorktree);
+      set({ worktrees: updatedWorktrees });
+    },
+
+    removeWorktree: (worktreeId: string) => {
+      const { worktrees } = get();
+      const updatedWorktrees = new Map(worktrees);
+      updatedWorktrees.delete(worktreeId);
+      set({ worktrees: updatedWorktrees });
+    },
+
+    // Repository actions
+    setRepositories: (repositories: Record<string, LocalRepository>) => {
+      const repositoryMap = new Map<string, LocalRepository>();
+      Object.entries(repositories).forEach(([id, repo]) => {
+        repositoryMap.set(id, repo);
+      });
+      set({ repositories: repositoryMap });
+    },
+
+    setGithubRepositories: (repositories: Repository[]) => {
+      set({ githubRepositories: repositories });
+    },
+
+    setGitStatus: (status: GitStatus) => {
+      set({ gitStatus: status });
+      // Update repositories from git status if present
+      if (status.repositories) {
+        const repositoryMap = new Map<string, LocalRepository>();
+        Object.entries(status.repositories).forEach(([id, repo]) => {
+          repositoryMap.set(id, repo);
+        });
+        set({ repositories: repositoryMap });
+      }
+    },
+
     // Getters
     getActivePorts: () => Array.from(get().ports.values()),
     getDirtyWorktrees: () =>
@@ -360,11 +533,19 @@ export const useAppStore = create<AppState>()(
     getRunningProcesses: () => Array.from(get().processes.values()),
     getWorktreesList: () => Array.from(get().worktrees.values()),
     getWorktreeById: (id: string) => get().worktrees.get(id),
+    getRepositoriesList: () => Array.from(get().repositories.values()),
+    getRepositoryById: (id: string) => get().repositories.get(id),
+    getGithubRepositories: () => get().githubRepositories,
+    getWorktreesByRepo: (repoId: string) =>
+      Array.from(get().worktrees.values()).filter((w) => w.repo_id === repoId),
   })),
 );
 
-// Auto-connect on store creation
+// Auto-connect SSE and load initial data on store creation
 useAppStore.getState().connectSSE();
+
+// Load initial data after store creation
+void useAppStore.getState().loadInitialData();
 
 // Cleanup on page unload
 if (typeof window !== "undefined") {

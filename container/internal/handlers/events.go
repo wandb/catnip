@@ -14,6 +14,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
+	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
 
@@ -35,6 +36,8 @@ const (
 	WorktreeDirtyEvent         EventType = "worktree:dirty"
 	WorktreeCleanEvent         EventType = "worktree:clean"
 	WorktreeUpdatedEvent       EventType = "worktree:updated"
+	WorktreeCreatedEvent       EventType = "worktree:created"
+	WorktreeDeletedEvent       EventType = "worktree:deleted"
 )
 
 type AppEvent struct {
@@ -96,6 +99,15 @@ type WorktreeDirtyPayload struct {
 type WorktreeUpdatedPayload struct {
 	WorktreeID string                 `json:"worktree_id"`
 	Updates    map[string]interface{} `json:"updates"`
+}
+
+type WorktreeCreatedPayload struct {
+	Worktree interface{} `json:"worktree"`
+}
+
+type WorktreeDeletedPayload struct {
+	WorktreeID   string `json:"worktree_id"`
+	WorktreeName string `json:"worktree_name"`
 }
 
 type SSEMessage struct {
@@ -597,6 +609,27 @@ func (h *EventsHandler) EmitWorktreeUpdated(worktreeID string, updates map[strin
 		Payload: WorktreeUpdatedPayload{
 			WorktreeID: worktreeID,
 			Updates:    updates,
+		},
+	})
+}
+
+// EmitWorktreeCreated broadcasts a worktree created event to all connected clients
+func (h *EventsHandler) EmitWorktreeCreated(worktree *models.Worktree) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeCreatedEvent,
+		Payload: WorktreeCreatedPayload{
+			Worktree: worktree,
+		},
+	})
+}
+
+// EmitWorktreeDeleted broadcasts a worktree deleted event to all connected clients
+func (h *EventsHandler) EmitWorktreeDeleted(worktreeID, worktreeName string) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeDeletedEvent,
+		Payload: WorktreeDeletedPayload{
+			WorktreeID:   worktreeID,
+			WorktreeName: worktreeName,
 		},
 	})
 }
