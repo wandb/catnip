@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -184,7 +185,18 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
 		if err != nil {
-			return err
+			// If it fails due to missing worktree, try to prune and retry once
+			if strings.Contains(err.Error(), "missing but already registered worktree") {
+				log.Printf("⚠️  Pruning missing worktrees and retrying...")
+				if pruneErr := o.PruneWorktrees(repoPath); pruneErr != nil {
+					log.Printf("⚠️  Failed to prune worktrees: %v", pruneErr)
+				}
+				// Retry the command once after pruning
+				_, err = o.ExecuteGit(repoPath, args...)
+			}
+			if err != nil {
+				return err
+			}
 		}
 
 		// Then create the branch ref and check it out in the worktree
@@ -213,6 +225,17 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 			args = append(args, fromRef)
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
+		if err != nil {
+			// If it fails due to missing worktree, try to prune and retry once
+			if strings.Contains(err.Error(), "missing but already registered worktree") {
+				log.Printf("⚠️  Pruning missing worktrees and retrying...")
+				if pruneErr := o.PruneWorktrees(repoPath); pruneErr != nil {
+					log.Printf("⚠️  Failed to prune worktrees: %v", pruneErr)
+				}
+				// Retry the command once after pruning
+				_, err = o.ExecuteGit(repoPath, args...)
+			}
+		}
 		return err
 	}
 }
@@ -259,6 +282,11 @@ func (o *OperationsImpl) ListWorktrees(repoPath string) ([]WorktreeInfo, error) 
 	}
 
 	return worktrees, nil
+}
+
+func (o *OperationsImpl) PruneWorktrees(repoPath string) error {
+	_, err := o.ExecuteGit(repoPath, "worktree", "prune")
+	return err
 }
 
 // Status operations

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/vanpelt/catnip/internal/models"
 )
@@ -16,14 +17,17 @@ type MockClaudeSubprocessWrapper struct {
 	FailureError      string
 	MockResponse      string
 	StreamingResponse string
+	// Track branch rename requests for testing
+	BranchRenameRequests []string
 }
 
 // NewMockClaudeSubprocessWrapper creates a new mock wrapper for testing
 func NewMockClaudeSubprocessWrapper() *MockClaudeSubprocessWrapper {
 	return &MockClaudeSubprocessWrapper{
-		ShouldFail:        false,
-		MockResponse:      "Mock claude response",
-		StreamingResponse: "Mock streaming response",
+		ShouldFail:           false,
+		MockResponse:         "Mock claude response",
+		StreamingResponse:    "Mock streaming response",
+		BranchRenameRequests: make([]string, 0),
 	}
 }
 
@@ -37,6 +41,36 @@ func (m *MockClaudeSubprocessWrapper) CreateCompletion(ctx context.Context, opts
 		return &models.CreateCompletionResponse{
 			Error: errorMsg,
 		}, fmt.Errorf("claude command failed: %s", errorMsg)
+	}
+
+	// Check if this is a branch naming request
+	if strings.Contains(opts.Prompt, "Generate a git branch name") {
+		// Extract the title from the prompt to generate a meaningful branch name
+		titleStart := strings.Index(opts.Prompt, `Based on this coding session title: "`)
+		if titleStart != -1 {
+			titleStart += len(`Based on this coding session title: "`)
+			titleEnd := strings.Index(opts.Prompt[titleStart:], `"`)
+			if titleEnd != -1 {
+				title := opts.Prompt[titleStart : titleStart+titleEnd]
+				branchName := m.generateBranchName(title)
+
+				// Track this request for testing verification
+				m.BranchRenameRequests = append(m.BranchRenameRequests, title)
+
+				return &models.CreateCompletionResponse{
+					Response: branchName,
+					IsChunk:  false,
+					IsLast:   true,
+				}, nil
+			}
+		}
+
+		// Fallback branch name if we can't parse the title
+		return &models.CreateCompletionResponse{
+			Response: "feature/mock-branch",
+			IsChunk:  false,
+			IsLast:   true,
+		}, nil
 	}
 
 	return &models.CreateCompletionResponse{
@@ -101,4 +135,41 @@ func (m *MockClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Cont
 	}
 
 	return nil
+}
+
+// generateBranchName creates a realistic branch name from a title
+func (m *MockClaudeSubprocessWrapper) generateBranchName(title string) string {
+	// Convert title to lowercase and replace spaces with hyphens
+	branchName := strings.ToLower(title)
+	branchName = strings.ReplaceAll(branchName, " ", "-")
+	branchName = strings.ReplaceAll(branchName, "_", "-")
+
+	// Remove special characters
+	var cleaned strings.Builder
+	for _, r := range branchName {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			cleaned.WriteRune(r)
+		}
+	}
+	branchName = cleaned.String()
+
+	// Trim excessive hyphens and limit length
+	branchName = strings.Trim(branchName, "-")
+	if len(branchName) > 50 {
+		branchName = branchName[:50]
+		branchName = strings.Trim(branchName, "-")
+	}
+
+	// Add appropriate prefix based on content
+	if strings.Contains(strings.ToLower(title), "fix") || strings.Contains(strings.ToLower(title), "bug") {
+		return "fix/" + branchName
+	} else if strings.Contains(strings.ToLower(title), "test") {
+		return "test/" + branchName
+	} else if strings.Contains(strings.ToLower(title), "refactor") {
+		return "refactor/" + branchName
+	} else if strings.Contains(strings.ToLower(title), "update") || strings.Contains(strings.ToLower(title), "upgrade") {
+		return "chore/" + branchName
+	} else {
+		return "feature/" + branchName
+	}
 }

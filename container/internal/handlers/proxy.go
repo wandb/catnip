@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -17,28 +19,73 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/gorilla/websocket"
+	"github.com/gofiber/websocket/v2"
+	gorilla_websocket "github.com/gorilla/websocket"
 	"github.com/vanpelt/catnip/internal/assets"
+	"github.com/vanpelt/catnip/internal/recovery"
 	"github.com/vanpelt/catnip/internal/services"
 )
 
 // httpResponseWriter is a simple wrapper to adapt net.Conn to http.ResponseWriter
 type httpResponseWriter struct {
-	conn net.Conn
+	conn          net.Conn
+	header        http.Header
+	headerWritten bool
+	hijacked      bool
 }
 
 func (w *httpResponseWriter) Header() http.Header {
-	return make(http.Header)
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
 }
 
 func (w *httpResponseWriter) Write(data []byte) (int, error) {
+	if w.hijacked {
+		// After hijacking, write directly to connection
+		return w.conn.Write(data)
+	}
+	if !w.headerWritten {
+		w.WriteHeader(http.StatusOK)
+	}
 	return w.conn.Write(data)
 }
 
 func (w *httpResponseWriter) WriteHeader(statusCode int) {
+	if w.headerWritten || w.hijacked {
+		return
+	}
+	w.headerWritten = true
+
 	// Write HTTP status line
 	statusText := http.StatusText(statusCode)
-	_, _ = fmt.Fprintf(w.conn, "HTTP/1.1 %d %s\r\n", statusCode, statusText)
+	statusLine := fmt.Sprintf("HTTP/1.1 %d %s\r\n", statusCode, statusText)
+	_, _ = w.conn.Write([]byte(statusLine))
+
+	// Write headers
+	for key, values := range w.header {
+		for _, value := range values {
+			headerLine := fmt.Sprintf("%s: %s\r\n", key, value)
+			_, _ = w.conn.Write([]byte(headerLine))
+		}
+	}
+
+	// Write empty line to end headers
+	_, _ = w.conn.Write([]byte("\r\n"))
+}
+
+// Hijack implements http.Hijacker interface
+func (w *httpResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if w.hijacked {
+		return nil, nil, fmt.Errorf("connection already hijacked")
+	}
+	w.hijacked = true
+
+	// Create buffered reader/writer for the connection
+	// Important: We need to preserve any buffered data that might have been read already
+	bufrw := bufio.NewReadWriter(bufio.NewReader(w.conn), bufio.NewWriter(w.conn))
+	return w.conn, bufrw, nil
 }
 
 // rewriteHTMLAbsolutePaths rewrites absolute paths in HTML src/href attributes to use the proxy base path.
@@ -122,16 +169,7 @@ func isRewritable(val string, basePath string) bool {
 	// Skip URLs that already start with a 4-digit port pattern (e.g., /3030/...)
 	// This prevents double-prefixing URLs that were already rewritten by localhost logic
 	portPattern := regexp.MustCompile(`^/\d{4}/`)
-	if portPattern.MatchString(val) {
-		return false
-	}
-
-	// Debug logging for important paths
-	if strings.Contains(val, "@react-refresh") {
-		log.Printf("🔍 isRewritable check for @react-refresh: val=%s, basePath=%s, result=true", val, basePath)
-	}
-
-	return true
+	return !portPattern.MatchString(val)
 }
 
 // isWebSocketRewritable determines if a URL is a WebSocket URL that should be rewritten
@@ -229,7 +267,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Check if this is a WebSocket upgrade request
 	if strings.ToLower(c.Get("Connection")) == "upgrade" &&
 		strings.ToLower(c.Get("Upgrade")) == "websocket" {
-		return h.handleWebSocketProxy(c, port)
+		return h.handleWebSocketProxyWithFiber(c, port)
 	}
 
 	// Get the path after the port
@@ -660,13 +698,15 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		})
 	}
 
-	// Only log if we actually made changes
+	// Only log if we actually made changes and debug is enabled
 	if content != originalContent {
-		log.Printf("🔧 Modified JavaScript response for port %d with base path %s", port, basePath)
-		// Log first few import/export statements for debugging
-		importMatches := regexp.MustCompile("(?:import|export)[^;{]+[;{]").FindAllString(content, 5)
-		if len(importMatches) > 0 {
-			log.Printf("   Sample imports after rewriting: %v", importMatches)
+		if os.Getenv("CATNIP_DEBUG") != "" {
+			log.Printf("🔧 Modified JavaScript response for port %d with base path %s", port, basePath)
+			// Log first few import/export statements for debugging
+			importMatches := regexp.MustCompile("(?:import|export)[^;{]+[;{]").FindAllString(content, 5)
+			if len(importMatches) > 0 {
+				log.Printf("   Sample imports after rewriting: %v", importMatches)
+			}
 		}
 	}
 
@@ -691,10 +731,10 @@ func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
 		targetURL += "?" + string(c.Request().URI().QueryString())
 	}
 
-	log.Printf("🔌 WebSocket proxy: %s", targetURL)
+	log.Printf("🔌 WebSocket proxy request from %s to target: %s", c.Path(), targetURL)
 
 	// Create WebSocket dialer to connect to the target
-	dialer := websocket.Dialer{
+	dialer := gorilla_websocket.Dialer{
 		HandshakeTimeout: 5 * time.Second,
 	}
 
@@ -711,6 +751,7 @@ func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
 	})
 
 	// Connect to target WebSocket server
+	log.Printf("🔌 Attempting to dial target WebSocket: %s", targetURL)
 	targetConn, targetResp, err := dialer.Dial(targetURL, requestHeader)
 	if err != nil {
 		log.Printf("🔌❌ WebSocket dial failed: %v", err)
@@ -719,9 +760,10 @@ func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
 		})
 	}
 	defer targetConn.Close()
+	log.Printf("✅ Successfully connected to target WebSocket")
 
 	// Create WebSocket upgrader for the client connection
-	upgrader := websocket.Upgrader{
+	upgrader := gorilla_websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true // Allow all origins for proxy
 		},
@@ -733,6 +775,14 @@ func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
 		upgrader.Subprotocols = strings.Split(targetResp.Header.Get("Sec-WebSocket-Protocol"), ", ")
 	}
 
+	// Capture request data before hijacking to avoid nil pointer issues
+	method := string(c.Request().Header.Method())
+	queryString := string(c.Request().URI().QueryString())
+	headers := make(http.Header)
+	c.Request().Header.VisitAll(func(key, value []byte) {
+		headers.Add(string(key), string(value))
+	})
+
 	// Hijack the connection and upgrade the client
 	c.Context().Hijack(func(clientNetConn net.Conn) {
 		defer clientNetConn.Close()
@@ -740,28 +790,34 @@ func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
 		// Convert the net.Conn to an http.ResponseWriter and http.Request for upgrader
 		// This is a bit hacky but necessary for gorilla/websocket
 
-		// Create a fake HTTP request from the Fiber context
+		// Create a proper HTTP request from the captured data
+		reqURL := &url.URL{
+			Path:     path,
+			RawQuery: queryString,
+		}
+
 		req := &http.Request{
-			Method: string(c.Request().Header.Method()),
-			URL: &url.URL{
-				Path:     path,
-				RawQuery: string(c.Request().URI().QueryString()),
-			},
+			Method:     method,
+			URL:        reqURL,
 			Proto:      "HTTP/1.1",
 			ProtoMajor: 1,
 			ProtoMinor: 1,
-			Header:     make(http.Header),
+			Header:     headers,
+			Host:       headers.Get("Host"),
+			RequestURI: reqURL.RequestURI(),
+			RemoteAddr: clientNetConn.RemoteAddr().String(),
 		}
 
-		// Copy headers from Fiber to http.Request
-		c.Request().Header.VisitAll(func(key, value []byte) {
-			req.Header.Set(string(key), string(value))
-		})
-
-		// Create a simple ResponseWriter wrapper
-		rw := &httpResponseWriter{conn: clientNetConn}
+		// Create a ResponseWriter wrapper with proper initialization
+		rw := &httpResponseWriter{
+			conn:          clientNetConn,
+			header:        make(http.Header),
+			headerWritten: false,
+			hijacked:      false,
+		}
 
 		// Upgrade the client connection
+		log.Printf("🔧 Attempting to upgrade client connection...")
 		clientConn, err := upgrader.Upgrade(rw, req, nil)
 		if err != nil {
 			log.Printf("🔌❌ Client upgrade failed: %v", err)
@@ -769,7 +825,7 @@ func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
 		}
 		defer clientConn.Close()
 
-		log.Printf("✅ WebSocket proxy established")
+		log.Printf("✅ WebSocket proxy established successfully - starting message relay")
 
 		// Start proxying messages between client and target
 		h.proxyWebSocketConnections(clientConn, targetConn)
@@ -779,7 +835,7 @@ func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
 }
 
 // proxyWebSocketConnections performs bidirectional WebSocket message proxying
-func (h *ProxyHandler) proxyWebSocketConnections(clientConn, targetConn *websocket.Conn) {
+func (h *ProxyHandler) proxyWebSocketConnections(clientConn, targetConn *gorilla_websocket.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -791,11 +847,17 @@ func (h *ProxyHandler) proxyWebSocketConnections(clientConn, targetConn *websock
 		for {
 			messageType, data, err := clientConn.ReadMessage()
 			if err != nil {
+				if os.Getenv("CATNIP_DEBUG") != "" {
+					log.Printf("❌ WebSocket read error from client: %v", err)
+				}
 				break
 			}
 
 			err = targetConn.WriteMessage(messageType, data)
 			if err != nil {
+				if os.Getenv("CATNIP_DEBUG") != "" {
+					log.Printf("❌ WebSocket write error to target: %v", err)
+				}
 				break
 			}
 		}
@@ -809,15 +871,147 @@ func (h *ProxyHandler) proxyWebSocketConnections(clientConn, targetConn *websock
 		for {
 			messageType, data, err := targetConn.ReadMessage()
 			if err != nil {
+				log.Printf("❌ WebSocket read error: %v", err)
 				break
 			}
 
 			err = clientConn.WriteMessage(messageType, data)
 			if err != nil {
+				if os.Getenv("CATNIP_DEBUG") != "" {
+					log.Printf("❌ WebSocket write error to client: %v", err)
+				}
 				break
 			}
 		}
 	}()
 
 	wg.Wait()
+	log.Printf("🔌 WebSocket proxy connection closed")
+}
+
+// handleWebSocketProxyWithFiber uses Fiber's built-in WebSocket support for cleaner proxy handling
+func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) error {
+	// Get the path after the port
+	path := c.Params("*")
+	if path == "" {
+		path = "/" // For /:port route, connect to root path
+	} else {
+		path = "/" + path // For /:port/* route, preserve the path
+	}
+
+	// Build target WebSocket URL
+	targetURL := fmt.Sprintf("ws://localhost:%d%s", port, path)
+
+	// Add query parameters
+	if c.Request().URI().QueryString() != nil {
+		targetURL += "?" + string(c.Request().URI().QueryString())
+	}
+
+	log.Printf("🔌 WebSocket proxy request from %s to target: %s", c.Path(), targetURL)
+
+	// Extract headers from the original request BEFORE entering the WebSocket handler
+	// because the Fiber context becomes invalid inside the handler
+	requestHeader := make(http.Header)
+	c.Request().Header.VisitAll(func(key, value []byte) {
+		keyStr := string(key)
+		valueStr := string(value)
+		// Only forward the protocol header - dialer handles all other WebSocket headers automatically
+		if strings.ToLower(keyStr) == "sec-websocket-protocol" {
+			requestHeader.Set(keyStr, valueStr)
+		}
+	})
+
+	// Use Fiber's WebSocket handler - this handles the upgrade automatically
+	return websocket.New(func(clientConn *websocket.Conn) {
+		// Add panic recovery to prevent container crashes
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("🚨 PANIC recovered in WebSocket proxy: %v", r)
+				if clientConn != nil {
+					clientConn.Close()
+				}
+			}
+		}()
+
+		defer clientConn.Close()
+		log.Printf("✅ Fiber WebSocket connection established")
+
+		// Create WebSocket dialer to connect to the target
+		dialer := gorilla_websocket.Dialer{
+			HandshakeTimeout: 5 * time.Second,
+		}
+
+		// Connect to target WebSocket server
+		log.Printf("🔌 Attempting to dial target WebSocket: %s", targetURL)
+		targetConn, _, err := dialer.Dial(targetURL, requestHeader)
+		if err != nil {
+			log.Printf("🔌❌ WebSocket dial failed: %v", err)
+			if closeErr := clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Failed to connect to target")); closeErr != nil {
+				log.Printf("❌ Failed to send close message: %v", closeErr)
+			}
+			return
+		}
+		defer targetConn.Close()
+		log.Printf("✅ Successfully connected to target WebSocket")
+
+		log.Printf("✅ WebSocket proxy established successfully - starting message relay")
+
+		// Start proxying messages between client and target
+		h.proxyWebSocketConnectionsSimple(clientConn, targetConn)
+	})(c)
+}
+
+// proxyWebSocketConnectionsSimple performs bidirectional message proxying between Fiber and Gorilla WebSocket connections
+func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn, gorillaConn *gorilla_websocket.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Copy messages from Fiber client to Gorilla target
+	recovery.SafeGoWithCleanup("websocket-client-to-target", func() {
+		for {
+			messageType, data, err := fiberConn.ReadMessage()
+			if err != nil {
+				if os.Getenv("CATNIP_DEBUG") != "" {
+					log.Printf("❌ WebSocket read error from Fiber client: %v", err)
+				}
+				break
+			}
+
+			err = gorillaConn.WriteMessage(messageType, data)
+			if err != nil {
+				if os.Getenv("CATNIP_DEBUG") != "" {
+					log.Printf("❌ WebSocket write error to Gorilla target: %v", err)
+				}
+				break
+			}
+		}
+	}, func() {
+		wg.Done()
+		gorillaConn.Close()
+	})
+
+	// Copy messages from Gorilla target to Fiber client
+	recovery.SafeGoWithCleanup("websocket-target-to-client", func() {
+		for {
+			messageType, data, err := gorillaConn.ReadMessage()
+			if err != nil {
+				log.Printf("❌ WebSocket read error from target: %v", err)
+				break
+			}
+
+			err = fiberConn.WriteMessage(messageType, data)
+			if err != nil {
+				if os.Getenv("CATNIP_DEBUG") != "" {
+					log.Printf("❌ WebSocket write error to Fiber client: %v", err)
+				}
+				break
+			}
+		}
+	}, func() {
+		wg.Done()
+		fiberConn.Close()
+	})
+
+	wg.Wait()
+	log.Printf("🔌 WebSocket proxy connection closed")
 }
