@@ -146,6 +146,11 @@ RUN mkdir -p /home/catnip/.ssh && \
     chown catnip:catnip /home/catnip/.ssh && \
     chmod 700 /home/catnip/.ssh
 
+# Copy and configure vim settings for both users
+COPY container/setup/.vimrc /root/.vimrc
+RUN cp /root/.vimrc /home/catnip/.vimrc && \
+    chown catnip:catnip /home/catnip/.vimrc
+
 # Set up global environment variables and PATH
 ENV CATNIP_ROOT="/opt/catnip"
 ENV WORKSPACE="/workspace"

@@ -5,18 +5,41 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/net/html"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gorilla/websocket"
 	"github.com/vanpelt/catnip/internal/assets"
 	"github.com/vanpelt/catnip/internal/services"
 )
+
+// httpResponseWriter is a simple wrapper to adapt net.Conn to http.ResponseWriter
+type httpResponseWriter struct {
+	conn net.Conn
+}
+
+func (w *httpResponseWriter) Header() http.Header {
+	return make(http.Header)
+}
+
+func (w *httpResponseWriter) Write(data []byte) (int, error) {
+	return w.conn.Write(data)
+}
+
+func (w *httpResponseWriter) WriteHeader(statusCode int) {
+	// Write HTTP status line
+	statusText := http.StatusText(statusCode)
+	_, _ = fmt.Fprintf(w.conn, "HTTP/1.1 %d %s\r\n", statusCode, statusText)
+}
 
 // rewriteHTMLAbsolutePaths rewrites absolute paths in HTML src/href attributes to use the proxy base path.
 func rewriteHTMLAbsolutePaths(htmlContent string, basePath string) string {
@@ -80,18 +103,85 @@ func rewriteAttribute(n *html.Node, attrName string, basePath string) {
 					n.Attr[i].Val = u.String()
 				}
 			}
+		} else if attr.Key == attrName && isLocalhostPortRewritable(attr.Val, basePath) {
+			// Handle localhost:xxxx URLs - rewrite to localhost:8080/xxxx
+			if newVal := rewriteLocalhostPort(attr.Val, basePath); newVal != attr.Val {
+				n.Attr[i].Val = newVal
+			}
 		}
 	}
 }
 
 // isRewritable determines if a URL is an absolute path that should be rewritten
 func isRewritable(val string, basePath string) bool {
-	return strings.HasPrefix(val, "/") && !strings.HasPrefix(val, basePath)
+	// Must start with / and not already have basePath
+	if !strings.HasPrefix(val, "/") || strings.HasPrefix(val, basePath) {
+		return false
+	}
+
+	// Skip URLs that already start with a 4-digit port pattern (e.g., /3030/...)
+	// This prevents double-prefixing URLs that were already rewritten by localhost logic
+	portPattern := regexp.MustCompile(`^/\d{4}/`)
+	if portPattern.MatchString(val) {
+		return false
+	}
+
+	// Debug logging for important paths
+	if strings.Contains(val, "@react-refresh") {
+		log.Printf("🔍 isRewritable check for @react-refresh: val=%s, basePath=%s, result=true", val, basePath)
+	}
+
+	return true
 }
 
 // isWebSocketRewritable determines if a URL is a WebSocket URL that should be rewritten
 func isWebSocketRewritable(val string, basePath string) bool {
 	return strings.HasPrefix(val, "ws://") || strings.HasPrefix(val, "wss://")
+}
+
+// isLocalhostPortRewritable determines if a URL is a localhost:port URL that should be rewritten
+func isLocalhostPortRewritable(val string, basePath string) bool {
+	// Match http://localhost:xxxx, https://localhost:xxxx, ws://localhost:xxxx, wss://localhost:xxxx
+	return regexp.MustCompile(`^(https?|wss?)://localhost:\d+`).MatchString(val)
+}
+
+// rewriteLocalhostPort rewrites localhost:xxxx URLs to use the proxy base path
+func rewriteLocalhostPort(val string, basePath string) string {
+	// Parse the URL
+	u, err := url.Parse(val)
+	if err != nil {
+		return val
+	}
+
+	// Only rewrite localhost URLs with specific ports
+	if u.Hostname() != "localhost" || u.Port() == "" {
+		return val
+	}
+
+	// Extract the port
+	port := u.Port()
+
+	// Skip if it's already our proxy port (8080)
+	if port == "8080" {
+		return val
+	}
+
+	// Rewrite to use localhost:8080/PORT/path format
+	newPath := "/" + port
+	if u.Path != "" && u.Path != "/" {
+		newPath += u.Path
+	}
+
+	// Preserve query and fragment
+	if u.RawQuery != "" {
+		newPath += "?" + u.RawQuery
+	}
+	if u.Fragment != "" {
+		newPath += "#" + u.Fragment
+	}
+
+	// Return the rewritten URL
+	return fmt.Sprintf("%s://localhost:8080%s", u.Scheme, newPath)
 }
 
 // ProxyHandler handles reverse proxy requests to detected services
@@ -134,6 +224,12 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
 			"error": fmt.Sprintf("Port %d is not an HTTP service", port),
 		})
+	}
+
+	// Check if this is a WebSocket upgrade request
+	if strings.ToLower(c.Get("Connection")) == "upgrade" &&
+		strings.ToLower(c.Get("Upgrade")) == "websocket" {
+		return h.handleWebSocketProxy(c, port)
 	}
 
 	// Get the path after the port
@@ -247,6 +343,26 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 	// Rewrite absolute paths in HTML content
 	content = rewriteHTMLAbsolutePaths(content, basePath)
 
+	// Rewrite imports in inline script tags (e.g., Vite's @react-refresh)
+	scriptRegex := regexp.MustCompile(`<script[^>]*>([\s\S]*?)</script>`)
+	content = scriptRegex.ReplaceAllStringFunc(content, func(match string) string {
+		// Check if it's a module script with imports
+		if strings.Contains(match, "import") {
+			// Rewrite paths like "/@react-refresh" to "/PORT/@react-refresh"
+			importRegex := regexp.MustCompile(`from\s*["'](\/@[^"']+)["']`)
+			match = importRegex.ReplaceAllStringFunc(match, func(importMatch string) string {
+				if m := importRegex.FindStringSubmatch(importMatch); len(m) > 1 {
+					path := m[1]
+					if isRewritable(path, basePath) {
+						return strings.Replace(importMatch, path, basePath+strings.TrimPrefix(path, "/"), 1)
+					}
+				}
+				return importMatch
+			})
+		}
+		return match
+	})
+
 	// Inject base tag and early variable declaration
 	baseTag := fmt.Sprintf(`<base href="%s">`, basePath)
 	earlyScript := fmt.Sprintf(`<script>window.__PROXY_BASE_PATH__ = '%s';</script>`, basePath)
@@ -299,7 +415,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("import\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]\\s*\\)"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -322,7 +438,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("import\\s+[^'\"]*from\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -332,7 +448,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("import['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -342,7 +458,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("export(?:\\*?from)?['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -352,7 +468,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("export\\s+[^'\"]*from\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -362,7 +478,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("fetch\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -372,7 +488,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("\\.open\\s*\\(\\s*['\"`][^'\"`]*['\"`]\\s*,\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -382,7 +498,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("new\\s+URL\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -393,7 +509,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 			regex: regexp.MustCompile("new\\s+WebSocket\\s*\\(\\s*['\"`](wss?://[^'\"`]+)['\"`]"),
 			replace: func(match, wsUrl string) string {
 				if u, err := url.Parse(wsUrl); err == nil {
-					if strings.HasPrefix(u.Path, "/") && !strings.HasPrefix(u.Path, basePath+"/") {
+					if isRewritable(u.Path, basePath) {
 						u.Path = basePath + u.Path
 						return strings.Replace(match, wsUrl, u.String(), 1)
 					}
@@ -405,7 +521,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("new\\s+WebSocket\\s*\\(\\s*['\"`]([^'\"`]+)['\"`]"),
 			replace: func(match, path string) string {
-				if strings.HasPrefix(path, "/") && !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -416,7 +532,17 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 		{
 			regex: regexp.MustCompile("['\"`](/(?:api|assets|static|public|src|dist|build|node_modules)[^'\"`]*)['\"`]"),
 			replace: func(match, path string) string {
-				if !strings.HasPrefix(path, basePath+"/") {
+				if isRewritable(path, basePath) {
+					return strings.Replace(match, path, basePath+path, 1)
+				}
+				return match
+			},
+		},
+		// Vite-specific imports like /@react-refresh, /@vite/client
+		{
+			regex: regexp.MustCompile("['\"`](/@[^'\"`]*)['\"`]"),
+			replace: func(match, path string) string {
+				if isRewritable(path, basePath) {
 					return strings.Replace(match, path, basePath+path, 1)
 				}
 				return match
@@ -436,6 +562,83 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 					if !strings.HasPrefix(nodePath, basePath+"/") {
 						return keyword + quote + basePath + nodePath
 					}
+				}
+				return match
+			},
+		},
+		// Localhost URLs: "http://localhost:5173" -> "http://localhost:8080/5173"
+		{
+			regex: regexp.MustCompile("(['\"`])(https?://localhost:\\d+[^'\"`]*)(['\"`])"),
+			replace: func(match, _ string) string {
+				// Extract all submatches to get quote and URL
+				submatches := regexp.MustCompile("(['\"`])(https?://localhost:\\d+[^'\"`]*)(['\"`])").FindStringSubmatch(match)
+				if len(submatches) >= 4 {
+					quote := submatches[1]
+					originalURL := submatches[2]
+					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
+					log.Printf("🔄 Rewriting localhost URL: %s -> %s", originalURL, rewrittenURL)
+					return quote + rewrittenURL + quote
+				}
+				return match
+			},
+		},
+		// WebSocket localhost URLs: "ws://localhost:5173" -> "ws://localhost:8080/5173"
+		{
+			regex: regexp.MustCompile("(['\"`])(wss?://localhost:\\d+[^'\"`]*)(['\"`])"),
+			replace: func(match, _ string) string {
+				// Extract all submatches to get quote and URL
+				submatches := regexp.MustCompile("(['\"`])(wss?://localhost:\\d+[^'\"`]*)(['\"`])").FindStringSubmatch(match)
+				if len(submatches) >= 4 {
+					quote := submatches[1]
+					originalURL := submatches[2]
+					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
+					log.Printf("🔄 Rewriting WebSocket localhost URL: %s -> %s", originalURL, rewrittenURL)
+					return quote + rewrittenURL + quote
+				}
+				return match
+			},
+		},
+		// WebSocket localhost URLs in template literals: `ws://localhost:5173` -> `ws://localhost:8080/5173`
+		{
+			regex: regexp.MustCompile("(`)(wss?://localhost:\\d+[^`]*)(`)"),
+			replace: func(match, _ string) string {
+				// Extract all submatches
+				submatches := regexp.MustCompile("(`)(wss?://localhost:\\d+[^`]*)(`)").FindStringSubmatch(match)
+				if len(submatches) >= 4 {
+					backtick := submatches[1]
+					originalURL := submatches[2]
+					closingBacktick := submatches[3]
+					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
+					log.Printf("🔄 Rewriting template literal WebSocket URL: %s -> %s", originalURL, rewrittenURL)
+					return backtick + rewrittenURL + closingBacktick
+				}
+				return match
+			},
+		},
+		// WebSocket URLs in more general contexts (without quotes): ws://localhost:5173
+		{
+			regex: regexp.MustCompile(`(wss?://localhost:\d+[^\s)},;]+)`),
+			replace: func(match, _ string) string {
+				// The entire match is the URL
+				originalURL := match
+				if isLocalhostPortRewritable(originalURL, basePath) {
+					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
+					log.Printf("🔄 Rewriting unquoted WebSocket URL: %s -> %s", originalURL, rewrittenURL)
+					return rewrittenURL
+				}
+				return match
+			},
+		},
+		// HTTP localhost URLs in more general contexts (without quotes): http://localhost:5173
+		{
+			regex: regexp.MustCompile(`(https?://localhost:\d+[^\s)},;]+)`),
+			replace: func(match, _ string) string {
+				// The entire match is the URL
+				originalURL := match
+				if isLocalhostPortRewritable(originalURL, basePath) {
+					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
+					log.Printf("🔄 Rewriting unquoted HTTP URL: %s -> %s", originalURL, rewrittenURL)
+					return rewrittenURL
 				}
 				return match
 			},
@@ -468,4 +671,153 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 	}
 
 	return content
+}
+
+// handleWebSocketProxy handles WebSocket upgrade requests and proxies them to the target service
+func (h *ProxyHandler) handleWebSocketProxy(c *fiber.Ctx, port int) error {
+	// Get the path after the port
+	path := c.Params("*")
+	if path == "" {
+		path = "/" // For /:port route, connect to root path
+	} else {
+		path = "/" + path // For /:port/* route, preserve the path
+	}
+
+	// Build target WebSocket URL
+	targetURL := fmt.Sprintf("ws://localhost:%d%s", port, path)
+
+	// Add query parameters
+	if c.Request().URI().QueryString() != nil {
+		targetURL += "?" + string(c.Request().URI().QueryString())
+	}
+
+	log.Printf("🔌 WebSocket proxy: %s", targetURL)
+
+	// Create WebSocket dialer to connect to the target
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 5 * time.Second,
+	}
+
+	// Extract headers from the original request to forward them
+	requestHeader := make(http.Header)
+	c.Request().Header.VisitAll(func(key, value []byte) {
+		keyStr := string(key)
+		valueStr := string(value)
+		// Only forward the protocol header - dialer handles all other WebSocket headers automatically
+		if strings.ToLower(keyStr) == "sec-websocket-protocol" {
+			requestHeader.Set(keyStr, valueStr)
+		}
+		// Don't forward extensions, version, or key - the dialer adds these
+	})
+
+	// Connect to target WebSocket server
+	targetConn, targetResp, err := dialer.Dial(targetURL, requestHeader)
+	if err != nil {
+		log.Printf("🔌❌ WebSocket dial failed: %v", err)
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+			"error": "Failed to connect to target WebSocket service",
+		})
+	}
+	defer targetConn.Close()
+
+	// Create WebSocket upgrader for the client connection
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // Allow all origins for proxy
+		},
+		Subprotocols: []string{},
+	}
+
+	// Copy subprotocols from target response
+	if targetResp != nil && targetResp.Header.Get("Sec-WebSocket-Protocol") != "" {
+		upgrader.Subprotocols = strings.Split(targetResp.Header.Get("Sec-WebSocket-Protocol"), ", ")
+	}
+
+	// Hijack the connection and upgrade the client
+	c.Context().Hijack(func(clientNetConn net.Conn) {
+		defer clientNetConn.Close()
+
+		// Convert the net.Conn to an http.ResponseWriter and http.Request for upgrader
+		// This is a bit hacky but necessary for gorilla/websocket
+
+		// Create a fake HTTP request from the Fiber context
+		req := &http.Request{
+			Method: string(c.Request().Header.Method()),
+			URL: &url.URL{
+				Path:     path,
+				RawQuery: string(c.Request().URI().QueryString()),
+			},
+			Proto:      "HTTP/1.1",
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header:     make(http.Header),
+		}
+
+		// Copy headers from Fiber to http.Request
+		c.Request().Header.VisitAll(func(key, value []byte) {
+			req.Header.Set(string(key), string(value))
+		})
+
+		// Create a simple ResponseWriter wrapper
+		rw := &httpResponseWriter{conn: clientNetConn}
+
+		// Upgrade the client connection
+		clientConn, err := upgrader.Upgrade(rw, req, nil)
+		if err != nil {
+			log.Printf("🔌❌ Client upgrade failed: %v", err)
+			return
+		}
+		defer clientConn.Close()
+
+		log.Printf("✅ WebSocket proxy established")
+
+		// Start proxying messages between client and target
+		h.proxyWebSocketConnections(clientConn, targetConn)
+	})
+
+	return nil
+}
+
+// proxyWebSocketConnections performs bidirectional WebSocket message proxying
+func (h *ProxyHandler) proxyWebSocketConnections(clientConn, targetConn *websocket.Conn) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Copy messages from client to target
+	go func() {
+		defer wg.Done()
+		defer targetConn.Close()
+
+		for {
+			messageType, data, err := clientConn.ReadMessage()
+			if err != nil {
+				break
+			}
+
+			err = targetConn.WriteMessage(messageType, data)
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	// Copy messages from target to client
+	go func() {
+		defer wg.Done()
+		defer clientConn.Close()
+
+		for {
+			messageType, data, err := targetConn.ReadMessage()
+			if err != nil {
+				break
+			}
+
+			err = clientConn.WriteMessage(messageType, data)
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	wg.Wait()
 }
