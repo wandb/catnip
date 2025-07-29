@@ -307,6 +307,34 @@ definitions:
       title:
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_models.Todo:
+    description: A todo item with status and priority tracking
+    properties:
+      content:
+        description: The content/description of the todo
+        example: Fix authentication bug
+        type: string
+      id:
+        description: Unique identifier for the todo item
+        example: "1"
+        type: string
+      priority:
+        description: Priority level of the todo
+        enum:
+        - high
+        - medium
+        - low
+        example: high
+        type: string
+      status:
+        description: Current status of the todo
+        enum:
+        - pending
+        - in_progress
+        - completed
+        example: in_progress
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.Worktree:
     description: Git worktree with branch and status information
     properties:
@@ -904,6 +932,28 @@ paths:
               $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
             type: object
       summary: Get all worktree session summaries
+      tags:
+      - claude
+  /v1/claude/todos:
+    get:
+      description: Returns the most recent TodoWrite structure from Claude Code session
+        for a specific worktree
+      parameters:
+      - description: Worktree path
+        in: query
+        name: worktree_path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Todo'
+            type: array
+      summary: Get worktree todos
       tags:
       - claude
   /v1/events:
