@@ -425,9 +425,14 @@ export const useAppStore = create<AppState>()(
 
         // Transform repositories from git status
         const repositoryMap = new Map<string, LocalRepository>();
-        if (gitStatusData.repositories) {
+        if (
+          gitStatusData &&
+          typeof gitStatusData === "object" &&
+          "repositories" in gitStatusData &&
+          gitStatusData.repositories
+        ) {
           Object.entries(gitStatusData.repositories).forEach(([id, repo]) => {
-            repositoryMap.set(id, repo);
+            repositoryMap.set(id, repo as LocalRepository);
           });
         }
 
@@ -520,7 +525,7 @@ export const useAppStore = create<AppState>()(
       if (status.repositories) {
         const repositoryMap = new Map<string, LocalRepository>();
         Object.entries(status.repositories).forEach(([id, repo]) => {
-          repositoryMap.set(id, repo);
+          repositoryMap.set(id, repo as LocalRepository);
         });
         set({ repositories: repositoryMap });
       }

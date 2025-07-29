@@ -31,7 +31,7 @@ import {
   Code2,
 } from "lucide-react";
 import { type Worktree, type PullRequestInfo } from "@/lib/git-api";
-import type { ConflictStatus } from "@/hooks/useGitState";
+// ConflictStatus type moved - conflicts now tracked directly on worktree.has_conflicts
 
 type Mode = "workspace" | "worktree";
 
@@ -40,7 +40,7 @@ interface WorkspaceActionsProps {
   worktree: Worktree;
 
   // Optional props for worktree mode
-  mergeConflicts?: Record<string, ConflictStatus>;
+  mergeConflicts?: Record<string, any>; // ConflictStatus type removed
   prStatus?: PullRequestInfo;
   isSyncing?: boolean;
   isMerging?: boolean;
