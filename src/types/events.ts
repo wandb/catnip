@@ -136,6 +136,19 @@ export interface WorktreeDeletedEvent {
   };
 }
 
+export interface WorktreeTodosUpdatedEvent {
+  type: "worktree:todos_updated";
+  payload: {
+    worktree_id: string;
+    todos: {
+      id: string;
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+      priority: "high" | "medium" | "low";
+    }[];
+  };
+}
+
 export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
@@ -151,7 +164,8 @@ export type AppEvent =
   | WorktreeCleanEvent
   | WorktreeUpdatedEvent
   | WorktreeCreatedEvent
-  | WorktreeDeletedEvent;
+  | WorktreeDeletedEvent
+  | WorktreeTodosUpdatedEvent;
 
 export interface SSEMessage {
   event: AppEvent;

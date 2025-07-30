@@ -393,6 +393,21 @@ export const useAppStore = create<AppState>()(
           set({ worktrees: updatedWorktrees });
           break;
         }
+
+        case "worktree:todos_updated": {
+          const updatedWorktrees = new Map(worktrees);
+          const existingWorktree = updatedWorktrees.get(
+            event.payload.worktree_id,
+          );
+          if (existingWorktree) {
+            updatedWorktrees.set(event.payload.worktree_id, {
+              ...existingWorktree,
+              todos: event.payload.todos,
+            });
+            set({ worktrees: updatedWorktrees });
+          }
+          break;
+        }
       }
     },
 
