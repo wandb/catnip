@@ -149,6 +149,24 @@ export interface WorktreeTodosUpdatedEvent {
   };
 }
 
+export interface SessionTitleUpdatedEvent {
+  type: "session:title_updated";
+  payload: {
+    workspace_dir: string;
+    worktree_id?: string;
+    session_title: {
+      title: string;
+      timestamp: string;
+      commit_hash: string;
+    };
+    session_title_history: {
+      title: string;
+      timestamp: string;
+      commit_hash: string;
+    }[];
+  };
+}
+
 export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
@@ -165,7 +183,8 @@ export type AppEvent =
   | WorktreeUpdatedEvent
   | WorktreeCreatedEvent
   | WorktreeDeletedEvent
-  | WorktreeTodosUpdatedEvent;
+  | WorktreeTodosUpdatedEvent
+  | SessionTitleUpdatedEvent;
 
 export interface SSEMessage {
   event: AppEvent;

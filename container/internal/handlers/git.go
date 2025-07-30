@@ -753,3 +753,27 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 
 	return c.JSON(response)
 }
+
+// RefreshWorktreeStatus forces a refresh of a worktree's cached status
+// @Summary Force refresh worktree status
+// @Description Forces an immediate refresh of a worktree's cached status including commit counts
+// @Tags git
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Success 200 {object} map[string]string
+// @Router /v1/git/worktrees/{id}/refresh [post]
+func (h *GitHandler) RefreshWorktreeStatus(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+
+	// Force refresh by calling the git service method that recalculates status
+	if err := h.gitService.RefreshWorktreeStatusByID(worktreeID); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Worktree status refreshed successfully",
+		"id":      worktreeID,
+	})
+}

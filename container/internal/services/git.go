@@ -240,6 +240,7 @@ type EventsEmitter interface {
 	EmitWorktreeCreated(worktree *models.Worktree)
 	EmitWorktreeDeleted(worktreeID, worktreeName string)
 	EmitWorktreeTodosUpdated(worktreeID string, todos []models.Todo)
+	EmitSessionTitleUpdated(workspaceDir, worktreeID string, sessionTitle *models.TitleEntry, sessionTitleHistory []models.TitleEntry)
 }
 
 type GitService struct {
@@ -1183,16 +1184,9 @@ func (s *GitService) fetchFullHistory(worktree *models.Worktree) {
 // fetchLatestReferenceWithDepth fetches the latest reference with optional shallow fetch
 func (s *GitService) fetchLatestReferenceWithDepth(worktree *models.Worktree, shallow bool) {
 	if s.isLocalRepo(worktree.RepoID) {
-		// Get the local repo path
-		repo, exists := s.stateManager.GetRepository(worktree.RepoID)
-		if exists {
-			// Local repos: use shallow or full fetch based on need
-			if shallow {
-				_ = s.fetchLocalBranch(worktree.Path, repo.Path, worktree.SourceBranch)
-			} else {
-				_ = s.fetchLocalBranchFull(worktree.Path, repo.Path, worktree.SourceBranch)
-			}
-		}
+		// Local repos: No fetching needed since worktrees share the same .git repository
+		// The source branch is already available locally
+		return
 	} else {
 		// Remote repos: use shallow or full fetch based on need
 		if shallow {
@@ -1213,95 +1207,8 @@ func (s *GitService) fetchBranchFull(repoPath, branch string) error {
 	return s.operations.FetchBranchFull(repoPath, branch)
 }
 
-// fetchLocalBranch performs a highly optimized fetch for local repos
-func (s *GitService) fetchLocalBranch(worktreePath, mainRepoPath, branch string) error {
-	// First, check if we even need to fetch by comparing commit hashes
-	// Get the current commit hash of the remote branch in our worktree
-	currentRemoteHash, err := s.runGitCommand(worktreePath, "rev-parse", fmt.Sprintf("live/%s", branch))
-	if err != nil {
-		// If we don't have the remote ref yet, we need to fetch
-		return s.fetchLocalBranchInternal(worktreePath, mainRepoPath, branch)
-	}
-
-	// Get the latest commit hash from the main repo
-	latestHash, err := s.runGitCommand(mainRepoPath, "rev-parse", branch)
-	if err != nil {
-		return fmt.Errorf("failed to get latest commit from main repo: %v", err)
-	}
-
-	// Compare hashes - if they're the same, no need to fetch
-	if strings.TrimSpace(string(currentRemoteHash)) == strings.TrimSpace(string(latestHash)) {
-		return nil // No changes, skip fetch
-	}
-
-	// Only fetch if there are actual changes
-	return s.fetchLocalBranchInternal(worktreePath, mainRepoPath, branch)
-}
-
-// fetchLocalBranchInternal performs minimal fetch for local repos when needed
-func (s *GitService) fetchLocalBranchInternal(worktreePath, mainRepoPath, branch string) error {
-	// Highly optimized fetch for local repos - only fetch the specific branch tip
-	args := []string{
-		"fetch",
-		mainRepoPath,
-		fmt.Sprintf("%s:refs/remotes/live/%s", branch, branch),
-		"--depth", "1", // Only fetch the latest commit
-		"--quiet", // Reduce output noise
-	}
-
-	// Execute minimal fetch
-	output, err := s.runGitCommand(worktreePath, args...)
-	if err != nil {
-		return fmt.Errorf("failed to fetch local branch minimal: %v\n%s", err, output)
-	}
-
-	return nil
-}
-
-// fetchLocalBranchFull performs a full fetch for local repos (needed for PR/push operations)
-func (s *GitService) fetchLocalBranchFull(worktreePath, mainRepoPath, branch string) error {
-	// First, check if we even need to fetch by comparing commit hashes
-	// Get the current commit hash of the remote branch in our worktree
-	currentRemoteHash, err := s.runGitCommand(worktreePath, "rev-parse", fmt.Sprintf("live/%s", branch))
-	if err != nil {
-		// If we don't have the remote ref yet, we need to fetch
-		return s.fetchLocalBranchInternalFull(worktreePath, mainRepoPath, branch)
-	}
-
-	// Get the latest commit hash from the main repo
-	latestHash, err := s.runGitCommand(mainRepoPath, "rev-parse", branch)
-	if err != nil {
-		return fmt.Errorf("failed to get latest commit from main repo: %v", err)
-	}
-
-	// Compare hashes - if they're the same, no need to fetch
-	if strings.TrimSpace(string(currentRemoteHash)) == strings.TrimSpace(string(latestHash)) {
-		return nil // No changes, skip fetch
-	}
-
-	// Only fetch if there are actual changes
-	return s.fetchLocalBranchInternalFull(worktreePath, mainRepoPath, branch)
-}
-
-// fetchLocalBranchInternalFull performs full fetch for local repos when needed
-func (s *GitService) fetchLocalBranchInternalFull(worktreePath, mainRepoPath, branch string) error {
-	// Full fetch for local repos - fetch complete history
-	args := []string{
-		"fetch",
-		mainRepoPath,
-		fmt.Sprintf("%s:refs/remotes/live/%s", branch, branch),
-		"--quiet", // Reduce output noise
-		// Note: No --depth flag for full history
-	}
-
-	// Execute full fetch
-	output, err := s.runGitCommand(worktreePath, args...)
-	if err != nil {
-		return fmt.Errorf("failed to fetch local branch full: %v\n%s", err, output)
-	}
-
-	return nil
-}
+// These fetchLocalBranch functions have been removed as they used the deprecated "live" remote approach.
+// Local repos now work directly with the shared git repository without needing separate remotes.
 
 // SyncWorktree syncs a worktree with its source branch
 func (s *GitService) SyncWorktree(worktreeID string, strategy string) error {
@@ -2189,4 +2096,40 @@ func (s *GitService) IsWorktreeStatusCached(worktreeID string) bool {
 		return false
 	}
 	return s.worktreeCache.IsStatusCached(worktreeID)
+}
+
+// RefreshWorktreeStatusByID forces an immediate refresh of a worktree's status by ID
+func (s *GitService) RefreshWorktreeStatusByID(worktreeID string) error {
+	s.mu.RLock()
+	worktree, exists := s.stateManager.GetWorktree(worktreeID)
+	s.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("worktree %s not found", worktreeID)
+	}
+
+	// Create a function that provides the source reference
+	getSourceRefFunc := func(w *models.Worktree) string {
+		return s.getSourceRef(w)
+	}
+
+	// Force update the worktree status using the WorktreeManager
+	s.gitWorktreeManager.UpdateWorktreeStatus(worktree, getSourceRefFunc)
+
+	// Create updates map for the state manager
+	updates := map[string]interface{}{
+		"commit_hash":    worktree.CommitHash,
+		"commit_count":   worktree.CommitCount,
+		"commits_behind": worktree.CommitsBehind,
+		"is_dirty":       worktree.IsDirty,
+		"has_conflicts":  worktree.HasConflicts,
+	}
+
+	// Update the state manager with the new values
+	if err := s.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+		return fmt.Errorf("failed to update worktree state: %v", err)
+	}
+
+	log.Printf("✅ Force refreshed worktree %s status: %d commits ahead", worktree.Name, worktree.CommitCount)
+	return nil
 }

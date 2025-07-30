@@ -134,6 +134,10 @@ func main() {
 	gitService.SetEventsHandler(eventsHandler)
 	log.Printf("✅ EventsHandler connected to GitService for worktree cache events")
 
+	// Connect events handler to SessionService for session title events
+	sessionService.SetEventsHandler(eventsHandler)
+	log.Printf("✅ EventsHandler connected to SessionService for session title events")
+
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
 
@@ -161,6 +165,7 @@ func main() {
 	v1.Put("/git/worktrees/:id/pr", gitHandler.UpdatePullRequest)
 	v1.Get("/git/worktrees/:id/pr", gitHandler.GetPullRequestInfo)
 	v1.Post("/git/worktrees/:id/graduate", gitHandler.GraduateBranch)
+	v1.Post("/git/worktrees/:id/refresh", gitHandler.RefreshWorktreeStatus)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
 
