@@ -239,6 +239,7 @@ type EventsEmitter interface {
 	EmitWorktreeUpdated(worktreeID string, updates map[string]interface{})
 	EmitWorktreeCreated(worktree *models.Worktree)
 	EmitWorktreeDeleted(worktreeID, worktreeName string)
+	EmitWorktreeTodosUpdated(worktreeID string, todos []models.Todo)
 }
 
 type GitService struct {

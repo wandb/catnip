@@ -38,6 +38,7 @@ const (
 	WorktreeUpdatedEvent       EventType = "worktree:updated"
 	WorktreeCreatedEvent       EventType = "worktree:created"
 	WorktreeDeletedEvent       EventType = "worktree:deleted"
+	WorktreeTodosUpdatedEvent  EventType = "worktree:todos_updated"
 )
 
 type AppEvent struct {
@@ -108,6 +109,11 @@ type WorktreeCreatedPayload struct {
 type WorktreeDeletedPayload struct {
 	WorktreeID   string `json:"worktree_id"`
 	WorktreeName string `json:"worktree_name"`
+}
+
+type WorktreeTodosUpdatedPayload struct {
+	WorktreeID string        `json:"worktree_id"`
+	Todos      []models.Todo `json:"todos"`
 }
 
 type SSEMessage struct {
@@ -630,6 +636,17 @@ func (h *EventsHandler) EmitWorktreeDeleted(worktreeID, worktreeName string) {
 		Payload: WorktreeDeletedPayload{
 			WorktreeID:   worktreeID,
 			WorktreeName: worktreeName,
+		},
+	})
+}
+
+// EmitWorktreeTodosUpdated broadcasts a worktree todos updated event to all connected clients
+func (h *EventsHandler) EmitWorktreeTodosUpdated(worktreeID string, todos []models.Todo) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeTodosUpdatedEvent,
+		Payload: WorktreeTodosUpdatedPayload{
+			WorktreeID: worktreeID,
+			Todos:      todos,
 		},
 	})
 }

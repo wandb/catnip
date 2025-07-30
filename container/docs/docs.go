@@ -202,6 +202,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/claude/todos": {
+            "get": {
+                "description": "Returns the most recent TodoWrite structure from Claude Code session for a specific worktree",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Get worktree todos",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree path",
+                        "name": "worktree_path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/events": {
             "get": {
                 "description": "Streams real-time events in Server-Sent Events format. Events include port changes, git status, processes, and container status updates.\n\n## Event Types\n\n### Port Events\n- **port:opened**: Fired when a new port is detected\n- ` + "`" + `port` + "`" + ` (int): Port number\n- ` + "`" + `service` + "`" + ` (string): Service type (http, tcp)\n- ` + "`" + `protocol` + "`" + ` (string): Protocol used\n- ` + "`" + `title` + "`" + ` (string): Service title/name if detected\n- **port:closed**: Fired when a port is no longer available\n- ` + "`" + `port` + "`" + ` (int): Port number that was closed\n\n### Git Events\n- **git:dirty**: Fired when git workspace has uncommitted changes\n- ` + "`" + `workspace` + "`" + ` (string): Workspace path\n- ` + "`" + `files` + "`" + ` ([]string): List of modified files\n- **git:clean**: Fired when git workspace becomes clean\n- ` + "`" + `workspace` + "`" + ` (string): Workspace path\n\n### Process Events\n- **process:started**: Fired when a new process starts\n- ` + "`" + `pid` + "`" + ` (int): Process ID\n- ` + "`" + `command` + "`" + ` (string): Command that was executed\n- ` + "`" + `workspace` + "`" + ` (string): Workspace where process started\n- **process:stopped**: Fired when a process terminates\n- ` + "`" + `pid` + "`" + ` (int): Process ID that stopped\n- ` + "`" + `exitCode` + "`" + ` (int): Exit code of the process\n\n### Container Events\n- **container:status**: Fired when container status changes\n- ` + "`" + `status` + "`" + ` (string): Container status (running, stopped, error)\n- ` + "`" + `message` + "`" + ` (string): Optional status message\n\n### System Events\n- **heartbeat**: Sent every 5 seconds to keep connection alive\n- ` + "`" + `timestamp` + "`" + ` (int64): Current timestamp in milliseconds\n- ` + "`" + `uptime` + "`" + ` (int64): Server uptime in milliseconds\n\n## Message Format\nEach SSE message is a JSON object with:\n- ` + "`" + `event` + "`" + `: Event object containing ` + "`" + `type` + "`" + ` and ` + "`" + `payload` + "`" + `\n- ` + "`" + `timestamp` + "`" + `: Event timestamp in milliseconds\n- ` + "`" + `id` + "`" + `: Unique event identifier\n\n## Connection Behavior\n- Auto-reconnects on disconnection\n- Sends current state on initial connection\n- Heartbeat every 5 seconds\n- Rate limited to prevent spam",
@@ -1492,6 +1524,42 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_vanpelt_catnip_internal_models.Todo": {
+            "description": "A todo item with status and priority tracking",
+            "type": "object",
+            "properties": {
+                "content": {
+                    "description": "The content/description of the todo",
+                    "type": "string",
+                    "example": "Fix authentication bug"
+                },
+                "id": {
+                    "description": "Unique identifier for the todo item",
+                    "type": "string",
+                    "example": "1"
+                },
+                "priority": {
+                    "description": "Priority level of the todo",
+                    "type": "string",
+                    "enum": [
+                        "high",
+                        "medium",
+                        "low"
+                    ],
+                    "example": "high"
+                },
+                "status": {
+                    "description": "Current status of the todo",
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "in_progress",
+                        "completed"
+                    ],
+                    "example": "in_progress"
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_models.Worktree": {
             "description": "Git worktree with branch and status information",
             "type": "object",
@@ -1584,6 +1652,13 @@ const docTemplate = `{
                     "description": "Branch this worktree was originally created from",
                     "type": "string",
                     "example": "main"
+                },
+                "todos": {
+                    "description": "Current todos from the most recent TodoWrite in Claude session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                    }
                 }
             }
         },
@@ -1909,6 +1984,13 @@ const docTemplate = `{
                     "description": "Branch this worktree was originally created from",
                     "type": "string",
                     "example": "main"
+                },
+                "todos": {
+                    "description": "Current todos from the most recent TodoWrite in Claude session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                    }
                 }
             }
         },
@@ -1929,7 +2011,8 @@ const docTemplate = `{
                 "worktree:clean",
                 "worktree:updated",
                 "worktree:created",
-                "worktree:deleted"
+                "worktree:deleted",
+                "worktree:todos_updated"
             ],
             "x-enum-varnames": [
                 "PortOpenedEvent",
@@ -1946,7 +2029,8 @@ const docTemplate = `{
                 "WorktreeCleanEvent",
                 "WorktreeUpdatedEvent",
                 "WorktreeCreatedEvent",
-                "WorktreeDeletedEvent"
+                "WorktreeDeletedEvent",
+                "WorktreeTodosUpdatedEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {
