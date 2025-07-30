@@ -121,6 +121,34 @@ export interface WorktreeUpdatedEvent {
   };
 }
 
+export interface WorktreeCreatedEvent {
+  type: "worktree:created";
+  payload: {
+    worktree: any; // Will match the Worktree interface
+  };
+}
+
+export interface WorktreeDeletedEvent {
+  type: "worktree:deleted";
+  payload: {
+    worktree_id: string;
+    worktree_name: string;
+  };
+}
+
+export interface WorktreeTodosUpdatedEvent {
+  type: "worktree:todos_updated";
+  payload: {
+    worktree_id: string;
+    todos: {
+      id: string;
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+      priority: "high" | "medium" | "low";
+    }[];
+  };
+}
+
 export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
@@ -134,7 +162,10 @@ export type AppEvent =
   | WorktreeBatchUpdatedEvent
   | WorktreeDirtyEvent
   | WorktreeCleanEvent
-  | WorktreeUpdatedEvent;
+  | WorktreeUpdatedEvent
+  | WorktreeCreatedEvent
+  | WorktreeDeletedEvent
+  | WorktreeTodosUpdatedEvent;
 
 export interface SSEMessage {
   event: AppEvent;

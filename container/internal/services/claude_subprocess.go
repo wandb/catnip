@@ -34,6 +34,145 @@ func NewClaudeSubprocessWrapper() *ClaudeSubprocessWrapper {
 	}
 }
 
+// isExecutableNotFoundError checks if the error is specifically about the executable not being found
+func isExecutableNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errorStr := err.Error()
+	return strings.Contains(errorStr, "executable file not found in $PATH") ||
+		strings.Contains(errorStr, "no such file or directory")
+}
+
+// tryAlternativeClaudePaths attempts to find claude using alternative paths
+func (w *ClaudeSubprocessWrapper) tryAlternativeClaudePaths() string {
+	// Try NVM_BIN path first since that's where claude is usually installed
+	if nvmBin := os.Getenv("NVM_BIN"); nvmBin != "" {
+		nvmClaudePath := filepath.Join(nvmBin, "claude")
+		if _, err := os.Stat(nvmClaudePath); err == nil {
+			log.Printf("[DEBUG] Found claude at NVM_BIN path: %s", nvmClaudePath)
+			return nvmClaudePath
+		}
+	}
+
+	// Try common Node.js installation paths
+	commonPaths := []string{
+		"/opt/catnip/nvm/versions/node/*/bin/claude",
+		"/usr/local/bin/claude",
+		"/usr/bin/claude",
+	}
+
+	for _, pattern := range commonPaths {
+		if strings.Contains(pattern, "*") {
+			// Handle glob patterns
+			if matches, err := filepath.Glob(pattern); err == nil {
+				for _, match := range matches {
+					if _, err := os.Stat(match); err == nil {
+						log.Printf("[DEBUG] Found claude at glob path: %s", match)
+						return match
+					}
+				}
+			}
+		} else {
+			if _, err := os.Stat(pattern); err == nil {
+				log.Printf("[DEBUG] Found claude at common path: %s", pattern)
+				return pattern
+			}
+		}
+	}
+
+	return ""
+}
+
+// retryClaudeCommand attempts to start a claude command with retry logic for "executable not found" errors
+func (w *ClaudeSubprocessWrapper) retryClaudeCommand(ctx context.Context, originalCmd *exec.Cmd, operation string) error {
+	const maxRetries = 3
+	const retryDelay = 500 * time.Millisecond
+
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		cmd := originalCmd
+		if attempt > 1 {
+			// Create a new command for retry attempts since Start() can only be called once
+			cmd = exec.CommandContext(ctx, originalCmd.Path, originalCmd.Args[1:]...)
+			cmd.Dir = originalCmd.Dir
+			cmd.Env = originalCmd.Env
+			cmd.Stdin = originalCmd.Stdin
+			cmd.Stdout = originalCmd.Stdout
+			cmd.Stderr = originalCmd.Stderr
+		}
+
+		err := cmd.Start()
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("[INFO] Claude command started successfully on attempt %d", attempt)
+			}
+			// Update the original command reference to the successful one
+			if attempt > 1 {
+				originalCmd.Process = cmd.Process
+			}
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if this is the specific "executable not found" error
+		if !isExecutableNotFoundError(err) {
+			// Different error type, don't retry
+			log.Printf("[DEBUG] Failed to start claude command (%s) - non-retryable error", operation)
+			log.Printf("[DEBUG] Command path: %s", w.claudePath)
+			log.Printf("[DEBUG] Args: %v", originalCmd.Args[1:])
+			log.Printf("[DEBUG] Working directory: %s", originalCmd.Dir)
+			log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
+			return fmt.Errorf("failed to start claude command: %w", err)
+		}
+
+		log.Printf("[WARN] Claude executable not found (attempt %d/%d): %v", attempt, maxRetries, err)
+		log.Printf("[DEBUG] This suggests a race condition or PATH issue - investigating...")
+
+		// Add comprehensive debugging information
+		log.Printf("[DEBUG] Command path: %s", w.claudePath)
+		log.Printf("[DEBUG] Working directory: %s", originalCmd.Dir)
+		log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
+		log.Printf("[DEBUG] Environment NVM_BIN: %s", os.Getenv("NVM_BIN"))
+
+		// Try to find the actual claude binary location using various methods
+		if claudePath, lookErr := exec.LookPath("claude"); lookErr == nil {
+			log.Printf("[DEBUG] exec.LookPath found claude at: %s", claudePath)
+		} else {
+			log.Printf("[DEBUG] exec.LookPath failed: %v", lookErr)
+		}
+
+		// Try alternative paths on the first retry
+		if attempt == 1 {
+			if altPath := w.tryAlternativeClaudePaths(); altPath != "" {
+				log.Printf("[INFO] Switching to alternative claude path: %s", altPath)
+				w.claudePath = altPath
+				// Update the command path for the next attempt
+				originalCmd.Path = altPath
+			}
+		}
+
+		if attempt < maxRetries {
+			log.Printf("[INFO] Retrying claude command in %v...", retryDelay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(retryDelay):
+				// Continue to next iteration
+			}
+		}
+	}
+
+	log.Printf("[ERROR] Failed to start claude after all attempts. This indicates a serious issue:")
+	log.Printf("[ERROR] - Possible race condition with claude binary")
+	log.Printf("[ERROR] - PATH environment variable corruption")
+	log.Printf("[ERROR] - File system or permission issues")
+	log.Printf("[ERROR] Consider investigating the root cause rather than relying on retries")
+
+	return fmt.Errorf("failed to start claude command after %d attempts: %w", maxRetries, lastErr)
+}
+
 // ClaudeSubprocessOptions represents options for the claude subprocess call
 type ClaudeSubprocessOptions struct {
 	Prompt           string
@@ -111,23 +250,9 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 	// Set environment to inherit from current process
 	cmd.Env = os.Environ()
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		// Add detailed debugging information
-		log.Printf("[DEBUG] Failed to start claude command (streaming)")
-		log.Printf("[DEBUG] Command path: %s", w.claudePath)
-		log.Printf("[DEBUG] Args: %v", args)
-		log.Printf("[DEBUG] Working directory: %s", cmd.Dir)
-		log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
-
-		// Try to find the actual claude binary location
-		if claudePath, lookErr := exec.LookPath("claude"); lookErr == nil {
-			log.Printf("[DEBUG] Found claude at: %s", claudePath)
-		} else {
-			log.Printf("[DEBUG] exec.LookPath failed: %v", lookErr)
-		}
-
-		return fmt.Errorf("failed to start claude command: %w", err)
+	// Start the command with retry logic
+	if err := w.retryClaudeCommand(ctx, cmd, "streaming"); err != nil {
+		return err
 	}
 
 	// Send prompt via stdin as JSON
@@ -331,23 +456,9 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		// Add detailed debugging information
-		log.Printf("[DEBUG] Failed to start claude command")
-		log.Printf("[DEBUG] Command path: %s", w.claudePath)
-		log.Printf("[DEBUG] Args: %v", args)
-		log.Printf("[DEBUG] Working directory: %s", cmd.Dir)
-		log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
-
-		// Try to find the actual claude binary location
-		if claudePath, lookErr := exec.LookPath("claude"); lookErr == nil {
-			log.Printf("[DEBUG] Found claude at: %s", claudePath)
-		} else {
-			log.Printf("[DEBUG] exec.LookPath failed: %v", lookErr)
-		}
-
-		return nil, fmt.Errorf("failed to start claude command: %w", err)
+	// Start the command with retry logic
+	if err := w.retryClaudeCommand(ctx, cmd, "sync"); err != nil {
+		return nil, err
 	}
 
 	// Send prompt via stdin as JSON synchronously

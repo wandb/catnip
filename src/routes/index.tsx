@@ -1,36 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Loader2, Plus } from "lucide-react";
 import { WorkspaceCard } from "@/components/WorkspaceCard";
-import { useWorktreeStore } from "@/hooks/useWorktreeStore";
-import { useGitActions } from "@/hooks/useGitActions";
-import { useGitState } from "@/hooks/useGitState";
+import { useAppStore } from "@/stores/appStore";
+import { useGitApi } from "@/hooks/useGitApi";
 
 function Index() {
-  // Use the new SSE-driven worktree store
-  const { worktrees, loading } = useWorktreeStore();
+  // Use the centralized store and new focused hooks
+  const { getWorktreesList, initialLoading } = useAppStore();
+  const { deleteWorktree } = useGitApi();
 
-  // Still need useGitState for delete operations and other functionality
-  const {
-    // Functions needed by useGitActions
-    addNewWorktrees,
-    backgroundRefreshGitStatus,
-    refreshWorktree,
-    removeWorktree,
-    fetchActiveSessions,
-    setCheckoutLoading,
-    setSyncingWorktree,
-    setMergingWorktree,
-  } = useGitState();
-  const { deleteWorktree } = useGitActions({
-    addNewWorktrees,
-    backgroundRefreshGitStatus,
-    refreshWorktree,
-    removeWorktree,
-    fetchActiveSessions,
-    setCheckoutLoading,
-    setSyncingWorktree,
-    setMergingWorktree,
-  });
+  const worktrees = getWorktreesList();
+  const loading = initialLoading;
 
   const handleDelete = (id: string, name: string) => {
     if (confirm(`Are you sure you want to delete workspace "${name}"?`)) {
@@ -47,7 +27,7 @@ function Index() {
         </div>
       ) : (
         <div className="flex flex-wrap justify-center gap-6">
-          {worktrees.map((wt) => (
+          {worktrees.map((wt: any) => (
             <WorkspaceCard key={wt.id} worktree={wt} onDelete={handleDelete} />
           ))}
           <Link
