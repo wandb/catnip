@@ -704,17 +704,14 @@ func (s *ClaudeMonitorService) TriggerBranchRename(workDir string, customBranchN
 func (s *ClaudeMonitorService) monitorClaudeSessions() {
 	log.Printf("👀 Starting to monitor Claude session files for todo updates")
 
-	// Watch both home and volume Claude directories
+	// Watch the home Claude directory
 	homeDir := "/home/catnip/.claude/projects"
-	volumeDir := "/volume/.claude/.claude/projects"
 
-	for _, dir := range []string{homeDir, volumeDir} {
-		if _, err := os.Stat(dir); err == nil {
-			if err := s.sessionsWatcher.Add(dir); err != nil {
-				log.Printf("⚠️  Failed to watch Claude projects directory %s: %v", dir, err)
-			} else {
-				log.Printf("📁 Watching Claude projects directory: %s", dir)
-			}
+	if _, err := os.Stat(homeDir); err == nil {
+		if err := s.sessionsWatcher.Add(homeDir); err != nil {
+			log.Printf("⚠️  Failed to watch Claude projects directory %s: %v", homeDir, err)
+		} else {
+			log.Printf("📁 Watching Claude projects directory: %s", homeDir)
 		}
 	}
 
