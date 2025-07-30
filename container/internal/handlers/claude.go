@@ -169,3 +169,34 @@ func (h *ClaudeHandler) CreateCompletion(c *fiber.Ctx) error {
 
 	return c.JSON(resp)
 }
+
+// GetWorktreeTodos returns the most recent Todo structure from the session history for a specific worktree
+// @Summary Get worktree todos
+// @Description Returns the most recent TodoWrite structure from Claude Code session for a specific worktree
+// @Tags claude
+// @Produce json
+// @Param worktree_path query string true "Worktree path"
+// @Success 200 {array} models.Todo
+// @Router /v1/claude/todos [get]
+func (h *ClaudeHandler) GetWorktreeTodos(c *fiber.Ctx) error {
+	worktreePath := c.Query("worktree_path")
+	if worktreePath == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "worktree_path query parameter is required",
+		})
+	}
+
+	todos, err := h.claudeService.GetLatestTodos(worktreePath)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Return empty array if no todos found instead of null
+	if todos == nil {
+		todos = []models.Todo{}
+	}
+
+	return c.JSON(todos)
+}
