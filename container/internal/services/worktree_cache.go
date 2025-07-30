@@ -17,15 +17,15 @@ import (
 
 // WorktreeStatusCache provides fast worktree status lookups with background updates
 type WorktreeStatusCache struct {
-	mu            sync.RWMutex
-	statuses      map[string]*CachedWorktreeStatus // key: worktreeID
-	operations    git.Operations
-	eventsHandler EventsEmitter                // Interface for emitting events
-	watchers      map[string]*fsnotify.Watcher // key: worktreePath
-	ctx           context.Context
-	cancel        context.CancelFunc
-	updateQueue   chan string                             // worktreeID queue for background updates
-	pathResolver  func(string) (string, *models.Worktree) // Resolves worktreeID to path and worktree
+	mu           sync.RWMutex
+	statuses     map[string]*CachedWorktreeStatus // key: worktreeID
+	operations   git.Operations
+	stateManager *WorktreeStateManager        // Central state manager
+	watchers     map[string]*fsnotify.Watcher // key: worktreePath
+	ctx          context.Context
+	cancel       context.CancelFunc
+	updateQueue  chan string                             // worktreeID queue for background updates
+	pathResolver func(string) (string, *models.Worktree) // Resolves worktreeID to path and worktree
 }
 
 // CachedWorktreeStatus represents cached git status for a worktree
@@ -42,17 +42,17 @@ type CachedWorktreeStatus struct {
 }
 
 // NewWorktreeStatusCache creates a new worktree status cache
-func NewWorktreeStatusCache(operations git.Operations, eventsHandler EventsEmitter) *WorktreeStatusCache {
+func NewWorktreeStatusCache(operations git.Operations, stateManager *WorktreeStateManager) *WorktreeStatusCache {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cache := &WorktreeStatusCache{
-		statuses:      make(map[string]*CachedWorktreeStatus),
-		operations:    operations,
-		eventsHandler: eventsHandler,
-		watchers:      make(map[string]*fsnotify.Watcher),
-		ctx:           ctx,
-		cancel:        cancel,
-		updateQueue:   make(chan string, 100), // Buffer for update requests
+		statuses:     make(map[string]*CachedWorktreeStatus),
+		operations:   operations,
+		stateManager: stateManager,
+		watchers:     make(map[string]*fsnotify.Watcher),
+		ctx:          ctx,
+		cancel:       cancel,
+		updateQueue:  make(chan string, 100), // Buffer for update requests
 	}
 
 	// Start background update worker
@@ -329,11 +329,40 @@ func (c *WorktreeStatusCache) processBatchUpdates(worktreeIDs map[string]bool) {
 	}
 
 	if len(updates) > 0 {
-		// Emit batch update event
-		if c.eventsHandler != nil {
-			c.eventsHandler.EmitWorktreeBatchUpdated(updates)
+		// Update state manager with batch updates
+		if c.stateManager != nil {
+			// Convert cached updates to state manager format
+			stateUpdates := make(map[string]map[string]interface{})
+			for worktreeID, cached := range updates {
+				stateUpdate := make(map[string]interface{})
+				if cached.IsDirty != nil {
+					stateUpdate["is_dirty"] = *cached.IsDirty
+				}
+				if cached.HasConflicts != nil {
+					stateUpdate["has_conflicts"] = *cached.HasConflicts
+				}
+				if cached.CommitHash != "" {
+					stateUpdate["commit_hash"] = cached.CommitHash
+				}
+				if cached.CommitCount != nil {
+					stateUpdate["commit_count"] = *cached.CommitCount
+				}
+				if cached.CommitsBehind != nil {
+					stateUpdate["commits_behind"] = *cached.CommitsBehind
+				}
+				if cached.Branch != "" {
+					stateUpdate["branch"] = cached.Branch
+				}
+				if len(stateUpdate) > 0 {
+					stateUpdates[worktreeID] = stateUpdate
+				}
+			}
+			if len(stateUpdates) > 0 {
+				if err := c.stateManager.BatchUpdateWorktrees(stateUpdates); err != nil {
+					log.Printf("⚠️ Failed to batch update worktrees in state: %v", err)
+				}
+			}
 		}
-		// Removed noisy batch update log
 	}
 }
 
@@ -440,17 +469,10 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 	c.statuses[worktreeID] = cached
 	c.mu.Unlock()
 
-	// Emit individual update event
-	if c.eventsHandler != nil {
-		c.eventsHandler.EmitWorktreeStatusUpdated(worktreeID, cached)
-
-		// Emit dirty/clean events if status changed
-		if cached.IsDirty != nil {
-			if *cached.IsDirty {
-				c.eventsHandler.EmitWorktreeDirty(worktreeID, worktree.Name, []string{}) // TODO: Get actual changed files
-			} else {
-				c.eventsHandler.EmitWorktreeClean(worktreeID, worktree.Name)
-			}
+	// Update state manager with individual status
+	if c.stateManager != nil {
+		if err := c.stateManager.UpdateWorktreeStatus(worktreeID, cached); err != nil {
+			log.Printf("⚠️ Failed to update worktree status in state: %v", err)
 		}
 	}
 

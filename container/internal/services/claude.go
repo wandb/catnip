@@ -661,6 +661,85 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 	return s.GetSessionByID(targetWorktree, sessionUUID)
 }
 
+// GetLatestTodos gets the most recent Todo structure from the session history
+func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, error) {
+	// Convert worktree path to project directory name
+	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDir := s.findProjectDirectory(projectDirName)
+
+	if projectDir == "" {
+		return nil, fmt.Errorf("project directory not found for worktree: %s", worktreePath)
+	}
+
+	// Find the most recent session file
+	sessionFile, err := s.findLatestSessionFile(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find latest session file: %w", err)
+	}
+
+	// Look for the most recent TodoWrite tool call in the session
+	var latestTodos []models.Todo
+
+	err = readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Check if this is a tool use message for TodoWrite
+		if message.Type == "tool_use" {
+			messageData := message.Message
+			if name, exists := messageData["name"]; exists && name == "TodoWrite" {
+				if input, exists := messageData["input"]; exists {
+					if inputMap, ok := input.(map[string]interface{}); ok {
+						if todos, exists := inputMap["todos"]; exists {
+							if todosArray, ok := todos.([]interface{}); ok {
+								var parsedTodos []models.Todo
+								for _, todoItem := range todosArray {
+									if todoMap, ok := todoItem.(map[string]interface{}); ok {
+										todo := models.Todo{}
+										if id, exists := todoMap["id"]; exists {
+											if idStr, ok := id.(string); ok {
+												todo.ID = idStr
+											}
+										}
+										if content, exists := todoMap["content"]; exists {
+											if contentStr, ok := content.(string); ok {
+												todo.Content = contentStr
+											}
+										}
+										if status, exists := todoMap["status"]; exists {
+											if statusStr, ok := status.(string); ok {
+												todo.Status = statusStr
+											}
+										}
+										if priority, exists := todoMap["priority"]; exists {
+											if priorityStr, ok := priority.(string); ok {
+												todo.Priority = priorityStr
+											}
+										}
+										parsedTodos = append(parsedTodos, todo)
+									}
+								}
+								// Update latestTodos with the most recent one found
+								latestTodos = parsedTodos
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	return latestTodos, nil
+}
+
 // CreateCompletion creates a completion using the claude CLI subprocess
 func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.CreateCompletionRequest) (*models.CreateCompletionResponse, error) {
 	// Validate required fields

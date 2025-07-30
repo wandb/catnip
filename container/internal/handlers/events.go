@@ -14,6 +14,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
+	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
 
@@ -35,6 +36,9 @@ const (
 	WorktreeDirtyEvent         EventType = "worktree:dirty"
 	WorktreeCleanEvent         EventType = "worktree:clean"
 	WorktreeUpdatedEvent       EventType = "worktree:updated"
+	WorktreeCreatedEvent       EventType = "worktree:created"
+	WorktreeDeletedEvent       EventType = "worktree:deleted"
+	WorktreeTodosUpdatedEvent  EventType = "worktree:todos_updated"
 )
 
 type AppEvent struct {
@@ -96,6 +100,20 @@ type WorktreeDirtyPayload struct {
 type WorktreeUpdatedPayload struct {
 	WorktreeID string                 `json:"worktree_id"`
 	Updates    map[string]interface{} `json:"updates"`
+}
+
+type WorktreeCreatedPayload struct {
+	Worktree interface{} `json:"worktree"`
+}
+
+type WorktreeDeletedPayload struct {
+	WorktreeID   string `json:"worktree_id"`
+	WorktreeName string `json:"worktree_name"`
+}
+
+type WorktreeTodosUpdatedPayload struct {
+	WorktreeID string        `json:"worktree_id"`
+	Todos      []models.Todo `json:"todos"`
 }
 
 type SSEMessage struct {
@@ -597,6 +615,38 @@ func (h *EventsHandler) EmitWorktreeUpdated(worktreeID string, updates map[strin
 		Payload: WorktreeUpdatedPayload{
 			WorktreeID: worktreeID,
 			Updates:    updates,
+		},
+	})
+}
+
+// EmitWorktreeCreated broadcasts a worktree created event to all connected clients
+func (h *EventsHandler) EmitWorktreeCreated(worktree *models.Worktree) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeCreatedEvent,
+		Payload: WorktreeCreatedPayload{
+			Worktree: worktree,
+		},
+	})
+}
+
+// EmitWorktreeDeleted broadcasts a worktree deleted event to all connected clients
+func (h *EventsHandler) EmitWorktreeDeleted(worktreeID, worktreeName string) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeDeletedEvent,
+		Payload: WorktreeDeletedPayload{
+			WorktreeID:   worktreeID,
+			WorktreeName: worktreeName,
+		},
+	})
+}
+
+// EmitWorktreeTodosUpdated broadcasts a worktree todos updated event to all connected clients
+func (h *EventsHandler) EmitWorktreeTodosUpdated(worktreeID string, todos []models.Todo) {
+	h.broadcastEvent(AppEvent{
+		Type: WorktreeTodosUpdatedEvent,
+		Payload: WorktreeTodosUpdatedPayload{
+			WorktreeID: worktreeID,
+			Todos:      todos,
 		},
 	})
 }

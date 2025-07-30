@@ -72,7 +72,7 @@ func testRepositoryOperations(t *testing.T, service *GitService) {
 			DefaultBranch: "main",
 			CreatedAt:     time.Now(),
 		}
-		service.repositories["test/repo"] = mockRepo
+		_ = service.stateManager.AddRepository(mockRepo)
 
 		// Test retrieval
 		retrievedRepo := service.GetRepositoryByID("test/repo")
@@ -123,7 +123,7 @@ func testWorktreeOperations(t *testing.T, service *GitService) {
 			CreatedAt:    time.Now(),
 			LastAccessed: time.Now(),
 		}
-		service.worktrees["test-worktree"] = mockWorktree
+		_ = service.stateManager.AddWorktree(mockWorktree)
 
 		// Test listing includes our worktree
 		worktrees := service.ListWorktrees()
@@ -148,7 +148,7 @@ func testStateManagement(t *testing.T, service *GitService) {
 			DefaultBranch: "main",
 			CreatedAt:     time.Now(),
 		}
-		service.repositories["test/state-repo"] = mockRepo
+		_ = service.stateManager.AddRepository(mockRepo)
 
 		mockWorktree := &models.Worktree{
 			ID:           "state-worktree",
@@ -160,14 +160,12 @@ func testStateManagement(t *testing.T, service *GitService) {
 			CreatedAt:    time.Now(),
 			LastAccessed: time.Now(),
 		}
-		service.worktrees["state-worktree"] = mockWorktree
+		_ = service.stateManager.AddWorktree(mockWorktree)
 
-		// Save state
-		_ = service.saveState()
+		// State is automatically saved by the state manager
 
-		// Create new service and load state
+		// Create new service - state will be loaded automatically
 		newService := NewGitService()
-		_ = newService.loadState()
 
 		// Note: loadState may not fully restore in-memory state without actual files,
 		// but we can test that it doesn't crash and maintains basic functionality
@@ -264,7 +262,7 @@ func TestGitServiceGitHubOperationsFunctional(t *testing.T) {
 		CreatedAt:    time.Now(),
 		LastAccessed: time.Now(),
 	}
-	service.worktrees["gh-test-worktree"] = mockWorktree
+	_ = service.stateManager.AddWorktree(mockWorktree)
 
 	mockRepo := &models.Repository{
 		ID:            "test/gh-repo",
@@ -273,7 +271,7 @@ func TestGitServiceGitHubOperationsFunctional(t *testing.T) {
 		DefaultBranch: "main",
 		CreatedAt:     time.Now(),
 	}
-	service.repositories["test/gh-repo"] = mockRepo
+	_ = service.stateManager.AddRepository(mockRepo)
 
 	t.Run("CreatePullRequest_ValidatesWorktree", func(t *testing.T) {
 		// Test with non-existent worktree
@@ -320,7 +318,7 @@ func TestGitServiceConflictOperationsFunctional(t *testing.T) {
 		CreatedAt:    time.Now(),
 		LastAccessed: time.Now(),
 	}
-	service.worktrees["conflict-worktree"] = mockWorktree
+	_ = service.stateManager.AddWorktree(mockWorktree)
 
 	t.Run("CheckSyncConflicts_ValidatesWorktree", func(t *testing.T) {
 		// Test with non-existent worktree
@@ -372,18 +370,21 @@ func TestGitServiceCleanupOperationsFunctional(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Add some test worktrees
-		service.worktrees["test1"] = &models.Worktree{
+		worktree1 := &models.Worktree{
 			ID:           "test1",
 			Branch:       "catnip/mittens",
 			CreatedAt:    time.Now(),
 			LastAccessed: time.Now(),
 		}
-		service.worktrees["test2"] = &models.Worktree{
+		_ = service.stateManager.AddWorktree(worktree1)
+
+		worktree2 := &models.Worktree{
 			ID:           "test2",
 			Branch:       "catnip/shadow",
 			CreatedAt:    time.Now(),
 			LastAccessed: time.Now(),
 		}
+		_ = service.stateManager.AddWorktree(worktree2)
 
 		// Should not error with worktrees (though cleanup may not work without real git repos)
 		_, _, err = service.CleanupMergedWorktrees()

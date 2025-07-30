@@ -17,6 +17,13 @@ export interface CacheStatus {
   last_updated: number;
 }
 
+export interface Todo {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  priority: "high" | "medium" | "low";
+}
+
 export interface Worktree {
   id: string;
   repo_id: string;
@@ -37,6 +44,7 @@ export interface Worktree {
   cache_status?: CacheStatus;
   has_active_claude_session?: boolean;
   pull_request_url?: string;
+  todos?: Todo[];
 }
 
 interface Owner {
@@ -104,6 +112,10 @@ export interface ErrorHandler {
 }
 
 export const gitApi = {
+  // STATE FETCHING METHODS
+  // Note: These methods are used internally by the appStore for initial data loading.
+  // Components should use the zustand store (useAppStore) directly for state access.
+
   async fetchGitStatus(): Promise<GitStatus> {
     const response = await fetch("/v1/git/status");
     if (response.ok) {
@@ -196,6 +208,9 @@ export const gitApi = {
       return null;
     }
   },
+
+  // MUTATION OPERATIONS
+  // These methods perform server-side operations and are used by the useGitApi hook.
 
   async deleteWorktree(id: string): Promise<void> {
     const response = await fetch(`/v1/git/worktrees/${id}`, {
@@ -378,72 +393,9 @@ export const gitApi = {
     }
   },
 
-  async checkAllConflicts(worktrees: Worktree[]): Promise<{
-    syncConflicts: Record<string, any>;
-    mergeConflicts: Record<string, any>;
-  }> {
-    if (worktrees.length === 0) {
-      return { syncConflicts: {}, mergeConflicts: {} };
-    }
-
-    const syncPromises = worktrees.map(async (worktree) => {
-      const data = await this.checkSyncConflicts(worktree.id);
-      return { worktreeId: worktree.id, data };
-    });
-
-    const mergePromises = worktrees.map(async (worktree) => {
-      if (!worktree.repo_id.startsWith("local/")) {
-        return { worktreeId: worktree.id, data: null };
-      }
-      const data = await this.checkMergeConflicts(worktree.id);
-      return { worktreeId: worktree.id, data };
-    });
-
-    const [syncResults, mergeResults] = await Promise.all([
-      Promise.all(syncPromises),
-      Promise.all(mergePromises),
-    ]);
-
-    const syncConflicts: Record<string, any> = {};
-    syncResults.forEach(({ worktreeId, data }) => {
-      if (data) {
-        syncConflicts[worktreeId] = data;
-      }
-    });
-
-    const mergeConflicts: Record<string, any> = {};
-    mergeResults.forEach(({ worktreeId, data }) => {
-      if (data) {
-        mergeConflicts[worktreeId] = data;
-      }
-    });
-
-    return { syncConflicts, mergeConflicts };
-  },
-
-  async fetchAllDiffStats(
-    worktrees: Worktree[],
-  ): Promise<Record<string, WorktreeDiffStats | undefined>> {
-    if (worktrees.length === 0) {
-      return {};
-    }
-
-    const diffPromises = worktrees.map(async (worktree) => {
-      const data = await this.fetchWorktreeDiffStats(worktree.id);
-      return { worktreeId: worktree.id, data };
-    });
-
-    const diffResults = await Promise.all(diffPromises);
-    const diffStats: Record<string, WorktreeDiffStats> = {};
-
-    diffResults.forEach(({ worktreeId, data }) => {
-      if (data) {
-        diffStats[worktreeId] = data;
-      }
-    });
-
-    return diffStats;
-  },
+  // NOTE: Conflict checking and batch diff stats removed
+  // Conflicts are now tracked via SSE events in worktree.has_conflicts
+  // Individual diff stats still available via fetchWorktreeDiffStats if needed
 
   // Enhanced PR management functions
   async createPullRequest(
