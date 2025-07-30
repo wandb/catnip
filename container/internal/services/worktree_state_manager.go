@@ -47,6 +47,7 @@ type worktreeFieldState struct {
 	SessionTitle           *models.TitleEntry
 	SessionTitleHistory    []models.TitleEntry
 	HasActiveClaudeSession bool
+	Todos                  []models.Todo
 }
 
 // NewWorktreeStateManager creates a new centralized state manager
@@ -200,6 +201,10 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 		case "last_accessed":
 			if v, ok := value.(time.Time); ok {
 				worktree.LastAccessed = v
+			}
+		case "todos":
+			if v, ok := value.([]models.Todo); ok {
+				worktree.Todos = v
 			}
 		}
 	}
@@ -439,6 +444,12 @@ func (wsm *WorktreeStateManager) captureFieldState(wt *models.Worktree) worktree
 	if wt.SessionTitleHistory != nil {
 		state.SessionTitleHistory = make([]models.TitleEntry, len(wt.SessionTitleHistory))
 		copy(state.SessionTitleHistory, wt.SessionTitleHistory)
+	}
+
+	// Deep copy todos
+	if wt.Todos != nil {
+		state.Todos = make([]models.Todo, len(wt.Todos))
+		copy(state.Todos, wt.Todos)
 	}
 
 	return state
