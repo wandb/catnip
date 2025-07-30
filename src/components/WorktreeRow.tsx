@@ -541,7 +541,7 @@ export function WorktreeRow({
   diffStats,
   diffStatsLoading,
   openDiffWorktreeId,
-  setPrDialog,
+  _setPrDialog,
   onToggleDiff,
   onSync,
   onMerge,
@@ -553,11 +553,10 @@ export function WorktreeRow({
   isMerging = false,
 }: WorktreeRowPropsWithPR) {
   const [diffLoading, setDiffLoading] = useState(false);
-  const [lastClaudeCall, setLastClaudeCall] = useState<number>(0);
 
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
-  const summary = worktreeSummaries[worktree.id];
+  const _summary = worktreeSummaries[worktree.id];
 
   // Keep this to satisfy the interface - may be used in debugging
   console.debug("Sync conflicts available:", _syncConflicts);
@@ -565,205 +564,6 @@ export function WorktreeRow({
   // const diffStat = diffStats[worktree.id];
   const prStatus = prStatuses?.[worktree.id];
   const repositoryUrl = repositories?.[worktree.repo_id]?.url;
-
-  const openPrDialog = async (worktreeId: string, branchName: string) => {
-    console.log("🚀 openPrDialog called", { worktreeId, branchName });
-    console.log("📊 PR Status:", prStatus);
-    console.log("📋 Summary:", summary);
-    console.log("⏰ lastClaudeCall:", lastClaudeCall);
-
-    // Check if PR already exists
-    const isUpdate = prStatus?.exists ?? false;
-    console.log("🔄 isUpdate:", isUpdate);
-
-    // If this is an update to an existing PR, use the existing PR data
-    if (isUpdate && prStatus?.title) {
-      console.log("✅ Using existing PR data");
-      setPrDialog({
-        open: true,
-        worktreeId,
-        branchName,
-        title: prStatus.title,
-        description: prStatus.body || "",
-        isUpdate,
-        isGenerating: false,
-      });
-      return;
-    }
-
-    // Check throttling - only allow Claude call once every 10 seconds
-    const now = Date.now();
-    const shouldCallClaude = now - lastClaudeCall > 10000; // 10 seconds
-    console.log(
-      "🤖 shouldCallClaude:",
-      shouldCallClaude,
-      "time since last call:",
-      now - lastClaudeCall,
-    );
-
-    if (!shouldCallClaude) {
-      console.log("⏸️ Throttled - using fallback data");
-      // Use fallback data without calling Claude
-      const fallbackTitle =
-        summary?.status === "completed" && summary.title
-          ? summary.title
-          : `Pull request from ${branchName}`;
-
-      const fallbackDescription =
-        summary?.status === "completed" && summary.summary
-          ? summary.summary
-          : `Automated pull request created from worktree ${branchName}`;
-
-      console.log("📝 Fallback data:", { fallbackTitle, fallbackDescription });
-
-      setPrDialog({
-        open: true,
-        worktreeId,
-        branchName,
-        title: fallbackTitle,
-        description: fallbackDescription,
-        isUpdate,
-        isGenerating: false,
-      });
-      return;
-    }
-
-    // Open dialog with loading state and call Claude
-    console.log("🔄 Calling Claude API for PR generation");
-    setPrDialog({
-      open: true,
-      worktreeId,
-      branchName,
-      title: "",
-      description: "",
-      isUpdate,
-      isGenerating: true,
-    });
-
-    // Update throttle timestamp
-    setLastClaudeCall(now);
-
-    try {
-      // Prepare prompt for Claude - it already has the session context
-      const prompt = `I need you to generate a pull request title and description for the branch "${branchName}" based on all the changes we've made in this session.
-
-Please respond with JSON in the following format:
-\`\`\`json
-{
-  "title": "Brief, descriptive title of the changes",
-  "description": "Focused description of what was changed and why, formatted in markdown"
-}
-\`\`\`
-
-Make the title concise but descriptive. Keep the description focused but informative - use 1-3 paragraphs explaining:
-- What was changed
-- Why it was changed
-- Any key implementation notes
-
-Avoid overly lengthy explanations or step-by-step implementation details.`;
-
-      // Call Claude API
-      const requestBody = {
-        prompt: prompt,
-        working_directory: `/workspace/${worktree.name}`,
-        resume: true,
-        max_turns: 1,
-      };
-      console.log("📤 Sending to Claude API:", requestBody);
-
-      const response = await fetch("/v1/claude/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log("✅ Claude API response received:", data);
-
-        // Extract JSON from Claude's response
-        let parsedData = { title: "", description: "" };
-        try {
-          // The response is in data.response field
-          const responseText = data.response || data.message || "";
-          console.log("🔍 Parsing response text:", responseText);
-
-          // Look for JSON in code fence (handle newlines properly)
-          const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/m);
-          if (jsonMatch) {
-            console.log("🎯 Extracted JSON from code fence:", jsonMatch[1]);
-            parsedData = JSON.parse(jsonMatch[1]);
-          } else {
-            console.log(
-              "🔍 No code fence found, trying to parse whole response as JSON",
-            );
-            // Try parsing the whole response as JSON
-            parsedData = JSON.parse(responseText);
-          }
-        } catch (e) {
-          console.error("Failed to parse Claude's response as JSON:", e);
-          // Fallback to using the raw response
-          parsedData = {
-            title: `PR: ${branchName}`,
-            description:
-              data.response || data.message || "Generated PR content",
-          };
-        }
-
-        // Update dialog with generated content
-        setPrDialog((prev) => ({
-          ...prev,
-          title: parsedData.title || `Pull request from ${branchName}`,
-          description:
-            parsedData.description || `Changes from worktree ${branchName}`,
-          isGenerating: false,
-        }));
-      } else {
-        console.error("❌ Claude API failed with status:", response.status);
-        const errorText = await response.text();
-        console.error("❌ Error details:", errorText);
-
-        // Fallback to summary or defaults
-        const fallbackTitle =
-          summary?.status === "completed" && summary.title
-            ? summary.title
-            : `Pull request from ${branchName}`;
-
-        const fallbackDescription =
-          summary?.status === "completed" && summary.summary
-            ? summary.summary
-            : `Automated pull request created from worktree ${branchName}`;
-
-        setPrDialog((prev) => ({
-          ...prev,
-          title: fallbackTitle,
-          description: fallbackDescription,
-          isGenerating: false,
-        }));
-      }
-    } catch (error) {
-      console.error("Error generating PR details:", error);
-      // Fallback to summary or defaults
-      const fallbackTitle =
-        summary?.status === "completed" && summary.title
-          ? summary.title
-          : `Pull request from ${branchName}`;
-
-      const fallbackDescription =
-        summary?.status === "completed" && summary.summary
-          ? summary.summary
-          : `Automated pull request created from worktree ${branchName}`;
-
-      setPrDialog((prev) => ({
-        ...prev,
-        title: fallbackTitle,
-        description: fallbackDescription,
-        isGenerating: false,
-      }));
-    }
-  };
 
   // const totalAdditions = diffStat?.file_diffs?.filter(diff => diff.change_type === 'added').length ?? 0;
   // const totalDeletions = diffStat?.file_diffs?.filter(diff => diff.change_type === 'deleted').length ?? 0;
@@ -839,7 +639,14 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
           onMerge={onMerge}
           onCreatePreview={onCreatePreview}
           onConfirmDelete={onConfirmDelete}
-          onOpenPrDialog={openPrDialog}
+          onOpenPrDialog={(worktreeId, branchName) => {
+            // Legacy callback for git.tsx compatibility
+            // This will be removed once git.tsx is fully updated
+            console.log("Legacy PR dialog callback:", {
+              worktreeId,
+              branchName,
+            });
+          }}
           isSyncing={isSyncing}
           isMerging={isMerging}
         />

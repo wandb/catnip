@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { PullRequestDialog } from "@/components/PullRequestDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,7 +66,7 @@ export function WorkspaceActions({
   mode,
   worktree,
   mergeConflicts = {},
-  prStatus: _prStatus,
+  prStatus,
   isSyncing = false,
   isMerging = false,
   onDelete,
@@ -77,6 +78,7 @@ export function WorkspaceActions({
 }: WorkspaceActionsProps) {
   const sshEnabled = useAppStore((state) => state.sshEnabled);
   const [showSshDialog, setShowSshDialog] = useState(false);
+  const [prDialogOpen, setPrDialogOpen] = useState(false);
 
   const handleDeleteClick = (e?: React.MouseEvent) => {
     if (e) {
@@ -255,7 +257,15 @@ export function WorkspaceActions({
               )}
 
               <DropdownMenuItem
-                onClick={() => onOpenPrDialog?.(worktree.id, worktree.branch)}
+                onClick={() => {
+                  if (onOpenPrDialog) {
+                    // Use legacy callback if provided
+                    onOpenPrDialog(worktree.id, worktree.branch);
+                  } else {
+                    // Use integrated dialog
+                    setPrDialogOpen(true);
+                  }
+                }}
                 className={
                   worktree.commit_count === 0
                     ? "text-muted-foreground"
@@ -343,6 +353,21 @@ export function WorkspaceActions({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Pull Request Dialog */}
+      {!onOpenPrDialog && (
+        <PullRequestDialog
+          open={prDialogOpen}
+          onOpenChange={setPrDialogOpen}
+          worktree={worktree}
+          prStatus={prStatus}
+          summary={undefined} // TODO: Pass WorktreeSummary if available
+          onRefreshPrStatuses={async () => {
+            // TODO: Implement PR status refresh
+            console.log("Refreshing PR statuses...");
+          }}
+        />
+      )}
     </>
   );
 }
