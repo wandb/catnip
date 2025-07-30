@@ -80,6 +80,8 @@ type Worktree struct {
 	HasActiveClaudeSession bool `json:"has_active_claude_session"`
 	// URL of the associated pull request (if one exists)
 	PullRequestURL string `json:"pull_request_url,omitempty" example:"https://github.com/owner/repo/pull/123"`
+	// Current todos from the most recent TodoWrite in Claude session
+	Todos []Todo `json:"todos,omitempty"`
 }
 
 // WorktreeCreateRequest represents a request to create a new worktree
