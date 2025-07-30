@@ -408,6 +408,11 @@ definitions:
         description: Branch this worktree was originally created from
         example: main
         type: string
+      todos:
+        description: Current todos from the most recent TodoWrite in Claude session
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Todo'
+        type: array
     type: object
   github_com_vanpelt_catnip_internal_services.ServiceInfo:
     properties:
@@ -644,6 +649,11 @@ definitions:
         description: Branch this worktree was originally created from
         example: main
         type: string
+      todos:
+        description: Current todos from the most recent TodoWrite in Claude session
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Todo'
+        type: array
     type: object
   internal_handlers.EventType:
     enum:
@@ -662,6 +672,7 @@ definitions:
     - worktree:updated
     - worktree:created
     - worktree:deleted
+    - worktree:todos_updated
     type: string
     x-enum-varnames:
     - PortOpenedEvent
@@ -679,6 +690,7 @@ definitions:
     - WorktreeUpdatedEvent
     - WorktreeCreatedEvent
     - WorktreeDeletedEvent
+    - WorktreeTodosUpdatedEvent
   internal_handlers.GitHubRepository:
     description: GitHub repository information from the GitHub API
     properties:

@@ -699,3 +699,110 @@ func (s *ClaudeMonitorService) TriggerBranchRename(workDir string, customBranchN
 	go manager.checkAndRenameBranch(currentTitle)
 	return nil
 }
+
+// monitorClaudeSessions monitors Claude session files for TodoWrite changes
+func (s *ClaudeMonitorService) monitorClaudeSessions() {
+	log.Printf("👀 Starting to monitor Claude session files for todo updates")
+
+	// Watch both home and volume Claude directories
+	homeDir := "/home/catnip/.claude/projects"
+	volumeDir := "/volume/.claude/.claude/projects"
+
+	for _, dir := range []string{homeDir, volumeDir} {
+		if _, err := os.Stat(dir); err == nil {
+			if err := s.sessionsWatcher.Add(dir); err != nil {
+				log.Printf("⚠️  Failed to watch Claude projects directory %s: %v", dir, err)
+			} else {
+				log.Printf("📁 Watching Claude projects directory: %s", dir)
+			}
+		}
+	}
+
+	for {
+		select {
+		case event, ok := <-s.sessionsWatcher.Events:
+			if !ok {
+				return
+			}
+			// Only watch for writes to .jsonl files (session files)
+			if event.Op&fsnotify.Write == fsnotify.Write && strings.HasSuffix(event.Name, ".jsonl") {
+				s.handleSessionFileUpdate(event.Name)
+			}
+		case err, ok := <-s.sessionsWatcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("⚠️  Sessions watcher error: %v", err)
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+// handleSessionFileUpdate processes updates to Claude session files
+func (s *ClaudeMonitorService) handleSessionFileUpdate(sessionFilePath string) {
+	// Extract worktree path from session file path
+	// Session files are like: /home/catnip/.claude/projects/-workspace-catnip-coal/session-uuid.jsonl
+	worktreePath := s.getWorktreePathFromSessionFile(sessionFilePath)
+	if worktreePath == "" {
+		return // Not a valid worktree session file
+	}
+
+	// Check if file size changed to avoid duplicate processing
+	s.sessionFilesMutex.Lock()
+	if stat, err := os.Stat(sessionFilePath); err == nil {
+		lastSize, exists := s.sessionFileStates[sessionFilePath]
+		if exists && stat.Size() == lastSize {
+			s.sessionFilesMutex.Unlock()
+			return // File size hasn't changed, skip
+		}
+		s.sessionFileStates[sessionFilePath] = stat.Size()
+	}
+	s.sessionFilesMutex.Unlock()
+
+	// Extract todos from the session file
+	todos, err := s.claudeService.GetLatestTodos(worktreePath)
+	if err != nil {
+		log.Printf("⚠️  Failed to get todos from session file %s: %v", sessionFilePath, err)
+		return
+	}
+
+	// Update worktree state with new todos
+	if err := s.gitService.stateManager.UpdateWorktree(s.getWorktreeIDFromPath(worktreePath), map[string]interface{}{
+		"todos": todos,
+	}); err != nil {
+		log.Printf("⚠️  Failed to update worktree todos: %v", err)
+		return
+	}
+
+	log.Printf("✅ Updated todos for worktree %s with %d items", worktreePath, len(todos))
+}
+
+// getWorktreePathFromSessionFile extracts the worktree path from a session file path
+func (s *ClaudeMonitorService) getWorktreePathFromSessionFile(sessionFilePath string) string {
+	// Extract project directory name from path
+	// /home/catnip/.claude/projects/-workspace-catnip-coal/session-uuid.jsonl
+	// -> -workspace-catnip-coal -> /workspace/catnip/coal
+
+	dir := filepath.Dir(sessionFilePath)
+	projectDirName := filepath.Base(dir)
+
+	// Convert project directory name back to worktree path
+	if strings.HasPrefix(projectDirName, "-") {
+		return strings.ReplaceAll(projectDirName[1:], "-", "/")
+	}
+
+	return ""
+}
+
+// getWorktreeIDFromPath gets the worktree ID from a worktree path
+func (s *ClaudeMonitorService) getWorktreeIDFromPath(worktreePath string) string {
+	// Find the worktree with matching path
+	worktrees := s.gitService.stateManager.GetAllWorktrees()
+	for id, worktree := range worktrees {
+		if worktree.Path == worktreePath {
+			return id
+		}
+	}
+	return ""
+}
