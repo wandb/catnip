@@ -176,14 +176,9 @@ func (sm *SyncManager) applySyncStrategy(worktree *models.Worktree, strategy, so
 // fetchFullHistory fetches the full history for a worktree (needed for PR/push operations)
 func (sm *SyncManager) fetchFullHistory(worktree *models.Worktree, isLocalRepo bool) {
 	if isLocalRepo {
-		// For local repos, fetch full history from live remote
-		if err := sm.operations.FetchBranch(worktree.Path, git.FetchStrategy{
-			Remote:     "live",
-			Branch:     worktree.SourceBranch,
-			RemoteName: "live",
-		}); err != nil {
-			log.Printf("⚠️ Failed to fetch full history from live remote: %v", err)
-		}
+		// For local repos, worktrees already share the same git repository,
+		// so all history is already available - no fetch needed
+		return
 	} else {
 		// For remote repos, fetch full history from origin
 		if err := sm.operations.FetchBranchFull(worktree.Path, worktree.SourceBranch); err != nil {

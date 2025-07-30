@@ -242,6 +242,7 @@ function GitPage() {
     syncWorktree,
     mergeWorktree,
     createWorktreePreview,
+    checkoutRepository,
     // createPullRequest,
     // updatePullRequest,
     // getPullRequestInfo,
@@ -297,11 +298,33 @@ function GitPage() {
     },
   };
 
-  // TODO: Implement proper checkout functionality
+  // Handle checkout functionality
   const handleCheckout = async (url: string, branch?: string) => {
-    // This needs to be properly implemented
-    console.log("Checkout functionality needs to be implemented", url, branch);
-    return false;
+    if (!url || !branch) return false;
+
+    // Check if this is a local repository (starts with "local/")
+    if (url.startsWith("local/")) {
+      // For local repos, extract the repo name
+      const repoName = url.split("/")[1];
+      return await checkoutRepository("local", repoName, branch);
+    } else {
+      // For GitHub URLs, parse the org and repo name
+      // Expected format: https://github.com/org/repo or git@github.com:org/repo.git
+      let match = url.match(/github\.com[/:]([\w-]+)\/([\w-]+?)(\.git)?$/);
+      if (!match) {
+        // Try without protocol
+        match = url.match(/^([\w-]+)\/([\w-]+)$/);
+      }
+
+      if (match) {
+        const org = match[1];
+        const repo = match[2];
+        return await checkoutRepository(org, repo, branch);
+      } else {
+        console.error("Invalid GitHub URL format:", url);
+        return false;
+      }
+    }
   };
 
   // Handle repo selection change - fetch branches for the selected repo

@@ -766,6 +766,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/git/worktrees/{id}/refresh": {
+            "post": {
+                "description": "Forces an immediate refresh of a worktree's cached status including commit counts",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Force refresh worktree status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/worktrees/{id}/sync": {
             "post": {
                 "description": "Syncs a worktree with its source branch using merge or rebase strategy",
@@ -2012,7 +2044,8 @@ const docTemplate = `{
                 "worktree:updated",
                 "worktree:created",
                 "worktree:deleted",
-                "worktree:todos_updated"
+                "worktree:todos_updated",
+                "session:title_updated"
             ],
             "x-enum-varnames": [
                 "PortOpenedEvent",
@@ -2030,7 +2063,8 @@ const docTemplate = `{
                 "WorktreeUpdatedEvent",
                 "WorktreeCreatedEvent",
                 "WorktreeDeletedEvent",
-                "WorktreeTodosUpdatedEvent"
+                "WorktreeTodosUpdatedEvent",
+                "SessionTitleUpdatedEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {

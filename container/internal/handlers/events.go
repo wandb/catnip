@@ -39,6 +39,7 @@ const (
 	WorktreeCreatedEvent       EventType = "worktree:created"
 	WorktreeDeletedEvent       EventType = "worktree:deleted"
 	WorktreeTodosUpdatedEvent  EventType = "worktree:todos_updated"
+	SessionTitleUpdatedEvent   EventType = "session:title_updated"
 )
 
 type AppEvent struct {
@@ -114,6 +115,13 @@ type WorktreeDeletedPayload struct {
 type WorktreeTodosUpdatedPayload struct {
 	WorktreeID string        `json:"worktree_id"`
 	Todos      []models.Todo `json:"todos"`
+}
+
+type SessionTitleUpdatedPayload struct {
+	WorkspaceDir        string              `json:"workspace_dir"`
+	WorktreeID          string              `json:"worktree_id,omitempty"`
+	SessionTitle        *models.TitleEntry  `json:"session_title"`
+	SessionTitleHistory []models.TitleEntry `json:"session_title_history"`
 }
 
 type SSEMessage struct {
@@ -647,6 +655,19 @@ func (h *EventsHandler) EmitWorktreeTodosUpdated(worktreeID string, todos []mode
 		Payload: WorktreeTodosUpdatedPayload{
 			WorktreeID: worktreeID,
 			Todos:      todos,
+		},
+	})
+}
+
+// EmitSessionTitleUpdated broadcasts a session title updated event to all connected clients
+func (h *EventsHandler) EmitSessionTitleUpdated(workspaceDir, worktreeID string, sessionTitle *models.TitleEntry, sessionTitleHistory []models.TitleEntry) {
+	h.broadcastEvent(AppEvent{
+		Type: SessionTitleUpdatedEvent,
+		Payload: SessionTitleUpdatedPayload{
+			WorkspaceDir:        workspaceDir,
+			WorktreeID:          worktreeID,
+			SessionTitle:        sessionTitle,
+			SessionTitleHistory: sessionTitleHistory,
 		},
 	})
 }

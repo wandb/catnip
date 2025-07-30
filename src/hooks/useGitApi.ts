@@ -164,10 +164,17 @@ export function useGitApi() {
   ): Promise<boolean> => {
     setCheckoutLoading(true);
     try {
-      const response = await fetch("/v1/git/checkout", {
+      // Build URL with optional branch query parameter
+      const url = new URL(
+        `/v1/git/checkout/${encodeURIComponent(org)}/${encodeURIComponent(repo)}`,
+        window.location.origin,
+      );
+      if (branch && branch !== "main") {
+        url.searchParams.set("branch", branch);
+      }
+
+      const response = await fetch(url.toString(), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org, repo, branch }),
       });
 
       if (response.ok) {

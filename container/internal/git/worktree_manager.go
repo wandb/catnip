@@ -113,21 +113,9 @@ func (w *WorktreeManager) CreateLocalWorktree(req CreateWorktreeRequest) (*model
 		return nil, fmt.Errorf("failed to create worktree: %v", err)
 	}
 
-	// Add the "live" remote to the worktree pointing back to the main repo
-	if err := w.operations.AddRemote(worktreePath, "live", req.Repository.Path); err != nil {
-		log.Printf("⚠️ Failed to add live remote: %v", err)
-	} else {
-		// Fetch the source branch from the live remote to get latest state
-		log.Printf("🔄 Fetching latest %s from live remote", req.SourceBranch)
-		if err := w.operations.FetchBranch(worktreePath, FetchStrategy{
-			Branch:     req.SourceBranch,
-			Remote:     "live",
-			RemoteName: "live",
-			Depth:      1,
-		}); err != nil {
-			log.Printf("⚠️ Failed to fetch %s from live remote: %v", req.SourceBranch, err)
-		}
-	}
+	// For local repos, worktrees already share the same git repository,
+	// so we don't need a separate remote. The worktree can directly access
+	// all branches and refs from the main repository.
 
 	// Get current commit hash
 	commitHash, err := w.operations.GetCommitHash(worktreePath, "HEAD")

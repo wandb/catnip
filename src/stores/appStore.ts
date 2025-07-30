@@ -408,6 +408,24 @@ export const useAppStore = create<AppState>()(
           }
           break;
         }
+
+        case "session:title_updated": {
+          const updatedWorktrees = new Map(worktrees);
+          // Find worktree by workspace path since we don't have worktreeID
+          const worktreeEntry = Array.from(worktrees.entries()).find(
+            ([_, worktree]) => worktree.path === event.payload.workspace_dir,
+          );
+          if (worktreeEntry) {
+            const [worktreeId, worktree] = worktreeEntry;
+            updatedWorktrees.set(worktreeId, {
+              ...worktree,
+              session_title: event.payload.session_title,
+              session_title_history: event.payload.session_title_history,
+            });
+            set({ worktrees: updatedWorktrees });
+          }
+          break;
+        }
       }
     },
 

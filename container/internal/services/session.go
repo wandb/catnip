@@ -29,6 +29,7 @@ type SessionService struct {
 	stateDir       string
 	activeSessions map[string]*ActiveSessionInfo // key: workspace directory path
 	mu             sync.RWMutex
+	eventsHandler  EventsEmitter // Interface for emitting events
 }
 
 // ActiveSessionInfo represents information about an active session in a workspace
@@ -59,6 +60,13 @@ func NewSessionService() *SessionService {
 	_ = service.loadActiveSessionsState()
 
 	return service
+}
+
+// SetEventsHandler sets the events handler for emitting events
+func (s *SessionService) SetEventsHandler(handler EventsEmitter) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.eventsHandler = handler
 }
 
 // SaveSessionState persists session state to disk
@@ -405,6 +413,13 @@ func (s *SessionService) UpdateSessionTitle(workspaceDir, title, commitHash stri
 		// Add to history if not already the last entry
 		if len(session.TitleHistory) == 0 || session.TitleHistory[len(session.TitleHistory)-1].Title != title {
 			session.TitleHistory = append(session.TitleHistory, entry)
+		}
+
+		// Emit event if eventsHandler is available
+		if s.eventsHandler != nil {
+			// WorktreeID can be derived from workspaceDir if needed, but for now we'll leave it empty
+			// since we're matching by workspace path on the frontend
+			s.eventsHandler.EmitSessionTitleUpdated(workspaceDir, "", session.Title, session.TitleHistory)
 		}
 
 		return s.saveActiveSessionsState()

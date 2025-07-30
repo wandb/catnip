@@ -673,6 +673,7 @@ definitions:
     - worktree:created
     - worktree:deleted
     - worktree:todos_updated
+    - session:title_updated
     type: string
     x-enum-varnames:
     - PortOpenedEvent
@@ -691,6 +692,7 @@ definitions:
     - WorktreeCreatedEvent
     - WorktreeDeletedEvent
     - WorktreeTodosUpdatedEvent
+    - SessionTitleUpdatedEvent
   internal_handlers.GitHubRepository:
     description: GitHub repository information from the GitHub API
     properties:
@@ -1358,6 +1360,28 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
       summary: Create worktree preview
+      tags:
+      - git
+  /v1/git/worktrees/{id}/refresh:
+    post:
+      description: Forces an immediate refresh of a worktree's cached status including
+        commit counts
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Force refresh worktree status
       tags:
       - git
   /v1/git/worktrees/{id}/sync:

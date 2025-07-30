@@ -440,13 +440,13 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 	// Count commits ahead and behind (only if we have source branch info)
 	if worktree.SourceBranch != "" {
 		sourceRef := worktree.SourceBranch
-		if !strings.HasPrefix(sourceRef, "origin/") && !strings.HasPrefix(sourceRef, "live/") {
-			// Determine the appropriate remote prefix based on worktree type
-			if strings.Contains(worktree.RepoID, "local/") {
-				sourceRef = "live/" + sourceRef
-			} else {
+		if !strings.HasPrefix(sourceRef, "origin/") {
+			// For local repos, use the branch directly since it's the source of truth
+			// For remote repos, use origin/ prefix
+			if !strings.Contains(worktree.RepoID, "local/") {
 				sourceRef = "origin/" + sourceRef
 			}
+			// For local repos, use sourceRef as-is (no prefix needed)
 		}
 
 		// Count commits ahead
