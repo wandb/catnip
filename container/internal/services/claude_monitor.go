@@ -24,11 +24,14 @@ type ClaudeMonitorService struct {
 	checkpointManagers map[string]*WorktreeCheckpointManager // Map of worktree path to checkpoint manager
 	managersMutex      sync.RWMutex
 	titlesWatcher      *fsnotify.Watcher
+	sessionsWatcher    *fsnotify.Watcher
 	stopCh             chan struct{}
 	titlesLogPath      string
 	lastLogPosition    int64
 	recentTitles       map[string]titleEvent // Track recent titles to avoid duplicates
 	recentTitlesMutex  sync.RWMutex
+	sessionFileStates  map[string]int64 // Track session file sizes to detect changes
+	sessionFilesMutex  sync.RWMutex
 }
 
 // titleEvent represents a title change event with timestamp
@@ -67,6 +70,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 		stopCh:             make(chan struct{}),
 		titlesLogPath:      titlesLogPath,
 		recentTitles:       make(map[string]titleEvent),
+		sessionFileStates:  make(map[string]int64),
 	}
 }
 
@@ -81,8 +85,18 @@ func (s *ClaudeMonitorService) Start() error {
 	}
 	s.titlesWatcher = watcher
 
+	// Create file watcher for Claude session files
+	sessionsWatcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("failed to create sessions watcher: %w", err)
+	}
+	s.sessionsWatcher = sessionsWatcher
+
 	// Start monitoring the titles log file
 	go s.monitorTitlesLog()
+
+	// Start monitoring Claude session files
+	go s.monitorClaudeSessions()
 
 	return nil
 }
@@ -94,6 +108,10 @@ func (s *ClaudeMonitorService) Stop() {
 
 	if s.titlesWatcher != nil {
 		s.titlesWatcher.Close()
+	}
+
+	if s.sessionsWatcher != nil {
+		s.sessionsWatcher.Close()
 	}
 
 	s.managersMutex.Lock()
