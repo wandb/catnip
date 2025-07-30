@@ -267,13 +267,13 @@ export function WorkspaceActions({
                   }
                 }}
                 className={
-                  worktree.commit_count === 0
+                  !worktree.commit_count || worktree.commit_count === 0
                     ? "text-muted-foreground"
                     : "text-green-600"
                 }
-                disabled={worktree.commit_count === 0}
+                disabled={!worktree.commit_count || worktree.commit_count === 0}
                 title={
-                  worktree.commit_count === 0
+                  !worktree.commit_count || worktree.commit_count === 0
                     ? "No commits in this worktree"
                     : worktree.pull_request_url
                       ? "Update existing pull request on GitHub"
