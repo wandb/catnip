@@ -1652,6 +1652,13 @@ const docTemplate = `{
                     "description": "Branch this worktree was originally created from",
                     "type": "string",
                     "example": "main"
+                },
+                "todos": {
+                    "description": "Current todos from the most recent TodoWrite in Claude session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                    }
                 }
             }
         },
@@ -1977,6 +1984,13 @@ const docTemplate = `{
                     "description": "Branch this worktree was originally created from",
                     "type": "string",
                     "example": "main"
+                },
+                "todos": {
+                    "description": "Current todos from the most recent TodoWrite in Claude session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                    }
                 }
             }
         },
@@ -1997,7 +2011,8 @@ const docTemplate = `{
                 "worktree:clean",
                 "worktree:updated",
                 "worktree:created",
-                "worktree:deleted"
+                "worktree:deleted",
+                "worktree:todos_updated"
             ],
             "x-enum-varnames": [
                 "PortOpenedEvent",
@@ -2014,7 +2029,8 @@ const docTemplate = `{
                 "WorktreeCleanEvent",
                 "WorktreeUpdatedEvent",
                 "WorktreeCreatedEvent",
-                "WorktreeDeletedEvent"
+                "WorktreeDeletedEvent",
+                "WorktreeTodosUpdatedEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {
