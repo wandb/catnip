@@ -17,6 +17,13 @@ export interface CacheStatus {
   last_updated: number;
 }
 
+export interface Todo {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  priority: "high" | "medium" | "low";
+}
+
 export interface Worktree {
   id: string;
   repo_id: string;
@@ -37,6 +44,7 @@ export interface Worktree {
   cache_status?: CacheStatus;
   has_active_claude_session?: boolean;
   pull_request_url?: string;
+  todos?: Todo[];
 }
 
 interface Owner {
