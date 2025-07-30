@@ -47,17 +47,6 @@ interface WorktreeRowProps {
   diffStats: Record<string, WorktreeDiffStats | undefined>;
   diffStatsLoading: boolean;
   openDiffWorktreeId: string | null;
-  setPrDialog: React.Dispatch<
-    React.SetStateAction<{
-      open: boolean;
-      worktreeId: string;
-      branchName: string;
-      title: string;
-      description: string;
-      isUpdate: boolean;
-      isGenerating?: boolean;
-    }>
-  >;
   onToggleDiff: (worktreeId: string) => void;
   onSync: (id: string) => void;
   onMerge: (id: string, name: string) => void;
@@ -537,11 +526,10 @@ export function WorktreeRow({
   claudeSessions,
   _syncConflicts,
   _mergeConflicts,
-  worktreeSummaries,
+  worktreeSummaries: _worktreeSummaries,
   diffStats,
   diffStatsLoading,
   openDiffWorktreeId,
-  _setPrDialog,
   onToggleDiff,
   onSync,
   onMerge,
@@ -556,7 +544,6 @@ export function WorktreeRow({
 
   const sessionPath = worktree.path;
   const claudeSession = claudeSessions[sessionPath];
-  const _summary = worktreeSummaries[worktree.id];
 
   // Keep this to satisfy the interface - may be used in debugging
   console.debug("Sync conflicts available:", _syncConflicts);
