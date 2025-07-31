@@ -60,6 +60,7 @@
     "react-dom": "^19.1.0",
     "react-hotkeys-hook": "^5.1.0",
     "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^3.0.4",
     "react-xtermjs": "^1.0.10",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.6",
