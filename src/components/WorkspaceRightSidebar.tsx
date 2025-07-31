@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
+import { WorkspaceActions } from "@/components/WorkspaceActions";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 
 interface WorkspaceRightSidebarProps {
@@ -254,27 +255,7 @@ function ChangedFiles({
             <Badge variant="secondary" className="text-xs">
               {fileDiffs.length}
             </Badge>
-            {fileDiffs.length > 0 && (
-              <Button
-                variant={showDiffView ? "default" : "outline"}
-                size="sm"
-                onClick={() => setShowDiffView(!showDiffView)}
-                className="h-6 px-2 text-xs"
-                title={showDiffView ? "Show Claude Terminal" : "View Diff"}
-              >
-                {showDiffView ? (
-                  <>
-                    <Terminal className="h-3 w-3 mr-1" />
-                    Claude
-                  </>
-                ) : (
-                  <>
-                    <Eye className="h-3 w-3 mr-1" />
-                    View Diff
-                  </>
-                )}
-              </Button>
-            )}
+            <WorkspaceActions mode="workspace" worktree={worktree} />
           </div>
         </div>
       </SidebarGroupLabel>
@@ -300,6 +281,29 @@ function ChangedFiles({
           </div>
         </ScrollArea>
       </SidebarGroupContent>
+      {fileDiffs.length > 0 && (
+        <div className="px-2 py-2">
+          <Button
+            variant={showDiffView ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowDiffView(!showDiffView)}
+            className="w-full h-8 text-xs"
+            title={showDiffView ? "Show Claude Terminal" : "View Diff"}
+          >
+            {showDiffView ? (
+              <>
+                <Terminal className="h-3 w-3 mr-2" />
+                Show Claude
+              </>
+            ) : (
+              <>
+                <Eye className="h-3 w-3 mr-2" />
+                View Diff
+              </>
+            )}
+          </Button>
+        </div>
+      )}
     </SidebarGroup>
   );
 }
@@ -325,6 +329,15 @@ export function WorkspaceRightSidebar({
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
         />
+        <SidebarSeparator className="mx-0" />
+        <SidebarGroup>
+          <SidebarGroupLabel>Ports</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <div className="text-sm text-muted-foreground p-2">
+              No active ports
+            </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   );
