@@ -69,16 +69,16 @@ export function WorkspaceLeftSidebar() {
   };
 
   const getWorktreeStatus = (worktree: any) => {
-    // Check if this worktree has an active Claude session
-    const hasActiveClaudeSession =
-      worktree.session_title && worktree.session_title.title;
-
-    if (hasActiveClaudeSession) {
-      return { color: "bg-blue-500 animate-pulse", label: "active" };
+    // Use the claude_activity_state to determine the status
+    switch (worktree.claude_activity_state) {
+      case "active":
+        return { color: "bg-green-500 animate-pulse", label: "active" };
+      case "running":
+        return { color: "bg-blue-500 animate-pulse", label: "running" };
+      case "inactive":
+      default:
+        return { color: "bg-gray-500", label: "inactive" };
     }
-
-    // Otherwise show as inactive/gray
-    return { color: "bg-gray-500", label: "inactive" };
   };
 
   return (
@@ -181,11 +181,11 @@ export function WorkspaceLeftSidebar() {
                 })}
               </SidebarMenu>
               {/* Global New Workspace Button */}
-              <SidebarMenu>
+              <SidebarMenu className="mt-3">
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     onClick={() => setNewWorkspaceDialogOpen(true)}
-                    className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+                    className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-xs"
                   >
                     <Plus className="h-4 w-4 flex-shrink-0" />
                     <span className="truncate">New workspace</span>

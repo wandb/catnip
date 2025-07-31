@@ -48,6 +48,7 @@ export interface Worktree {
   session_title_history?: TitleEntry[];
   cache_status?: CacheStatus;
   has_active_claude_session?: boolean;
+  claude_activity_state: "inactive" | "running" | "active";
   pull_request_url?: string;
   todos?: Todo[];
 }

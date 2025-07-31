@@ -120,7 +120,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
                   className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50"
                 >
                   <Circle
-                    className={`h-4 w-4 mt-0.5 flex-shrink-0 ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
+                    className={`h-3 w-3 mt-0.5 flex-shrink-0 ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
                   />
                   <div className="flex-1 min-w-0">
                     <p
@@ -139,7 +139,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
                 key={todo.id}
                 className="flex items-start gap-2 p-2 rounded-md"
               >
-                <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs break-words text-muted-foreground line-through">
                     {todo.content}
