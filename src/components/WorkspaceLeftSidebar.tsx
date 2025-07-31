@@ -1,5 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { ChevronRight, Folder, GitBranch } from "lucide-react";
+import { ChevronRight, Folder, GitBranch, Plus } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -24,11 +24,17 @@ import {
 } from "@/components/ui/sidebar";
 import { useAppStore } from "@/stores/appStore";
 import { useState, useMemo } from "react";
+import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
+import { useGlobalKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
     from: "/workspace/$project/$workspace",
   });
+
+  // Global keyboard shortcuts
+  const { newWorkspaceDialogOpen, setNewWorkspaceDialogOpen } =
+    useGlobalKeyboardShortcuts();
 
   // Use stable selectors to avoid infinite loops
   const repositoriesCount = useAppStore(
@@ -83,107 +89,126 @@ export function WorkspaceLeftSidebar() {
   };
 
   return (
-    <Sidebar className="border-r-0">
-      <SidebarHeader className="px-3 py-2">
-        <div className="flex items-center justify-between w-full">
-          <div className="flex items-center gap-2">
-            <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
+    <>
+      <Sidebar className="border-r-0">
+        <SidebarHeader className="px-3 py-2">
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-2">
+              <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
+            </div>
+            <SidebarTrigger className="h-6 w-6" />
           </div>
-          <SidebarTrigger className="h-6 w-6" />
-        </div>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Repositories</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {repositories.map((repo) => {
-                const worktrees = getWorktreesByRepo(repo.id);
-                const isExpanded = expandedRepos.has(repo.id);
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel>Repositories</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {repositories.map((repo) => {
+                  const worktrees = getWorktreesByRepo(repo.id);
+                  const isExpanded = expandedRepos.has(repo.id);
 
-                // Get project name from the first worktree
-                const projectName =
-                  worktrees.length > 0
-                    ? worktrees[0].name.split("/")[0]
-                    : repo.name;
+                  // Get project name from the first worktree
+                  const projectName =
+                    worktrees.length > 0
+                      ? worktrees[0].name.split("/")[0]
+                      : repo.name;
 
-                return (
-                  <Collapsible
-                    key={repo.id}
-                    open={isExpanded}
-                    onOpenChange={() => toggleRepo(repo.id)}
-                  >
-                    <SidebarMenuItem>
-                      <SidebarMenuButton asChild>
-                        <button className="w-full">
-                          <Folder className="h-4 w-4" />
-                          <span className="truncate">{projectName}</span>
-                          <span className="ml-auto text-xs text-muted-foreground">
-                            {worktrees.length}
-                          </span>
-                        </button>
-                      </SidebarMenuButton>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuAction
-                          className="data-[state=open]:rotate-90"
-                          showOnHover
-                        >
-                          <ChevronRight />
-                        </SidebarMenuAction>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub className="mx-0 mr-0">
-                          {worktrees.map((worktree) => {
-                            const isActive =
-                              worktree.name === currentWorkspaceName;
-                            const nameParts = worktree.name.split("/");
-                            const status = getWorktreeStatus(worktree);
-                            return (
-                              <SidebarMenuSubItem key={worktree.id}>
-                                <SidebarMenuSubButton
-                                  asChild
-                                  isActive={isActive}
-                                >
-                                  <Link
-                                    to="/workspace/$project/$workspace"
-                                    params={{
-                                      project: nameParts[0],
-                                      workspace: nameParts[1],
-                                    }}
-                                    className="flex items-center gap-1.5 pr-2"
+                  return (
+                    <Collapsible
+                      key={repo.id}
+                      open={isExpanded}
+                      onOpenChange={() => toggleRepo(repo.id)}
+                    >
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <button className="w-full">
+                            <Folder className="h-4 w-4" />
+                            <span className="truncate">{projectName}</span>
+                            <span className="ml-auto text-xs text-muted-foreground">
+                              {worktrees.length}
+                            </span>
+                          </button>
+                        </SidebarMenuButton>
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuAction
+                            className="data-[state=open]:rotate-90"
+                            showOnHover
+                          >
+                            <ChevronRight />
+                          </SidebarMenuAction>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <SidebarMenuSub className="mx-0 mr-0">
+                            {worktrees.map((worktree) => {
+                              const isActive =
+                                worktree.name === currentWorkspaceName;
+                              const nameParts = worktree.name.split("/");
+                              const status = getWorktreeStatus(worktree);
+                              return (
+                                <SidebarMenuSubItem key={worktree.id}>
+                                  <SidebarMenuSubButton
+                                    asChild
+                                    isActive={isActive}
                                   >
-                                    <div
-                                      className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
-                                      title={status.label}
-                                    />
-                                    <span className="truncate">
-                                      {worktree.name.split("/")[1] ||
-                                        worktree.name}
-                                    </span>
-                                    {worktree.branch && (
-                                      <div className="ml-auto flex items-center gap-0.5">
-                                        <GitBranch className="h-3 w-3 text-muted-foreground/70" />
-                                        <span className="text-xs text-muted-foreground truncate max-w-24">
-                                          {worktree.branch}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </Link>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            );
-                          })}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
-                  </Collapsible>
-                );
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-      <SidebarRail />
-    </Sidebar>
+                                    <Link
+                                      to="/workspace/$project/$workspace"
+                                      params={{
+                                        project: nameParts[0],
+                                        workspace: nameParts[1],
+                                      }}
+                                      className="flex items-center gap-1.5 pr-2"
+                                    >
+                                      <div
+                                        className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
+                                        title={status.label}
+                                      />
+                                      <span className="truncate">
+                                        {worktree.name.split("/")[1] ||
+                                          worktree.name}
+                                      </span>
+                                      {worktree.branch && (
+                                        <div className="ml-auto flex items-center gap-0.5">
+                                          <GitBranch className="h-3 w-3 text-muted-foreground/70" />
+                                          <span className="text-xs text-muted-foreground truncate max-w-24">
+                                            {worktree.branch}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              );
+                            })}
+                            {/* Add New Workspace Button */}
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                onClick={() => setNewWorkspaceDialogOpen(true)}
+                                className="flex items-center gap-1.5 pr-2 text-muted-foreground hover:text-foreground"
+                              >
+                                <Plus className="h-3 w-3 flex-shrink-0" />
+                                <span className="truncate">New workspace</span>
+                                <span className="ml-auto text-xs text-muted-foreground">
+                                  ⌘N
+                                </span>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          </SidebarMenuSub>
+                        </CollapsibleContent>
+                      </SidebarMenuItem>
+                    </Collapsible>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarRail />
+      </Sidebar>
+      <NewWorkspaceDialog
+        open={newWorkspaceDialogOpen}
+        onOpenChange={setNewWorkspaceDialogOpen}
+      />
+    </>
   );
 }
