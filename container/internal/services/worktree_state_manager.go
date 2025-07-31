@@ -528,6 +528,11 @@ func (wsm *WorktreeStateManager) startClaudeActivitySync() {
 	}
 }
 
+// TriggerClaudeActivitySync triggers an immediate Claude activity state sync
+func (wsm *WorktreeStateManager) TriggerClaudeActivitySync() {
+	wsm.syncClaudeActivityStates()
+}
+
 // syncClaudeActivityStates checks all worktrees for Claude activity state changes
 func (wsm *WorktreeStateManager) syncClaudeActivityStates() {
 	wsm.mu.RLock()

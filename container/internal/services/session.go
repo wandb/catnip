@@ -265,7 +265,8 @@ func (s *SessionService) getLastClaudeActivityTime(workDir string) time.Time {
 // hasPTYSession checks if there's an active PTY session for this workspace
 func (s *SessionService) hasPTYSession(workDir string) bool {
 	// Method 1: Check for processes with the workspace directory in their command line
-	cmd := exec.Command("pgrep", "-f", workDir)
+	// This is more specific - look for bash processes that might be running in this directory
+	cmd := exec.Command("pgrep", "-f", fmt.Sprintf("bash.*%s", workDir))
 	output, err := cmd.Output()
 	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
 		return true
@@ -279,17 +280,53 @@ func (s *SessionService) hasPTYSession(workDir string) bool {
 		pids := strings.Fields(strings.TrimSpace(string(output)))
 
 		for _, pid := range pids {
+			// First verify the process is still alive and accessible
+			if !s.isProcessAlive(pid) {
+				continue
+			}
+
 			// Read the working directory of this process
 			cwdLink := fmt.Sprintf("/proc/%s/cwd", pid)
-			if actualWorkDir, err := os.Readlink(cwdLink); err == nil {
-				if actualWorkDir == workDir {
-					return true
-				}
+			actualWorkDir, err := os.Readlink(cwdLink)
+			if err != nil {
+				// Log permission or access errors for debugging
+				fmt.Printf("🔍 Could not read working directory for claude process %s: %v\n", pid, err)
+				continue
+			}
+
+			if actualWorkDir == workDir {
+				fmt.Printf("🎯 Found claude process %s running in %s\n", pid, workDir)
+				return true
 			}
 		}
 	}
 
 	return false
+}
+
+// isProcessAlive checks if a process is still alive and accessible
+func (s *SessionService) isProcessAlive(pid string) bool {
+	// Check if /proc/PID/stat exists and is readable
+	statPath := fmt.Sprintf("/proc/%s/stat", pid)
+	_, err := os.Stat(statPath)
+	if err != nil {
+		return false
+	}
+
+	// Additional check: try to read the stat file to ensure process isn't zombie
+	statData, err := os.ReadFile(statPath)
+	if err != nil {
+		return false
+	}
+
+	// Check if process state is not zombie (Z) or dead (X)
+	// Process stat format: pid (comm) state ppid ...
+	statStr := string(statData)
+	if strings.Contains(statStr, " Z ") || strings.Contains(statStr, " X ") {
+		return false
+	}
+
+	return true
 }
 
 // findNewestClaudeSessionFile finds the newest JSONL file in .claude/projects directory

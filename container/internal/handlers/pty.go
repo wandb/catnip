@@ -740,6 +740,16 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Start Claude session ID monitoring for claude sessions
 	if agent == "claude" {
 		go h.monitorClaudeSession(session)
+
+		// Trigger immediate Claude activity state sync to update frontend quickly
+		if h.gitService != nil {
+			go func() {
+				// Small delay to allow Claude process to fully start
+				time.Sleep(1 * time.Second)
+				h.gitService.TriggerClaudeActivitySync()
+				log.Printf("🔄 Triggered immediate Claude activity state sync for %s", session.WorkDir)
+			}()
+		}
 	}
 
 	// Start checkpoint monitoring for all sessions
