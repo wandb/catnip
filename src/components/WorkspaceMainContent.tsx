@@ -419,7 +419,11 @@ export function WorkspaceMainContent({ worktree }: WorkspaceMainContentProps) {
           <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm">
             <div className="flex items-center gap-2">
               {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
-              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <img
+                src="/anthropic.png"
+                alt="Claude"
+                className="w-4 h-4 animate-pulse"
+              />
               <span className="text-sm font-medium">Claude</span>
               {worktree.session_title && (
                 <span className="text-xs text-muted-foreground">

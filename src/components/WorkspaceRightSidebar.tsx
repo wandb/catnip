@@ -37,7 +37,6 @@ function GitStatus({ worktree }: { worktree: Worktree }) {
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Git Status</SidebarGroupLabel>
       <SidebarGroupContent>
         <div className="space-y-3">
           {/* Branch info */}
@@ -129,7 +128,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
                             ? "default"
                             : "secondary"
                       }
-                      className="text-xs mt-1"
+                      className="text-[10px] mt-1 px-1.5 py-0.5 h-4"
                     >
                       {todo.priority}
                     </Badge>
