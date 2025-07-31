@@ -1,0 +1,190 @@
+import { Link, useParams } from "@tanstack/react-router";
+import { ChevronRight, Folder, GitBranch } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuAction,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  SidebarRail,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { useAppStore } from "@/stores/appStore";
+import { useState, useMemo } from "react";
+
+export function WorkspaceLeftSidebar() {
+  const { project, workspace } = useParams({
+    from: "/workspace/$project/$workspace",
+  });
+
+  // Use stable selectors to avoid infinite loops
+  const repositoriesCount = useAppStore(
+    (state) => state.getRepositoriesList().length,
+  );
+  const getWorktreesByRepo = useAppStore((state) => state.getWorktreesByRepo);
+
+  // Get repositories using direct store access to avoid array reference changes
+  const repositories = useMemo(() => {
+    if (repositoriesCount === 0) return [];
+    return useAppStore.getState().getRepositoriesList();
+  }, [repositoriesCount]);
+
+  // Find current worktree to get its repo_id for expanded state
+  const currentWorkspaceName = `${project}/${workspace}`;
+
+  // Use stable selector to avoid infinite loops
+  const worktreesCount = useAppStore(
+    (state) => state.getWorktreesList().length,
+  );
+  const currentWorktree = useMemo(() => {
+    if (worktreesCount === 0) return undefined;
+    const worktreesList = useAppStore.getState().getWorktreesList();
+    return worktreesList.find((w) => w.name === currentWorkspaceName);
+  }, [currentWorkspaceName, worktreesCount]);
+
+  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(
+    new Set(currentWorktree ? [currentWorktree.repo_id] : []),
+  );
+
+  const toggleRepo = (repoIdToToggle: string) => {
+    const newExpanded = new Set(expandedRepos);
+    if (newExpanded.has(repoIdToToggle)) {
+      newExpanded.delete(repoIdToToggle);
+    } else {
+      newExpanded.add(repoIdToToggle);
+    }
+    setExpandedRepos(newExpanded);
+  };
+
+  const getWorktreeStatus = (worktree: any) => {
+    // Check if this worktree has an active Claude session
+    const hasActiveClaudeSession =
+      worktree.session_title && worktree.session_title.title;
+
+    if (hasActiveClaudeSession) {
+      return { color: "bg-blue-500", label: "active" };
+    }
+
+    // Otherwise show as inactive/gray
+    return { color: "bg-gray-500", label: "inactive" };
+  };
+
+  return (
+    <Sidebar className="border-r-0">
+      <SidebarHeader className="border-b px-3 py-2">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex items-center gap-2">
+            <img src="/logo@2x.png" alt="Catnip" className="w-6 h-6" />
+            <span className="font-semibold">Workspaces</span>
+          </div>
+          <SidebarTrigger className="h-6 w-6" />
+        </div>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Repositories</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {repositories.map((repo) => {
+                const worktrees = getWorktreesByRepo(repo.id);
+                const isExpanded = expandedRepos.has(repo.id);
+
+                // Get project name from the first worktree
+                const projectName =
+                  worktrees.length > 0
+                    ? worktrees[0].name.split("/")[0]
+                    : repo.name;
+
+                return (
+                  <Collapsible
+                    key={repo.id}
+                    open={isExpanded}
+                    onOpenChange={() => toggleRepo(repo.id)}
+                  >
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
+                        <button className="w-full">
+                          <Folder className="h-4 w-4" />
+                          <span className="truncate">{projectName}</span>
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            {worktrees.length}
+                          </span>
+                        </button>
+                      </SidebarMenuButton>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuAction
+                          className="data-[state=open]:rotate-90"
+                          showOnHover
+                        >
+                          <ChevronRight />
+                        </SidebarMenuAction>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub className="mx-0 mr-0">
+                          {worktrees.map((worktree) => {
+                            const isActive =
+                              worktree.name === currentWorkspaceName;
+                            const nameParts = worktree.name.split("/");
+                            const status = getWorktreeStatus(worktree);
+                            return (
+                              <SidebarMenuSubItem key={worktree.id}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={isActive}
+                                >
+                                  <Link
+                                    to="/workspace/$project/$workspace"
+                                    params={{
+                                      project: nameParts[0],
+                                      workspace: nameParts[1],
+                                    }}
+                                    className="flex items-center gap-1.5 pr-2"
+                                  >
+                                    <div
+                                      className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
+                                      title={status.label}
+                                    />
+                                    <span className="truncate">
+                                      {worktree.name.split("/")[1] ||
+                                        worktree.name}
+                                    </span>
+                                    {worktree.branch && (
+                                      <div className="ml-auto flex items-center gap-0.5">
+                                        <GitBranch className="h-3 w-3 text-muted-foreground/70" />
+                                        <span className="text-xs text-muted-foreground truncate max-w-24">
+                                          {worktree.branch}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            );
+                          })}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarRail />
+    </Sidebar>
+  );
+}

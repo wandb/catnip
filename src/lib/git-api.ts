@@ -19,9 +19,14 @@ export interface CacheStatus {
 
 export interface Todo {
   id: string;
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-  priority: "high" | "medium" | "low";
+  text: string;
+  completed: boolean;
+  priority?: "high" | "medium" | "low";
+}
+
+export interface DirtyFile {
+  path: string;
+  status: string; // M, A, D, R, etc.
 }
 
 export interface Worktree {
@@ -36,7 +41,7 @@ export interface Worktree {
   commits_behind: number;
   is_dirty: boolean;
   has_conflicts: boolean;
-  dirty_files?: string[];
+  dirty_files?: DirtyFile[];
   created_at: string;
   last_accessed: string;
   session_title?: TitleEntry;

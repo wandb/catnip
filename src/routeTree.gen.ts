@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as GitRouteImport } from './routes/git'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkspaceIndexRouteImport } from './routes/workspace.index'
 import { Route as TranscriptIndexRouteImport } from './routes/transcript.index'
 import { Route as TerminalIndexRouteImport } from './routes/terminal.index'
 import { Route as TranscriptDemoRouteImport } from './routes/transcript.demo'
@@ -19,6 +20,7 @@ import { Route as TranscriptSessionIdRouteImport } from './routes/transcript.$se
 import { Route as TerminalSessionIdRouteImport } from './routes/terminal.$sessionId'
 import { Route as PreviewPortRouteImport } from './routes/preview.$port'
 import { Route as GhSplatRouteImport } from './routes/gh.$'
+import { Route as WorkspaceProjectWorkspaceRouteImport } from './routes/workspace.$project.$workspace'
 
 const GitRoute = GitRouteImport.update({
   id: '/git',
@@ -33,6 +35,11 @@ const DocsRoute = DocsRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
+  id: '/workspace/',
+  path: '/workspace/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TranscriptIndexRoute = TranscriptIndexRouteImport.update({
@@ -70,6 +77,12 @@ const GhSplatRoute = GhSplatRouteImport.update({
   path: '/gh/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceProjectWorkspaceRoute =
+  WorkspaceProjectWorkspaceRouteImport.update({
+    id: '/workspace/$project/$workspace',
+    path: '/workspace/$project/$workspace',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,6 +95,8 @@ export interface FileRoutesByFullPath {
   '/transcript/demo': typeof TranscriptDemoRoute
   '/terminal': typeof TerminalIndexRoute
   '/transcript': typeof TranscriptIndexRoute
+  '/workspace': typeof WorkspaceIndexRoute
+  '/workspace/$project/$workspace': typeof WorkspaceProjectWorkspaceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,6 +109,8 @@ export interface FileRoutesByTo {
   '/transcript/demo': typeof TranscriptDemoRoute
   '/terminal': typeof TerminalIndexRoute
   '/transcript': typeof TranscriptIndexRoute
+  '/workspace': typeof WorkspaceIndexRoute
+  '/workspace/$project/$workspace': typeof WorkspaceProjectWorkspaceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,6 +124,8 @@ export interface FileRoutesById {
   '/transcript/demo': typeof TranscriptDemoRoute
   '/terminal/': typeof TerminalIndexRoute
   '/transcript/': typeof TranscriptIndexRoute
+  '/workspace/': typeof WorkspaceIndexRoute
+  '/workspace/$project/$workspace': typeof WorkspaceProjectWorkspaceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +140,8 @@ export interface FileRouteTypes {
     | '/transcript/demo'
     | '/terminal'
     | '/transcript'
+    | '/workspace'
+    | '/workspace/$project/$workspace'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +154,8 @@ export interface FileRouteTypes {
     | '/transcript/demo'
     | '/terminal'
     | '/transcript'
+    | '/workspace'
+    | '/workspace/$project/$workspace'
   id:
     | '__root__'
     | '/'
@@ -145,6 +168,8 @@ export interface FileRouteTypes {
     | '/transcript/demo'
     | '/terminal/'
     | '/transcript/'
+    | '/workspace/'
+    | '/workspace/$project/$workspace'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +183,8 @@ export interface RootRouteChildren {
   TranscriptDemoRoute: typeof TranscriptDemoRoute
   TerminalIndexRoute: typeof TerminalIndexRoute
   TranscriptIndexRoute: typeof TranscriptIndexRoute
+  WorkspaceIndexRoute: typeof WorkspaceIndexRoute
+  WorkspaceProjectWorkspaceRoute: typeof WorkspaceProjectWorkspaceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -181,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workspace/': {
+      id: '/workspace/'
+      path: '/workspace'
+      fullPath: '/workspace'
+      preLoaderRoute: typeof WorkspaceIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/transcript/': {
@@ -232,6 +266,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GhSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workspace/$project/$workspace': {
+      id: '/workspace/$project/$workspace'
+      path: '/workspace/$project/$workspace'
+      fullPath: '/workspace/$project/$workspace'
+      preLoaderRoute: typeof WorkspaceProjectWorkspaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -246,6 +287,8 @@ const rootRouteChildren: RootRouteChildren = {
   TranscriptDemoRoute: TranscriptDemoRoute,
   TerminalIndexRoute: TerminalIndexRoute,
   TranscriptIndexRoute: TranscriptIndexRoute,
+  WorkspaceIndexRoute: WorkspaceIndexRoute,
+  WorkspaceProjectWorkspaceRoute: WorkspaceProjectWorkspaceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

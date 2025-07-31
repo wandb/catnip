@@ -217,7 +217,9 @@ export const useAppStore = create<AppState>()(
             updatedWorktrees.set(worktreeId, {
               ...worktree,
               is_dirty: true,
-              dirty_files: event.payload.files,
+              dirty_files: event.payload.files?.map((file: any) =>
+                typeof file === "string" ? { path: file, status: "M" } : file,
+              ),
             });
             set({ worktrees: updatedWorktrees });
           }
@@ -334,7 +336,9 @@ export const useAppStore = create<AppState>()(
             updatedWorktrees.set(event.payload.worktree_id, {
               ...existingWorktree,
               is_dirty: true,
-              dirty_files: event.payload.files,
+              dirty_files: event.payload.files?.map((file: any) =>
+                typeof file === "string" ? { path: file, status: "M" } : file,
+              ),
             });
             set({ worktrees: updatedWorktrees });
           }
@@ -402,7 +406,12 @@ export const useAppStore = create<AppState>()(
           if (existingWorktree) {
             updatedWorktrees.set(event.payload.worktree_id, {
               ...existingWorktree,
-              todos: event.payload.todos,
+              todos: event.payload.todos?.map((todo: any) => ({
+                id: todo.id,
+                text: todo.content || todo.text,
+                completed: todo.status === "completed",
+                priority: todo.priority,
+              })),
             });
             set({ worktrees: updatedWorktrees });
           }
