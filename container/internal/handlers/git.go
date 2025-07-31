@@ -202,6 +202,12 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 		// Set backward compatibility flag
 		worktree.HasActiveClaudeSession = (claudeActivityState == models.ClaudeActive || claudeActivityState == models.ClaudeRunning)
 
+		// Get todos for this worktree
+		if todos, err := h.claudeMonitor.GetTodos(worktree.Path); err == nil {
+			worktree.Todos = todos
+		}
+		// If there's an error getting todos, we'll leave Todos as nil (which is fine)
+
 		// Create enhanced worktree with cache status
 		enhanced := &EnhancedWorktree{
 			Worktree: worktree,

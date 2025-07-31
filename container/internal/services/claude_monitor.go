@@ -32,6 +32,10 @@ type ClaudeMonitorService struct {
 	recentTitlesMutex  sync.RWMutex
 	sessionFileStates  map[string]int64 // Track session file sizes to detect changes
 	sessionFilesMutex  sync.RWMutex
+	lastActivityTimes  map[string]time.Time // Track last activity per worktree path
+	activityMutex      sync.RWMutex
+	debounceTimers     map[string]*time.Timer // Debounce file update processing
+	debounceMutex      sync.RWMutex
 }
 
 // titleEvent represents a title change event with timestamp
@@ -71,6 +75,8 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 		titlesLogPath:      titlesLogPath,
 		recentTitles:       make(map[string]titleEvent),
 		sessionFileStates:  make(map[string]int64),
+		lastActivityTimes:  make(map[string]time.Time),
+		debounceTimers:     make(map[string]*time.Timer),
 	}
 }
 
@@ -97,6 +103,9 @@ func (s *ClaudeMonitorService) Start() error {
 
 	// Start monitoring Claude session files
 	go s.monitorClaudeSessions()
+
+	// Initial load of todos for existing worktrees
+	go s.initialTodoPopulation()
 
 	return nil
 }
@@ -736,15 +745,39 @@ func (s *ClaudeMonitorService) monitorClaudeSessions() {
 	}
 }
 
-// handleSessionFileUpdate processes updates to Claude session files
+// handleSessionFileUpdate processes updates to Claude session files with debouncing
 func (s *ClaudeMonitorService) handleSessionFileUpdate(sessionFilePath string) {
-	// Extract worktree path from session file path
-	// Session files are like: /home/catnip/.claude/projects/-workspace-catnip-coal/session-uuid.jsonl
 	worktreePath := s.getWorktreePathFromSessionFile(sessionFilePath)
 	if worktreePath == "" {
 		return // Not a valid worktree session file
 	}
 
+	// Update activity timestamp
+	s.updateActivityTime(worktreePath)
+
+	// Debounce rapid file changes
+	s.debounceMutex.Lock()
+
+	// Cancel existing timer if any
+	if timer, exists := s.debounceTimers[sessionFilePath]; exists {
+		timer.Stop()
+	}
+
+	// Create new debounced processing timer (500ms delay)
+	s.debounceTimers[sessionFilePath] = time.AfterFunc(500*time.Millisecond, func() {
+		s.processSessionFileUpdate(sessionFilePath, worktreePath)
+
+		// Clean up timer
+		s.debounceMutex.Lock()
+		delete(s.debounceTimers, sessionFilePath)
+		s.debounceMutex.Unlock()
+	})
+
+	s.debounceMutex.Unlock()
+}
+
+// processSessionFileUpdate does the actual processing of session file updates
+func (s *ClaudeMonitorService) processSessionFileUpdate(sessionFilePath, worktreePath string) {
 	// Check if file size changed to avoid duplicate processing
 	s.sessionFilesMutex.Lock()
 	if stat, err := os.Stat(sessionFilePath); err == nil {
@@ -754,25 +787,37 @@ func (s *ClaudeMonitorService) handleSessionFileUpdate(sessionFilePath string) {
 			return // File size hasn't changed, skip
 		}
 		s.sessionFileStates[sessionFilePath] = stat.Size()
+	} else {
+		s.sessionFilesMutex.Unlock()
+		log.Printf("⚠️  Failed to stat session file %s: %v", sessionFilePath, err)
+		return
 	}
 	s.sessionFilesMutex.Unlock()
 
 	// Extract todos from the session file
 	todos, err := s.claudeService.GetLatestTodos(worktreePath)
 	if err != nil {
-		log.Printf("⚠️  Failed to get todos from session file %s: %v", sessionFilePath, err)
+		log.Printf("⚠️  Failed to extract todos from %s: %v", sessionFilePath, err)
+		return
+	}
+
+	worktreeID := s.getWorktreeIDFromPath(worktreePath)
+	if worktreeID == "" {
+		log.Printf("⚠️  Could not find worktree ID for path: %s", worktreePath)
 		return
 	}
 
 	// Update worktree state with new todos
-	if err := s.gitService.stateManager.UpdateWorktree(s.getWorktreeIDFromPath(worktreePath), map[string]interface{}{
+	updates := map[string]interface{}{
 		"todos": todos,
-	}); err != nil {
-		log.Printf("⚠️  Failed to update worktree todos: %v", err)
+	}
+
+	if err := s.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+		log.Printf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
 		return
 	}
 
-	log.Printf("✅ Updated todos for worktree %s with %d items", worktreePath, len(todos))
+	log.Printf("✅ Updated todos for worktree %s (%s) with %d items", worktreeID, worktreePath, len(todos))
 }
 
 // getWorktreePathFromSessionFile extracts the worktree path from a session file path
@@ -802,4 +847,57 @@ func (s *ClaudeMonitorService) getWorktreeIDFromPath(worktreePath string) string
 		}
 	}
 	return ""
+}
+
+// updateActivityTime updates the last activity time for a worktree
+func (s *ClaudeMonitorService) updateActivityTime(worktreePath string) {
+	s.activityMutex.Lock()
+	defer s.activityMutex.Unlock()
+	s.lastActivityTimes[worktreePath] = time.Now()
+}
+
+// GetLastActivityTime returns the last activity time for a worktree path
+func (s *ClaudeMonitorService) GetLastActivityTime(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastActivityTimes[worktreePath]
+}
+
+// initialTodoPopulation loads todos for all existing worktrees on startup
+func (s *ClaudeMonitorService) initialTodoPopulation() {
+	log.Printf("🔄 Starting initial todo population for existing worktrees")
+
+	// Get all existing worktrees
+	worktrees := s.gitService.stateManager.GetAllWorktrees()
+
+	processed := 0
+	for worktreeID, worktree := range worktrees {
+		// Try to extract todos for this worktree
+		todos, err := s.claudeService.GetLatestTodos(worktree.Path)
+		if err != nil {
+			// Not an error - worktree might not have Claude sessions
+			continue
+		}
+
+		if len(todos) > 0 {
+			// Update worktree state with todos
+			updates := map[string]interface{}{
+				"todos": todos,
+			}
+
+			if err := s.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+				log.Printf("⚠️  Failed to populate initial todos for %s: %v", worktreeID, err)
+			} else {
+				log.Printf("📝 Populated %d initial todos for worktree %s", len(todos), worktree.Path)
+				processed++
+			}
+		}
+	}
+
+	log.Printf("✅ Initial todo population complete: processed %d worktrees", processed)
+}
+
+// GetTodos returns the most recent todos for a worktree path
+func (s *ClaudeMonitorService) GetTodos(worktreePath string) ([]models.Todo, error) {
+	return s.claudeService.GetLatestTodos(worktreePath)
 }
