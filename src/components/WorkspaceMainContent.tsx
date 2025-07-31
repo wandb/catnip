@@ -7,13 +7,19 @@ import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { WorkspaceTerminal } from "@/components/WorkspaceTerminal";
+import { WorkspaceDiffViewer } from "@/components/WorkspaceDiffViewer";
+import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useSidebar } from "@/hooks/use-sidebar";
+import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
+import { Eye } from "lucide-react";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 
 interface WorkspaceMainContentProps {
   worktree: Worktree;
   repository: LocalRepository;
+  showDiffView: boolean;
+  setShowDiffView: (showDiff: boolean) => void;
 }
 
 function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
@@ -407,35 +413,72 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
   );
 }
 
-export function WorkspaceMainContent({ worktree }: WorkspaceMainContentProps) {
+export function WorkspaceMainContent({
+  worktree,
+  showDiffView,
+  setShowDiffView,
+}: WorkspaceMainContentProps) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
 
+  // Get diff stats to check if we have changes
+  const { diffStats } = useWorktreeDiff(
+    worktree.id,
+    worktree.commit_hash,
+    worktree.is_dirty,
+  );
+
+  const hasChanges =
+    diffStats && diffStats.file_diffs && diffStats.file_diffs.length > 0;
+
   return (
     <div className="flex flex-1 flex-col h-screen overflow-hidden">
-      {/* Claude Session */}
+      {/* Main Content Area - Claude Session or Diff View */}
       <div className="flex-1 bg-muted/50 overflow-hidden">
-        <div className="h-full flex flex-col">
-          <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm">
-            <div className="flex items-center gap-2">
-              {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
-              <img
-                src="/anthropic.png"
-                alt="Claude"
-                className="w-4 h-4 animate-pulse"
-              />
-              <span className="text-sm font-medium">Claude</span>
-              {worktree.session_title && (
-                <span className="text-xs text-muted-foreground">
-                  - {worktree.session_title.title}
-                </span>
-              )}
+        {showDiffView ? (
+          <div className="h-full">
+            <WorkspaceDiffViewer
+              worktree={worktree}
+              onClose={() => setShowDiffView(false)}
+            />
+          </div>
+        ) : (
+          <div className="h-full flex flex-col">
+            <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
+                  <img
+                    src="/anthropic.png"
+                    alt="Claude"
+                    className="w-4 h-4 animate-pulse"
+                  />
+                  <span className="text-sm font-medium">Claude</span>
+                  {worktree.session_title && (
+                    <span className="text-xs text-muted-foreground">
+                      - {worktree.session_title.title}
+                    </span>
+                  )}
+                </div>
+                {/* Eyeball toggle - only show if we have changes */}
+                {hasChanges && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowDiffView(true)}
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                    title="View diff"
+                  >
+                    <Eye className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="flex-1">
+              <ClaudeTerminal worktree={worktree} />
             </div>
           </div>
-          <div className="flex-1">
-            <ClaudeTerminal worktree={worktree} />
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Separator */}

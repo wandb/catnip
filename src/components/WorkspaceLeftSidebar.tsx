@@ -83,13 +83,14 @@ export function WorkspaceLeftSidebar() {
 
   return (
     <>
-      <Sidebar className="border-r-0">
+      <Sidebar className="border-r-0 relative">
+        {/* Sidebar trigger in upper right corner */}
+        <div className="absolute top-2 right-2 z-10">
+          <SidebarTrigger className="h-6 w-6" />
+        </div>
         <SidebarHeader className="px-3 py-2">
-          <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2">
-              <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
-            </div>
-            <SidebarTrigger className="h-6 w-6" />
+          <div className="flex items-center gap-2">
+            <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
           </div>
         </SidebarHeader>
         <SidebarContent>
