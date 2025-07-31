@@ -22,14 +22,18 @@ type WorktreeStateChange struct {
 
 // WorktreeStateManager manages all worktree state persistently
 type WorktreeStateManager struct {
-	mu            sync.RWMutex
-	repositories  map[string]*models.Repository
-	worktrees     map[string]*models.Worktree
-	stateDir      string
-	eventsEmitter EventsEmitter
+	mu             sync.RWMutex
+	repositories   map[string]*models.Repository
+	worktrees      map[string]*models.Worktree
+	stateDir       string
+	eventsEmitter  EventsEmitter
+	sessionService *SessionService
 
 	// Track field-level changes
 	previousState map[string]worktreeFieldState
+
+	// Periodic sync control
+	stopChan chan struct{}
 }
 
 // worktreeFieldState tracks all fields we care about for change detection
@@ -47,6 +51,7 @@ type worktreeFieldState struct {
 	SessionTitle           *models.TitleEntry
 	SessionTitleHistory    []models.TitleEntry
 	HasActiveClaudeSession bool
+	ClaudeActivityState    models.ClaudeActivityState
 	Todos                  []models.Todo
 }
 
@@ -58,6 +63,7 @@ func NewWorktreeStateManager(stateDir string, eventsEmitter EventsEmitter) *Work
 		stateDir:      stateDir,
 		eventsEmitter: eventsEmitter,
 		previousState: make(map[string]worktreeFieldState),
+		stopChan:      make(chan struct{}),
 	}
 
 	// Load existing state
@@ -66,6 +72,21 @@ func NewWorktreeStateManager(stateDir string, eventsEmitter EventsEmitter) *Work
 	}
 
 	return wsm
+}
+
+// SetSessionService sets the session service and starts periodic Claude activity state checking
+func (wsm *WorktreeStateManager) SetSessionService(sessionService *SessionService) {
+	wsm.mu.Lock()
+	wsm.sessionService = sessionService
+	wsm.mu.Unlock()
+
+	// Start periodic Claude activity state checking
+	go wsm.startClaudeActivitySync()
+}
+
+// Stop stops the periodic syncing
+func (wsm *WorktreeStateManager) Stop() {
+	close(wsm.stopChan)
 }
 
 // GetRepository returns a repository by ID
@@ -198,6 +219,10 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 			if v, ok := value.(bool); ok {
 				worktree.HasActiveClaudeSession = v
 			}
+		case "claude_activity_state":
+			if v, ok := value.(models.ClaudeActivityState); ok {
+				worktree.ClaudeActivityState = v
+			}
 		case "last_accessed":
 			if v, ok := value.(time.Time); ok {
 				worktree.LastAccessed = v
@@ -315,6 +340,14 @@ func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[str
 				if v, ok := value.(bool); ok {
 					worktree.HasConflicts = v
 				}
+			case "has_active_claude_session":
+				if v, ok := value.(bool); ok {
+					worktree.HasActiveClaudeSession = v
+				}
+			case "claude_activity_state":
+				if v, ok := value.(models.ClaudeActivityState); ok {
+					worktree.ClaudeActivityState = v
+				}
 			}
 		}
 	}
@@ -324,10 +357,12 @@ func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[str
 		return err
 	}
 
-	// Emit batch update event
+	// Emit events
 	if wsm.eventsEmitter != nil {
-		// Convert to cached status format for compatibility
+		// For git status updates, emit batch update
 		cachedUpdates := make(map[string]*CachedWorktreeStatus)
+		hasGitStatusUpdates := false
+
 		for worktreeID, worktreeUpdates := range updates {
 			cached := &CachedWorktreeStatus{
 				WorktreeID:  worktreeID,
@@ -337,27 +372,40 @@ func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[str
 			// Convert updates to cached format
 			if v, ok := worktreeUpdates["is_dirty"].(bool); ok {
 				cached.IsDirty = &v
+				hasGitStatusUpdates = true
 			}
 			if v, ok := worktreeUpdates["has_conflicts"].(bool); ok {
 				cached.HasConflicts = &v
+				hasGitStatusUpdates = true
 			}
 			if v, ok := worktreeUpdates["commit_hash"].(string); ok {
 				cached.CommitHash = v
+				hasGitStatusUpdates = true
 			}
 			if v, ok := worktreeUpdates["commit_count"].(int); ok {
 				cached.CommitCount = &v
+				hasGitStatusUpdates = true
 			}
 			if v, ok := worktreeUpdates["commits_behind"].(int); ok {
 				cached.CommitsBehind = &v
+				hasGitStatusUpdates = true
 			}
 			if v, ok := worktreeUpdates["branch"].(string); ok {
 				cached.Branch = v
+				hasGitStatusUpdates = true
 			}
 
 			cachedUpdates[worktreeID] = cached
+
+			// For Claude activity state changes, emit individual worktree update events
+			// This ensures the frontend receives proper SSE events with all field changes
+			wsm.eventsEmitter.EmitWorktreeUpdated(worktreeID, worktreeUpdates)
 		}
 
-		wsm.eventsEmitter.EmitWorktreeBatchUpdated(cachedUpdates)
+		// Only emit batch update if there were git status changes
+		if hasGitStatusUpdates {
+			wsm.eventsEmitter.EmitWorktreeBatchUpdated(cachedUpdates)
+		}
 	}
 
 	return nil
@@ -438,6 +486,7 @@ func (wsm *WorktreeStateManager) captureFieldState(wt *models.Worktree) worktree
 		PullRequestURL:         wt.PullRequestURL,
 		SessionTitle:           wt.SessionTitle,
 		HasActiveClaudeSession: wt.HasActiveClaudeSession,
+		ClaudeActivityState:    wt.ClaudeActivityState,
 	}
 
 	// Deep copy title history
@@ -460,4 +509,71 @@ func (wsm *WorktreeStateManager) SetEventsEmitter(emitter EventsEmitter) {
 	wsm.mu.Lock()
 	defer wsm.mu.Unlock()
 	wsm.eventsEmitter = emitter
+}
+
+// startClaudeActivitySync periodically checks and updates Claude activity states
+func (wsm *WorktreeStateManager) startClaudeActivitySync() {
+	log.Printf("🔄 Starting Claude activity state sync")
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-wsm.stopChan:
+			log.Printf("🛑 Stopping Claude activity state sync")
+			return
+		case <-ticker.C:
+			wsm.syncClaudeActivityStates()
+		}
+	}
+}
+
+// syncClaudeActivityStates checks all worktrees for Claude activity state changes
+func (wsm *WorktreeStateManager) syncClaudeActivityStates() {
+	wsm.mu.RLock()
+	sessionService := wsm.sessionService
+	if sessionService == nil {
+		wsm.mu.RUnlock()
+		return
+	}
+
+	// Make a copy of worktrees to avoid holding lock during SessionService calls
+	worktreeCopy := make(map[string]*models.Worktree)
+	for id, wt := range wsm.worktrees {
+		wtCopy := *wt
+		worktreeCopy[id] = &wtCopy
+	}
+	wsm.mu.RUnlock()
+
+	// Check each worktree for Claude activity state changes
+	updates := make(map[string]map[string]interface{})
+
+	for worktreeID, wt := range worktreeCopy {
+		// Get current Claude activity state
+		currentActivityState := sessionService.GetClaudeActivityState(wt.Path)
+
+		// Check if activity state has changed
+		if wt.ClaudeActivityState != currentActivityState {
+			log.Printf("🔄 Claude activity state changed for %s: %s -> %s",
+				wt.Name, wt.ClaudeActivityState, currentActivityState)
+
+			if updates[worktreeID] == nil {
+				updates[worktreeID] = make(map[string]interface{})
+			}
+			updates[worktreeID]["claude_activity_state"] = currentActivityState
+
+			// Also update the backward compatibility field
+			hasActiveSession := (currentActivityState == models.ClaudeActive || currentActivityState == models.ClaudeRunning)
+			if wt.HasActiveClaudeSession != hasActiveSession {
+				updates[worktreeID]["has_active_claude_session"] = hasActiveSession
+			}
+		}
+	}
+
+	// Apply any updates found
+	if len(updates) > 0 {
+		if err := wsm.BatchUpdateWorktrees(updates); err != nil {
+			log.Printf("⚠️ Failed to update Claude activity states: %v", err)
+		}
+	}
 }

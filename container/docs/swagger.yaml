@@ -1,4 +1,14 @@
 definitions:
+  github_com_vanpelt_catnip_internal_models.ClaudeActivityState:
+    enum:
+    - inactive
+    - running
+    - active
+    type: string
+    x-enum-varnames:
+    - ClaudeInactive
+    - ClaudeRunning
+    - ClaudeActive
   github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry:
     properties:
       display:
@@ -342,6 +352,10 @@ definitions:
         description: Current git branch name in this worktree
         example: feature/api-docs
         type: string
+      claude_activity_state:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeActivityState'
+        description: Current Claude activity state (inactive/running/active)
       commit_count:
         description: Number of commits ahead of the divergence point (CommitHash)
         example: 3
@@ -361,7 +375,8 @@ definitions:
         example: "2024-01-15T14:00:00Z"
         type: string
       has_active_claude_session:
-        description: Whether there's an active Claude session for this worktree
+        description: Whether there's an active Claude session for this worktree (deprecated
+          - use ClaudeActivityState)
         type: boolean
       has_conflicts:
         description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
@@ -583,6 +598,10 @@ definitions:
         type: string
       cache_status:
         $ref: '#/definitions/internal_handlers.WorktreeCacheStatus'
+      claude_activity_state:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeActivityState'
+        description: Current Claude activity state (inactive/running/active)
       commit_count:
         description: Number of commits ahead of the divergence point (CommitHash)
         example: 3
@@ -602,7 +621,8 @@ definitions:
         example: "2024-01-15T14:00:00Z"
         type: string
       has_active_claude_session:
-        description: Whether there's an active Claude session for this worktree
+        description: Whether there's an active Claude session for this worktree (deprecated
+          - use ClaudeActivityState)
         type: boolean
       has_conflicts:
         description: Whether the worktree is in a conflicted state (rebase/merge conflicts)

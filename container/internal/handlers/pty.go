@@ -19,6 +19,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
 
@@ -781,10 +782,42 @@ func (h *PTYHandler) monitorSession(session *Session) {
 		connectionCount := len(session.connections)
 		session.connMutex.RUnlock()
 
-		// If no connections and idle for 10 minutes, clean up
-		if connectionCount == 0 && time.Since(session.LastAccess) > 10*time.Minute {
-			h.cleanupSession(session)
-			return
+		// Use Claude activity-based cleanup logic for Claude sessions
+		if session.Agent == "claude" {
+			claudeActivityState := h.sessionService.GetClaudeActivityState(session.WorkDir)
+
+			// Cleanup logic based on Claude activity state:
+			// 1. ClaudeInactive: No PTY session or very old activity - cleanup immediately
+			// 2. ClaudeRunning: PTY exists but no recent activity - this state means it's been
+			//    inactive for more than 2 minutes already, so we can cleanup after it's been
+			//    in this state for 5 minutes to give some buffer time
+			// 3. ClaudeActive: Recent activity - keep alive regardless of WebSocket connections
+			switch claudeActivityState {
+			case models.ClaudeInactive:
+				log.Printf("🧹 Claude session inactive, cleaning up PTY session: %s", session.ID)
+				h.cleanupSession(session)
+				return
+			case models.ClaudeRunning:
+				// The "running" state means PTY exists but no activity in the last 2+ minutes.
+				// However, the Claude process itself might still be active. We should be very
+				// conservative about cleaning up running Claude sessions to avoid killing
+				// active processes when users switch between views.
+
+				// Only cleanup if no connections AND it's been inactive for a very long time
+				if connectionCount == 0 && time.Since(session.LastAccess) > 10*time.Minute {
+					log.Printf("🧹 Claude session running with no connections for >10min, cleaning up PTY session: %s", session.ID)
+					h.cleanupSession(session)
+					return
+				}
+			case models.ClaudeActive:
+				// For "active" state, keep the session alive regardless of WebSocket connections
+			}
+		} else {
+			// For non-Claude sessions, use the old logic (cleanup after 10 minutes with no connections)
+			if connectionCount == 0 && time.Since(session.LastAccess) > 10*time.Minute {
+				h.cleanupSession(session)
+				return
+			}
 		}
 	}
 }

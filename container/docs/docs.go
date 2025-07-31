@@ -1146,6 +1146,19 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_vanpelt_catnip_internal_models.ClaudeActivityState": {
+            "type": "string",
+            "enum": [
+                "inactive",
+                "running",
+                "active"
+            ],
+            "x-enum-varnames": [
+                "ClaudeInactive",
+                "ClaudeRunning",
+                "ClaudeActive"
+            ]
+        },
         "github_com_vanpelt_catnip_internal_models.ClaudeHistoryEntry": {
             "type": "object",
             "properties": {
@@ -1601,6 +1614,14 @@ const docTemplate = `{
                     "type": "string",
                     "example": "feature/api-docs"
                 },
+                "claude_activity_state": {
+                    "description": "Current Claude activity state (inactive/running/active)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeActivityState"
+                        }
+                    ]
+                },
                 "commit_count": {
                     "description": "Number of commits ahead of the divergence point (CommitHash)",
                     "type": "integer",
@@ -1622,7 +1643,7 @@ const docTemplate = `{
                     "example": "2024-01-15T14:00:00Z"
                 },
                 "has_active_claude_session": {
-                    "description": "Whether there's an active Claude session for this worktree",
+                    "description": "Whether there's an active Claude session for this worktree (deprecated - use ClaudeActivityState)",
                     "type": "boolean"
                 },
                 "has_conflicts": {
@@ -1933,6 +1954,14 @@ const docTemplate = `{
                 "cache_status": {
                     "$ref": "#/definitions/internal_handlers.WorktreeCacheStatus"
                 },
+                "claude_activity_state": {
+                    "description": "Current Claude activity state (inactive/running/active)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeActivityState"
+                        }
+                    ]
+                },
                 "commit_count": {
                     "description": "Number of commits ahead of the divergence point (CommitHash)",
                     "type": "integer",
@@ -1954,7 +1983,7 @@ const docTemplate = `{
                     "example": "2024-01-15T14:00:00Z"
                 },
                 "has_active_claude_session": {
-                    "description": "Whether there's an active Claude session for this worktree",
+                    "description": "Whether there's an active Claude session for this worktree (deprecated - use ClaudeActivityState)",
                     "type": "boolean"
                 },
                 "has_conflicts": {
