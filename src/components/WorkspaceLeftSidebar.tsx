@@ -23,7 +23,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useAppStore } from "@/stores/appStore";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
 import { useGlobalKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 
@@ -51,19 +51,12 @@ export function WorkspaceLeftSidebar() {
   // Find current worktree to get its repo_id for expanded state
   const currentWorkspaceName = `${project}/${workspace}`;
 
-  // Use stable selector to avoid infinite loops
-  const worktreesCount = useAppStore(
-    (state) => state.getWorktreesList().length,
-  );
-  const currentWorktree = useMemo(() => {
-    if (worktreesCount === 0) return undefined;
-    const worktreesList = useAppStore.getState().getWorktreesList();
-    return worktreesList.find((w) => w.name === currentWorkspaceName);
-  }, [currentWorkspaceName, worktreesCount]);
+  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
 
-  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(
-    new Set(currentWorktree ? [currentWorktree.repo_id] : []),
-  );
+  // Keep all repositories expanded by default
+  useEffect(() => {
+    setExpandedRepos(new Set(repositories.map((repo) => repo.id)));
+  }, [repositories]);
 
   const toggleRepo = (repoIdToToggle: string) => {
     const newExpanded = new Set(expandedRepos);
@@ -180,25 +173,27 @@ export function WorkspaceLeftSidebar() {
                                 </SidebarMenuSubItem>
                               );
                             })}
-                            {/* Add New Workspace Button */}
-                            <SidebarMenuSubItem>
-                              <SidebarMenuSubButton
-                                onClick={() => setNewWorkspaceDialogOpen(true)}
-                                className="flex items-center gap-1.5 pr-2 text-muted-foreground hover:text-foreground"
-                              >
-                                <Plus className="h-3 w-3 flex-shrink-0" />
-                                <span className="truncate">New workspace</span>
-                                <span className="ml-auto text-xs text-muted-foreground">
-                                  ⌘N
-                                </span>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
                           </SidebarMenuSub>
                         </CollapsibleContent>
                       </SidebarMenuItem>
                     </Collapsible>
                   );
                 })}
+              </SidebarMenu>
+              {/* Global New Workspace Button */}
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setNewWorkspaceDialogOpen(true)}
+                    className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+                  >
+                    <Plus className="h-4 w-4 flex-shrink-0" />
+                    <span className="truncate">New workspace</span>
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      ⌘N
+                    </span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
