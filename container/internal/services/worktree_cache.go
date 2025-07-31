@@ -442,9 +442,14 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 		sourceRef := worktree.SourceBranch
 		if !strings.HasPrefix(sourceRef, "origin/") {
 			// For local repos, use the branch directly since it's the source of truth
-			// For remote repos, use origin/ prefix
+			// For remote repos, try origin/ prefix first, fallback to local branch
 			if !strings.Contains(worktree.RepoID, "local/") {
-				sourceRef = "origin/" + sourceRef
+				remoteRef := "origin/" + sourceRef
+				// Check if remote reference exists by trying to resolve it
+				if _, err := c.operations.ExecuteGit(worktreePath, "rev-parse", "--verify", remoteRef); err == nil {
+					sourceRef = remoteRef
+				}
+				// If remote ref doesn't exist, sourceRef remains as local branch (fallback)
 			}
 			// For local repos, use sourceRef as-is (no prefix needed)
 		}
