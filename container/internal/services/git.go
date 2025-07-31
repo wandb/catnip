@@ -280,6 +280,13 @@ func (s *GitService) SetSessionService(sessionService *SessionService) {
 	s.stateManager.SetSessionService(sessionService)
 }
 
+// TriggerClaudeActivitySync triggers an immediate Claude activity state sync
+func (s *GitService) TriggerClaudeActivitySync() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	s.stateManager.TriggerClaudeActivitySync()
+}
+
 // InitializeLocalRepos detects and loads any local repositories in /live
 // This should be called after SetSetupExecutor to ensure setup.sh execution works
 func (s *GitService) InitializeLocalRepos() {
