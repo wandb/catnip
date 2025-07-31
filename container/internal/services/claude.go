@@ -664,7 +664,10 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 // GetLatestTodos gets the most recent Todo structure from the session history
 func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, error) {
 	// Convert worktree path to project directory name
+	// /workspace/vllmulator/midnight -> -workspace-vllmulator-midnight
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.TrimPrefix(projectDirName, "-")
+	projectDirName = "-" + projectDirName // Add back the leading dash
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -686,43 +689,53 @@ func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, erro
 			return nil // Skip invalid JSON lines
 		}
 
-		// Check if this is a tool use message for TodoWrite
-		if message.Type == "tool_use" {
+		// Check if this is an assistant message that might contain TodoWrite
+		if message.Type == "assistant" && message.Message != nil {
 			messageData := message.Message
-			if name, exists := messageData["name"]; exists && name == "TodoWrite" {
-				if input, exists := messageData["input"]; exists {
-					if inputMap, ok := input.(map[string]interface{}); ok {
-						if todos, exists := inputMap["todos"]; exists {
-							if todosArray, ok := todos.([]interface{}); ok {
-								var parsedTodos []models.Todo
-								for _, todoItem := range todosArray {
-									if todoMap, ok := todoItem.(map[string]interface{}); ok {
-										todo := models.Todo{}
-										if id, exists := todoMap["id"]; exists {
-											if idStr, ok := id.(string); ok {
-												todo.ID = idStr
+			if content, exists := messageData["content"]; exists {
+				if contentArray, ok := content.([]interface{}); ok {
+					for _, contentItem := range contentArray {
+						if contentMap, ok := contentItem.(map[string]interface{}); ok {
+							if contentType, exists := contentMap["type"]; exists && contentType == "tool_use" {
+								if name, exists := contentMap["name"]; exists && name == "TodoWrite" {
+									if input, exists := contentMap["input"]; exists {
+										if inputMap, ok := input.(map[string]interface{}); ok {
+											if todos, exists := inputMap["todos"]; exists {
+												if todosArray, ok := todos.([]interface{}); ok {
+													var parsedTodos []models.Todo
+													for _, todoItem := range todosArray {
+														if todoMap, ok := todoItem.(map[string]interface{}); ok {
+															todo := models.Todo{}
+															if id, exists := todoMap["id"]; exists {
+																if idStr, ok := id.(string); ok {
+																	todo.ID = idStr
+																}
+															}
+															if content, exists := todoMap["content"]; exists {
+																if contentStr, ok := content.(string); ok {
+																	todo.Content = contentStr
+																}
+															}
+															if status, exists := todoMap["status"]; exists {
+																if statusStr, ok := status.(string); ok {
+																	todo.Status = statusStr
+																}
+															}
+															if priority, exists := todoMap["priority"]; exists {
+																if priorityStr, ok := priority.(string); ok {
+																	todo.Priority = priorityStr
+																}
+															}
+															parsedTodos = append(parsedTodos, todo)
+														}
+													}
+													// Update latestTodos with the most recent one found
+													latestTodos = parsedTodos
+												}
 											}
 										}
-										if content, exists := todoMap["content"]; exists {
-											if contentStr, ok := content.(string); ok {
-												todo.Content = contentStr
-											}
-										}
-										if status, exists := todoMap["status"]; exists {
-											if statusStr, ok := status.(string); ok {
-												todo.Status = statusStr
-											}
-										}
-										if priority, exists := todoMap["priority"]; exists {
-											if priorityStr, ok := priority.(string); ok {
-												todo.Priority = priorityStr
-											}
-										}
-										parsedTodos = append(parsedTodos, todo)
 									}
 								}
-								// Update latestTodos with the most recent one found
-								latestTodos = parsedTodos
 							}
 						}
 					}
