@@ -81,8 +81,8 @@ function GitStatus({ worktree }: { worktree: Worktree }) {
 function TodosList({ worktree }: { worktree: Worktree }) {
   const todos = worktree.todos || [];
 
-  const completedTodos = todos.filter((todo) => todo.completed);
-  const pendingTodos = todos.filter((todo) => !todo.completed);
+  const completedTodos = todos.filter((todo) => todo.status === "completed");
+  const pendingTodos = todos.filter((todo) => todo.status !== "completed");
 
   if (todos.length === 0) {
     return (
@@ -111,42 +111,38 @@ function TodosList({ worktree }: { worktree: Worktree }) {
         <ScrollArea className="h-48">
           <div className="space-y-2">
             {/* Pending todos */}
-            {pendingTodos.map((todo, index) => (
-              <div
-                key={`pending-${index}`}
-                className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50"
-              >
-                <Circle className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm break-words">{todo.text}</p>
-                  {todo.priority && (
-                    <Badge
-                      variant={
-                        todo.priority === "high"
-                          ? "destructive"
-                          : todo.priority === "medium"
-                            ? "default"
-                            : "secondary"
-                      }
-                      className="text-[10px] mt-1 px-1.5 py-0.5 h-4"
+            {pendingTodos.map((todo, index) => {
+              // Most recent uncompleted item gets brighter styling
+              const isMostRecent = index === 0;
+              return (
+                <div
+                  key={todo.id}
+                  className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50"
+                >
+                  <Circle
+                    className={`h-4 w-4 mt-0.5 flex-shrink-0 ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`text-sm break-words ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
                     >
-                      {todo.priority}
-                    </Badge>
-                  )}
+                      {todo.content}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             {/* Completed todos */}
-            {completedTodos.map((todo, index) => (
+            {completedTodos.map((todo) => (
               <div
-                key={`completed-${index}`}
-                className="flex items-start gap-2 p-2 rounded-md opacity-60"
+                key={todo.id}
+                className="flex items-start gap-2 p-2 rounded-md"
               >
                 <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm break-words line-through">
-                    {todo.text}
+                  <p className="text-sm break-words text-muted-foreground line-through">
+                    {todo.content}
                   </p>
                 </div>
               </div>

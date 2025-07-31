@@ -408,8 +408,9 @@ export const useAppStore = create<AppState>()(
               ...existingWorktree,
               todos: event.payload.todos?.map((todo: any) => ({
                 id: todo.id,
-                text: todo.content || todo.text,
-                completed: todo.status === "completed",
+                content: todo.content || todo.text,
+                status:
+                  todo.status || (todo.completed ? "completed" : "pending"),
                 priority: todo.priority,
               })),
             });
