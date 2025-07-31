@@ -335,21 +335,24 @@ function GitPage() {
 
     if (!url) return;
 
-    // Check if this is a current repository (already checked out)
-    const repositories = gitStatus.repositories as
-      | Record<string, LocalRepository>
-      | undefined;
-    const currentRepo = Object.values(repositories ?? {}).find(
-      (repo: LocalRepository) =>
-        (repo.id.startsWith("local/") ? repo.id : repo.url) === url,
-    );
+    setBranchesLoading(true);
+    try {
+      // Check if this is a current repository (already checked out)
+      const repositories = gitStatus.repositories as
+        | Record<string, LocalRepository>
+        | undefined;
+      const currentRepo = Object.values(repositories ?? {}).find(
+        (repo: LocalRepository) =>
+          (repo.id.startsWith("local/") ? repo.id : repo.url) === url,
+      );
 
-    if (currentRepo) {
-      // For current repos, get the current branch and default branch
-      setBranchesLoading(true);
-      try {
-        const branches = await gitApi.fetchBranches(currentRepo.id);
-        setSelectedRepoBranches(branches);
+      let branches: string[] = [];
+      let repoId: string;
+
+      if (currentRepo) {
+        // For checked out repos, use the repository ID
+        repoId = currentRepo.id;
+        branches = await gitApi.fetchBranches(repoId);
 
         // Set default branch as selected for current repos
         if (
@@ -360,11 +363,38 @@ function GitPage() {
         } else if (branches.length > 0) {
           setSelectedBranch(branches[0]);
         }
-      } catch (error) {
-        console.error("Failed to fetch branches:", error);
-      } finally {
-        setBranchesLoading(false);
+      } else {
+        // For remote GitHub repos that haven't been checked out yet
+        // Parse GitHub URL to get org/repo format
+        let repoPath = "";
+        if (url.startsWith("https://github.com/")) {
+          // Extract org/repo from full GitHub URL
+          const match = url.match(/github\.com\/([^/]+\/[^/]+)/);
+          if (match) {
+            repoPath = match[1].replace(/\.git$/, ""); // Remove .git suffix if present
+          }
+        } else if (url.includes("/") && !url.startsWith("local/")) {
+          // Already in org/repo format
+          repoPath = url;
+        }
+
+        if (repoPath) {
+          repoId = repoPath;
+          branches = await gitApi.fetchBranches(repoId);
+
+          // For remote repos, set the first branch as default (usually main/master)
+          if (branches.length > 0) {
+            setSelectedBranch(branches[0]);
+          }
+        }
       }
+
+      setSelectedRepoBranches(branches);
+    } catch (error) {
+      console.error("Failed to fetch branches:", error);
+      setSelectedRepoBranches([]);
+    } finally {
+      setBranchesLoading(false);
     }
   };
 
