@@ -4,6 +4,11 @@ import {
   CheckCircle,
   Circle,
   AlertCircle,
+  Plus,
+  Minus,
+  RotateCw,
+  Eye,
+  Terminal,
 } from "lucide-react";
 import {
   Sidebar,
@@ -14,12 +19,16 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 
 interface WorkspaceRightSidebarProps {
   worktree: Worktree;
   repository: LocalRepository;
+  showDiffView: boolean;
+  setShowDiffView: (showDiff: boolean) => void;
 }
 
 function GitStatus({ worktree }: { worktree: Worktree }) {
@@ -47,31 +56,26 @@ function GitStatus({ worktree }: { worktree: Worktree }) {
             </span>
           </div>
 
-          {/* Status badge */}
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-2 h-2 rounded-full ${getStatusColor().replace("text-", "bg-")}`}
-            />
-            <span className={`text-sm ${getStatusColor()}`}>
+          {/* Status and commit counts on same line */}
+          <div className="flex items-center justify-between">
+            <span className={`text-xs ${getStatusColor()}`}>
               {getStatusText()}
             </span>
+            {(worktree.commit_count > 0 || worktree.commits_behind > 0) && (
+              <div className="flex items-center gap-1">
+                {worktree.commit_count > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{worktree.commit_count} ahead
+                  </Badge>
+                )}
+                {worktree.commits_behind > 0 && (
+                  <Badge variant="outline" className="text-xs">
+                    -{worktree.commits_behind} behind
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
-
-          {/* Commit counts */}
-          {(worktree.commit_count > 0 || worktree.commits_behind > 0) && (
-            <div className="space-y-1">
-              {worktree.commit_count > 0 && (
-                <Badge variant="outline" className="text-xs">
-                  +{worktree.commit_count} ahead
-                </Badge>
-              )}
-              {worktree.commits_behind > 0 && (
-                <Badge variant="outline" className="text-xs">
-                  -{worktree.commits_behind} behind
-                </Badge>
-              )}
-            </div>
-          )}
         </div>
       </SidebarGroupContent>
     </SidebarGroup>
@@ -154,10 +158,49 @@ function TodosList({ worktree }: { worktree: Worktree }) {
   );
 }
 
-function ChangedFiles({ worktree }: { worktree: Worktree }) {
-  const dirtyFiles = worktree.dirty_files || [];
+function ChangedFiles({
+  worktree,
+  showDiffView,
+  setShowDiffView,
+}: {
+  worktree: Worktree;
+  showDiffView: boolean;
+  setShowDiffView: (showDiff: boolean) => void;
+}) {
+  const { diffStats, loading, error } = useWorktreeDiff(
+    worktree.id,
+    worktree.commit_hash,
+    worktree.is_dirty,
+  );
 
-  if (dirtyFiles.length === 0) {
+  const fileDiffs = diffStats?.file_diffs || [];
+
+  if (loading) {
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>Changed Files</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <div className="text-sm text-muted-foreground p-2 flex items-center gap-2">
+            <RotateCw className="h-3 w-3 animate-spin" />
+            Loading changes...
+          </div>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
+
+  if (error) {
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>Changed Files</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <div className="text-sm text-red-500 p-2">Failed to load changes</div>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
+
+  if (fileDiffs.length === 0) {
     return (
       <SidebarGroup>
         <SidebarGroupLabel>Changed Files</SidebarGroupLabel>
@@ -168,33 +211,37 @@ function ChangedFiles({ worktree }: { worktree: Worktree }) {
     );
   }
 
-  const getFileStatusIcon = (status: string) => {
-    switch (status) {
-      case "M":
+  const getFileStatusIcon = (changeType: string) => {
+    switch (changeType) {
+      case "modified":
         return <AlertCircle className="h-3 w-3 text-yellow-500" />;
-      case "A":
-        return <Circle className="h-3 w-3 text-green-500" />;
-      case "D":
-        return <Circle className="h-3 w-3 text-red-500" />;
-      case "R":
-        return <Circle className="h-3 w-3 text-blue-500" />;
+      case "added":
+        return <Plus className="h-3 w-3 text-green-500" />;
+      case "deleted":
+        return <Minus className="h-3 w-3 text-red-500" />;
+      case "renamed":
+        return <RotateCw className="h-3 w-3 text-blue-500" />;
       default:
         return <Circle className="h-3 w-3 text-muted-foreground" />;
     }
   };
 
-  const getFileStatusLabel = (status: string) => {
-    switch (status) {
-      case "M":
-        return "Modified";
-      case "A":
-        return "Added";
-      case "D":
-        return "Deleted";
-      case "R":
-        return "Renamed";
+  const getFileStatusLabel = (changeType: string) => {
+    return changeType.charAt(0).toUpperCase() + changeType.slice(1);
+  };
+
+  const getFileStatusBadge = (changeType: string) => {
+    switch (changeType) {
+      case "modified":
+        return "M";
+      case "added":
+        return "A";
+      case "deleted":
+        return "D";
+      case "renamed":
+        return "R";
       default:
-        return "Changed";
+        return "?";
     }
   };
 
@@ -203,25 +250,50 @@ function ChangedFiles({ worktree }: { worktree: Worktree }) {
       <SidebarGroupLabel>
         <div className="flex items-center justify-between w-full">
           <span>Changed Files</span>
-          <Badge variant="secondary" className="text-xs">
-            {dirtyFiles.length}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-xs">
+              {fileDiffs.length}
+            </Badge>
+            {fileDiffs.length > 0 && (
+              <Button
+                variant={showDiffView ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowDiffView(!showDiffView)}
+                className="h-6 px-2 text-xs"
+                title={showDiffView ? "Show Claude Terminal" : "View Diff"}
+              >
+                {showDiffView ? (
+                  <>
+                    <Terminal className="h-3 w-3 mr-1" />
+                    Claude
+                  </>
+                ) : (
+                  <>
+                    <Eye className="h-3 w-3 mr-1" />
+                    View Diff
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <ScrollArea className="h-48">
           <div className="space-y-1">
-            {dirtyFiles.map((file, index) => (
+            {fileDiffs.map((file, index) => (
               <div
                 key={index}
                 className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer"
-                title={`${getFileStatusLabel(file.status)}: ${file.path}`}
+                title={`${getFileStatusLabel(file.change_type)}: ${file.file_path}`}
               >
-                {getFileStatusIcon(file.status)}
+                {getFileStatusIcon(file.change_type)}
                 <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm truncate flex-1">{file.path}</span>
+                <span className="text-sm truncate flex-1">
+                  {file.file_path}
+                </span>
                 <Badge variant="outline" className="text-xs">
-                  {file.status}
+                  {getFileStatusBadge(file.change_type)}
                 </Badge>
               </div>
             ))}
@@ -234,6 +306,8 @@ function ChangedFiles({ worktree }: { worktree: Worktree }) {
 
 export function WorkspaceRightSidebar({
   worktree,
+  showDiffView,
+  setShowDiffView,
 }: WorkspaceRightSidebarProps) {
   return (
     <Sidebar
@@ -246,7 +320,11 @@ export function WorkspaceRightSidebar({
         <SidebarSeparator className="mx-0" />
         <TodosList worktree={worktree} />
         <SidebarSeparator className="mx-0" />
-        <ChangedFiles worktree={worktree} />
+        <ChangedFiles
+          worktree={worktree}
+          showDiffView={showDiffView}
+          setShowDiffView={setShowDiffView}
+        />
       </SidebarContent>
     </Sidebar>
   );

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useParams } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { WorkspaceLeftSidebar } from "@/components/WorkspaceLeftSidebar";
 import { WorkspaceRightSidebar } from "@/components/WorkspaceRightSidebar";
@@ -11,6 +11,9 @@ function WorkspacePage() {
   const { project, workspace } = useParams({
     from: "/workspace/$project/$workspace",
   });
+
+  // State for toggling between Claude terminal and diff view
+  const [showDiffView, setShowDiffView] = useState(false);
 
   // Construct the workspace name from URL params
   const workspaceName = `${project}/${workspace}`;
@@ -97,9 +100,19 @@ function WorkspacePage() {
       <div className="flex h-screen w-full">
         <WorkspaceLeftSidebar />
         <SidebarInset className="flex-1 min-w-0">
-          <WorkspaceMainContent worktree={worktree} repository={repository} />
+          <WorkspaceMainContent
+            worktree={worktree}
+            repository={repository}
+            showDiffView={showDiffView}
+            setShowDiffView={setShowDiffView}
+          />
         </SidebarInset>
-        <WorkspaceRightSidebar worktree={worktree} repository={repository} />
+        <WorkspaceRightSidebar
+          worktree={worktree}
+          repository={repository}
+          showDiffView={showDiffView}
+          setShowDiffView={setShowDiffView}
+        />
       </div>
     </SidebarProvider>
   );
