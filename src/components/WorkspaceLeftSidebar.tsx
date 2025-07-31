@@ -75,7 +75,7 @@ export function WorkspaceLeftSidebar() {
       worktree.session_title && worktree.session_title.title;
 
     if (hasActiveClaudeSession) {
-      return { color: "bg-blue-500", label: "active" };
+      return { color: "bg-blue-500 animate-pulse", label: "active" };
     }
 
     // Otherwise show as inactive/gray
@@ -84,11 +84,10 @@ export function WorkspaceLeftSidebar() {
 
   return (
     <Sidebar className="border-r-0">
-      <SidebarHeader className="border-b px-3 py-2">
+      <SidebarHeader className="px-3 py-2">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
-            <img src="/logo@2x.png" alt="Catnip" className="w-6 h-6" />
-            <span className="font-semibold">Workspaces</span>
+            <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
           </div>
           <SidebarTrigger className="h-6 w-6" />
         </div>
