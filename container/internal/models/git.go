@@ -4,6 +4,18 @@ import (
 	"time"
 )
 
+// ClaudeActivityState represents the current activity state of a Claude session
+type ClaudeActivityState string
+
+const (
+	// ClaudeInactive means no Claude session exists
+	ClaudeInactive ClaudeActivityState = "inactive"
+	// ClaudeRunning means PTY session exists but no recent Claude activity (>2 minutes)
+	ClaudeRunning ClaudeActivityState = "running"
+	// ClaudeActive means recent Claude activity detected (<2 minutes)
+	ClaudeActive ClaudeActivityState = "active"
+)
+
 // TitleEntry represents a title with its timestamp and hash
 type TitleEntry struct {
 	Title      string    `json:"title"`
@@ -76,8 +88,10 @@ type Worktree struct {
 	SessionTitle *TitleEntry `json:"session_title,omitempty"`
 	// History of session titles
 	SessionTitleHistory []TitleEntry `json:"session_title_history,omitempty"`
-	// Whether there's an active Claude session for this worktree
+	// Whether there's an active Claude session for this worktree (deprecated - use ClaudeActivityState)
 	HasActiveClaudeSession bool `json:"has_active_claude_session"`
+	// Current Claude activity state (inactive/running/active)
+	ClaudeActivityState ClaudeActivityState `json:"claude_activity_state"`
 	// URL of the associated pull request (if one exists)
 	PullRequestURL string `json:"pull_request_url,omitempty" example:"https://github.com/owner/repo/pull/123"`
 	// Current todos from the most recent TodoWrite in Claude session

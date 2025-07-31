@@ -181,6 +181,117 @@ func (s *SessionService) FindSessionByDirectory(workDir string) (*SessionState, 
 	return nil, nil // No active Claude session found in this directory
 }
 
+// GetClaudeActivityState determines the Claude activity state for a workspace directory
+func (s *SessionService) GetClaudeActivityState(workDir string) models.ClaudeActivityState {
+	// Check if PTY session exists for this workspace
+	hasPTYSession := s.hasPTYSession(workDir)
+
+	// Get the newest Claude session file and its modification time
+	lastActivityTime := s.getLastClaudeActivityTime(workDir)
+
+	// If no Claude session file found, check PTY existence
+	if lastActivityTime.IsZero() {
+		if hasPTYSession {
+			return models.ClaudeRunning // PTY exists but no Claude activity detected
+		}
+		return models.ClaudeInactive // No PTY session and no Claude activity
+	}
+
+	// Check if Claude activity is recent (within 2 minutes)
+	timeSinceActivity := time.Since(lastActivityTime)
+
+	if timeSinceActivity <= 2*time.Minute {
+		return models.ClaudeActive // Recent Claude activity
+	}
+
+	// Claude session exists but no recent activity
+	if hasPTYSession {
+		return models.ClaudeRunning // PTY exists but no recent Claude activity
+	}
+
+	return models.ClaudeInactive // Old activity and no PTY session
+}
+
+// getLastClaudeActivityTime returns the modification time of the newest Claude session file
+func (s *SessionService) getLastClaudeActivityTime(workDir string) time.Time {
+	homeDir := "/home/catnip"
+	transformedPath := strings.ReplaceAll(workDir, "/", "-")
+	transformedPath = strings.TrimPrefix(transformedPath, "-")
+	transformedPath = "-" + transformedPath // Add back the leading dash
+
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+
+	// Check if .claude/projects directory exists
+	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
+		return time.Time{} // Zero time if directory doesn't exist
+	}
+
+	files, err := os.ReadDir(claudeProjectsDir)
+	if err != nil {
+		return time.Time{}
+	}
+
+	var newestTime time.Time
+
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
+			continue
+		}
+
+		// Extract session ID from filename (remove .jsonl extension)
+		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
+
+		// Validate that it looks like a UUID
+		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+			continue
+		}
+
+		// Get file modification time
+		filePath := filepath.Join(claudeProjectsDir, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+
+		// Track the newest modification time
+		if fileInfo.ModTime().After(newestTime) {
+			newestTime = fileInfo.ModTime()
+		}
+	}
+
+	return newestTime
+}
+
+// hasPTYSession checks if there's an active PTY session for this workspace
+func (s *SessionService) hasPTYSession(workDir string) bool {
+	// Method 1: Check for processes with the workspace directory in their command line
+	cmd := exec.Command("pgrep", "-f", workDir)
+	output, err := cmd.Output()
+	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
+		return true
+	}
+
+	// Method 2: Check for Claude processes running in this workspace directory
+	// Look for claude processes and check their working directory
+	cmd = exec.Command("pgrep", "-f", "claude")
+	output, err = cmd.Output()
+	if err == nil && len(strings.TrimSpace(string(output))) > 0 {
+		pids := strings.Fields(strings.TrimSpace(string(output)))
+
+		for _, pid := range pids {
+			// Read the working directory of this process
+			cwdLink := fmt.Sprintf("/proc/%s/cwd", pid)
+			if actualWorkDir, err := os.Readlink(cwdLink); err == nil {
+				if actualWorkDir == workDir {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // findNewestClaudeSessionFile finds the newest JSONL file in .claude/projects directory
 func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) string {
 	// Check if .claude/projects directory exists

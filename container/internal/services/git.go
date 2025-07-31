@@ -273,6 +273,13 @@ func (s *GitService) SetEventsEmitter(emitter EventsEmitter) {
 	s.stateManager.SetEventsEmitter(emitter)
 }
 
+// SetSessionService connects the session service to enable Claude activity state tracking
+func (s *GitService) SetSessionService(sessionService *SessionService) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stateManager.SetSessionService(sessionService)
+}
+
 // InitializeLocalRepos detects and loads any local repositories in /live
 // This should be called after SetSetupExecutor to ensure setup.sh execution works
 func (s *GitService) InitializeLocalRepos() {

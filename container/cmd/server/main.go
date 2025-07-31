@@ -138,6 +138,10 @@ func main() {
 	sessionService.SetEventsHandler(eventsHandler)
 	log.Printf("✅ EventsHandler connected to SessionService for session title events")
 
+	// Connect SessionService to GitService for Claude activity state tracking
+	gitService.SetSessionService(sessionService)
+	log.Printf("✅ SessionService connected to GitService for Claude activity state tracking")
+
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
 
