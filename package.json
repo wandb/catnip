@@ -58,6 +58,7 @@
     "react-day-picker": "^9.8.1",
     "react-diff-viewer-continued": "^3.4.0",
     "react-dom": "^19.1.0",
+    "react-hotkeys-hook": "^5.1.0",
     "react-markdown": "^10.1.0",
     "react-xtermjs": "^1.0.10",
     "remark-gfm": "^4.0.1",
