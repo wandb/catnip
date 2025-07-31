@@ -142,6 +142,10 @@ func main() {
 	gitService.SetSessionService(sessionService)
 	log.Printf("✅ SessionService connected to GitService for Claude activity state tracking")
 
+	// Connect ClaudeMonitorService to SessionService for real-time activity tracking
+	sessionService.SetClaudeMonitor(claudeMonitor)
+	log.Printf("✅ ClaudeMonitorService connected to SessionService for real-time activity tracking")
+
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
 

@@ -29,7 +29,8 @@ type SessionService struct {
 	stateDir       string
 	activeSessions map[string]*ActiveSessionInfo // key: workspace directory path
 	mu             sync.RWMutex
-	eventsHandler  EventsEmitter // Interface for emitting events
+	eventsHandler  EventsEmitter         // Interface for emitting events
+	claudeMonitor  *ClaudeMonitorService // Reference to Claude monitor for activity tracking
 }
 
 // ActiveSessionInfo represents information about an active session in a workspace
@@ -67,6 +68,13 @@ func (s *SessionService) SetEventsHandler(handler EventsEmitter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.eventsHandler = handler
+}
+
+// SetClaudeMonitor sets the Claude monitor service for real-time activity tracking
+func (s *SessionService) SetClaudeMonitor(monitor *ClaudeMonitorService) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claudeMonitor = monitor
 }
 
 // SaveSessionState persists session state to disk
@@ -212,8 +220,20 @@ func (s *SessionService) GetClaudeActivityState(workDir string) models.ClaudeAct
 	return models.ClaudeInactive // Old activity and no PTY session
 }
 
-// getLastClaudeActivityTime returns the modification time of the newest Claude session file
+// getLastClaudeActivityTime returns the last Claude activity time using real-time monitoring when available
 func (s *SessionService) getLastClaudeActivityTime(workDir string) time.Time {
+	// Try to get real-time activity data from Claude monitor first
+	s.mu.RLock()
+	monitor := s.claudeMonitor
+	s.mu.RUnlock()
+
+	if monitor != nil {
+		if activityTime := monitor.GetLastActivityTime(workDir); !activityTime.IsZero() {
+			return activityTime
+		}
+	}
+
+	// Fallback to file modification time method
 	homeDir := "/home/catnip"
 	transformedPath := strings.ReplaceAll(workDir, "/", "-")
 	transformedPath = strings.TrimPrefix(transformedPath, "-")
