@@ -7,7 +7,8 @@ import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { WorkspaceTerminal } from "@/components/WorkspaceTerminal";
-import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { useSidebar } from "@/hooks/use-sidebar";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 
 interface WorkspaceMainContentProps {

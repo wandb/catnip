@@ -6,7 +6,11 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeftIcon } from "lucide-react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
-import { SidebarContext, type SidebarContextProps } from "@/hooks/use-sidebar";
+import {
+  SidebarContext,
+  useSidebar,
+  type SidebarContextProps,
+} from "@/hooks/use-sidebar";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
