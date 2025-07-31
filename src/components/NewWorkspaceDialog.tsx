@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -37,6 +37,7 @@ export function NewWorkspaceDialog({
   const [currentGithubRepos, setCurrentGithubRepos] = useState<
     Record<string, LocalRepository>
   >({});
+  const hasFetchedRepos = useRef(false);
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -48,11 +49,12 @@ export function NewWorkspaceDialog({
     }
   }, [open]);
 
-  // Fetch GitHub repositories when dialog opens
+  // Fetch GitHub repositories when dialog opens (only once)
   useEffect(() => {
-    if (open) {
+    if (open && !hasFetchedRepos.current) {
       const fetchGithubRepos = async () => {
         try {
+          hasFetchedRepos.current = true;
           const repos = await gitApi.fetchRepositories();
           setGithubRepos(repos);
 
@@ -68,6 +70,7 @@ export function NewWorkspaceDialog({
           );
         } catch (error) {
           console.error("Failed to load repositories:", error);
+          hasFetchedRepos.current = false; // Reset on error so we can retry
         }
       };
 

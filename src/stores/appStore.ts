@@ -500,20 +500,48 @@ export const useAppStore = create<AppState>()(
 
     // Worktree actions
     setWorktrees: (worktrees: Worktree[]) => {
-      const worktreeMap = new Map<string, Worktree>();
-      worktrees.forEach((worktree) => {
-        // Ensure cache status is present
-        const enhancedWorktree = {
-          ...worktree,
-          cache_status: worktree.cache_status || {
-            is_cached: true,
-            is_loading: false,
-            last_updated: Date.now(),
-          },
-        };
-        worktreeMap.set(worktree.id, enhancedWorktree);
-      });
-      set({ worktrees: worktreeMap });
+      const currentWorktrees = get().worktrees;
+
+      // Check if worktrees have actually changed
+      const hasChanges =
+        currentWorktrees.size !== worktrees.length ||
+        worktrees.some((worktree) => {
+          const existing = currentWorktrees.get(worktree.id);
+          // Compare the worktree data, excluding cache_status timestamps which always change
+          const existingForComparison = existing
+            ? {
+                ...existing,
+                cache_status: { ...existing.cache_status, last_updated: 0 },
+              }
+            : null;
+          const newForComparison = {
+            ...worktree,
+            cache_status: { ...worktree.cache_status, last_updated: 0 },
+          };
+          return (
+            !existing ||
+            JSON.stringify(existingForComparison) !==
+              JSON.stringify(newForComparison)
+          );
+        });
+
+      // Only update if there are actual changes
+      if (hasChanges) {
+        const worktreeMap = new Map<string, Worktree>();
+        worktrees.forEach((worktree) => {
+          // Ensure cache status is present
+          const enhancedWorktree = {
+            ...worktree,
+            cache_status: worktree.cache_status || {
+              is_cached: true,
+              is_loading: false,
+              last_updated: Date.now(),
+            },
+          };
+          worktreeMap.set(worktree.id, enhancedWorktree);
+        });
+        set({ worktrees: worktreeMap });
+      }
     },
 
     updateWorktree: (worktreeId: string, updates: Partial<Worktree>) => {
@@ -551,26 +579,60 @@ export const useAppStore = create<AppState>()(
 
     // Repository actions
     setRepositories: (repositories: Record<string, LocalRepository>) => {
-      const repositoryMap = new Map<string, LocalRepository>();
-      Object.entries(repositories).forEach(([id, repo]) => {
-        repositoryMap.set(id, repo);
-      });
-      set({ repositories: repositoryMap });
+      const currentRepositories = get().repositories;
+      const newRepositoryEntries = Object.entries(repositories);
+
+      // Check if repositories have actually changed
+      const hasChanges =
+        currentRepositories.size !== newRepositoryEntries.length ||
+        newRepositoryEntries.some(([id, repo]) => {
+          const existing = currentRepositories.get(id);
+          return !existing || JSON.stringify(existing) !== JSON.stringify(repo);
+        });
+
+      // Only update if there are actual changes
+      if (hasChanges) {
+        const repositoryMap = new Map<string, LocalRepository>();
+        newRepositoryEntries.forEach(([id, repo]) => {
+          repositoryMap.set(id, repo);
+        });
+        set({ repositories: repositoryMap });
+      }
     },
 
     setGithubRepositories: (repositories: Repository[]) => {
-      set({ githubRepositories: repositories });
+      const currentRepos = get().githubRepositories;
+      // Only update if repositories have actually changed
+      if (JSON.stringify(currentRepos) !== JSON.stringify(repositories)) {
+        set({ githubRepositories: repositories });
+      }
     },
 
     setGitStatus: (status: GitStatus) => {
       set({ gitStatus: status });
       // Update repositories from git status if present
       if (status.repositories) {
-        const repositoryMap = new Map<string, LocalRepository>();
-        Object.entries(status.repositories).forEach(([id, repo]) => {
-          repositoryMap.set(id, repo as LocalRepository);
-        });
-        set({ repositories: repositoryMap });
+        const currentRepositories = get().repositories;
+        const newRepositoryEntries = Object.entries(status.repositories);
+
+        // Check if repositories have actually changed
+        const hasChanges =
+          currentRepositories.size !== newRepositoryEntries.length ||
+          newRepositoryEntries.some(([id, repo]) => {
+            const existing = currentRepositories.get(id);
+            return (
+              !existing || JSON.stringify(existing) !== JSON.stringify(repo)
+            );
+          });
+
+        // Only update if there are actual changes
+        if (hasChanges) {
+          const repositoryMap = new Map<string, LocalRepository>();
+          newRepositoryEntries.forEach(([id, repo]) => {
+            repositoryMap.set(id, repo as LocalRepository);
+          });
+          set({ repositories: repositoryMap });
+        }
       }
     },
 
