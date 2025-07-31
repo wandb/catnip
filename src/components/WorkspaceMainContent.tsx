@@ -10,9 +10,14 @@ import { WorkspaceTerminal } from "@/components/WorkspaceTerminal";
 import { WorkspaceDiffViewer } from "@/components/WorkspaceDiffViewer";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
-import { Eye } from "lucide-react";
+import { Eye, ChevronDown, ChevronUp } from "lucide-react";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 
 interface WorkspaceMainContentProps {
@@ -431,6 +436,9 @@ export function WorkspaceMainContent({
 }: WorkspaceMainContentProps) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
+  const [isTerminalMinimized, setIsTerminalMinimized] = useState(false);
+  const [previousTerminalSize, setPreviousTerminalSize] = useState(30);
+  const [terminalSize, setTerminalSize] = useState(30);
 
   // Get diff stats to check if we have changes
   const { diffStats } = useWorktreeDiff(
@@ -442,20 +450,107 @@ export function WorkspaceMainContent({
   const hasChanges =
     diffStats && diffStats.file_diffs && diffStats.file_diffs.length > 0;
 
+  // Track panel sizes
+  const handlePanelLayout = useCallback(
+    (sizes: number[]) => {
+      // The terminal panel is the second panel (index 1)
+      if (sizes[1] && !isTerminalMinimized) {
+        setTerminalSize(sizes[1]);
+      }
+    },
+    [isTerminalMinimized],
+  );
+
+  // Handle minimize/expand toggle
+  const toggleTerminalMinimized = useCallback(() => {
+    if (!isTerminalMinimized) {
+      // Save current size before minimizing
+      setPreviousTerminalSize(terminalSize);
+    }
+    setIsTerminalMinimized(!isTerminalMinimized);
+  }, [isTerminalMinimized, terminalSize]);
+
   return (
     <div className="flex flex-1 flex-col h-screen overflow-hidden">
-      {/* Main Content Area - Claude Session or Diff View */}
-      <div className="flex-1 bg-muted/50 overflow-hidden">
-        {showDiffView ? (
-          <div className="h-full">
-            <WorkspaceDiffViewer
-              worktree={worktree}
-              onClose={() => setShowDiffView(false)}
-            />
+      <ResizablePanelGroup
+        direction="vertical"
+        className="h-full"
+        onLayout={handlePanelLayout}
+        key={isTerminalMinimized ? "minimized" : "expanded"}
+      >
+        {/* Main Content Area - Claude Session or Diff View */}
+        <ResizablePanel
+          defaultSize={isTerminalMinimized ? 95 : 100 - previousTerminalSize}
+          minSize={30}
+        >
+          <div className="h-full bg-muted/50 overflow-hidden">
+            {showDiffView ? (
+              <div className="h-full">
+                <WorkspaceDiffViewer
+                  worktree={worktree}
+                  onClose={() => setShowDiffView(false)}
+                />
+              </div>
+            ) : (
+              <ResizablePanelGroup direction="vertical" className="h-full">
+                <ResizablePanel defaultSize={100} minSize={100}>
+                  <div className="h-full flex flex-col">
+                    <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {isCollapsed && (
+                            <SidebarTrigger className="h-4 w-4" />
+                          )}
+                          <img
+                            src="/anthropic.png"
+                            alt="Claude"
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm font-medium">Claude</span>
+                          {worktree.session_title && (
+                            <span className="text-xs text-muted-foreground">
+                              - {worktree.session_title.title}
+                            </span>
+                          )}
+                        </div>
+                        {/* Eyeball toggle - only show if we have changes */}
+                        {hasChanges && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowDiffView(true)}
+                            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                            title="View diff"
+                          >
+                            <Eye className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <ClaudeTerminal worktree={worktree} />
+                    </div>
+                  </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            )}
           </div>
-        ) : (
-          <div className="h-full flex flex-col">
-            <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm">
+        </ResizablePanel>
+
+        {/* Resizable Handle */}
+        {!isTerminalMinimized && (
+          <ResizableHandle className="bg-border hover:bg-accent transition-colors cursor-row-resize" />
+        )}
+
+        {/* Terminal */}
+        <ResizablePanel
+          defaultSize={isTerminalMinimized ? 5 : previousTerminalSize}
+          minSize={isTerminalMinimized ? 0 : 15}
+          maxSize={isTerminalMinimized ? 5 : 70}
+          collapsible={true}
+        >
+          <div className="flex flex-col bg-muted/50 overflow-hidden h-full">
+            <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm flex-shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
@@ -467,48 +562,33 @@ export function WorkspaceMainContent({
                     </span>
                   )}
                 </div>
-                {/* Eyeball toggle - only show if we have changes */}
-                {hasChanges && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setShowDiffView(true)}
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                    title="View diff"
-                  >
-                    <Eye className="w-3 h-3" />
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={toggleTerminalMinimized}
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                  title={
+                    isTerminalMinimized
+                      ? "Expand terminal"
+                      : "Minimize terminal"
+                  }
+                >
+                  {isTerminalMinimized ? (
+                    <ChevronUp className="w-3 h-3" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3" />
+                  )}
+                </Button>
               </div>
             </div>
-            <div className="flex-1">
-              <ClaudeTerminal worktree={worktree} />
-            </div>
+            {!isTerminalMinimized && (
+              <div className="flex-1 min-h-0">
+                <WorkspaceTerminal worktree={worktree} />
+              </div>
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Separator */}
-      <div className="h-px bg-border"></div>
-
-      {/* Terminal */}
-      <div
-        className="flex flex-col bg-muted/50 overflow-hidden"
-        style={{ height: "300px" }}
-      >
-        <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-            <span className="text-sm font-medium">Terminal</span>
-            <span className="text-xs text-muted-foreground">
-              {worktree.path}
-            </span>
-          </div>
-        </div>
-        <div className="flex-1 min-h-0">
-          <WorkspaceTerminal worktree={worktree} />
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }
