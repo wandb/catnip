@@ -9,6 +9,8 @@ import {
   Check,
   Terminal,
 } from "lucide-react";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { useSidebar } from "@/hooks/use-sidebar";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
 import type { Worktree } from "@/lib/git-api";
 
@@ -38,6 +40,9 @@ export function WorkspaceDiffViewer({
   worktree,
   onClose,
 }: WorkspaceDiffViewerProps) {
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
+
   const { diffStats, loading, error } = useWorktreeDiff(
     worktree.id,
     worktree.commit_hash,
@@ -214,6 +219,7 @@ export function WorkspaceDiffViewer({
       <div className="flex-shrink-0 px-4 py-2 border-b bg-background/50 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
+            {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
             <FileText className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium">Diff</span>
             <span className="text-xs text-muted-foreground">

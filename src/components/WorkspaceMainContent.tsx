@@ -58,6 +58,13 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     }
   }, []);
 
+  // Scroll terminal to bottom
+  const scrollToBottom = useCallback(() => {
+    if (instance) {
+      instance.scrollToBottom();
+    }
+  }, [instance]);
+
   // Send ready signal when both WebSocket and terminal are ready
   const sendReadySignal = useCallback(() => {
     if (!wsReady.current || !wsRef.current || !fitAddon.current) {
@@ -165,6 +172,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
       let data: string | Uint8Array | undefined;
       const rePaint = () => {
         fitAddon.current?.fit();
+        scrollToBottom();
       };
 
       // Handle both binary and text data
@@ -190,6 +198,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
             requestAnimationFrame(() => {
               if (fitAddon.current) {
                 fitAddon.current.fit();
+                scrollToBottom();
               }
             });
             const dims = { cols: instance.cols, rows: instance.rows };
@@ -307,6 +316,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
       requestAnimationFrame(() => {
         if (fitAddon.current) {
           fitAddon.current.fit();
+          scrollToBottom();
         }
       });
     }, 50);
@@ -325,6 +335,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
           }
           if (terminalReady.current) {
             fitAddon.current?.fit();
+            scrollToBottom();
           }
         }
       }, 100);
@@ -448,11 +459,7 @@ export function WorkspaceMainContent({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
-                  <img
-                    src="/anthropic.png"
-                    alt="Claude"
-                    className="w-4 h-4 animate-pulse"
-                  />
+                  <img src="/anthropic.png" alt="Claude" className="w-4 h-4" />
                   <span className="text-sm font-medium">Claude</span>
                   {worktree.session_title && (
                     <span className="text-xs text-muted-foreground">
