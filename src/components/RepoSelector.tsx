@@ -37,20 +37,32 @@ export function RepoSelector({
   autoExpand: _autoExpand = false,
 }: RepoSelectorProps) {
   const [open, setOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState("");
 
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue);
+    setSearchValue(""); // Reset search when selecting
     setOpen(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && value) {
+    if (e.key === "Enter" && searchValue) {
+      onValueChange(searchValue);
+      setSearchValue("");
       setOpen(false);
     }
   };
 
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (newOpen) {
+      // Reset search when opening the combobox
+      setSearchValue("");
+    }
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -66,13 +78,14 @@ export function RepoSelector({
         <Command>
           <CommandInput
             placeholder="Search repositories or type URL..."
-            value={value}
-            onValueChange={onValueChange}
+            value={searchValue}
+            onValueChange={setSearchValue}
             onKeyDown={handleKeyDown}
           />
           <CommandList>
             <CommandEmpty>
-              {value.startsWith("https://github.com/")
+              {searchValue.startsWith("https://github.com/") ||
+              searchValue.includes("/")
                 ? "Press Enter to use this URL"
                 : "Type a GitHub repository URL"}
             </CommandEmpty>
