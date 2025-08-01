@@ -202,6 +202,58 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/claude/settings": {
+            "get": {
+                "description": "Returns Claude Code configuration settings including theme, authentication status, and other metadata",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Get Claude settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSettings"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Updates Claude Code configuration settings (currently only theme is supported)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Update Claude settings",
+                "parameters": [
+                    {
+                        "description": "Settings update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSettingsUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSettings"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/todos": {
             "get": {
                 "description": "Returns the most recent TodoWrite structure from Claude Code session for a specific worktree",
@@ -1283,6 +1335,64 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_vanpelt_catnip_internal_models.ClaudeSettings": {
+            "description": "Claude Code configuration settings from ~/.claude.json",
+            "type": "object",
+            "properties": {
+                "hasCompletedOnboarding": {
+                    "description": "Whether user has completed onboarding",
+                    "type": "boolean",
+                    "example": true
+                },
+                "isAuthenticated": {
+                    "description": "Whether user is authenticated (has userID)",
+                    "type": "boolean",
+                    "example": true
+                },
+                "numStartups": {
+                    "description": "Number of times Claude has been started",
+                    "type": "integer",
+                    "example": 15
+                },
+                "theme": {
+                    "description": "Current theme setting",
+                    "type": "string",
+                    "enum": [
+                        "dark",
+                        "light",
+                        "dark-daltonized",
+                        "light-daltonized",
+                        "dark-ansi",
+                        "light-ansi"
+                    ],
+                    "example": "dark"
+                },
+                "version": {
+                    "description": "Version string derived from lastReleaseNotesSeen",
+                    "type": "string",
+                    "example": "1.2.3"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.ClaudeSettingsUpdateRequest": {
+            "description": "Request to update Claude Code settings",
+            "type": "object",
+            "properties": {
+                "theme": {
+                    "description": "Theme to set (must be one of the valid theme values)",
+                    "type": "string",
+                    "enum": [
+                        "dark",
+                        "light",
+                        "dark-daltonized",
+                        "light-daltonized",
+                        "dark-ansi",
+                        "light-ansi"
+                    ],
+                    "example": "dark"
+                }
+            }
+        },
         "github_com_vanpelt_catnip_internal_models.CreateCompletionRequest": {
             "description": "Request payload for Claude Code completion using claude CLI subprocess",
             "type": "object",
@@ -1737,6 +1847,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "title": {
+                    "type": "string"
+                },
+                "working_dir": {
                     "type": "string"
                 }
             }

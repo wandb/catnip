@@ -183,6 +183,8 @@ func main() {
 	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
 	v1.Get("/claude/todos", claudeHandler.GetWorktreeTodos)
 	v1.Post("/claude/messages", claudeHandler.CreateCompletion)
+	v1.Get("/claude/settings", claudeHandler.GetClaudeSettings)
+	v1.Put("/claude/settings", claudeHandler.UpdateClaudeSettings)
 
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)
