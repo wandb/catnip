@@ -369,11 +369,16 @@ export const useAppStore = create<AppState>()(
             event.payload.worktree_id,
           );
           if (existingWorktree) {
-            updatedWorktrees.set(event.payload.worktree_id, {
+            const updatedWorktree = {
               ...existingWorktree,
               ...event.payload.updates,
-            });
+            };
+            updatedWorktrees.set(event.payload.worktree_id, updatedWorktree);
             set({ worktrees: updatedWorktrees });
+          } else {
+            console.warn(
+              `Worktree not found for update: ${event.payload.worktree_id}`,
+            );
           }
           break;
         }
@@ -390,6 +395,26 @@ export const useAppStore = create<AppState>()(
             },
           });
           set({ worktrees: updatedWorktrees });
+
+          // After creating a new worktree, we need to refresh git status to get repository info
+          // This is necessary when checking out a new GitHub repository
+          const { repositories } = get();
+          if (!repositories.has(newWorktree.repo_id)) {
+            // Repository not in store, need to fetch git status
+            gitApi
+              .fetchGitStatus()
+              .then((gitStatus) => {
+                if (gitStatus.repositories) {
+                  get().setGitStatus(gitStatus);
+                }
+              })
+              .catch((error) => {
+                console.error(
+                  "Failed to fetch git status after worktree creation:",
+                  error,
+                );
+              });
+          }
           break;
         }
 
@@ -406,17 +431,22 @@ export const useAppStore = create<AppState>()(
             event.payload.worktree_id,
           );
           if (existingWorktree) {
+            const newTodos = event.payload.todos?.map((todo: any) => ({
+              id: todo.id,
+              content: todo.content || todo.text,
+              status: todo.status || (todo.completed ? "completed" : "pending"),
+              priority: todo.priority,
+            }));
+
             updatedWorktrees.set(event.payload.worktree_id, {
               ...existingWorktree,
-              todos: event.payload.todos?.map((todo: any) => ({
-                id: todo.id,
-                content: todo.content || todo.text,
-                status:
-                  todo.status || (todo.completed ? "completed" : "pending"),
-                priority: todo.priority,
-              })),
+              todos: newTodos,
             });
             set({ worktrees: updatedWorktrees });
+          } else {
+            console.warn(
+              `Worktree not found for todos update: ${event.payload.worktree_id}`,
+            );
           }
           break;
         }

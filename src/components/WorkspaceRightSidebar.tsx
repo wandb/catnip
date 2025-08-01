@@ -263,6 +263,21 @@ function ChangedFiles({
             <Badge variant="secondary" className="text-xs">
               {fileDiffs.length}
             </Badge>
+            {worktree.pull_request_url && (
+              <a
+                href={worktree.pull_request_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                title="Open pull request"
+              >
+                <span>
+                  PR{" "}
+                  {worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"}
+                </span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
             <WorkspaceActions
               mode="workspace"
               worktree={worktree}
