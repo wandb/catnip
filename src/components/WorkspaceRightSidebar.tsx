@@ -263,7 +263,15 @@ function ChangedFiles({
             <Badge variant="secondary" className="text-xs">
               {fileDiffs.length}
             </Badge>
-            <WorkspaceActions mode="workspace" worktree={worktree} />
+            <WorkspaceActions
+              mode="workspace"
+              worktree={worktree}
+              onDelete={(id, name) => {
+                // TODO: Implement workspace deletion
+                console.log("Delete workspace:", id, name);
+                alert(`Delete workspace "${name}" - implementation needed`);
+              }}
+            />
           </div>
         </div>
       </SidebarGroupLabel>

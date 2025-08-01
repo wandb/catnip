@@ -181,21 +181,23 @@ export function WorkspaceActions({
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
               <DropdownMenuSubContent>
-                <DropdownMenuItem asChild>
-                  <Link
-                    to="/terminal/$sessionId"
-                    params={{ sessionId: worktree.name }}
-                    search={{ agent: "claude" }}
-                    className="flex items-center gap-2"
-                  >
-                    <img
-                      src="/anthropic.png"
-                      alt="Claude"
-                      className="w-4 h-4"
-                    />
-                    Claude
-                  </Link>
-                </DropdownMenuItem>
+                {mode !== "workspace" && (
+                  <DropdownMenuItem asChild>
+                    <Link
+                      to="/terminal/$sessionId"
+                      params={{ sessionId: worktree.name }}
+                      search={{ agent: "claude" }}
+                      className="flex items-center gap-2"
+                    >
+                      <img
+                        src="/anthropic.png"
+                        alt="Claude"
+                        className="w-4 h-4"
+                      />
+                      Claude
+                    </Link>
+                  </DropdownMenuItem>
+                )}
 
                 {sshEnabled && (
                   <>
@@ -217,16 +219,18 @@ export function WorkspaceActions({
                   </>
                 )}
 
-                <DropdownMenuItem asChild>
-                  <Link
-                    to="/terminal/$sessionId"
-                    params={{ sessionId: worktree.name }}
-                    className="flex items-center gap-2"
-                  >
-                    <Terminal size={16} />
-                    Web Terminal
-                  </Link>
-                </DropdownMenuItem>
+                {mode !== "workspace" && (
+                  <DropdownMenuItem asChild>
+                    <Link
+                      to="/terminal/$sessionId"
+                      params={{ sessionId: worktree.name }}
+                      className="flex items-center gap-2"
+                    >
+                      <Terminal size={16} />
+                      Web Terminal
+                    </Link>
+                  </DropdownMenuItem>
+                )}
 
                 {sshEnabled && (
                   <DropdownMenuItem
@@ -240,6 +244,37 @@ export function WorkspaceActions({
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
+
+          {/* Create PR action - available in both modes */}
+          <DropdownMenuItem
+            onClick={() => {
+              if (onOpenPrDialog) {
+                // Use legacy callback if provided
+                onOpenPrDialog(worktree.id, worktree.branch);
+              } else {
+                // Use integrated dialog
+                setPrDialogOpen(true);
+              }
+            }}
+            className={
+              !worktree.commit_count || worktree.commit_count === 0
+                ? "text-muted-foreground"
+                : "text-green-600"
+            }
+            disabled={!worktree.commit_count || worktree.commit_count === 0}
+            title={
+              !worktree.commit_count || worktree.commit_count === 0
+                ? "No commits in this worktree"
+                : worktree.pull_request_url
+                  ? "Update existing pull request on GitHub"
+                  : "Create new pull request on GitHub"
+            }
+          >
+            <GitMerge size={16} />
+            {worktree.pull_request_url
+              ? "Update PR (GitHub)"
+              : "Create PR (GitHub)"}
+          </DropdownMenuItem>
 
           {/* Worktree-specific actions continued */}
           {mode === "worktree" && (
@@ -255,36 +290,6 @@ export function WorkspaceActions({
                   Create Preview
                 </DropdownMenuItem>
               )}
-
-              <DropdownMenuItem
-                onClick={() => {
-                  if (onOpenPrDialog) {
-                    // Use legacy callback if provided
-                    onOpenPrDialog(worktree.id, worktree.branch);
-                  } else {
-                    // Use integrated dialog
-                    setPrDialogOpen(true);
-                  }
-                }}
-                className={
-                  !worktree.commit_count || worktree.commit_count === 0
-                    ? "text-muted-foreground"
-                    : "text-green-600"
-                }
-                disabled={!worktree.commit_count || worktree.commit_count === 0}
-                title={
-                  !worktree.commit_count || worktree.commit_count === 0
-                    ? "No commits in this worktree"
-                    : worktree.pull_request_url
-                      ? "Update existing pull request on GitHub"
-                      : "Create new pull request on GitHub"
-                }
-              >
-                <GitMerge size={16} />
-                {worktree.pull_request_url
-                  ? "Update PR (GitHub)"
-                  : "Create PR (GitHub)"}
-              </DropdownMenuItem>
 
               {worktree.repo_id.startsWith("local/") &&
                 worktree.commit_count > 0 && (
@@ -314,7 +319,7 @@ export function WorkspaceActions({
             </>
           )}
 
-          <DropdownMenuSeparator />
+          {mode === "worktree" && <DropdownMenuSeparator />}
 
           {/* Delete action */}
           {(onDelete || onConfirmDelete) && (
