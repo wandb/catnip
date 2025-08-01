@@ -1738,6 +1738,9 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
+                },
+                "working_dir": {
+                    "type": "string"
                 }
             }
         },

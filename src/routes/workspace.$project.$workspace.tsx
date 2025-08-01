@@ -14,6 +14,8 @@ function WorkspacePage() {
 
   // State for toggling between Claude terminal and diff view
   const [showDiffView, setShowDiffView] = useState(false);
+  // State for showing port preview
+  const [showPortPreview, setShowPortPreview] = useState<number | null>(null);
 
   // Construct the workspace name from URL params
   const workspaceName = `${project}/${workspace}`;
@@ -105,6 +107,8 @@ function WorkspacePage() {
             repository={repository}
             showDiffView={showDiffView}
             setShowDiffView={setShowDiffView}
+            showPortPreview={showPortPreview}
+            setShowPortPreview={setShowPortPreview}
           />
         </SidebarInset>
         <WorkspaceRightSidebar
@@ -112,6 +116,8 @@ function WorkspacePage() {
           repository={repository}
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
+          showPortPreview={showPortPreview}
+          setShowPortPreview={setShowPortPreview}
         />
       </div>
     </SidebarProvider>
