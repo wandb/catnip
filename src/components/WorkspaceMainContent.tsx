@@ -8,6 +8,7 @@ import { FileDropAddon } from "@/lib/file-drop-addon";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { WorkspaceTerminal } from "@/components/WorkspaceTerminal";
 import { WorkspaceDiffViewer } from "@/components/WorkspaceDiffViewer";
+import { PortPreview } from "@/components/PortPreview";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -25,6 +26,8 @@ interface WorkspaceMainContentProps {
   repository: LocalRepository;
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
+  showPortPreview: number | null;
+  setShowPortPreview: (port: number | null) => void;
 }
 
 function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
@@ -433,6 +436,8 @@ export function WorkspaceMainContent({
   worktree,
   showDiffView,
   setShowDiffView,
+  showPortPreview,
+  setShowPortPreview,
 }: WorkspaceMainContentProps) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -484,7 +489,14 @@ export function WorkspaceMainContent({
           minSize={30}
         >
           <div className="h-full bg-muted/50 overflow-hidden">
-            {showDiffView ? (
+            {showPortPreview ? (
+              <div className="h-full">
+                <PortPreview
+                  port={showPortPreview}
+                  onClose={() => setShowPortPreview(null)}
+                />
+              </div>
+            ) : showDiffView ? (
               <div className="h-full">
                 <WorkspaceDiffViewer
                   worktree={worktree}

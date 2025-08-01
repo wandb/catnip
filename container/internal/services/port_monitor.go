@@ -24,6 +24,7 @@ type ServiceInfo struct {
 	Title       string    `json:"title,omitempty"`
 	PID         int       `json:"pid,omitempty"`
 	Command     string    `json:"command,omitempty"`
+	WorkingDir  string    `json:"working_dir,omitempty"`
 }
 
 // PortMonitor monitors /proc/net/tcp for port changes and manages service registry
@@ -203,6 +204,8 @@ func (pm *PortMonitor) parseProcNetTcp() (map[int]*PortWithPID, error) {
 func (pm *PortMonitor) addService(port int, pid int) {
 	// Get command name from PID
 	command := pm.getCommandFromPID(pid)
+	// Get working directory from PID
+	workingDir := pm.getWorkingDirFromPID(pid)
 
 	service := &ServiceInfo{
 		Port:        port,
@@ -211,6 +214,7 @@ func (pm *PortMonitor) addService(port int, pid int) {
 		LastSeen:    time.Now(),
 		PID:         pid,
 		Command:     command,
+		WorkingDir:  workingDir,
 	}
 
 	// Try to determine service type and health
@@ -397,6 +401,21 @@ func (pm *PortMonitor) getCommandFromPID(pid int) string {
 		if comm != "" {
 			return comm
 		}
+	}
+
+	return ""
+}
+
+// getWorkingDirFromPID extracts the working directory from a PID
+func (pm *PortMonitor) getWorkingDirFromPID(pid int) string {
+	if pid == 0 {
+		return ""
+	}
+
+	// Read the cwd symlink from /proc/PID/cwd
+	cwdPath := filepath.Join("/proc", strconv.Itoa(pid), "cwd")
+	if workingDir, err := os.Readlink(cwdPath); err == nil {
+		return workingDir
 	}
 
 	return ""

@@ -5,6 +5,7 @@ export interface PortOpenedEvent {
     service?: string;
     protocol?: "http" | "tcp";
     title?: string;
+    working_dir?: string;
   };
 }
 

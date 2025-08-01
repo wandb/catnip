@@ -445,6 +445,8 @@ definitions:
         type: string
       title:
         type: string
+      working_dir:
+        type: string
     type: object
   internal_handlers.ActiveSessionInfo:
     description: Active session information with timing and Claude session details

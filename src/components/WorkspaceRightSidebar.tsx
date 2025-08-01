@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   FileText,
   GitBranch,
@@ -9,6 +10,8 @@ import {
   RotateCw,
   Eye,
   Terminal,
+  Globe,
+  ExternalLink,
 } from "lucide-react";
 import {
   Sidebar,
@@ -23,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
 import { WorkspaceActions } from "@/components/WorkspaceActions";
+import { useAppStore } from "@/stores/appStore";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 
 interface WorkspaceRightSidebarProps {
@@ -30,6 +34,8 @@ interface WorkspaceRightSidebarProps {
   repository: LocalRepository;
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
+  showPortPreview: number | null;
+  setShowPortPreview: (port: number | null) => void;
 }
 
 function GitStatus({ worktree }: { worktree: Worktree }) {
@@ -163,10 +169,12 @@ function ChangedFiles({
   worktree,
   showDiffView,
   setShowDiffView,
+  setShowPortPreview,
 }: {
   worktree: Worktree;
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
+  setShowPortPreview: (port: number | null) => void;
 }) {
   const { diffStats, loading, error } = useWorktreeDiff(
     worktree.id,
@@ -286,7 +294,13 @@ function ChangedFiles({
           <Button
             variant={showDiffView ? "default" : "outline"}
             size="sm"
-            onClick={() => setShowDiffView(!showDiffView)}
+            onClick={() => {
+              setShowDiffView(!showDiffView);
+              // Close port preview when showing diff view
+              if (!showDiffView) {
+                setShowPortPreview(null);
+              }
+            }}
             className="w-full h-8 text-xs"
             title={showDiffView ? "Show Claude Terminal" : "View Diff"}
           >
@@ -308,10 +322,119 @@ function ChangedFiles({
   );
 }
 
+function WorkspacePorts({
+  worktree,
+  showPortPreview,
+  setShowPortPreview,
+  setShowDiffView,
+}: {
+  worktree: Worktree;
+  showPortPreview: number | null;
+  setShowPortPreview: (port: number | null) => void;
+  setShowDiffView: (showDiff: boolean) => void;
+}) {
+  // Get ports Map and use size as dependency for stability
+  const portsSize = useAppStore((state) => state.ports.size);
+
+  // Create stable ports array only when size changes
+  const allPorts = useMemo(() => {
+    const state = useAppStore.getState();
+    return Array.from(state.ports.values());
+  }, [portsSize]);
+
+  // Filter ports for this workspace
+  const workspacePorts = useMemo(() => {
+    return allPorts.filter((port) => port.workingDir === worktree.path);
+  }, [allPorts, worktree.path]);
+
+  const openInNewWindow = (port: number) => {
+    window.open(`/${port}/`, "_blank");
+  };
+
+  const previewPort = (port: number) => {
+    setShowPortPreview(port);
+    // Close diff view when showing port preview
+    setShowDiffView(false);
+  };
+
+  if (workspacePorts.length === 0) {
+    return (
+      <SidebarGroup>
+        <SidebarGroupLabel>Ports</SidebarGroupLabel>
+        <SidebarGroupContent>
+          <div className="text-sm text-muted-foreground p-2">
+            No active ports in this workspace
+          </div>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>
+        <div className="flex items-center justify-between w-full">
+          <span>Ports</span>
+          <Badge variant="secondary" className="text-xs">
+            {workspacePorts.length}
+          </Badge>
+        </div>
+      </SidebarGroupLabel>
+      <SidebarGroupContent>
+        <ScrollArea className="h-32">
+          <div className="space-y-1">
+            {workspacePorts.map((port) => (
+              <div
+                key={port.port}
+                className={`flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer group ${
+                  showPortPreview === port.port ? "bg-muted" : ""
+                }`}
+                onClick={() => previewPort(port.port)}
+                title={`Preview port ${port.port} - ${port.title || port.service || "Unknown service"}`}
+              >
+                <Globe className="h-3 w-3 text-blue-500 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">:{port.port}</span>
+                    {port.service && (
+                      <Badge variant="outline" className="text-xs">
+                        {port.service}
+                      </Badge>
+                    )}
+                  </div>
+                  {port.title && (
+                    <p className="text-xs text-muted-foreground truncate">
+                      {port.title}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 hover:opacity-100"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openInNewWindow(port.port);
+                  }}
+                  title="Open in new window"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 export function WorkspaceRightSidebar({
   worktree,
   showDiffView,
   setShowDiffView,
+  showPortPreview,
+  setShowPortPreview,
 }: WorkspaceRightSidebarProps) {
   return (
     <Sidebar
@@ -328,16 +451,15 @@ export function WorkspaceRightSidebar({
           worktree={worktree}
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
+          setShowPortPreview={setShowPortPreview}
         />
         <SidebarSeparator className="mx-0" />
-        <SidebarGroup>
-          <SidebarGroupLabel>Ports</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <div className="text-sm text-muted-foreground p-2">
-              No active ports
-            </div>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        <WorkspacePorts
+          worktree={worktree}
+          showPortPreview={showPortPreview}
+          setShowPortPreview={setShowPortPreview}
+          setShowDiffView={setShowDiffView}
+        />
       </SidebarContent>
     </Sidebar>
   );

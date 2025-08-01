@@ -14,6 +14,7 @@ interface Port {
   service?: string;
   protocol?: "http" | "tcp";
   title?: string;
+  workingDir?: string;
   timestamp: number;
 }
 
@@ -191,6 +192,7 @@ export const useAppStore = create<AppState>()(
             service: event.payload.service,
             protocol: event.payload.protocol,
             title: event.payload.title,
+            workingDir: event.payload.working_dir,
             timestamp: Date.now(),
           });
           set({ ports: newPorts });
