@@ -810,3 +810,121 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 	// Call the subprocess wrapper for streaming
 	return s.subprocessWrapper.CreateStreamingCompletion(ctx, opts, responseWriter)
 }
+
+// GetClaudeSettings reads Claude configuration settings from ~/.claude.json
+func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
+	data, err := os.ReadFile(s.claudeConfigPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Return default settings if file doesn't exist
+			return &models.ClaudeSettings{
+				Theme:                  "dark", // Default theme
+				IsAuthenticated:        false,
+				Version:                "",
+				HasCompletedOnboarding: false,
+				NumStartups:            0,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to read claude config file: %w", err)
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse claude config: %w", err)
+	}
+
+	settings := &models.ClaudeSettings{
+		Theme:                  "dark", // Default theme
+		IsAuthenticated:        false,
+		Version:                "",
+		HasCompletedOnboarding: false,
+		NumStartups:            0,
+	}
+
+	// Extract theme (default to "dark" if not set)
+	if theme, exists := config["theme"]; exists {
+		if themeStr, ok := theme.(string); ok {
+			settings.Theme = themeStr
+		}
+	}
+
+	// Check authentication status based on userID
+	if userID, exists := config["userID"]; exists {
+		if userIDStr, ok := userID.(string); ok && userIDStr != "" {
+			settings.IsAuthenticated = true
+		}
+	}
+
+	// Extract version from lastReleaseNotesSeen
+	if lastRelease, exists := config["lastReleaseNotesSeen"]; exists {
+		if lastReleaseStr, ok := lastRelease.(string); ok && lastReleaseStr != "" {
+			settings.Version = lastReleaseStr
+		}
+	}
+
+	// Extract onboarding status
+	if onboarding, exists := config["hasCompletedOnboarding"]; exists {
+		if onboardingBool, ok := onboarding.(bool); ok {
+			settings.HasCompletedOnboarding = onboardingBool
+		}
+	}
+
+	// Extract startup count
+	if startups, exists := config["numStartups"]; exists {
+		if startupsFloat, ok := startups.(float64); ok {
+			settings.NumStartups = int(startupsFloat)
+		}
+	}
+
+	return settings, nil
+}
+
+// UpdateClaudeSettings updates Claude configuration settings in ~/.claude.json
+func (s *ClaudeService) UpdateClaudeSettings(req *models.ClaudeSettingsUpdateRequest) (*models.ClaudeSettings, error) {
+	// Read current config
+	var config map[string]interface{}
+
+	data, err := os.ReadFile(s.claudeConfigPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Create new config if file doesn't exist
+			config = make(map[string]interface{})
+		} else {
+			return nil, fmt.Errorf("failed to read claude config file: %w", err)
+		}
+	} else {
+		if err := json.Unmarshal(data, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse claude config: %w", err)
+		}
+	}
+
+	// Update theme
+	config["theme"] = req.Theme
+
+	// Write back to file with proper formatting
+	updatedData, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Create a temporary file first (atomic write)
+	tempFile := s.claudeConfigPath + ".tmp"
+	if err := os.WriteFile(tempFile, updatedData, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write temp config file: %w", err)
+	}
+
+	// Atomically rename temp file to final destination
+	if err := os.Rename(tempFile, s.claudeConfigPath); err != nil {
+		os.Remove(tempFile) // Clean up temp file on error
+		return nil, fmt.Errorf("failed to update config file: %w", err)
+	}
+
+	// Set proper ownership for catnip user
+	if err := os.Chown(s.claudeConfigPath, 1000, 1000); err != nil {
+		// Log but don't fail
+		fmt.Printf("Warning: Failed to chown %s: %v\n", s.claudeConfigPath, err)
+	}
+
+	// Return updated settings
+	return s.GetClaudeSettings()
+}

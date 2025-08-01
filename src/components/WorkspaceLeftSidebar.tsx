@@ -1,5 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { ChevronRight, Folder, GitBranch, Plus } from "lucide-react";
+import { ChevronRight, Folder, GitBranch, Plus, Settings } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -26,6 +26,7 @@ import { useAppStore } from "@/stores/appStore";
 import { useState, useMemo, useEffect } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
 import { useGlobalKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { SettingsDialog } from "@/components/SettingsDialog";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
@@ -35,6 +36,8 @@ export function WorkspaceLeftSidebar() {
   // Global keyboard shortcuts
   const { newWorkspaceDialogOpen, setNewWorkspaceDialogOpen } =
     useGlobalKeyboardShortcuts();
+
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Use stable selectors to avoid infinite loops
   const repositoriesCount = useAppStore(
@@ -198,12 +201,22 @@ export function WorkspaceLeftSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
+        <div className="mt-auto p-2">
+          <SidebarMenuButton
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+          >
+            <Settings className="h-4 w-4" />
+            <span>Settings</span>
+          </SidebarMenuButton>
+        </div>
         <SidebarRail />
       </Sidebar>
       <NewWorkspaceDialog
         open={newWorkspaceDialogOpen}
         onOpenChange={setNewWorkspaceDialogOpen}
       />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }

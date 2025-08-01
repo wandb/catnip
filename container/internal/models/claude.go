@@ -166,3 +166,25 @@ type Todo struct {
 	// Priority level of the todo
 	Priority string `json:"priority" example:"high" enums:"high,medium,low"`
 }
+
+// ClaudeSettings represents Claude configuration settings
+// @Description Claude Code configuration settings from ~/.claude.json
+type ClaudeSettings struct {
+	// Current theme setting
+	Theme string `json:"theme" example:"dark" enums:"dark,light,dark-daltonized,light-daltonized,dark-ansi,light-ansi"`
+	// Whether user is authenticated (has userID)
+	IsAuthenticated bool `json:"isAuthenticated" example:"true"`
+	// Version string derived from lastReleaseNotesSeen
+	Version string `json:"version,omitempty" example:"1.2.3"`
+	// Whether user has completed onboarding
+	HasCompletedOnboarding bool `json:"hasCompletedOnboarding" example:"true"`
+	// Number of times Claude has been started
+	NumStartups int `json:"numStartups" example:"15"`
+}
+
+// ClaudeSettingsUpdateRequest represents a request to update Claude settings
+// @Description Request to update Claude Code settings
+type ClaudeSettingsUpdateRequest struct {
+	// Theme to set (must be one of the valid theme values)
+	Theme string `json:"theme" example:"dark" enums:"dark,light,dark-daltonized,light-daltonized,dark-ansi,light-ansi"`
+}
