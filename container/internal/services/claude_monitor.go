@@ -717,11 +717,36 @@ func (s *ClaudeMonitorService) monitorClaudeSessions() {
 	homeDir := "/home/catnip/.claude/projects"
 
 	if _, err := os.Stat(homeDir); err == nil {
+		// Watch the main directory
 		if err := s.sessionsWatcher.Add(homeDir); err != nil {
 			log.Printf("⚠️  Failed to watch Claude projects directory %s: %v", homeDir, err)
-		} else {
-			log.Printf("📁 Watching Claude projects directory: %s", homeDir)
 		}
+
+		// Also watch existing subdirectories and their .jsonl files
+		if entries, err := os.ReadDir(homeDir); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() && strings.HasPrefix(entry.Name(), "-workspace-") {
+					subDir := filepath.Join(homeDir, entry.Name())
+					if err := s.sessionsWatcher.Add(subDir); err != nil {
+						log.Printf("⚠️  Failed to watch project subdirectory %s: %v", subDir, err)
+					}
+
+					// Also watch individual .jsonl files in the subdirectory for more reliable detection
+					if subEntries, err := os.ReadDir(subDir); err == nil {
+						for _, subEntry := range subEntries {
+							if !subEntry.IsDir() && strings.HasSuffix(subEntry.Name(), ".jsonl") {
+								sessionFile := filepath.Join(subDir, subEntry.Name())
+								if err := s.sessionsWatcher.Add(sessionFile); err != nil {
+									log.Printf("⚠️  Failed to watch session file %s: %v", sessionFile, err)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	} else {
+		log.Printf("❌ Claude projects directory does not exist: %s (error: %v)", homeDir, err)
 	}
 
 	for {
@@ -730,6 +755,26 @@ func (s *ClaudeMonitorService) monitorClaudeSessions() {
 			if !ok {
 				return
 			}
+
+			// Check if a new workspace directory or session file was created and add it to the watcher
+			if event.Op&fsnotify.Create == fsnotify.Create {
+				if stat, err := os.Stat(event.Name); err == nil {
+					if stat.IsDir() {
+						dirName := filepath.Base(event.Name)
+						if strings.HasPrefix(dirName, "-workspace-") {
+							if err := s.sessionsWatcher.Add(event.Name); err != nil {
+								log.Printf("⚠️  Failed to watch new workspace directory %s: %v", event.Name, err)
+							}
+						}
+					} else if strings.HasSuffix(event.Name, ".jsonl") {
+						// New session file created, watch it directly
+						if err := s.sessionsWatcher.Add(event.Name); err != nil {
+							log.Printf("⚠️  Failed to watch new session file %s: %v", event.Name, err)
+						}
+					}
+				}
+			}
+
 			// Only watch for writes to .jsonl files (session files)
 			if event.Op&fsnotify.Write == fsnotify.Write && strings.HasSuffix(event.Name, ".jsonl") {
 				s.handleSessionFileUpdate(event.Name)
@@ -816,8 +861,6 @@ func (s *ClaudeMonitorService) processSessionFileUpdate(sessionFilePath, worktre
 		log.Printf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
 		return
 	}
-
-	log.Printf("✅ Updated todos for worktree %s (%s) with %d items", worktreeID, worktreePath, len(todos))
 }
 
 // getWorktreePathFromSessionFile extracts the worktree path from a session file path
@@ -831,7 +874,7 @@ func (s *ClaudeMonitorService) getWorktreePathFromSessionFile(sessionFilePath st
 
 	// Convert project directory name back to worktree path
 	if strings.HasPrefix(projectDirName, "-") {
-		return strings.ReplaceAll(projectDirName[1:], "-", "/")
+		return "/" + strings.ReplaceAll(projectDirName[1:], "-", "/")
 	}
 
 	return ""

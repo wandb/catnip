@@ -28,13 +28,15 @@ function WorkspacePage() {
     (state) => state.getRepositoriesList().length,
   );
   const initialLoading = useAppStore((state) => state.initialLoading);
+  // Subscribe to the actual worktrees map to get updates when individual worktrees change
+  const worktrees = useAppStore((state) => state.worktrees);
 
   // Find the worktree by name using useMemo and direct store access
   const worktree = useMemo(() => {
     if (worktreesCount === 0) return undefined;
     const worktreesList = useAppStore.getState().getWorktreesList();
     return worktreesList.find((w) => w.name === workspaceName);
-  }, [workspaceName, worktreesCount]);
+  }, [workspaceName, worktreesCount, worktrees]);
 
   // Find the repository by repo_id using useMemo and direct store access
   const repository = useMemo(() => {
