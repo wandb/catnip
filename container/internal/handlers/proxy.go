@@ -235,17 +235,16 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	}
 
 	// Copy headers from original request
-	c.Request().Header.VisitAll(func(key, value []byte) {
-		keyStr := string(key)
-		valueStr := string(value)
-
+	for key, values := range c.GetReqHeaders() {
 		// Skip headers that shouldn't be forwarded
-		if keyStr == "Host" || keyStr == "Connection" || keyStr == "Content-Length" {
-			return
+		if key == "Host" || key == "Connection" || key == "Content-Length" {
+			continue
 		}
 
-		req.Header.Set(keyStr, valueStr)
-	})
+		if len(values) > 0 {
+			req.Header.Set(key, values[0])
+		}
+	}
 
 	// Set proper host header
 	req.Host = fmt.Sprintf("localhost:%d", port)
@@ -672,14 +671,12 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 	// Extract headers from the original request BEFORE entering the WebSocket handler
 	// because the Fiber context becomes invalid inside the handler
 	requestHeader := make(http.Header)
-	c.Request().Header.VisitAll(func(key, value []byte) {
-		keyStr := string(key)
-		valueStr := string(value)
+	for key, values := range c.GetReqHeaders() {
 		// Only forward the protocol header - dialer handles all other WebSocket headers automatically
-		if strings.ToLower(keyStr) == "sec-websocket-protocol" {
-			requestHeader.Set(keyStr, valueStr)
+		if strings.ToLower(key) == "sec-websocket-protocol" && len(values) > 0 {
+			requestHeader.Set(key, values[0])
 		}
-	})
+	}
 
 	// Use Fiber's WebSocket handler - this handles the upgrade automatically
 	return websocket.New(func(clientConn *websocket.Conn) {

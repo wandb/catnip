@@ -292,11 +292,11 @@ function ChangedFiles({
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <ScrollArea className="h-48">
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {fileDiffs.map((file, index) => (
               <div
                 key={index}
-                className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer"
+                className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer"
                 title={`${getFileStatusLabel(file.change_type)}: ${file.file_path}`}
               >
                 {getFileStatusIcon(file.change_type)}
