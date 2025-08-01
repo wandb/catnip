@@ -49,9 +49,11 @@ func ProxyToVite(c *fiber.Ctx) error {
 	}
 
 	// Copy headers from original request
-	c.Request().Header.VisitAll(func(key, value []byte) {
-		req.Header.Set(string(key), string(value))
-	})
+	for key, values := range c.GetReqHeaders() {
+		if len(values) > 0 {
+			req.Header.Set(key, values[0])
+		}
+	}
 
 	// Set Host header for proper proxying
 	req.Header.Set("Host", viteHost)
