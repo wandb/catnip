@@ -102,6 +102,52 @@ definitions:
         example: /workspace/my-project
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeSettings:
+    description: Claude Code configuration settings from ~/.claude.json
+    properties:
+      hasCompletedOnboarding:
+        description: Whether user has completed onboarding
+        example: true
+        type: boolean
+      isAuthenticated:
+        description: Whether user is authenticated (has userID)
+        example: true
+        type: boolean
+      numStartups:
+        description: Number of times Claude has been started
+        example: 15
+        type: integer
+      theme:
+        description: Current theme setting
+        enum:
+        - dark
+        - light
+        - dark-daltonized
+        - light-daltonized
+        - dark-ansi
+        - light-ansi
+        example: dark
+        type: string
+      version:
+        description: Version string derived from lastReleaseNotesSeen
+        example: 1.2.3
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeSettingsUpdateRequest:
+    description: Request to update Claude Code settings
+    properties:
+      theme:
+        description: Theme to set (must be one of the valid theme values)
+        enum:
+        - dark
+        - light
+        - dark-daltonized
+        - light-daltonized
+        - dark-ansi
+        - light-ansi
+        example: dark
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.CreateCompletionRequest:
     description: Request payload for Claude Code completion using claude CLI subprocess
     properties:
@@ -968,6 +1014,42 @@ paths:
               $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
             type: object
       summary: Get all worktree session summaries
+      tags:
+      - claude
+  /v1/claude/settings:
+    get:
+      description: Returns Claude Code configuration settings including theme, authentication
+        status, and other metadata
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSettings'
+      summary: Get Claude settings
+      tags:
+      - claude
+    put:
+      consumes:
+      - application/json
+      description: Updates Claude Code configuration settings (currently only theme
+        is supported)
+      parameters:
+      - description: Settings update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSettingsUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSettings'
+      summary: Update Claude settings
       tags:
       - claude
   /v1/claude/todos:
