@@ -1,5 +1,5 @@
 import { createFileRoute, useLocation, Link } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -262,9 +262,6 @@ function GitPage() {
   const [showDirtyOnly, setShowDirtyOnly] = useState(false);
   const [autoCleanup] = useState(true);
   const [githubRepos, setGithubRepos] = useState<any[]>([]);
-  const [currentGithubRepos, setCurrentGithubRepos] = useState<
-    Record<string, LocalRepository>
-  >({});
 
   // Error state
   const [errorAlert, setErrorAlert] = useState({
@@ -281,51 +278,57 @@ function GitPage() {
   // Diff loading state (DiffViewer handles its own loading)
   const [diffLoading, setDiffLoading] = useState(false);
 
-  const errorHandler = {
-    setErrorAlert: (alert: {
-      open: boolean;
-      title: string;
-      description: string;
-      worktreeName?: string;
-      conflictFiles?: string[];
-      operation?: string;
-    }) => {
-      setErrorAlert({
-        open: alert.open,
-        title: alert.title,
-        description: alert.description,
-      });
-    },
-  };
+  const errorHandler = useMemo(
+    () => ({
+      setErrorAlert: (alert: {
+        open: boolean;
+        title: string;
+        description: string;
+        worktreeName?: string;
+        conflictFiles?: string[];
+        operation?: string;
+      }) => {
+        setErrorAlert({
+          open: alert.open,
+          title: alert.title,
+          description: alert.description,
+        });
+      },
+    }),
+    [],
+  );
 
   // Handle checkout functionality
-  const handleCheckout = async (url: string, branch?: string) => {
-    if (!url || !branch) return false;
+  const handleCheckout = useCallback(
+    async (url: string, branch?: string) => {
+      if (!url || !branch) return false;
 
-    // Check if this is a local repository (starts with "local/")
-    if (url.startsWith("local/")) {
-      // For local repos, extract the repo name
-      const repoName = url.split("/")[1];
-      return await checkoutRepository("local", repoName, branch);
-    } else {
-      // For GitHub URLs, parse the org and repo name
-      // Expected format: https://github.com/org/repo or git@github.com:org/repo.git
-      let match = url.match(/github\.com[/:]([\w-]+)\/([\w-]+?)(\.git)?$/);
-      if (!match) {
-        // Try without protocol
-        match = url.match(/^([\w-]+)\/([\w-]+)$/);
-      }
-
-      if (match) {
-        const org = match[1];
-        const repo = match[2];
-        return await checkoutRepository(org, repo, branch);
+      // Check if this is a local repository (starts with "local/")
+      if (url.startsWith("local/")) {
+        // For local repos, extract the repo name
+        const repoName = url.split("/")[1];
+        return await checkoutRepository("local", repoName, branch);
       } else {
-        console.error("Invalid GitHub URL format:", url);
-        return false;
+        // For GitHub URLs, parse the org and repo name
+        // Expected format: https://github.com/org/repo or git@github.com:org/repo.git
+        let match = url.match(/github\.com[/:]([\w-]+)\/([\w-]+?)(\.git)?$/);
+        if (!match) {
+          // Try without protocol
+          match = url.match(/^([\w-]+)\/([\w-]+)$/);
+        }
+
+        if (match) {
+          const org = match[1];
+          const repo = match[2];
+          return await checkoutRepository(org, repo, branch);
+        } else {
+          console.error("Invalid GitHub URL format:", url);
+          return false;
+        }
       }
-    }
-  };
+    },
+    [checkoutRepository],
+  );
 
   // Handle repo selection change - fetch branches for the selected repo
   const handleRepoChange = async (url: string) => {
@@ -413,25 +416,23 @@ function GitPage() {
         // Fetch GitHub repos
         const repos = await gitApi.fetchRepositories();
         setGithubRepos(repos);
-
-        // repositories available from getRepositoriesList();
-        setCurrentGithubRepos(
-          repositories.reduce(
-            (acc, repo) => {
-              acc[repo.id] = repo;
-              return acc;
-            },
-            {} as Record<string, LocalRepository>,
-          ),
-        );
-
-        // fetchRepositories replaced by automatic store loading
       } catch (error) {
         console.error("Failed to load repositories:", error);
       }
     };
 
     void fetchGithubRepos();
+  }, []);
+
+  // Memoize current repositories instead of using effect
+  const currentGithubRepos = useMemo(() => {
+    return repositories.reduce(
+      (acc, repo) => {
+        acc[repo.id] = repo;
+        return acc;
+      },
+      {} as Record<string, LocalRepository>,
+    );
   }, [repositories]);
 
   // TODO: Fetch branches for repositories
@@ -440,10 +441,45 @@ function GitPage() {
     return [];
   };
 
-  // Filter worktrees
-  const filteredWorktrees = showDirtyOnly
-    ? worktrees.filter((wt: any) => wt.is_dirty)
-    : worktrees;
+  // Filter worktrees with memoization
+  const filteredWorktrees = useMemo(() => {
+    return showDirtyOnly
+      ? worktrees.filter((wt: any) => wt.is_dirty)
+      : worktrees;
+  }, [showDirtyOnly, worktrees]);
+
+  // Memoize current branch calculation
+  const currentBranch = useMemo(() => {
+    const repositories = gitStatus.repositories as
+      | Record<string, LocalRepository>
+      | undefined;
+    const currentRepo = Object.values(repositories ?? {}).find(
+      (repo: LocalRepository) =>
+        (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl,
+    );
+    if (currentRepo?.id.startsWith("local/")) {
+      // For local repos, get the current branch from worktrees
+      const repoWorktrees = worktrees.filter(
+        (wt: any) => wt.repo_id === currentRepo.id,
+      );
+      return repoWorktrees.length > 0
+        ? repoWorktrees[0].source_branch
+        : undefined;
+    }
+    return currentRepo?.default_branch;
+  }, [gitStatus.repositories, githubUrl, worktrees]);
+
+  // Memoize default branch calculation
+  const defaultBranch = useMemo(() => {
+    const repositories = gitStatus.repositories as
+      | Record<string, LocalRepository>
+      | undefined;
+    const currentRepo = Object.values(repositories ?? {}).find(
+      (repo: LocalRepository) =>
+        (repo.id.startsWith("local/") ? repo.id : repo.url) === githubUrl,
+    );
+    return currentRepo?.default_branch;
+  }, [gitStatus.repositories, githubUrl]);
 
   // Force refresh button
   const handleRefresh = async () => {
@@ -540,37 +576,8 @@ function GitPage() {
                   value={selectedBranch}
                   onValueChange={setSelectedBranch}
                   branches={selectedRepoBranches}
-                  currentBranch={(() => {
-                    const repositories = gitStatus.repositories as
-                      | Record<string, LocalRepository>
-                      | undefined;
-                    const currentRepo = Object.values(repositories ?? {}).find(
-                      (repo: LocalRepository) =>
-                        (repo.id.startsWith("local/") ? repo.id : repo.url) ===
-                        githubUrl,
-                    );
-                    if (currentRepo?.id.startsWith("local/")) {
-                      // For local repos, get the current branch from worktrees
-                      const repoWorktrees = worktrees.filter(
-                        (wt: any) => wt.repo_id === currentRepo.id,
-                      );
-                      return repoWorktrees.length > 0
-                        ? repoWorktrees[0].source_branch
-                        : undefined;
-                    }
-                    return currentRepo?.default_branch;
-                  })()}
-                  defaultBranch={(() => {
-                    const repositories = gitStatus.repositories as
-                      | Record<string, LocalRepository>
-                      | undefined;
-                    const currentRepo = Object.values(repositories ?? {}).find(
-                      (repo: LocalRepository) =>
-                        (repo.id.startsWith("local/") ? repo.id : repo.url) ===
-                        githubUrl,
-                    );
-                    return currentRepo?.default_branch;
-                  })()}
+                  currentBranch={currentBranch}
+                  defaultBranch={defaultBranch}
                   disabled={false}
                   loading={branchesLoading}
                 />

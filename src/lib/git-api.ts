@@ -21,7 +21,12 @@ export interface Todo {
   id: string;
   content: string;
   status: "pending" | "in_progress" | "completed";
-  priority: "high" | "medium" | "low";
+  priority?: "high" | "medium" | "low";
+}
+
+export interface DirtyFile {
+  path: string;
+  status: string; // M, A, D, R, etc.
 }
 
 export interface Worktree {
@@ -36,13 +41,14 @@ export interface Worktree {
   commits_behind: number;
   is_dirty: boolean;
   has_conflicts: boolean;
-  dirty_files?: string[];
+  dirty_files?: DirtyFile[];
   created_at: string;
   last_accessed: string;
   session_title?: TitleEntry;
   session_title_history?: TitleEntry[];
   cache_status?: CacheStatus;
   has_active_claude_session?: boolean;
+  claude_activity_state: "inactive" | "running" | "active";
   pull_request_url?: string;
   todos?: Todo[];
 }

@@ -67,11 +67,11 @@ export function Navbar() {
             className="fixed inset-0 bg-black/50"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <div className="fixed top-14 right-0 w-64 h-full bg-[#1a1a1a] border-l border-gray-800">
+          <div className="fixed top-14 right-0 w-64 h-full bg-[#1a1a1a] border-l border-border">
             <div className="flex flex-col p-4 space-y-2">
               <Link
                 to="/"
-                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Home size={20} />
@@ -79,7 +79,7 @@ export function Navbar() {
               </Link>
               <Link
                 to="/terminal"
-                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <Terminal size={20} />
@@ -87,7 +87,7 @@ export function Navbar() {
               </Link>
               <Link
                 to="/git"
-                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <GitBranch size={20} />
@@ -95,7 +95,7 @@ export function Navbar() {
               </Link>
               <Link
                 to="/docs"
-                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <FileText size={20} />
@@ -103,7 +103,7 @@ export function Navbar() {
               </Link>
               <Link
                 to="/transcript"
-                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 <MessageSquare size={20} />
@@ -113,7 +113,7 @@ export function Navbar() {
               {/* Ports Section in Mobile Menu */}
               {ports.size > 0 && (
                 <>
-                  <div className="border-t border-gray-700 my-2" />
+                  <div className="border-t border-border my-2" />
                   <div className="text-xs text-muted-foreground px-3 py-1">
                     Active Ports
                   </div>
@@ -124,7 +124,7 @@ export function Navbar() {
                         key={service.port}
                         to="/preview/$port"
                         params={{ port: service.port.toString() }}
-                        className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded"
+                        className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded"
                         onClick={() => setMobileMenuOpen(false)}
                       >
                         <Globe size={20} />
@@ -141,14 +141,14 @@ export function Navbar() {
                 </>
               )}
 
-              <div className="border-t border-gray-700 my-2" />
+              <div className="border-t border-border my-2" />
 
               <button
                 onClick={() => {
                   handleGitHubLogin();
                   setMobileMenuOpen(false);
                 }}
-                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded text-left w-full"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded text-left w-full"
               >
                 <Github size={20} />
                 <span>GitHub Login</span>
@@ -158,7 +158,7 @@ export function Navbar() {
                   handleReset();
                   setMobileMenuOpen(false);
                 }}
-                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-gray-800 transition-colors rounded text-left w-full"
+                className="flex items-center gap-3 px-3 py-2 text-muted-foreground hover:text-primary-foreground hover:bg-muted transition-colors rounded text-left w-full"
               >
                 <RotateCcw size={20} />
                 <span>Reset Terminal</span>
@@ -169,7 +169,7 @@ export function Navbar() {
       )}
 
       {/* Desktop Sidebar Navigation */}
-      <nav className="hidden sm:block fixed left-0 top-0 w-16 h-screen bg-[#1a1a1a] border-r border-gray-800 z-40">
+      <nav className="hidden sm:block fixed left-0 top-0 w-16 h-screen bg-[#1a1a1a] border-r border-border z-40">
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="p-3 flex justify-center relative">

@@ -200,3 +200,66 @@ func (h *ClaudeHandler) GetWorktreeTodos(c *fiber.Ctx) error {
 
 	return c.JSON(todos)
 }
+
+// GetClaudeSettings returns Claude configuration settings from ~/.claude.json
+// @Summary Get Claude settings
+// @Description Returns Claude Code configuration settings including theme, authentication status, and other metadata
+// @Tags claude
+// @Produce json
+// @Success 200 {object} models.ClaudeSettings
+// @Router /v1/claude/settings [get]
+func (h *ClaudeHandler) GetClaudeSettings(c *fiber.Ctx) error {
+	settings, err := h.claudeService.GetClaudeSettings()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(settings)
+}
+
+// UpdateClaudeSettings updates Claude configuration settings in ~/.claude.json
+// @Summary Update Claude settings
+// @Description Updates Claude Code configuration settings (currently only theme is supported)
+// @Tags claude
+// @Accept json
+// @Produce json
+// @Param request body models.ClaudeSettingsUpdateRequest true "Settings update request"
+// @Success 200 {object} models.ClaudeSettings
+// @Router /v1/claude/settings [put]
+func (h *ClaudeHandler) UpdateClaudeSettings(c *fiber.Ctx) error {
+	var req models.ClaudeSettingsUpdateRequest
+
+	// Parse the request body
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Validate theme
+	validThemes := []string{"dark", "light", "dark-daltonized", "light-daltonized", "dark-ansi", "light-ansi"}
+	valid := false
+	for _, theme := range validThemes {
+		if req.Theme == theme {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid theme value. Must be one of: dark, light, dark-daltonized, light-daltonized, dark-ansi, light-ansi",
+		})
+	}
+
+	// Update settings
+	settings, err := h.claudeService.UpdateClaudeSettings(&req)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(settings)
+}

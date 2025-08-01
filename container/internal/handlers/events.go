@@ -48,12 +48,13 @@ type AppEvent struct {
 }
 
 type PortPayload struct {
-	Port     int     `json:"port"`
-	Service  *string `json:"service,omitempty"`
-	Protocol *string `json:"protocol,omitempty"`
-	Title    *string `json:"title,omitempty"`
-	PID      *int    `json:"pid,omitempty"`
-	Command  *string `json:"command,omitempty"`
+	Port       int     `json:"port"`
+	Service    *string `json:"service,omitempty"`
+	Protocol   *string `json:"protocol,omitempty"`
+	Title      *string `json:"title,omitempty"`
+	PID        *int    `json:"pid,omitempty"`
+	Command    *string `json:"command,omitempty"`
+	WorkingDir *string `json:"working_dir,omitempty"`
 }
 
 type GitPayload struct {
@@ -382,6 +383,12 @@ func (h *EventsHandler) makePortOpened(s *services.ServiceInfo) SSEMessage {
 					}
 					return nil
 				}(),
+				WorkingDir: func() *string {
+					if s.WorkingDir != "" {
+						return &s.WorkingDir
+					}
+					return nil
+				}(),
 			},
 		},
 		Timestamp: time.Now().UnixMilli(),
@@ -423,6 +430,7 @@ func (h *EventsHandler) monitorPorts() {
 					var title *string
 					var pid *int
 					var command *string
+					var workingDir *string
 					if serviceInfo.ServiceType != "" {
 						service = &serviceInfo.ServiceType
 					}
@@ -436,17 +444,21 @@ func (h *EventsHandler) monitorPorts() {
 					if serviceInfo.Command != "" {
 						command = &serviceInfo.Command
 					}
+					if serviceInfo.WorkingDir != "" {
+						workingDir = &serviceInfo.WorkingDir
+					}
 
-					log.Printf("Port opened: %d (%s) - %s [PID: %d, Command: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command)
+					log.Printf("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
 					h.broadcastEvent(AppEvent{
 						Type: PortOpenedEvent,
 						Payload: PortPayload{
-							Port:     serviceInfo.Port,
-							Service:  service,
-							Protocol: protocol,
-							Title:    title,
-							PID:      pid,
-							Command:  command,
+							Port:       serviceInfo.Port,
+							Service:    service,
+							Protocol:   protocol,
+							Title:      title,
+							PID:        pid,
+							Command:    command,
+							WorkingDir: workingDir,
 						},
 					})
 				}

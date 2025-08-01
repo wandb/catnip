@@ -135,6 +135,39 @@ func (b *BranchOperations) GetLocalRepoBranches(repoPath string) ([]string, erro
 
 // GetRemoteBranches returns remote branches for a repository
 func (b *BranchOperations) GetRemoteBranches(repoPath string, defaultBranch string) ([]string, error) {
+	// First, try to get the remote URL and use ls-remote for accurate branch list
+	remoteURL, err := b.GetRemoteURL(repoPath)
+	if err == nil && remoteURL != "" {
+		// Use ls-remote to get all remote branches directly from origin
+		output, err := b.executor.ExecuteGitWithWorkingDir(repoPath, "ls-remote", "--heads", "origin")
+		if err == nil {
+			var branches []string
+			branchSet := map[string]bool{}
+
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				// Each line is in format: <commit-hash> refs/heads/<branch-name>
+				parts := strings.Fields(line)
+				if len(parts) >= 2 && strings.HasPrefix(parts[1], "refs/heads/") {
+					branch := strings.TrimPrefix(parts[1], "refs/heads/")
+					if !branchSet[branch] {
+						branches = append(branches, branch)
+						branchSet[branch] = true
+					}
+				}
+			}
+
+			if len(branches) > 0 {
+				return branches, nil
+			}
+		}
+	}
+
+	// Fallback to the original method using cached remote branches
 	// Start with the default branch
 	branches := []string{defaultBranch}
 	branchSet := map[string]bool{defaultBranch: true}
