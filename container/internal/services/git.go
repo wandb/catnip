@@ -1024,12 +1024,17 @@ func (s *GitService) UpdateWorktreeBranchName(worktreePath, newBranchName string
 
 	// Update the branch name
 	oldBranchName := targetWorktree.Branch
-	targetWorktree.Branch = newBranchName
+
+	// Update via state manager to ensure persistence and event emission
+	updates := map[string]interface{}{
+		"branch": newBranchName,
+	}
+
+	if err := s.stateManager.UpdateWorktree(targetWorktree.ID, updates); err != nil {
+		return fmt.Errorf("failed to update worktree branch: %v", err)
+	}
 
 	log.Printf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
-
-	// Save state which will automatically detect changes and emit events
-	// State persistence handled by state manager
 
 	return nil
 }

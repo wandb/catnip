@@ -263,6 +263,21 @@ function ChangedFiles({
             <Badge variant="secondary" className="text-xs">
               {fileDiffs.length}
             </Badge>
+            {worktree.pull_request_url && (
+              <a
+                href={worktree.pull_request_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                title="Open pull request"
+              >
+                <span>
+                  PR{" "}
+                  {worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"}
+                </span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
             <WorkspaceActions
               mode="workspace"
               worktree={worktree}
@@ -277,11 +292,11 @@ function ChangedFiles({
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <ScrollArea className="h-48">
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {fileDiffs.map((file, index) => (
               <div
                 key={index}
-                className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer"
+                className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer"
                 title={`${getFileStatusLabel(file.change_type)}: ${file.file_path}`}
               >
                 {getFileStatusIcon(file.change_type)}

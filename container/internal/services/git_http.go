@@ -118,10 +118,10 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 	)
 
 	// Add HTTP headers as environment variables
-	c.Request().Header.VisitAll(func(key, value []byte) {
-		headerKey := fmt.Sprintf("HTTP_%s", strings.ToUpper(strings.ReplaceAll(string(key), "-", "_")))
-		env = append(env, fmt.Sprintf("%s=%s", headerKey, string(value)))
-	})
+	for key, value := range c.GetReqHeaders() {
+		headerKey := fmt.Sprintf("HTTP_%s", strings.ToUpper(strings.ReplaceAll(key, "-", "_")))
+		env = append(env, fmt.Sprintf("%s=%s", headerKey, value))
+	}
 
 	// Check what refs exist in the bare repository (silent)
 

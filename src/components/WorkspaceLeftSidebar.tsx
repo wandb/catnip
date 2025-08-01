@@ -43,13 +43,18 @@ export function WorkspaceLeftSidebar() {
   const repositoriesCount = useAppStore(
     (state) => state.getRepositoriesList().length,
   );
+  const worktreesCount = useAppStore(
+    (state) => state.getWorktreesList().length,
+  );
+  // Subscribe to the actual worktrees map to get updates when individual worktrees change
+  const worktrees = useAppStore((state) => state.worktrees);
   const getWorktreesByRepo = useAppStore((state) => state.getWorktreesByRepo);
 
   // Get repositories using direct store access to avoid array reference changes
   const repositories = useMemo(() => {
     if (repositoriesCount === 0) return [];
     return useAppStore.getState().getRepositoriesList();
-  }, [repositoriesCount]);
+  }, [repositoriesCount, worktreesCount, worktrees]);
 
   // Find current worktree to get its repo_id for expanded state
   const currentWorkspaceName = `${project}/${workspace}`;

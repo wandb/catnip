@@ -37,6 +37,7 @@ export function NewWorkspaceDialog({
   const [currentGithubRepos, setCurrentGithubRepos] = useState<
     Record<string, LocalRepository>
   >({});
+  const [error, setError] = useState<string | null>(null);
   const hasFetchedRepos = useRef(false);
 
   // Reset form when dialog opens/closes
@@ -46,6 +47,7 @@ export function NewWorkspaceDialog({
       setSelectedBranch("");
       setSelectedRepoBranches([]);
       setCheckoutLoading(false);
+      setError(null);
     }
   }, [open]);
 
@@ -83,6 +85,7 @@ export function NewWorkspaceDialog({
     if (!url || !branch) return false;
 
     setCheckoutLoading(true);
+    setError(null);
     try {
       let success = false;
 
@@ -93,10 +96,13 @@ export function NewWorkspaceDialog({
         success = await checkoutRepository("local", repoName, branch);
       } else {
         // For GitHub URLs, parse the org and repo name
-        let match = url.match(/github\.com[/:]([\\w-]+)\/([\\w-]+?)(\\.git)?$/);
+        // Updated regex to handle URLs with or without .git suffix
+        let match = url.match(
+          /github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/)?$/,
+        );
         if (!match) {
           // Try without protocol
-          match = url.match(/^([\\w-]+)\/([\\w-]+)$/);
+          match = url.match(/^([\w.-]+)\/([\w.-]+)$/);
         }
 
         if (match) {
@@ -104,16 +110,28 @@ export function NewWorkspaceDialog({
           const repo = match[2];
           success = await checkoutRepository(org, repo, branch);
         } else {
-          console.error("Invalid GitHub URL format:", url);
+          setError(
+            "Invalid GitHub URL format. Please use a valid GitHub URL or org/repo format.",
+          );
           return false;
         }
       }
 
       if (success) {
         onOpenChange(false);
+      } else {
+        setError(
+          "Failed to create workspace. Please check the repository URL and try again.",
+        );
       }
 
       return success;
+    } catch (error) {
+      console.error("Error creating workspace:", error);
+      setError(
+        error instanceof Error ? error.message : "An unexpected error occurred",
+      );
+      return false;
     } finally {
       setCheckoutLoading(false);
     }
@@ -128,6 +146,7 @@ export function NewWorkspaceDialog({
     if (!url) return;
 
     setBranchesLoading(true);
+    setError(null);
     try {
       // Check if this is a current repository (already checked out)
       const repositories = gitStatus.repositories as
@@ -173,9 +192,13 @@ export function NewWorkspaceDialog({
           repoId = repoPath;
           branches = await gitApi.fetchBranches(repoId);
 
-          // For remote repos, set the first branch as default (usually main/master)
+          // For remote repos, prioritize default branches (main/master)
           if (branches.length > 0) {
-            setSelectedBranch(branches[0]);
+            // Look for common default branch names
+            const defaultBranch = branches.find(
+              (branch) => branch === "main" || branch === "master",
+            );
+            setSelectedBranch(defaultBranch || branches[0]);
           }
         }
       }
@@ -184,6 +207,7 @@ export function NewWorkspaceDialog({
     } catch (error) {
       console.error("Failed to fetch branches:", error);
       setSelectedRepoBranches([]);
+      setError("Failed to fetch branches. Please check the repository URL.");
     } finally {
       setBranchesLoading(false);
     }
@@ -232,6 +256,11 @@ export function NewWorkspaceDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          {error && (
+            <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
+              {error}
+            </div>
+          )}
           <RepoSelector
             value={githubUrl}
             onValueChange={handleRepoChange}
