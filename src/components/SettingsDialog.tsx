@@ -590,38 +590,40 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                               <div>
                                 <h5 className="font-medium mb-2">Parameters</h5>
                                 <div className="space-y-2">
-                                  {endpoint.parameters.map((param, idx) => (
-                                    <div
-                                      key={idx}
-                                      className="text-sm border rounded p-3 bg-muted/30"
-                                    >
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <code className="font-mono font-medium">
-                                          {param.name}
-                                        </code>
-                                        <Badge
-                                          variant="outline"
-                                          className="text-xs"
-                                        >
-                                          {param.in ||
-                                            param.type ||
-                                            "parameter"}
-                                        </Badge>
-                                        {param.required && (
+                                  {endpoint.parameters.map(
+                                    (param: any, idx: number) => (
+                                      <div
+                                        key={idx}
+                                        className="text-sm border rounded p-3 bg-muted/30"
+                                      >
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <code className="font-mono font-medium">
+                                            {param.name}
+                                          </code>
                                           <Badge
-                                            variant="destructive"
+                                            variant="outline"
                                             className="text-xs"
                                           >
-                                            required
+                                            {param.in ||
+                                              param.type ||
+                                              "parameter"}
                                           </Badge>
-                                        )}
+                                          {param.required && (
+                                            <Badge
+                                              variant="destructive"
+                                              className="text-xs"
+                                            >
+                                              required
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <p className="text-muted-foreground">
+                                          {param.description ||
+                                            "No description available"}
+                                        </p>
                                       </div>
-                                      <p className="text-muted-foreground">
-                                        {param.description ||
-                                          "No description available"}
-                                      </p>
-                                    </div>
-                                  ))}
+                                    ),
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -629,36 +631,38 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                             <div>
                               <h5 className="font-medium mb-2">Responses</h5>
                               <div className="space-y-2">
-                                {endpoint.responses.map((response, idx) => (
-                                  <div
-                                    key={idx}
-                                    className="text-sm border rounded p-3 bg-muted/30"
-                                  >
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <Badge
-                                        variant="outline"
-                                        className="text-xs"
-                                      >
-                                        {response.status}
-                                      </Badge>
-                                      <span className="font-medium">
-                                        {response.description}
-                                      </span>
-                                    </div>
-                                    {response.schema && (
-                                      <div className="mt-2">
-                                        <p className="text-xs text-muted-foreground mb-1">
-                                          Example Response:
-                                        </p>
-                                        <JsonHighlighter
-                                          data={generateExample(
-                                            response.schema,
-                                          )}
-                                        />
+                                {endpoint.responses.map(
+                                  (response: any, idx: number) => (
+                                    <div
+                                      key={idx}
+                                      className="text-sm border rounded p-3 bg-muted/30"
+                                    >
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <Badge
+                                          variant="outline"
+                                          className="text-xs"
+                                        >
+                                          {response.status}
+                                        </Badge>
+                                        <span className="font-medium">
+                                          {response.description}
+                                        </span>
                                       </div>
-                                    )}
-                                  </div>
-                                ))}
+                                      {response.schema && (
+                                        <div className="mt-2">
+                                          <p className="text-xs text-muted-foreground mb-1">
+                                            Example Response:
+                                          </p>
+                                          <JsonHighlighter
+                                            data={generateExample(
+                                              response.schema,
+                                            )}
+                                          />
+                                        </div>
+                                      )}
+                                    </div>
+                                  ),
+                                )}
                               </div>
                             </div>
                           </div>
