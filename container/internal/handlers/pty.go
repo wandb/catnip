@@ -70,6 +70,9 @@ type Session struct {
 	writeMutex sync.Mutex
 	// Checkpoint functionality
 	checkpointManager git.CheckpointManager
+	// Alternate screen buffer detection for TUI applications
+	AlternateScreenActive bool
+	LastNonTUIBufferSize  int
 }
 
 // ResizeMsg represents terminal resize message
@@ -399,6 +402,20 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
 				h.handleTitleUpdate(session, title)
 			}
+
+			// Check for alternate screen buffer sequences
+			if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
+				// Entering alternate screen - mark position for TUI buffer filtering
+				session.AlternateScreenActive = true
+				session.LastNonTUIBufferSize = len(session.outputBuffer)
+				log.Printf("🖥️  Detected alternate screen buffer entry at position %d", session.LastNonTUIBufferSize)
+			}
+			if bytes.Contains(buf[:n], []byte("\x1b[?1049l")) {
+				// Exiting alternate screen
+				session.AlternateScreenActive = false
+				log.Printf("🖥️  Detected alternate screen buffer exit")
+			}
+
 			session.outputBuffer = append(session.outputBuffer, buf[:n]...)
 			// Update buffered dimensions to current terminal size
 			session.bufferedCols = session.cols
@@ -465,15 +482,36 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 							_ = session.writeToConnection(conn, websocket.TextMessage, data)
 						}
 
-						// Then replay the buffer
+						// Then replay the buffer (filter TUI content if alternate screen is active)
 						session.bufferMutex.RLock()
-						log.Printf("📋 Replaying %d bytes of buffered output at %dx%d", len(session.outputBuffer), bufferCols, bufferRows)
-						bufferCopy := make([]byte, len(session.outputBuffer))
-						copy(bufferCopy, session.outputBuffer)
+						var bufferToReplay []byte
+
+						if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
+							// Only replay content up to where alternate screen was entered
+							bufferToReplay = make([]byte, session.LastNonTUIBufferSize)
+							copy(bufferToReplay, session.outputBuffer[:session.LastNonTUIBufferSize])
+							log.Printf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
+						} else {
+							// Replay entire buffer for non-TUI sessions
+							bufferToReplay = make([]byte, len(session.outputBuffer))
+							copy(bufferToReplay, session.outputBuffer)
+							log.Printf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
+						}
 						session.bufferMutex.RUnlock()
 
-						if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferCopy); err != nil {
+						if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferToReplay); err != nil {
 							log.Printf("❌ Failed to replay buffer: %v", err)
+						}
+
+						// If we filtered TUI content, send a refresh signal to trigger TUI repaint
+						if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
+							go func() {
+								time.Sleep(100 * time.Millisecond)
+								log.Printf("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
+								if _, err := session.PTY.Write([]byte("\x0c")); err != nil {
+									log.Printf("❌ Failed to send refresh signal: %v", err)
+								}
+							}()
 						}
 					} else {
 						log.Printf("📋 No buffer to replay or dimensions not captured")
@@ -710,6 +748,9 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			services.NewGitServiceAdapter(h.gitService),
 			services.NewSessionServiceAdapter(h.sessionService),
 		),
+		// Initialize alternate screen buffer detection
+		AlternateScreenActive: false,
+		LastNonTUIBufferSize:  0,
 	}
 
 	h.sessions[sessionID] = session
@@ -983,6 +1024,9 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	// Clear the output buffer on shell restart - no history between restarts
 	session.bufferMutex.Lock()
 	session.outputBuffer = make([]byte, 0)
+	// Reset alternate screen buffer detection state
+	session.AlternateScreenActive = false
+	session.LastNonTUIBufferSize = 0
 	session.bufferMutex.Unlock()
 
 	// Preserve the current title from the active session if it exists
