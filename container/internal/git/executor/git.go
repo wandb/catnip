@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -19,6 +20,9 @@ import (
 type GitExecutor struct {
 	fallbackExecutor CommandExecutor
 	repositoryCache  map[string]*gogit.Repository
+	cacheMutex       sync.RWMutex           // Protects repositoryCache access
+	operationMutexes map[string]*sync.Mutex // Per-repository operation mutexes
+	mutexMapMutex    sync.RWMutex           // Protects operationMutexes map
 }
 
 // NewGitExecutor creates a new go-git based command executor (the main production executor)
@@ -26,6 +30,7 @@ func NewGitExecutor() CommandExecutor {
 	return &GitExecutor{
 		fallbackExecutor: NewShellExecutor(), // Shell git as fallback
 		repositoryCache:  make(map[string]*gogit.Repository),
+		operationMutexes: make(map[string]*sync.Mutex),
 	}
 }
 
@@ -131,6 +136,31 @@ func (e *GitExecutor) ExecuteGitWithStdErr(workingDir string, args ...string) ([
 	return e.fallbackExecutor.ExecuteGitWithStdErr(workingDir, args...)
 }
 
+// getRepositoryMutex gets or creates a mutex for the given repository path
+func (e *GitExecutor) getRepositoryMutex(absPath string) *sync.Mutex {
+	// Check if mutex exists with read lock
+	e.mutexMapMutex.RLock()
+	if mutex, exists := e.operationMutexes[absPath]; exists {
+		e.mutexMapMutex.RUnlock()
+		return mutex
+	}
+	e.mutexMapMutex.RUnlock()
+
+	// Create new mutex with write lock
+	e.mutexMapMutex.Lock()
+	defer e.mutexMapMutex.Unlock()
+
+	// Double-check after acquiring write lock
+	if mutex, exists := e.operationMutexes[absPath]; exists {
+		return mutex
+	}
+
+	// Create and store new mutex
+	mutex := &sync.Mutex{}
+	e.operationMutexes[absPath] = mutex
+	return mutex
+}
+
 // getRepository gets or opens a repository, caching the result
 func (e *GitExecutor) getRepository(repoPath string) (*gogit.Repository, error) {
 	if repoPath == "" {
@@ -143,7 +173,19 @@ func (e *GitExecutor) getRepository(repoPath string) (*gogit.Repository, error) 
 		return nil, fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
 
-	// Check cache first
+	// Check cache first with read lock
+	e.cacheMutex.RLock()
+	if repo, exists := e.repositoryCache[absPath]; exists {
+		e.cacheMutex.RUnlock()
+		return repo, nil
+	}
+	e.cacheMutex.RUnlock()
+
+	// Not in cache, acquire write lock to open and cache
+	e.cacheMutex.Lock()
+	defer e.cacheMutex.Unlock()
+
+	// Double-check after acquiring write lock (another goroutine may have cached it)
 	if repo, exists := e.repositoryCache[absPath]; exists {
 		return repo, nil
 	}
@@ -164,13 +206,18 @@ func (e *GitExecutor) getRepository(repoPath string) (*gogit.Repository, error) 
 
 // handleStatus implements git status --porcelain
 func (e *GitExecutor) handleStatus(workingDir string, args []string) ([]byte, error) {
-	repo, err := e.getRepository(workingDir)
+	// Resolve workingDir to an absolute path for mutex lookup
+	absWorkingDir, err := filepath.Abs(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
 	}
 
-	// Resolve workingDir to an absolute path for comparison
-	absWorkingDir, err := filepath.Abs(workingDir)
+	// Get per-repository mutex and lock it for the entire operation
+	mutex := e.getRepositoryMutex(absWorkingDir)
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
 	}
@@ -235,6 +282,17 @@ func (e *GitExecutor) handleStatus(workingDir string, args []string) ([]byte, er
 
 // handleBranch implements various git branch commands
 func (e *GitExecutor) handleBranch(workingDir string, args []string) ([]byte, error) {
+	// Resolve workingDir to an absolute path for mutex lookup
+	absWorkingDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"branch"}, args...)...)
+	}
+
+	// Get per-repository mutex and lock it for the entire operation
+	mutex := e.getRepositoryMutex(absWorkingDir)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"branch"}, args...)...)
@@ -263,6 +321,17 @@ func (e *GitExecutor) handleBranch(workingDir string, args []string) ([]byte, er
 
 // handleRemote implements git remote commands
 func (e *GitExecutor) handleRemote(workingDir string, args []string) ([]byte, error) {
+	// Resolve workingDir to an absolute path for mutex lookup
+	absWorkingDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"remote"}, args...)...)
+	}
+
+	// Get per-repository mutex and lock it for the entire operation
+	mutex := e.getRepositoryMutex(absWorkingDir)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"remote"}, args...)...)
@@ -294,6 +363,17 @@ func (e *GitExecutor) handleConfig(workingDir string, args []string) ([]byte, er
 		// Handle specific config keys we can implement
 		switch configKey {
 		case "remote.origin.url":
+			// Resolve workingDir to an absolute path for mutex lookup
+			absWorkingDir, err := filepath.Abs(workingDir)
+			if err != nil {
+				return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"config"}, args...)...)
+			}
+
+			// Get per-repository mutex and lock it for the entire operation
+			mutex := e.getRepositoryMutex(absWorkingDir)
+			mutex.Lock()
+			defer mutex.Unlock()
+
 			repo, err := e.getRepository(workingDir)
 			if err != nil {
 				return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"config"}, args...)...)
@@ -310,6 +390,17 @@ func (e *GitExecutor) handleConfig(workingDir string, args []string) ([]byte, er
 
 			return []byte(remote.Config().URLs[0] + "\n"), nil
 		case "core.bare":
+			// Resolve workingDir to an absolute path for mutex lookup
+			absWorkingDir, err := filepath.Abs(workingDir)
+			if err != nil {
+				return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"config"}, args...)...)
+			}
+
+			// Get per-repository mutex and lock it for the entire operation
+			mutex := e.getRepositoryMutex(absWorkingDir)
+			mutex.Lock()
+			defer mutex.Unlock()
+
 			// Check if repository is bare
 			repo, err := e.getRepository(workingDir)
 			if err != nil {
@@ -331,6 +422,17 @@ func (e *GitExecutor) handleConfig(workingDir string, args []string) ([]byte, er
 
 // handleRevParse implements git rev-parse commands
 func (e *GitExecutor) handleRevParse(workingDir string, args []string) ([]byte, error) {
+	// Resolve workingDir to an absolute path for mutex lookup
+	absWorkingDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-parse"}, args...)...)
+	}
+
+	// Get per-repository mutex and lock it for the entire operation
+	mutex := e.getRepositoryMutex(absWorkingDir)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"rev-parse"}, args...)...)
@@ -374,6 +476,17 @@ func (e *GitExecutor) handleSymbolicRef(workingDir string, args []string) ([]byt
 
 // handleFetch implements git fetch commands
 func (e *GitExecutor) handleFetch(workingDir string, args []string) ([]byte, error) {
+	// Resolve workingDir to an absolute path for mutex lookup
+	absWorkingDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"fetch"}, args...)...)
+	}
+
+	// Get per-repository mutex and lock it for the entire operation
+	mutex := e.getRepositoryMutex(absWorkingDir)
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	repo, err := e.getRepository(workingDir)
 	if err != nil {
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"fetch"}, args...)...)
@@ -414,6 +527,7 @@ func (e *GitExecutor) handleLsRemote(workingDir string, args []string) ([]byte, 
 // Helper functions
 
 func (e *GitExecutor) listBranches(repo *gogit.Repository, includeRemote bool) ([]byte, error) {
+	// Note: Repository operations are already protected by per-repository mutex in calling function
 	refs, err := repo.References()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get references: %w", err)
@@ -459,6 +573,7 @@ func (e *GitExecutor) listBranches(repo *gogit.Repository, includeRemote bool) (
 }
 
 func (e *GitExecutor) getCurrentBranch(repo *gogit.Repository) ([]byte, error) {
+	// Note: Repository operations are already protected by per-repository mutex in calling function
 	head, err := repo.Head()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get HEAD: %w", err)
