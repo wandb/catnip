@@ -68,11 +68,18 @@ export function PullRequestDialog({
       if (isExistingPR) {
         // Set update mode and use existing PR data
         setIsUpdate(true);
-        if (prStatus?.title) {
+
+        // Prioritize persisted data from worktree, then prStatus, then fallback
+        if (worktree.pull_request_title && worktree.pull_request_body) {
+          // Use persisted data from worktree (this is what we want!)
+          setTitle(worktree.pull_request_title);
+          setDescription(worktree.pull_request_body);
+        } else if (prStatus?.title) {
+          // Fallback to prStatus if available
           setTitle(prStatus.title);
           setDescription(prStatus.body || "");
         } else {
-          // Fallback for existing PR without prStatus data
+          // Final fallback for existing PR without any stored data
           setTitle(`Update ${worktree.branch}`);
           setDescription(`Updated changes for ${worktree.branch} branch`);
         }

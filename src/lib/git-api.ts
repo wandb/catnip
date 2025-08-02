@@ -50,6 +50,8 @@ export interface Worktree {
   has_active_claude_session?: boolean;
   claude_activity_state: "inactive" | "running" | "active";
   pull_request_url?: string;
+  pull_request_title?: string;
+  pull_request_body?: string;
   todos?: Todo[];
 }
 
