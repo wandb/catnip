@@ -434,6 +434,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
 export function WorkspaceMainContent({
   worktree,
+  repository: _repository,
   showDiffView,
   setShowDiffView,
   showPortPreview,
@@ -566,13 +567,13 @@ export function WorkspaceMainContent({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
-                  <img src="/anthropic.png" alt="Claude" className="w-4 h-4" />
-                  <span className="text-sm font-medium">Claude</span>
-                  {worktree.session_title && (
-                    <span className="text-xs text-muted-foreground">
-                      - {worktree.session_title.title}
+                  <span className="text-sm">
+                    <span className="font-medium">Terminal</span>
+                    <span className="text-muted-foreground">
+                      {" "}
+                      - /workspace/{worktree.name}
                     </span>
-                  )}
+                  </span>
                 </div>
                 <Button
                   variant="ghost"

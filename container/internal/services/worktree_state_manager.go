@@ -242,6 +242,13 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 	// Emit update event with only changed fields
 	if wsm.eventsEmitter != nil {
 		wsm.eventsEmitter.EmitWorktreeUpdated(worktreeID, updates)
+
+		// Emit specific todos event if todos were updated
+		if todosValue, hasTodos := updates["todos"]; hasTodos {
+			if todos, ok := todosValue.([]models.Todo); ok {
+				wsm.eventsEmitter.EmitWorktreeTodosUpdated(worktreeID, todos)
+			}
+		}
 	}
 
 	return nil
