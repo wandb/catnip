@@ -94,6 +94,10 @@ type Worktree struct {
 	ClaudeActivityState ClaudeActivityState `json:"claude_activity_state"`
 	// URL of the associated pull request (if one exists)
 	PullRequestURL string `json:"pull_request_url,omitempty" example:"https://github.com/owner/repo/pull/123"`
+	// Title of the associated pull request (persisted for updates)
+	PullRequestTitle string `json:"pull_request_title,omitempty" example:"Feature: Add new functionality"`
+	// Body/description of the associated pull request (persisted for updates)
+	PullRequestBody string `json:"pull_request_body,omitempty" example:"This PR adds new functionality to the system"`
 	// Current todos from the most recent TodoWrite in Claude session
 	Todos []Todo `json:"todos,omitempty"`
 }

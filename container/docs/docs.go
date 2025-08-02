@@ -1786,6 +1786,16 @@ const docTemplate = `{
                     "type": "string",
                     "example": "/workspace/worktrees/feature-api-docs"
                 },
+                "pull_request_body": {
+                    "description": "Body/description of the associated pull request (persisted for updates)",
+                    "type": "string",
+                    "example": "This PR adds new functionality to the system"
+                },
+                "pull_request_title": {
+                    "description": "Title of the associated pull request (persisted for updates)",
+                    "type": "string",
+                    "example": "Feature: Add new functionality"
+                },
                 "pull_request_url": {
                     "description": "URL of the associated pull request (if one exists)",
                     "type": "string",
@@ -2128,6 +2138,16 @@ const docTemplate = `{
                     "description": "Absolute path to the worktree directory",
                     "type": "string",
                     "example": "/workspace/worktrees/feature-api-docs"
+                },
+                "pull_request_body": {
+                    "description": "Body/description of the associated pull request (persisted for updates)",
+                    "type": "string",
+                    "example": "This PR adds new functionality to the system"
+                },
+                "pull_request_title": {
+                    "description": "Title of the associated pull request (persisted for updates)",
+                    "type": "string",
+                    "example": "Feature: Add new functionality"
                 },
                 "pull_request_url": {
                     "description": "URL of the associated pull request (if one exists)",

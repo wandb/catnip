@@ -1875,10 +1875,12 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 		return nil, err
 	}
 
-	// Save PR URL to worktree state
+	// Save PR metadata to worktree state
 	s.mu.Lock()
 	if worktree, exists := s.stateManager.GetWorktree(worktreeID); exists {
 		worktree.PullRequestURL = pr.URL
+		worktree.PullRequestTitle = title
+		worktree.PullRequestBody = body
 		// State persistence handled by state manager
 	}
 	s.mu.Unlock()
@@ -1925,10 +1927,12 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 		return nil, err
 	}
 
-	// Save PR URL to worktree state (in case it changed)
+	// Save PR metadata to worktree state (in case it changed)
 	s.mu.Lock()
 	if worktree, exists := s.stateManager.GetWorktree(worktreeID); exists {
 		worktree.PullRequestURL = pr.URL
+		worktree.PullRequestTitle = title
+		worktree.PullRequestBody = body
 		// State persistence handled by state manager
 	}
 	s.mu.Unlock()
@@ -2088,6 +2092,20 @@ func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestI
 		log.Printf("⚠️ Could not check for existing PR: %v", err)
 	} else {
 		prInfo = ghPrInfo
+	}
+
+	// Override with persisted PR data if available (gives precedence to locally stored data)
+	if worktree.PullRequestURL != "" {
+		prInfo.Exists = true
+		prInfo.URL = worktree.PullRequestURL
+
+		// Use persisted title and body if available (for updates)
+		if worktree.PullRequestTitle != "" {
+			prInfo.Title = worktree.PullRequestTitle
+		}
+		if worktree.PullRequestBody != "" {
+			prInfo.Body = worktree.PullRequestBody
+		}
 	}
 
 	return prInfo, nil
