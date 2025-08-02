@@ -27,6 +27,7 @@ Catnip uses a modern state management approach with **Zustand** for React state 
 ### Event Types
 
 All events follow the pattern:
+
 ```typescript
 interface AppEvent {
   type: EventType;
@@ -37,18 +38,22 @@ interface AppEvent {
 Current event types:
 
 #### Port Events
+
 - `port:opened` - New service detected on a port
 - `port:closed` - Service stopped on a port
 
-#### Git Events  
+#### Git Events
+
 - `git:dirty` - Repository has uncommitted changes
 - `git:clean` - Repository is clean
 
 #### Process Events
+
 - `process:started` - New process started
-- `process:stopped` - Process terminated  
+- `process:stopped` - Process terminated
 
 #### System Events
+
 - `container:status` - Container status change
 - `heartbeat` - Keep-alive ping every 5 seconds
 
@@ -76,7 +81,7 @@ export interface MyNewEvent {
 }
 
 // Add to union type
-export type AppEvent = 
+export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
   | MyNewEvent  // <- Add here
@@ -107,7 +112,7 @@ Update `src/stores/appStore.ts`:
 interface AppState {
   // ... existing state
   myNewData: Map<string, any>;
-  
+
   // ... existing methods
 }
 
@@ -115,13 +120,13 @@ interface AppState {
 handleEvent: (event: AppEvent) => {
   switch (event.type) {
     // ... existing cases
-    case 'my:new_event':
+    case "my:new_event":
       const newData = new Map(get().myNewData);
       newData.set(event.payload.id, event.payload.data);
       set({ myNewData: newData });
       break;
   }
-}
+};
 ```
 
 ### 4. Add Emission Method (Backend)
@@ -156,7 +161,7 @@ import { useAppStore } from '@/stores/appStore';
 
 function MyComponent() {
   const { myNewData } = useAppStore();
-  
+
   return (
     <div>
       {Array.from(myNewData.entries()).map(([id, data]) => (
@@ -170,12 +175,15 @@ function MyComponent() {
 ## Connection Management
 
 ### Auto-reconnection
+
 The SSE client automatically reconnects if the connection is lost:
+
 - **Retry Delay**: 3 seconds
 - **Error Handling**: Exponential backoff (future enhancement)
 - **Status Indicator**: Connection status shown in navbar
 
 ### Heartbeat System
+
 - **Interval**: 5 seconds
 - **Purpose**: Detect dead connections and maintain NAT traversal
 - **Payload**: Timestamp and uptime information
@@ -183,12 +191,14 @@ The SSE client automatically reconnects if the connection is lost:
 ## Performance Considerations
 
 ### Zustand Benefits
+
 - **Selective Updates**: Only subscribed components re-render
 - **Minimal Overhead**: < 1KB bundle size
 - **Type Safety**: Full TypeScript support
 - **DevTools**: Redux DevTools compatible
 
 ### SSE Advantages
+
 - **Real-time**: Instant updates vs polling delays
 - **Efficient**: One persistent connection vs multiple HTTP requests
 - **Reliable**: Built-in reconnection and error handling
@@ -197,18 +207,21 @@ The SSE client automatically reconnects if the connection is lost:
 ## Debugging
 
 ### Frontend Debugging
+
 ```typescript
 // Enable detailed logging in store
-console.log('SSE Event:', event);
+console.log("SSE Event:", event);
 ```
 
 ### Backend Debugging
+
 ```go
 // Add logging in events handler
 log.Printf("Broadcasting event: %+v", event)
 ```
 
 ### Network Debugging
+
 - Check Network tab in browser DevTools
 - Look for `/v1/events` EventSource connection
 - Verify SSE messages are being received
@@ -231,6 +244,37 @@ To migrate a component from polling to SSE:
 3. Use Zustand store selectors
 4. Ensure backend emits relevant events
 5. Test real-time updates
+
+## PTY Session Management
+
+### TUI Buffer Replay System
+
+For PTY sessions with TUI (Terminal User Interface) applications like Claude Code, we implement smart buffer replay to prevent UI state corruption on reconnection:
+
+#### Problem
+
+TUI applications use ANSI escape sequences to control terminal display. When a WebSocket reconnects, replaying the entire output buffer can cause duplicate UI elements (e.g., double input boxes) because the buffer contains both the final state and all intermediate drawing commands.
+
+#### Solution
+
+We detect when applications enter **alternate screen buffer mode** using ANSI sequence `\x1b[?1049h`:
+
+```go
+// In PTY output monitoring
+if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
+    // Mark position where TUI content begins
+    session.AlternateScreenActive = true
+    session.LastNonTUIBufferSize = len(session.outputBuffer)
+}
+```
+
+#### Buffer Replay Logic
+
+- **For TUI sessions**: Only replay content up to alternate screen entry point
+- **For regular terminals**: Replay entire buffer as before
+- **Post-replay**: Send `Ctrl+L` to trigger TUI refresh
+
+This ensures clean reconnections without duplicate interface elements while preserving command history that occurred before TUI activation.
 
 ## Future Enhancements
 
