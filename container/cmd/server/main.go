@@ -111,6 +111,9 @@ func main() {
 	gitService.SetSetupExecutor(ptyHandler)
 	log.Printf("✅ setupExecutor configured successfully")
 
+	// Wire up the claude monitor to git service
+	gitService.SetClaudeMonitor(claudeMonitor)
+
 	// Now initialize local repositories with setup executor properly configured
 	gitService.InitializeLocalRepos()
 	if err := claudeMonitor.Start(); err != nil {

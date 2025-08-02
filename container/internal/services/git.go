@@ -253,6 +253,7 @@ type GitService struct {
 	setupExecutor      SetupExecutor         // Handles setup.sh execution in PTY sessions
 	worktreeCache      *WorktreeStatusCache  // Handles worktree status caching with event updates
 	eventsEmitter      EventsEmitter         // Handles emitting events to connected clients
+	claudeMonitor      *ClaudeMonitorService // Handles Claude session monitoring
 	mu                 sync.RWMutex
 }
 
@@ -263,6 +264,13 @@ func (s *GitService) SetSetupExecutor(executor SetupExecutor) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.setupExecutor = executor
+}
+
+// SetClaudeMonitor sets the claude monitor service
+func (s *GitService) SetClaudeMonitor(monitor *ClaudeMonitorService) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.claudeMonitor = monitor
 }
 
 // SetEventsEmitter connects the events emitter to the state manager
@@ -911,6 +919,11 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	// Store worktree in service map
 	if err := s.stateManager.AddWorktree(worktree); err != nil {
 		log.Printf("⚠️ Failed to add worktree to state: %v", err)
+	}
+
+	// Notify ClaudeMonitor service about the new worktree
+	if s.claudeMonitor != nil {
+		s.claudeMonitor.OnWorktreeCreated(worktree.ID, worktree.Path)
 	}
 
 	// Update current symlink to point to this worktree if it's the first one
@@ -1730,6 +1743,11 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	// Notify CommitSync service about the new worktree
 	if s.commitSync != nil {
 		s.commitSync.AddWorktreeWatcher(worktree.Path)
+	}
+
+	// Notify ClaudeMonitor service about the new worktree
+	if s.claudeMonitor != nil {
+		s.claudeMonitor.OnWorktreeCreated(worktree.ID, worktree.Path)
 	}
 
 	if isInitial || len(s.stateManager.GetAllWorktrees()) == 1 {

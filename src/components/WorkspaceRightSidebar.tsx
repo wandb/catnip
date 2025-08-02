@@ -121,43 +121,51 @@ function TodosList({ worktree }: { worktree: Worktree }) {
       <SidebarGroupContent>
         <ScrollArea className="h-48">
           <div className="space-y-2">
-            {/* Pending todos */}
-            {pendingTodos.map((todo, index) => {
-              // Most recent uncompleted item gets brighter styling
-              const isMostRecent = index === 0;
-              return (
-                <div
-                  key={todo.id}
-                  className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50"
-                >
-                  <Circle
-                    className={`h-3 w-3 mt-0.5 flex-shrink-0 ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className={`text-xs break-words ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
-                    >
-                      {todo.content}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+            {/* Render todos in original order while preserving styling logic */}
+            {todos.map((todo, _index) => {
+              const isCompleted = todo.status === "completed";
 
-            {/* Completed todos */}
-            {completedTodos.map((todo) => (
-              <div
-                key={todo.id}
-                className="flex items-start gap-2 p-2 rounded-md"
-              >
-                <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs break-words text-muted-foreground line-through">
-                    {todo.content}
-                  </p>
-                </div>
-              </div>
-            ))}
+              if (isCompleted) {
+                // Completed todo styling
+                return (
+                  <div
+                    key={todo.id}
+                    className="flex items-start gap-2 p-2 rounded-md"
+                  >
+                    <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs break-words text-muted-foreground line-through">
+                        {todo.content}
+                      </p>
+                    </div>
+                  </div>
+                );
+              } else {
+                // Pending todo styling - find if this is the most recent uncompleted
+                const pendingIndex = pendingTodos.findIndex(
+                  (t) => t.id === todo.id,
+                );
+                const isMostRecent = pendingIndex === 0;
+
+                return (
+                  <div
+                    key={todo.id}
+                    className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50"
+                  >
+                    <Circle
+                      className={`h-3 w-3 mt-0.5 flex-shrink-0 ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-xs break-words ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
+                      >
+                        {todo.content}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+            })}
           </div>
         </ScrollArea>
       </SidebarGroupContent>
