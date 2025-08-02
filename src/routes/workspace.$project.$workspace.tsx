@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useAppStore } from "@/stores/appStore";
+import { useGitApi } from "@/hooks/useGitApi";
 import { WorkspaceLeftSidebar } from "@/components/WorkspaceLeftSidebar";
 import { WorkspaceRightSidebar } from "@/components/WorkspaceRightSidebar";
 import { WorkspaceMainContent } from "@/components/WorkspaceMainContent";
@@ -16,6 +17,18 @@ function WorkspacePage() {
   const [showDiffView, setShowDiffView] = useState(false);
   // State for showing port preview
   const [showPortPreview, setShowPortPreview] = useState<number | null>(null);
+  // State for error dialogs
+  const [_errorAlert, setErrorAlert] = useState<{
+    open: boolean;
+    title: string;
+    description: string;
+  }>({ open: false, title: "", description: "" });
+
+  // Git API hooks
+  const { syncWorktree } = useGitApi();
+
+  // Error handler for git operations
+  const errorHandler = useMemo(() => ({ setErrorAlert }), [setErrorAlert]);
 
   // Construct the workspace name from URL params
   const workspaceName = `${project}/${workspace}`;
@@ -120,6 +133,7 @@ function WorkspacePage() {
           setShowDiffView={setShowDiffView}
           showPortPreview={showPortPreview}
           setShowPortPreview={setShowPortPreview}
+          onSync={(id) => syncWorktree(id, errorHandler)}
         />
       </div>
     </SidebarProvider>

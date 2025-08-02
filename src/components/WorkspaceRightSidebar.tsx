@@ -36,6 +36,7 @@ interface WorkspaceRightSidebarProps {
   setShowDiffView: (showDiff: boolean) => void;
   showPortPreview: number | null;
   setShowPortPreview: (port: number | null) => void;
+  onSync?: (id: string) => void;
 }
 
 function GitStatus({ worktree }: { worktree: Worktree }) {
@@ -178,11 +179,13 @@ function ChangedFiles({
   showDiffView,
   setShowDiffView,
   setShowPortPreview,
+  onSync,
 }: {
   worktree: Worktree;
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
   setShowPortPreview: (port: number | null) => void;
+  onSync?: (id: string) => void;
 }) {
   const { diffStats, loading, error } = useWorktreeDiff(
     worktree.id,
@@ -289,6 +292,7 @@ function ChangedFiles({
             <WorkspaceActions
               mode="workspace"
               worktree={worktree}
+              onSync={onSync}
               onDelete={(id, name) => {
                 // TODO: Implement workspace deletion
                 console.log("Delete workspace:", id, name);
@@ -466,6 +470,7 @@ export function WorkspaceRightSidebar({
   setShowDiffView,
   showPortPreview,
   setShowPortPreview,
+  onSync,
 }: WorkspaceRightSidebarProps) {
   return (
     <Sidebar
@@ -483,6 +488,7 @@ export function WorkspaceRightSidebar({
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
           setShowPortPreview={setShowPortPreview}
+          onSync={onSync}
         />
         <SidebarSeparator className="mx-0" />
         <WorkspacePorts
