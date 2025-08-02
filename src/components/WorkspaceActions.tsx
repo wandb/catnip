@@ -135,43 +135,47 @@ export function WorkspaceActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {/* Worktree-specific actions */}
-          {mode === "worktree" && (
-            <>
-              <DropdownMenuItem
-                onClick={() => onSync?.(worktree.id)}
-                disabled={isSyncing}
-              >
-                {isSyncing ? (
-                  <RefreshCw size={16} className="animate-spin" />
-                ) : (
-                  <RefreshCw size={16} />
-                )}
-                Sync with {worktree.source_branch}
-                {isSyncing && <span className="ml-2 text-xs">Syncing...</span>}
-              </DropdownMenuItem>
-
-              {worktree.has_conflicts && (
-                <DropdownMenuItem asChild>
-                  <Link
-                    to="/terminal/$sessionId"
-                    params={{ sessionId: worktree.name }}
-                    search={{
-                      agent: "claude",
-                      prompt:
-                        "Please help me resolve these conflicts and complete the rebase. Ask me for confirmation before completing the rebase.",
-                    }}
-                    className="flex items-center gap-2 text-blue-600"
-                  >
-                    <Bot size={16} />
-                    Auto Resolve Conflicts
-                  </Link>
+          {/* Sync actions - available in both workspace and worktree modes for local repos */}
+          {worktree.repo_id.startsWith("local/") &&
+            worktree.source_branch &&
+            onSync && (
+              <>
+                <DropdownMenuItem
+                  onClick={() => onSync(worktree.id)}
+                  disabled={isSyncing}
+                >
+                  {isSyncing ? (
+                    <RefreshCw size={16} className="animate-spin" />
+                  ) : (
+                    <RefreshCw size={16} />
+                  )}
+                  Sync with {worktree.source_branch}
+                  {isSyncing && (
+                    <span className="ml-2 text-xs">Syncing...</span>
+                  )}
                 </DropdownMenuItem>
-              )}
 
-              <DropdownMenuSeparator />
-            </>
-          )}
+                {worktree.has_conflicts && (
+                  <DropdownMenuItem asChild>
+                    <Link
+                      to="/terminal/$sessionId"
+                      params={{ sessionId: worktree.name }}
+                      search={{
+                        agent: "claude",
+                        prompt:
+                          "Please help me resolve these conflicts and complete the rebase. Ask me for confirmation before completing the rebase.",
+                      }}
+                      className="flex items-center gap-2 text-blue-600"
+                    >
+                      <Bot size={16} />
+                      Auto Resolve Conflicts
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+
+                <DropdownMenuSeparator />
+              </>
+            )}
 
           {/* Open in... submenu */}
           <DropdownMenuSub>
