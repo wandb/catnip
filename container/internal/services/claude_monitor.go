@@ -62,6 +62,7 @@ type WorktreeTodoMonitor struct {
 	workDir       string
 	projectDir    string
 	claudeService *ClaudeService
+	claudeMonitor *ClaudeMonitorService
 	gitService    *GitService
 	ticker        *time.Ticker
 	stopCh        chan struct{}
@@ -757,6 +758,7 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 		workDir:       worktreePath,
 		projectDir:    projectDir,
 		claudeService: s.claudeService,
+		claudeMonitor: s,
 		gitService:    s.gitService,
 		stopCh:        make(chan struct{}),
 	}
@@ -846,6 +848,9 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	m.lastModTime = modTime
 	m.lastTodos = todos
 	m.lastTodosJSON = todosJSONStr
+
+	// Check if we should trigger branch renaming based on todos
+	m.checkTodoBasedBranchRenaming(todos)
 
 	// Update worktree state
 	updates := map[string]interface{}{
@@ -1042,6 +1047,91 @@ func (m *WorktreeTodoMonitor) extractTodosFromMessage(messageData map[string]int
 	}
 
 	return nil
+}
+
+// checkTodoBasedBranchRenaming checks if we should trigger branch renaming based on todos
+func (m *WorktreeTodoMonitor) checkTodoBasedBranchRenaming(todos []models.Todo) {
+	// Only proceed if we have todos
+	if len(todos) == 0 {
+		return
+	}
+
+	// Check if current branch is a catnip branch that should be graduated
+	if !m.isCurrentBranchCatnip() {
+		return
+	}
+
+	// Get or create a checkpoint manager for this worktree
+	claudeMonitor := m.getClaudeMonitorService()
+	if claudeMonitor == nil {
+		log.Printf("⚠️  Claude monitor service not available for todo-based branch renaming")
+		return
+	}
+
+	// Get or create checkpoint manager for this worktree
+	claudeMonitor.managersMutex.Lock()
+	manager, exists := claudeMonitor.checkpointManagers[m.workDir]
+	if !exists {
+		// Create new checkpoint manager for this worktree
+		manager = claudeMonitor.createCheckpointManager(m.workDir)
+		claudeMonitor.checkpointManagers[m.workDir] = manager
+		log.Printf("📝 Created checkpoint manager for todo-based branch renaming: %s", m.workDir)
+	}
+	claudeMonitor.managersMutex.Unlock()
+
+	// Generate a branch name based on the first todo item's content
+	if len(todos) > 0 && todos[0].Content != "" {
+		// Only trigger if not already renaming
+		manager.timerMutex.Lock()
+		alreadyRenaming := manager.renamingInProgress
+		if !alreadyRenaming {
+			manager.renamingInProgress = true // Set flag to prevent multiple simultaneous attempts
+			log.Printf("🎯 Todo-based branch renaming triggered for %s with todo: %q", m.workDir, todos[0].Content)
+		}
+		manager.timerMutex.Unlock()
+
+		if !alreadyRenaming {
+			// Trigger branch renaming in a goroutine
+			go manager.checkAndRenameBranch(todos[0].Content)
+		}
+	}
+}
+
+// isCurrentBranchCatnip checks if the current branch in the worktree is a catnip branch
+func (m *WorktreeTodoMonitor) isCurrentBranchCatnip() bool {
+	// Get current branch name (full ref) - handle detached HEAD state
+	output, err := m.gitService.operations.ExecuteGit(m.workDir, "rev-parse", "--symbolic-full-name", "HEAD")
+	if err != nil {
+		return false
+	}
+	currentBranch := strings.TrimSpace(string(output))
+
+	// If we get a commit hash (detached HEAD), try to get the actual branch name
+	if len(currentBranch) == 40 && !strings.Contains(currentBranch, "/") {
+		// Try to get the branch name from git status
+		statusOutput, statusErr := m.gitService.operations.ExecuteGit(m.workDir, "status", "--porcelain=v1", "-b")
+		if statusErr == nil {
+			statusLines := strings.Split(strings.TrimSpace(string(statusOutput)), "\n")
+			if len(statusLines) > 0 && strings.HasPrefix(statusLines[0], "## ") {
+				branchInfo := strings.TrimPrefix(statusLines[0], "## ")
+				// Extract branch name (before any "..." or "[")
+				if dotIndex := strings.Index(branchInfo, "..."); dotIndex != -1 {
+					currentBranch = branchInfo[:dotIndex]
+				} else if bracketIndex := strings.Index(branchInfo, "["); bracketIndex != -1 {
+					currentBranch = strings.TrimSpace(branchInfo[:bracketIndex])
+				} else {
+					currentBranch = branchInfo
+				}
+			}
+		}
+	}
+
+	return git.IsCatnipBranch(currentBranch)
+}
+
+// getClaudeMonitorService returns the Claude monitor service instance
+func (m *WorktreeTodoMonitor) getClaudeMonitorService() *ClaudeMonitorService {
+	return m.claudeMonitor
 }
 
 // GetLastActivityTime returns the last activity time for a worktree path
