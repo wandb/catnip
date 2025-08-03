@@ -22,6 +22,11 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
 import { useState, useMemo, useEffect } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
@@ -195,12 +200,24 @@ export function WorkspaceLeftSidebar() {
                                           worktree.name}
                                       </span>
                                       {worktree.branch && (
-                                        <div className="ml-auto flex items-center gap-0.5">
-                                          <GitBranch className="h-3 w-3 text-muted-foreground/70" />
-                                          <span className="text-xs text-muted-foreground truncate max-w-24">
-                                            {worktree.branch}
-                                          </span>
-                                        </div>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <div className="ml-auto flex items-center gap-0.5">
+                                              <GitBranch className="h-3 w-3 text-muted-foreground/70" />
+                                              <span className="text-xs text-muted-foreground truncate max-w-24">
+                                                {worktree.branch}
+                                              </span>
+                                            </div>
+                                          </TooltipTrigger>
+                                          <TooltipContent
+                                            side="right"
+                                            align="center"
+                                          >
+                                            <div className="text-xs">
+                                              {worktree.branch}
+                                            </div>
+                                          </TooltipContent>
+                                        </Tooltip>
                                       )}
                                     </Link>
                                   </SidebarMenuSubButton>
