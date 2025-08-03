@@ -343,9 +343,10 @@ USER root
 
 
 
-# Copy and set up entrypoint script
+# Copy and set up entrypoint script and MCP configuration
 COPY container/setup/entrypoint.sh /entrypoint.sh
 COPY container/setup/setup-truecolor.sh /usr/local/bin/setup-truecolor.sh
+COPY container/setup/.mcp.json /opt/catnip/setup/.mcp.json
 RUN chmod +x /entrypoint.sh && \
     chmod +x /usr/local/bin/setup-truecolor.sh && \
     /usr/local/bin/setup-truecolor.sh

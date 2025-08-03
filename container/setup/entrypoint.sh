@@ -47,6 +47,12 @@ for config_dir in .ssh .aws .config .local .cargo .rustup; do
     fi
 done
 
+# Copy MCP configuration for Claude Code if it exists
+if [ -f "/opt/catnip/setup/.mcp.json" ]; then
+    echo "📋 Setting up MCP server configuration for Claude Code"
+    gosu 1000:1000 cp /opt/catnip/setup/.mcp.json /home/catnip/.mcp.json
+fi
+
 # Set git config for the catnip user (not root) and mark as safe repo
 gosu 1000:1000 git config --global user.name "$GIT_USERNAME"
 gosu 1000:1000 git config --global user.email "$GIT_EMAIL"
