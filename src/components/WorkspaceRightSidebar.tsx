@@ -322,9 +322,6 @@ function ChangedFiles({
                       {getFileStatusIcon(file.change_type)}
                       <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                       <span className="text-sm truncate flex-1">
-                        {hasPath && (
-                          <span className="text-muted-foreground">...</span>
-                        )}
                         {fileName}
                       </span>
                       <Badge variant="outline" className="text-xs">
