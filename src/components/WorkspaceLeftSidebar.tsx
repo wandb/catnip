@@ -238,7 +238,14 @@ export function WorkspaceLeftSidebar() {
       </Sidebar>
       <NewWorkspaceDialog
         open={newWorkspaceDialogOpen}
-        onOpenChange={setNewWorkspaceDialogOpen}
+        onOpenChange={(open) => {
+          setNewWorkspaceDialogOpen(open);
+          if (!open) {
+            setSelectedRepoForNewWorkspace(null);
+          }
+        }}
+        initialRepoUrl={selectedRepoForNewWorkspace?.url}
+        initialBranch={selectedRepoForNewWorkspace?.branch}
       />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
