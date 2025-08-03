@@ -94,6 +94,14 @@ export function WorkspaceLeftSidebar() {
     }
   };
 
+  const handleAddWorkspace = (repo: any) => {
+    setSelectedRepoForNewWorkspace({
+      url: repo.url || repo.id,
+      branch: repo.default_branch || "main",
+    });
+    setNewWorkspaceDialogOpen(true);
+  };
+
   return (
     <>
       <Sidebar className="border-r-0">
@@ -131,9 +139,15 @@ export function WorkspaceLeftSidebar() {
                           <button className="w-full">
                             <Folder className="h-4 w-4" />
                             <span className="truncate">{projectName}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">
-                              {worktrees.length}
-                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddWorkspace(repo);
+                              }}
+                              className="ml-auto p-0.5 hover:bg-accent rounded"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
                           </button>
                         </SidebarMenuButton>
                         <CollapsibleTrigger asChild>
