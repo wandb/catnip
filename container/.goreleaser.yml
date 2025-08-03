@@ -53,6 +53,39 @@ builds:
       - goos: freebsd
         goarch: arm
 
+# Code signing and notarization for macOS binaries
+signs:
+  - cmd: codesign
+    env:
+      - CODESIGN_PASSWORD={{ .Env.APPLE_PASSWORD }}
+    args:
+      - "--timestamp"
+      - "--options=runtime"
+      - "--entitlements"
+      - "entitlements.plist"
+      - "--verbose"
+      - "--force"
+      - "--sign"
+      - "{{ .Env.APPLE_DEVELOPER_ID }}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+    stdin: '{{ .Env.CODESIGN_PASSWORD }}'
+
+notarize:
+  macos:
+    enabled: true
+    # Use App Store Connect API key for authentication
+    key_id: "{{ .Env.APPLE_KEY_ID }}"
+    issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
+    key: "{{ .Env.APPLE_PRIVATE_KEY }}"
+    # Alternative: use Apple ID and app-specific password
+    # apple_id: "{{ .Env.APPLE_ID }}"
+    # password: "{{ .Env.APPLE_PASSWORD }}"
+    # team_id: "{{ .Env.APPLE_DEVELOPER_TEAM_ID }}"
+    wait: true
+    timeout: 20m
+
 # Archive configuration
 archives:
   - id: default
