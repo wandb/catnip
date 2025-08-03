@@ -313,7 +313,6 @@ function ChangedFiles({
             {fileDiffs.map((file, index) => {
               const fileName =
                 file.file_path.split("/").pop() || file.file_path;
-              const hasPath = file.file_path.includes("/");
 
               return (
                 <Tooltip key={index}>
@@ -322,9 +321,6 @@ function ChangedFiles({
                       {getFileStatusIcon(file.change_type)}
                       <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                       <span className="text-sm truncate flex-1">
-                        {hasPath && (
-                          <span className="text-muted-foreground">...</span>
-                        )}
                         {fileName}
                       </span>
                       <Badge variant="outline" className="text-xs">
