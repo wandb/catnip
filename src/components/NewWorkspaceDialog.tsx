@@ -17,6 +17,8 @@ import { useGitApi } from "@/hooks/useGitApi";
 interface NewWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialRepoUrl?: string;
+  initialBranch?: string;
 }
 
 export function NewWorkspaceDialog({
