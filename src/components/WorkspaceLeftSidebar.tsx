@@ -95,8 +95,15 @@ export function WorkspaceLeftSidebar() {
   };
 
   const handleAddWorkspace = (repo: any) => {
+    let repoUrl = repo.url || repo.id;
+
+    // Convert file:// URLs to local/ format for the modal
+    if (repoUrl.startsWith("file://")) {
+      repoUrl = repo.id; // Use the repo.id which should be in local/... format
+    }
+
     setSelectedRepoForNewWorkspace({
-      url: repo.url || repo.id,
+      url: repoUrl,
       branch: repo.default_branch || "main",
     });
     setNewWorkspaceDialogOpen(true);
