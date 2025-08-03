@@ -313,7 +313,6 @@ function ChangedFiles({
             {fileDiffs.map((file, index) => {
               const fileName =
                 file.file_path.split("/").pop() || file.file_path;
-              const hasPath = file.file_path.includes("/");
 
               return (
                 <Tooltip key={index}>
