@@ -49,6 +49,7 @@ catnip/
 - Don't restart containers unless explicitly asked
 - Use ShadCN theme variables whenever possible
 - For Go changes, run `just build` in container/ directory to ensure compilation
+- Don't restart the container, our dev server uses air to restart the main binary automatically and restarting the container causes state to be lost
 
 ### Container Commands
 

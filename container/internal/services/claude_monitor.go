@@ -289,6 +289,24 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 	}
 	s.managersMutex.Unlock()
 
+	// Check if we need to start todo monitoring for this worktree
+	// This handles the case where Claude starts working after the initial todo monitoring scan
+	s.todoMonitorsMutex.RLock()
+	_, todoMonitorExists := s.todoMonitors[workDir]
+	s.todoMonitorsMutex.RUnlock()
+
+	if !todoMonitorExists {
+		// Get worktree ID from GitService
+		worktrees := s.gitService.stateManager.GetAllWorktrees()
+		for worktreeID, worktree := range worktrees {
+			if worktree.Path == workDir {
+				log.Printf("🔍 Starting todo monitor for worktree %s after title change", workDir)
+				s.startWorktreeTodoMonitor(worktreeID, workDir)
+				break
+			}
+		}
+	}
+
 	manager.HandleTitleChange(newTitle)
 }
 

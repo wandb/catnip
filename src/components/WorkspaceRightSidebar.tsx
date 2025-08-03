@@ -403,7 +403,9 @@ function WorkspacePorts({
 
   // Filter ports for this workspace
   const workspacePorts = useMemo(() => {
-    return allPorts.filter((port) => port.workingDir === worktree.path);
+    return allPorts.filter((port) =>
+      port.workingDir?.startsWith(worktree.path),
+    );
   }, [allPorts, worktree.path]);
 
   const openInNewWindow = (port: number) => {
