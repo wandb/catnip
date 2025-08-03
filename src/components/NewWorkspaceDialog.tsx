@@ -64,7 +64,7 @@ export function NewWorkspaceDialog({
   // Fetch branches when initial repo URL is provided
   useEffect(() => {
     if (open && initialRepoUrl && githubUrl === initialRepoUrl) {
-      handleRepoChange(initialRepoUrl);
+      void handleRepoChange(initialRepoUrl);
     }
   }, [open, initialRepoUrl]);
 
