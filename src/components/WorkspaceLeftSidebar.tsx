@@ -60,6 +60,11 @@ export function WorkspaceLeftSidebar() {
   const currentWorkspaceName = `${project}/${workspace}`;
 
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
+  const [selectedRepoForNewWorkspace, setSelectedRepoForNewWorkspace] =
+    useState<{
+      url: string;
+      branch: string;
+    } | null>(null);
 
   // Keep all repositories expanded by default
   useEffect(() => {
