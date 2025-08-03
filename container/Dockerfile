@@ -314,11 +314,11 @@ RUN chmod +x /usr/local/bin/generate-banner.sh && \
     touch /home/catnip/.sudo_as_admin_successful && \
     chown catnip:catnip /home/catnip/.sudo_as_admin_successful
 
-# Install Claude Code and Gemini CLI as catnip user (not root)
+# Install Claude Code, Gemini CLI, and Playwright MCP server as catnip user (not root)
 USER catnip
 RUN bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
-    npm install -g @anthropic-ai/claude-code @google/gemini-cli && \
+    npm install -g @anthropic-ai/claude-code @google/gemini-cli @playwright/mcp-server && \
     VSIX_PATH="$(npm root -g)/@anthropic-ai/claude-code/vendor/claude-code.vsix" && \
     if [ -f "$VSIX_PATH" ]; then \
         echo "Installing Claude Code extension from: $VSIX_PATH" && \
