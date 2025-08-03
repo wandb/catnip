@@ -24,6 +24,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
 import { WorkspaceActions } from "@/components/WorkspaceActions";
 import { useAppStore } from "@/stores/appStore";
@@ -305,22 +310,41 @@ function ChangedFiles({
       <SidebarGroupContent>
         <ScrollArea className="h-48">
           <div className="space-y-0.5">
-            {fileDiffs.map((file, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer"
-                title={`${getFileStatusLabel(file.change_type)}: ${file.file_path}`}
-              >
-                {getFileStatusIcon(file.change_type)}
-                <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                <span className="text-sm truncate flex-1">
-                  {file.file_path}
-                </span>
-                <Badge variant="outline" className="text-xs">
-                  {getFileStatusBadge(file.change_type)}
-                </Badge>
-              </div>
-            ))}
+            {fileDiffs.map((file, index) => {
+              const fileName =
+                file.file_path.split("/").pop() || file.file_path;
+              const hasPath = file.file_path.includes("/");
+
+              return (
+                <Tooltip key={index}>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer">
+                      {getFileStatusIcon(file.change_type)}
+                      <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm truncate flex-1">
+                        {hasPath && (
+                          <span className="text-muted-foreground">...</span>
+                        )}
+                        {fileName}
+                      </span>
+                      <Badge variant="outline" className="text-xs">
+                        {getFileStatusBadge(file.change_type)}
+                      </Badge>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" align="center">
+                    <div className="space-y-1">
+                      <div className="font-medium">
+                        {getFileStatusLabel(file.change_type)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {file.file_path}
+                      </div>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
           </div>
         </ScrollArea>
       </SidebarGroupContent>
