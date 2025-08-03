@@ -60,6 +60,11 @@ export function WorkspaceLeftSidebar() {
   const currentWorkspaceName = `${project}/${workspace}`;
 
   const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
+  const [selectedRepoForNewWorkspace, setSelectedRepoForNewWorkspace] =
+    useState<{
+      url: string;
+      branch: string;
+    } | null>(null);
 
   // Keep all repositories expanded by default
   useEffect(() => {
@@ -87,6 +92,21 @@ export function WorkspaceLeftSidebar() {
       default:
         return { color: "bg-gray-500", label: "inactive" };
     }
+  };
+
+  const handleAddWorkspace = (repo: any) => {
+    let repoUrl = repo.url || repo.id;
+
+    // Convert file:// URLs to local/ format for the modal
+    if (repoUrl.startsWith("file://")) {
+      repoUrl = repo.id; // Use the repo.id which should be in local/... format
+    }
+
+    setSelectedRepoForNewWorkspace({
+      url: repoUrl,
+      branch: repo.default_branch || "main",
+    });
+    setNewWorkspaceDialogOpen(true);
   };
 
   return (
@@ -126,9 +146,15 @@ export function WorkspaceLeftSidebar() {
                           <button className="w-full">
                             <Folder className="h-4 w-4" />
                             <span className="truncate">{projectName}</span>
-                            <span className="ml-auto text-xs text-muted-foreground">
-                              {worktrees.length}
-                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddWorkspace(repo);
+                              }}
+                              className="ml-auto p-0.5 hover:bg-accent rounded"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
                           </button>
                         </SidebarMenuButton>
                         <CollapsibleTrigger asChild>
@@ -219,7 +245,14 @@ export function WorkspaceLeftSidebar() {
       </Sidebar>
       <NewWorkspaceDialog
         open={newWorkspaceDialogOpen}
-        onOpenChange={setNewWorkspaceDialogOpen}
+        onOpenChange={(open) => {
+          setNewWorkspaceDialogOpen(open);
+          if (!open) {
+            setSelectedRepoForNewWorkspace(null);
+          }
+        }}
+        initialRepoUrl={selectedRepoForNewWorkspace?.url}
+        initialBranch={selectedRepoForNewWorkspace?.branch}
       />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>

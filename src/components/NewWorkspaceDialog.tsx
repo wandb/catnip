@@ -17,11 +17,15 @@ import { useGitApi } from "@/hooks/useGitApi";
 interface NewWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialRepoUrl?: string;
+  initialBranch?: string;
 }
 
 export function NewWorkspaceDialog({
   open,
   onOpenChange,
+  initialRepoUrl,
+  initialBranch,
 }: NewWorkspaceDialogProps) {
   const { gitStatus } = useAppStore();
   const { checkoutRepository } = useGitApi();
@@ -48,8 +52,21 @@ export function NewWorkspaceDialog({
       setSelectedRepoBranches([]);
       setCheckoutLoading(false);
       setError(null);
+    } else if (open && initialRepoUrl) {
+      // Set initial values when dialog opens with pre-selected repo
+      setGithubUrl(initialRepoUrl);
+      if (initialBranch) {
+        setSelectedBranch(initialBranch);
+      }
     }
-  }, [open]);
+  }, [open, initialRepoUrl, initialBranch]);
+
+  // Fetch branches when initial repo URL is provided
+  useEffect(() => {
+    if (open && initialRepoUrl && githubUrl === initialRepoUrl) {
+      handleRepoChange(initialRepoUrl);
+    }
+  }, [open, initialRepoUrl]);
 
   // Fetch GitHub repositories when dialog opens (only once)
   useEffect(() => {
