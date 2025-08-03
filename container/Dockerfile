@@ -327,6 +327,11 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
         echo "Warning: Claude Code VSIX not found at $VSIX_PATH"; \
     fi'
 
+# Install Playwright browsers (chromium) as catnip user
+RUN bash -c 'source /etc/profile.d/catnip.sh && \
+    source "$NVM_DIR/nvm.sh" && \
+    npx playwright install chromium'
+
 # Set global git config for catnip user, these get overridden by the entrypoint script
 RUN git config --global user.name "catnip" && \
     git config --global user.email "catnip@catnip.run" && \
