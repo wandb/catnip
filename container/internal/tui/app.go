@@ -32,7 +32,7 @@ var debugEnabled bool
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		logFile, err := os.OpenFile("/tmp/catnip-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			log.Fatalln("Failed to open debug log file:", err)
 		}

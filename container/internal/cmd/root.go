@@ -33,7 +33,7 @@ func SetVersionInfo(v, c, d, b string) {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "catctrl",
+	Use:   "catnip",
 	Short: "🐱 Catnip - Modern containerized coding environment",
 	Long: `# 🐱 Catnip
 
@@ -49,9 +49,9 @@ var rootCmd = &cobra.Command{
 
 ## 🚀 Getting Started
 
-Run **catctrl run** to start a new container with an interactive TUI.
+Run **catnip run** to start a new container with an interactive TUI.
 
-Use **catctrl run --help** for detailed options and examples.`,
+Use **catnip run --help** for detailed options and examples.`,
 }
 
 func Execute() {
@@ -79,7 +79,7 @@ var versionCmd = &cobra.Command{
 	Short: "Show version information",
 	Long:  "Display detailed version information including build date and commit.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("catctrl version %s\n", version)
+		fmt.Printf("catnip version %s\n", version)
 		if commit != "none" && commit != "unknown" && commit != "" {
 			fmt.Printf("Git commit: %s\n", commit)
 		}

@@ -5,7 +5,7 @@ GOLANGCI_LINT_VERSION := "2.3.0"
 
 # Build the server binary
 build: swagger build-cli build-scripts
-	go build -o bin/catnip cmd/server/main.go
+	go build -o bin/catnip-server cmd/server/main.go
 
 # Build the CLI binary
 build-cli:
@@ -20,18 +20,18 @@ build-cli:
 	COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 	DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-	echo "Building catctrl ${VERSION} (commit: ${COMMIT})"
+	echo "Building catnip ${VERSION} (commit: ${COMMIT})"
 
 	go build -ldflags "\
 		-X main.version=${VERSION} \
 		-X main.commit=${COMMIT} \
 		-X main.date=${DATE} \
 		-X main.builtBy=just" \
-		-o bin/catctrl cmd/cli/main.go
+		-o bin/catnip cmd/cli/main.go
 
 # Run the server
 run: build
-	./bin/catnip
+	./bin/catnip-server
 
 # Development mode with hot reload (local)
 dev:
