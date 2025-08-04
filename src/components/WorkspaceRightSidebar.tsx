@@ -186,7 +186,6 @@ function ChangedFiles({
   showDiffView,
   setShowDiffView,
   setShowPortPreview,
-  selectedFile,
   setSelectedFile,
   onSync,
 }: {
@@ -194,7 +193,6 @@ function ChangedFiles({
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
   setShowPortPreview: (port: number | null) => void;
-  selectedFile?: string;
   setSelectedFile?: (file: string | undefined) => void;
   onSync?: (id: string) => void;
 }) {
@@ -525,7 +523,6 @@ export function WorkspaceRightSidebar({
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
           setShowPortPreview={setShowPortPreview}
-          selectedFile={selectedFile}
           setSelectedFile={setSelectedFile}
           onSync={onSync}
         />
