@@ -74,17 +74,17 @@ signs:
 
 notarize:
   macos:
-    enabled: true
-    # Use App Store Connect API key for authentication
-    key_id: "{{ .Env.APPLE_KEY_ID }}"
-    issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
-    key: "{{ .Env.APPLE_PRIVATE_KEY }}"
-    # Alternative: use Apple ID and app-specific password
-    # apple_id: "{{ .Env.APPLE_ID }}"
-    # password: "{{ .Env.APPLE_PASSWORD }}"
-    # team_id: "{{ .Env.APPLE_DEVELOPER_TEAM_ID }}"
-    wait: true
-    timeout: 20m
+    - enabled: true
+      notarize:
+        issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
+        key: "{{ .Env.APPLE_PRIVATE_KEY }}"
+        key_id: "{{ .Env.APPLE_KEY_ID }}"
+        wait: true
+        timeout: 20m
+      sign:
+        certificate: "{{ .Env.APPLE_SIGN_P12 }}"
+        password: "{{ .Env.APPLE_SIGN_PASSWORD }}"
+        entitlements: "entitlements.plist"
 
 # Archive configuration
 archives:

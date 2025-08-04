@@ -101,8 +101,14 @@ echo "$RELEASE_METADATA" > "$METADATA_FILE"
 # Upload release metadata
 upload_to_r2 "$METADATA_FILE" "releases/$TAG_NAME/metadata.json" "application/json"
 
-# Update latest release pointer
-upload_to_r2 "$METADATA_FILE" "releases/latest.json" "application/json"
+# Update latest release pointer only for non-prerelease versions
+IS_PRERELEASE=$(echo "$RELEASE_METADATA" | jq -r '.prerelease')
+if [ "$IS_PRERELEASE" = "false" ]; then
+    echo "Updating latest release pointer (non-prerelease)"
+    upload_to_r2 "$METADATA_FILE" "releases/latest.json" "application/json"
+else
+    echo "Skipping latest release pointer update (prerelease: $TAG_NAME)"
+fi
 
 # Clean up metadata file
 rm "$METADATA_FILE"
