@@ -92,6 +92,23 @@ function getCurrentVersion(): string {
   return "0.0.0";
 }
 
+function getLatestStableVersion(): string {
+  try {
+    // Get the latest non-dev tag by filtering out dev releases
+    const latestStableTag = run(
+      "git tag --list --sort=-version:refname | grep -v '\\-dev\\.' | head -1",
+    );
+    if (latestStableTag && latestStableTag.startsWith("v")) {
+      return latestStableTag.substring(1); // Remove 'v' prefix
+    }
+  } catch (error) {
+    // Ignore error, fall back to default
+  }
+
+  // Default to 0.0.0 if no tags exist
+  return "0.0.0";
+}
+
 function parseVersion(version: string): Version {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+))?$/);
   if (!match) {
@@ -120,7 +137,7 @@ function bumpVersion(current: string, bumpType: BumpType): string {
       if (version.dev !== null) {
         return `${version.major}.${version.minor}.${version.patch}-dev.${version.dev + 1}`;
       } else {
-        return `${version.major}.${version.minor}.${version.patch + 1}-dev.1`;
+        return `${version.major}.${version.minor}.${version.patch}-dev.1`;
       }
     default:
       throw new Error(`Invalid bump type: ${bumpType}`);
@@ -232,6 +249,13 @@ async function main(): Promise<void> {
   const currentVersion = getCurrentVersion();
   console.log(`📍 Current version: v${currentVersion}`);
 
+  // For non-dev releases, we should base off the latest stable version
+  const baseVersion =
+    bump === "dev" ? currentVersion : getLatestStableVersion();
+  if (baseVersion !== currentVersion && bump !== "dev") {
+    console.log(`📍 Latest stable version: v${baseVersion}`);
+  }
+
   // Prompt for bump type if not specified
   if (!bump) {
     bump = await select({
@@ -253,7 +277,7 @@ async function main(): Promise<void> {
   }
 
   // Calculate new version
-  const newVersion = bumpVersion(currentVersion, bump);
+  const newVersion = bumpVersion(baseVersion, bump);
   console.log(`⬆️  New version: v${newVersion} (${bump} bump)`);
 
   // Prompt for push if not specified
