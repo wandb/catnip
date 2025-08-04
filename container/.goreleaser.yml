@@ -53,6 +53,39 @@ builds:
       - goos: freebsd
         goarch: arm
 
+# Code signing and notarization for macOS binaries
+signs:
+  - cmd: codesign
+    env:
+      - CODESIGN_PASSWORD={{ .Env.APPLE_PASSWORD }}
+    args:
+      - "--timestamp"
+      - "--options=runtime"
+      - "--entitlements"
+      - "entitlements.plist"
+      - "--verbose"
+      - "--force"
+      - "--sign"
+      - "{{ .Env.APPLE_DEVELOPER_ID }}"
+      - "${artifact}"
+    artifacts: checksum
+    output: true
+    stdin: '{{ .Env.CODESIGN_PASSWORD }}'
+
+notarize:
+  macos:
+    - enabled: true
+      notarize:
+        issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
+        key: "{{ .Env.APPLE_PRIVATE_KEY }}"
+        key_id: "{{ .Env.APPLE_KEY_ID }}"
+        wait: true
+        timeout: 20m
+      sign:
+        certificate: "{{ .Env.APPLE_SIGN_P12 }}"
+        password: "{{ .Env.APPLE_SIGN_PASSWORD }}"
+        entitlements: "entitlements.plist"
+
 # Archive configuration
 archives:
   - id: default
