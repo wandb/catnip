@@ -3,12 +3,8 @@
 # Configuration
 GOLANGCI_LINT_VERSION := "2.3.0"
 
-# Build the server binary
-build: swagger build-cli build-scripts
-	go build -o bin/catnip-server cmd/server/main.go
-
-# Build the CLI binary
-build-cli:
+# Build the unified catnip binary
+build: swagger build-scripts
 	#!/usr/bin/env bash
 	set -euo pipefail
 
@@ -29,9 +25,12 @@ build-cli:
 		-X main.builtBy=just" \
 		-o bin/catnip cmd/cli/main.go
 
+# Legacy alias for build
+build-cli: build
+
 # Run the server
 run: build
-	./bin/catnip-server
+	./bin/catnip serve
 
 # Development mode with hot reload (local)
 dev:
@@ -40,12 +39,12 @@ dev:
 
 # Development mode without Air (simple)
 dev-simple:
-	go run cmd/server/main.go
+	go run cmd/cli/main.go serve
 
 # Generate Swagger documentation
 swagger:
 	@command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
-	swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
+	swag init -g internal/cmd/serve.go -o docs --parseDependency --parseInternal
 
 # Run unit tests (excludes integration tests)
 test:
