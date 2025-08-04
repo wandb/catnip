@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -45,7 +46,7 @@ type ActiveSessionInfo struct {
 
 // NewSessionService creates a new session service
 func NewSessionService() *SessionService {
-	stateDir := "/workspace/.session-state"
+	stateDir := filepath.Join(config.Runtime.WorkspaceDir, ".session-state")
 
 	// Ensure state directory exists
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
