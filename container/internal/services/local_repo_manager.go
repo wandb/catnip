@@ -31,23 +31,23 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 
 	liveDir := config.Runtime.LiveDir
 
-	// Check if live directory exists
-	if liveDir == "" {
-		if config.Runtime.IsNative() && config.Runtime.CurrentRepo != "" {
-			// In native mode with a current repo, treat it as a local repo
-			log.Printf("📦 Running from git repository: %s", config.Runtime.CurrentRepo)
+	// In native mode, only detect the current repo to avoid scanning all sibling repos
+	if config.Runtime.IsNative() {
+		if config.Runtime.CurrentRepo != "" {
+			log.Printf("📦 Native mode: Running from git repository: %s", config.Runtime.CurrentRepo)
 			return lrm.detectCurrentRepo()
 		}
+		log.Printf("📁 Native mode: Not running from a git repository, no local repos to detect")
+		return repositories
+	}
+
+	// Docker mode: Check if live directory exists
+	if liveDir == "" {
 		log.Printf("📁 No live directory configured, skipping local repo detection")
 		return repositories
 	}
 
 	if _, err := os.Stat(liveDir); os.IsNotExist(err) {
-		if config.Runtime.IsNative() && config.Runtime.CurrentRepo != "" {
-			// In native mode with a current repo, treat it as a local repo
-			log.Printf("📦 Running from git repository: %s", config.Runtime.CurrentRepo)
-			return lrm.detectCurrentRepo()
-		}
 		log.Printf("📁 Live directory does not exist, skipping local repo detection")
 		return repositories
 	}
@@ -100,8 +100,11 @@ func (lrm *LocalRepoManager) detectCurrentRepo() map[string]*models.Repository {
 		return repositories
 	}
 
-	// Get the repo path from runtime config
-	repoPath := filepath.Join(config.Runtime.LiveDir, config.Runtime.CurrentRepo)
+	// Get the current working directory (should be the repo root)
+	repoPath, err := os.Getwd()
+	if err != nil {
+		return repositories
+	}
 	gitPath := filepath.Join(repoPath, ".git")
 
 	// Check if it's a valid git repository
