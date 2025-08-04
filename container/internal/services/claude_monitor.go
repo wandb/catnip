@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/fsnotify/fsnotify"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 )
@@ -73,10 +74,10 @@ type WorktreeTodoMonitor struct {
 
 // NewClaudeMonitorService creates a new Claude monitor service
 func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService) *ClaudeMonitorService {
-	// Get log path from environment or use default
+	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
-		titlesLogPath = "/home/catnip/.catnip/title_events.log"
+		titlesLogPath = filepath.Join(config.Runtime.VolumeDir, "title_events.log")
 	}
 
 	return &ClaudeMonitorService{
@@ -789,8 +790,8 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 
 // findProjectDirectory finds the Claude project directory for a given project name
 func (s *ClaudeMonitorService) findProjectDirectory(projectDirName string) string {
-	homeDir := "/home/catnip/.claude/projects"
-	projectPath := filepath.Join(homeDir, projectDirName)
+	claudeProjectsDir := filepath.Join(config.Runtime.HomeDir, ".claude", "projects")
+	projectPath := filepath.Join(claudeProjectsDir, projectDirName)
 
 	if stat, err := os.Stat(projectPath); err == nil && stat.IsDir() {
 		return projectPath
