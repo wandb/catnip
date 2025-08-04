@@ -139,7 +139,6 @@ function WorkspacePage() {
           setShowDiffView={setShowDiffView}
           showPortPreview={showPortPreview}
           setShowPortPreview={setShowPortPreview}
-          selectedFile={selectedFile}
           setSelectedFile={setSelectedFile}
           onSync={(id) => syncWorktree(id, errorHandler)}
         />

@@ -41,7 +41,6 @@ interface WorkspaceRightSidebarProps {
   setShowDiffView: (showDiff: boolean) => void;
   showPortPreview: number | null;
   setShowPortPreview: (port: number | null) => void;
-  selectedFile?: string;
   setSelectedFile?: (file: string | undefined) => void;
   onSync?: (id: string) => void;
 }
@@ -503,7 +502,6 @@ export function WorkspaceRightSidebar({
   setShowDiffView,
   showPortPreview,
   setShowPortPreview,
-  selectedFile,
   setSelectedFile,
   onSync,
 }: WorkspaceRightSidebarProps) {
