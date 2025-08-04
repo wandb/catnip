@@ -116,6 +116,9 @@ type Model struct {
 	sseConnected bool
 	sseStarted   bool
 
+	// Browser auto-open state
+	browserOpened bool
+
 	// View instances
 	views map[ViewType]View
 }

@@ -341,6 +341,17 @@ func (m Model) handleHealthStatus(msg healthStatusMsg) (tea.Model, tea.Cmd) {
 		debugLog("Started SSE client after health check passed")
 	}
 
+	// Auto-open browser when app becomes healthy for the first time
+	if m.appHealthy && !wasHealthy && !m.browserOpened {
+		m.browserOpened = true
+		overviewView := m.views[OverviewView].(*OverviewViewImpl)
+		if err := overviewView.openBrowser("http://localhost:8080"); err != nil {
+			debugLog("Failed to open browser: %v", err)
+		} else {
+			debugLog("Automatically opened browser at http://localhost:8080")
+		}
+	}
+
 	return m, nil
 }
 
@@ -351,9 +362,22 @@ func (m Model) handleError(msg errMsg) (tea.Model, tea.Cmd) {
 
 // SSE event handlers
 func (m Model) handleSSEConnected(msg sseConnectedMsg) (tea.Model, tea.Cmd) {
+	wasHealthy := m.appHealthy
 	m.sseConnected = true
 	m.appHealthy = true // SSE connection indicates app is healthy
 	debugLog("SSE connected")
+
+	// Auto-open browser when SSE connects and app becomes healthy for the first time
+	if m.appHealthy && !wasHealthy && !m.browserOpened {
+		m.browserOpened = true
+		overviewView := m.views[OverviewView].(*OverviewViewImpl)
+		if err := overviewView.openBrowser("http://localhost:8080"); err != nil {
+			debugLog("Failed to open browser: %v", err)
+		} else {
+			debugLog("Automatically opened browser at http://localhost:8080")
+		}
+	}
+
 	return m, nil
 }
 
