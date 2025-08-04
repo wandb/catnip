@@ -439,8 +439,12 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 	_ = os.MkdirAll(getWorkspaceDir(), 0755)
 	_ = os.MkdirAll(getGitStateDir(), 0755)
 
-	// Configure Git to use gh as credential helper if available
-	s.configureGitCredentials()
+	// Configure Git to use gh as credential helper if available (Docker mode only)
+	if config.Runtime.IsDocker() {
+		s.configureGitCredentials()
+	} else {
+		log.Printf("ℹ️ Running in native mode - respecting existing git configuration")
+	}
 
 	// State is already loaded by the state manager
 
