@@ -193,8 +193,8 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
           const msg = JSON.parse(event.data);
           if (msg.type === "buffer-size") {
             if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
-              // Clear terminal before resize to prevent corruption
-              instance.clear();
+              // Don't clear terminal on buffer-size - let the buffer replay handle it
+              // Just resize to match the buffered dimensions
               instance.resize(msg.cols, msg.rows);
               // Force synchronous refresh after resize
               instance.refresh(0, msg.rows - 1);
@@ -206,11 +206,16 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
             // Process any remaining buffered data first
             if (buffer.length > 0) {
+              // Clear terminal before replaying buffer to prevent corruption
+              instance.clear();
               for (const chunk of buffer) {
                 instance.write(chunk);
               }
               buffer.length = 0;
             }
+
+            // Reset buffering flag so new data can be written
+            bufferingRef.current = false;
 
             // Add a small delay before fitting to ensure content is rendered
             setTimeout(() => {
