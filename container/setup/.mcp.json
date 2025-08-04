@@ -4,7 +4,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@playwright/mcp-server",
+        "@playwright/mcp",
         "--headless",
         "--browser",
         "chromium",

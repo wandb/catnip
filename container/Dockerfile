@@ -318,7 +318,7 @@ RUN chmod +x /usr/local/bin/generate-banner.sh && \
 USER catnip
 RUN bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
-    npm install -g @anthropic-ai/claude-code @google/gemini-cli @playwright/mcp-server && \
+    npm install -g @anthropic-ai/claude-code @google/gemini-cli @playwright/mcp && \
     VSIX_PATH="$(npm root -g)/@anthropic-ai/claude-code/vendor/claude-code.vsix" && \
     if [ -f "$VSIX_PATH" ]; then \
         echo "Installing Claude Code extension from: $VSIX_PATH" && \
