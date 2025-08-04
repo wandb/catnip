@@ -17,6 +17,10 @@ function WorkspacePage() {
   const [showDiffView, setShowDiffView] = useState(false);
   // State for showing port preview
   const [showPortPreview, setShowPortPreview] = useState<number | null>(null);
+  // State for selected file in diff view
+  const [selectedFile, setSelectedFile] = useState<string | undefined>(
+    undefined,
+  );
   // State for error dialogs
   const [_errorAlert, setErrorAlert] = useState<{
     open: boolean;
@@ -124,6 +128,8 @@ function WorkspacePage() {
             setShowDiffView={setShowDiffView}
             showPortPreview={showPortPreview}
             setShowPortPreview={setShowPortPreview}
+            selectedFile={selectedFile}
+            setSelectedFile={setSelectedFile}
           />
         </SidebarInset>
         <WorkspaceRightSidebar
@@ -133,6 +139,7 @@ function WorkspacePage() {
           setShowDiffView={setShowDiffView}
           showPortPreview={showPortPreview}
           setShowPortPreview={setShowPortPreview}
+          setSelectedFile={setSelectedFile}
           onSync={(id) => syncWorktree(id, errorHandler)}
         />
       </div>
