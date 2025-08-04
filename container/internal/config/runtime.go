@@ -83,7 +83,8 @@ func DetectRuntime() *RuntimeConfig {
 
 		// Detect if we're running from within a git repository
 		if repoRoot := detectGitRepo(); repoRoot != "" {
-			config.LiveDir = filepath.Dir(repoRoot) // Parent of repo
+			// In native mode, we don't set LiveDir to avoid scanning all sibling repos
+			// We just track the current repo name and path
 			config.CurrentRepo = filepath.Base(repoRoot)
 		}
 

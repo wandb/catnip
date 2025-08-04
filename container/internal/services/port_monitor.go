@@ -320,6 +320,12 @@ func (pm *PortMonitor) addService(port int, pid int) {
 	// Get working directory from PID
 	workingDir := pm.getWorkingDirFromPID(pid)
 
+	// In native mode, filter ports by working directory
+	if config.Runtime.IsNative() && !pm.shouldTrackPort(workingDir) {
+		// Skip ports that aren't running from our workspace or current repo
+		return
+	}
+
 	service := &ServiceInfo{
 		Port:        port,
 		ServiceType: "unknown",
@@ -591,6 +597,30 @@ func (pm *PortMonitor) getWorkingDirFromPIDMacOS(pid int) string {
 	}
 
 	return ""
+}
+
+// shouldTrackPort determines if we should track a port based on its working directory
+func (pm *PortMonitor) shouldTrackPort(workingDir string) bool {
+	if workingDir == "" {
+		return false
+	}
+
+	// Always track ports from our workspace directory
+	if strings.HasPrefix(workingDir, config.Runtime.WorkspaceDir) {
+		return true
+	}
+
+	// Track ports from the current repository if we're running from one
+	if config.Runtime.CurrentRepo != "" {
+		// Get current working directory (where catnip serve was started)
+		if cwd, err := os.Getwd(); err == nil {
+			if strings.HasPrefix(workingDir, cwd) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // extractTitle attempts to extract the title from an HTML response
