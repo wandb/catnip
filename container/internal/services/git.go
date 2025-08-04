@@ -1875,13 +1875,15 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 		return nil, err
 	}
 
-	// Save PR metadata to worktree state
+	// Save PR metadata to worktree state and emit events
 	s.mu.Lock()
-	if worktree, exists := s.stateManager.GetWorktree(worktreeID); exists {
-		worktree.PullRequestURL = pr.URL
-		worktree.PullRequestTitle = title
-		worktree.PullRequestBody = body
-		// State persistence handled by state manager
+	updates := map[string]interface{}{
+		"pull_request_url":   pr.URL,
+		"pull_request_title": title,
+		"pull_request_body":  body,
+	}
+	if err := s.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+		log.Printf("Failed to update worktree %s with PR metadata: %v", worktreeID, err)
 	}
 	s.mu.Unlock()
 
@@ -1927,13 +1929,15 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 		return nil, err
 	}
 
-	// Save PR metadata to worktree state (in case it changed)
+	// Save PR metadata to worktree state (in case it changed) and emit events
 	s.mu.Lock()
-	if worktree, exists := s.stateManager.GetWorktree(worktreeID); exists {
-		worktree.PullRequestURL = pr.URL
-		worktree.PullRequestTitle = title
-		worktree.PullRequestBody = body
-		// State persistence handled by state manager
+	updates := map[string]interface{}{
+		"pull_request_url":   pr.URL,
+		"pull_request_title": title,
+		"pull_request_body":  body,
+	}
+	if err := s.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+		log.Printf("Failed to update worktree %s with PR metadata: %v", worktreeID, err)
 	}
 	s.mu.Unlock()
 

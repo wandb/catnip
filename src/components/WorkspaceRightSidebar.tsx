@@ -41,6 +41,7 @@ interface WorkspaceRightSidebarProps {
   setShowDiffView: (showDiff: boolean) => void;
   showPortPreview: number | null;
   setShowPortPreview: (port: number | null) => void;
+  setSelectedFile?: (file: string | undefined) => void;
   onSync?: (id: string) => void;
 }
 
@@ -126,7 +127,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <ScrollArea className="h-48">
-          <div className="space-y-2">
+          <div className="space-y-0.5">
             {/* Render todos in original order while preserving styling logic */}
             {todos.map((todo, _index) => {
               const isCompleted = todo.status === "completed";
@@ -136,7 +137,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
                 return (
                   <div
                     key={todo.id}
-                    className="flex items-start gap-2 p-2 rounded-md"
+                    className="flex items-start gap-2 px-2 py-1 rounded-md"
                   >
                     <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
@@ -156,7 +157,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
                 return (
                   <div
                     key={todo.id}
-                    className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50"
+                    className="flex items-start gap-2 px-2 py-1 rounded-md hover:bg-muted/50"
                   >
                     <Circle
                       className={`h-3 w-3 mt-0.5 flex-shrink-0 ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}
@@ -184,12 +185,14 @@ function ChangedFiles({
   showDiffView,
   setShowDiffView,
   setShowPortPreview,
+  setSelectedFile,
   onSync,
 }: {
   worktree: Worktree;
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
   setShowPortPreview: (port: number | null) => void;
+  setSelectedFile?: (file: string | undefined) => void;
   onSync?: (id: string) => void;
 }) {
   const { diffStats, loading, error } = useWorktreeDiff(
@@ -313,18 +316,21 @@ function ChangedFiles({
             {fileDiffs.map((file, index) => {
               const fileName =
                 file.file_path.split("/").pop() || file.file_path;
-              const hasPath = file.file_path.includes("/");
 
               return (
                 <Tooltip key={index}>
                   <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer">
+                    <div
+                      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer"
+                      onClick={() => {
+                        setShowDiffView(true);
+                        setShowPortPreview(null);
+                        setSelectedFile?.(file.file_path);
+                      }}
+                    >
                       {getFileStatusIcon(file.change_type)}
                       <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                       <span className="text-sm truncate flex-1">
-                        {hasPath && (
-                          <span className="text-muted-foreground">...</span>
-                        )}
                         {fileName}
                       </span>
                       <Badge variant="outline" className="text-xs">
@@ -496,6 +502,7 @@ export function WorkspaceRightSidebar({
   setShowDiffView,
   showPortPreview,
   setShowPortPreview,
+  setSelectedFile,
   onSync,
 }: WorkspaceRightSidebarProps) {
   return (
@@ -514,6 +521,7 @@ export function WorkspaceRightSidebar({
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
           setShowPortPreview={setShowPortPreview}
+          setSelectedFile={setSelectedFile}
           onSync={onSync}
         />
         <SidebarSeparator className="mx-0" />

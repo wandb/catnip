@@ -315,7 +315,7 @@ func (s *SessionService) hasPTYSession(workDir string) bool {
 			}
 
 			if actualWorkDir == workDir {
-				fmt.Printf("🎯 Found claude process %s running in %s\n", pid, workDir)
+				// Claude process found and tracked
 				return true
 			}
 		}

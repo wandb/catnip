@@ -14,7 +14,7 @@ import {
 import { RefreshCw, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { GitErrorDialog } from "./GitErrorDialog";
-import { type Worktree, type PullRequestInfo } from "@/lib/git-api";
+import { type Worktree, type PullRequestInfo, gitApi } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 
 interface PullRequestDialogProps {
@@ -66,24 +66,12 @@ export function PullRequestDialog({
       const isExistingPR = prStatus?.exists || !!worktree.pull_request_url;
 
       if (isExistingPR) {
-        // Set update mode and use existing PR data
+        // Set update mode and fetch fresh PR data from GitHub
         setIsUpdate(true);
+        setIsGenerating(true);
 
-        // Prioritize persisted data from worktree, then prStatus, then fallback
-        if (worktree.pull_request_title && worktree.pull_request_body) {
-          // Use persisted data from worktree (this is what we want!)
-          setTitle(worktree.pull_request_title);
-          setDescription(worktree.pull_request_body);
-        } else if (prStatus?.title) {
-          // Fallback to prStatus if available
-          setTitle(prStatus.title);
-          setDescription(prStatus.body || "");
-        } else {
-          // Final fallback for existing PR without any stored data
-          setTitle(`Update ${worktree.branch}`);
-          setDescription(`Updated changes for ${worktree.branch} branch`);
-        }
-        setIsGenerating(false);
+        // Fetch current PR info from GitHub to get the latest title/body
+        void fetchCurrentPrInfo();
       } else {
         // New PR - generate content with Claude
         void generatePrContent();
@@ -91,29 +79,65 @@ export function PullRequestDialog({
     }
   }, [open, worktree?.id, prStatus?.exists, worktree.pull_request_url]);
 
-  const generatePrContent = async () => {
-    console.log("🚀 Generating new PR content for:", {
-      worktreeId: worktree.id,
-      branchName: worktree.branch,
-    });
-    console.log("📋 Summary:", summary);
-    console.log("⏰ lastClaudeCall:", lastClaudeCallRef.current);
+  const fetchCurrentPrInfo = async () => {
+    try {
+      const prInfo = await gitApi.getPullRequestInfo(worktree.id);
 
+      if (prInfo?.title && prInfo?.body) {
+        // Use fresh data from GitHub
+        setTitle(prInfo.title);
+        setDescription(prInfo.body);
+      } else if (worktree.pull_request_title && worktree.pull_request_body) {
+        // Fallback to persisted data, but avoid the error message
+        if (
+          worktree.pull_request_body.includes("No text content found") ||
+          worktree.pull_request_body.includes(
+            "Claude returned an empty response",
+          )
+        ) {
+          // Skip the error message and use a clean fallback
+          setTitle(worktree.pull_request_title);
+          setDescription(`Updated changes for ${worktree.branch} branch`);
+        } else {
+          setTitle(worktree.pull_request_title);
+          setDescription(worktree.pull_request_body);
+        }
+      } else {
+        // Final fallback
+        setTitle(`Update ${worktree.branch}`);
+        setDescription(`Updated changes for ${worktree.branch} branch`);
+      }
+    } catch (error) {
+      console.error("❌ Failed to fetch PR info:", error);
+      // Fallback to persisted data if available
+      if (
+        worktree.pull_request_title &&
+        worktree.pull_request_body &&
+        !worktree.pull_request_body.includes("No text content found") &&
+        !worktree.pull_request_body.includes(
+          "Claude returned an empty response",
+        )
+      ) {
+        setTitle(worktree.pull_request_title);
+        setDescription(worktree.pull_request_body);
+      } else {
+        setTitle(`Update ${worktree.branch}`);
+        setDescription(`Updated changes for ${worktree.branch} branch`);
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const generatePrContent = async () => {
     // This function is only called for new PRs now
     setIsUpdate(false);
 
     // Check throttling - only allow Claude call once every 10 seconds
     const now = Date.now();
     const shouldCallClaude = now - lastClaudeCallRef.current > 10000; // 10 seconds
-    console.log(
-      "🤖 shouldCallClaude:",
-      shouldCallClaude,
-      "time since last call:",
-      now - lastClaudeCallRef.current,
-    );
 
     if (!shouldCallClaude) {
-      console.log("⏸️ Throttled - using fallback data");
       // Use fallback data without calling Claude
       const fallbackTitle =
         summary?.status === "completed" && summary.title
@@ -125,8 +149,6 @@ export function PullRequestDialog({
           ? summary.summary
           : `Automated pull request created from worktree ${worktree.branch}`;
 
-      console.log("📝 Fallback data:", { fallbackTitle, fallbackDescription });
-
       setTitle(fallbackTitle);
       setDescription(fallbackDescription);
       setIsGenerating(false);
@@ -134,7 +156,6 @@ export function PullRequestDialog({
     }
 
     // Open dialog with loading state and call Claude
-    console.log("🔄 Calling Claude API for PR generation");
     setTitle("");
     setDescription("");
     setIsGenerating(true);
@@ -168,7 +189,6 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
         resume: true,
         max_turns: 1,
       };
-      console.log("📤 Sending to Claude API:", requestBody);
 
       const response = await fetch("/v1/claude/messages", {
         method: "POST",
@@ -180,24 +200,18 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
 
       if (response.ok) {
         const data = await response.json();
-        console.log("✅ Claude API response received:", data);
 
         // Extract JSON from Claude's response
         let parsedData = { title: "", description: "" };
         try {
           // The response is in data.response field
           const responseText = data.response || data.message || "";
-          console.log("🔍 Parsing response text:", responseText);
 
           // Look for JSON in code fence (handle newlines properly)
           const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/m);
           if (jsonMatch) {
-            console.log("🎯 Extracted JSON from code fence:", jsonMatch[1]);
             parsedData = JSON.parse(jsonMatch[1]);
           } else {
-            console.log(
-              "🔍 No code fence found, trying to parse whole response as JSON",
-            );
             // Try parsing the whole response as JSON
             parsedData = JSON.parse(responseText);
           }
@@ -218,9 +232,7 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
         );
         setIsGenerating(false);
       } else {
-        console.error("❌ Claude API failed with status:", response.status);
-        const errorText = await response.text();
-        console.error("❌ Error details:", errorText);
+        console.error("Claude API failed with status:", response.status);
 
         // Fallback to summary or defaults
         const fallbackTitle =

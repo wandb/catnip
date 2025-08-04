@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   ChevronDown,
@@ -16,6 +16,7 @@ import type { Worktree } from "@/lib/git-api";
 
 interface WorkspaceDiffViewerProps {
   worktree: Worktree;
+  selectedFile?: string;
   onClose: () => void;
 }
 
@@ -38,6 +39,7 @@ const MAX_LINES_TO_AUTO_EXPAND = 500;
 
 export function WorkspaceDiffViewer({
   worktree,
+  selectedFile,
   onClose,
 }: WorkspaceDiffViewerProps) {
   const { state } = useSidebar();
@@ -51,6 +53,7 @@ export function WorkspaceDiffViewer({
 
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [copiedLine, setCopiedLine] = useState<string | null>(null);
+  const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Auto-expand files when data loads, but only if under the threshold
   useEffect(() => {
@@ -58,13 +61,32 @@ export function WorkspaceDiffViewer({
       const autoExpanded = new Set<string>();
       diffStats.file_diffs.forEach((file) => {
         const stats = calculateFileStats(file.diff_text || "");
-        if (stats.totalChanges <= MAX_LINES_TO_AUTO_EXPAND) {
+        if (
+          stats.totalChanges <= MAX_LINES_TO_AUTO_EXPAND ||
+          file.file_path === selectedFile
+        ) {
           autoExpanded.add(file.file_path);
         }
       });
       setExpandedFiles(autoExpanded);
     }
-  }, [diffStats]);
+  }, [diffStats, selectedFile]);
+
+  // Scroll to selected file when it changes or component mounts
+  useEffect(() => {
+    if (selectedFile && fileRefs.current.has(selectedFile)) {
+      const fileElement = fileRefs.current.get(selectedFile);
+      if (fileElement) {
+        // Use a small timeout to ensure the file is expanded and rendered
+        setTimeout(() => {
+          fileElement.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }, 100);
+      }
+    }
+  }, [selectedFile, expandedFiles]);
 
   const toggleFileExpansion = (filePath: string) => {
     setExpandedFiles((prev) => {
@@ -248,7 +270,18 @@ export function WorkspaceDiffViewer({
             return (
               <div
                 key={file.file_path}
-                className="border border-border rounded-lg overflow-hidden bg-card"
+                ref={(el) => {
+                  if (el) {
+                    fileRefs.current.set(file.file_path, el);
+                  } else {
+                    fileRefs.current.delete(file.file_path);
+                  }
+                }}
+                className={`border border-border rounded-lg overflow-hidden bg-card ${
+                  selectedFile === file.file_path
+                    ? "ring-2 ring-primary/50"
+                    : ""
+                }`}
               >
                 {/* Compact File Header */}
                 <div
