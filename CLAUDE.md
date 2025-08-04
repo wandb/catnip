@@ -5,7 +5,7 @@
 Catnip is an agentic coding environment with three main components:
 
 - **Frontend**: React/Vite SPA using ShadCN UI, Tailwind CSS, and TanStack Router
-- **Container**: Go server providing PTY sessions and APIs for sandboxed development
+- **Container**: Unified Go binary (`catnip`) providing both CLI tools and server APIs for sandboxed development
 - **Worker**: Hono-based Cloudflare Worker (production only)
 
 ## Tech Stack & Conventions
@@ -34,7 +34,7 @@ catnip/
 │   ├── routes/            # TanStack Router pages
 │   └── lib/               # Utilities and shared code
 ├── container/             # Go application running in Docker
-│   ├── cmd/               # CLI and server entry points
+│   ├── cmd/               # Unified binary entry point
 │   ├── internal/          # Internal Go packages
 │   └── setup/             # Container setup scripts
 ├── worker/                # Cloudflare Worker (Hono-based)

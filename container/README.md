@@ -8,8 +8,7 @@ The container application consists of several key components:
 
 ### Core Applications
 
-- **CLI (`catnip`)**: Terminal user interface for container management
-- **Server (`catnip`)**: HTTP/WebSocket API server with Swagger documentation
+- **Unified CLI (`catnip`)**: Single binary providing both TUI for container management and HTTP/WebSocket API server
 - **Container Runtime**: Docker-based isolated development environments
 
 ### Directory Structure
@@ -17,8 +16,7 @@ The container application consists of several key components:
 ```
 container/
 ├── cmd/
-│   ├── cli/main.go         # catnip CLI entry point
-│   └── server/main.go      # catnip server entry point
+│   └── cli/main.go         # catnip unified binary entry point
 ├── internal/
 │   ├── models/             # Data models and structures
 │   ├── services/           # Business logic layer
