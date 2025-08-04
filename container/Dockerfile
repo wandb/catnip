@@ -38,8 +38,8 @@ COPY container/ .
 COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
 # Install swag and generate swagger documentation, then build the binary
-RUN swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal && \
-    CGO_ENABLED=0 GOOS=linux go build -a -o catnip cmd/server/main.go
+RUN swag init -g internal/cmd/serve.go -o docs --parseDependency --parseInternal && \
+    CGO_ENABLED=0 GOOS=linux go build -a -o catnip cmd/cli/main.go
 
 # Stage 3: Final image
 FROM ubuntu:24.04
@@ -331,4 +331,4 @@ WORKDIR /workspace
 # Default command
 EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["catnip"]
+CMD ["catnip", "serve"]
