@@ -28,6 +28,8 @@ interface WorkspaceMainContentProps {
   setShowDiffView: (showDiff: boolean) => void;
   showPortPreview: number | null;
   setShowPortPreview: (port: number | null) => void;
+  selectedFile?: string;
+  setSelectedFile?: (file: string | undefined) => void;
 }
 
 function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
@@ -461,6 +463,8 @@ export function WorkspaceMainContent({
   setShowDiffView,
   showPortPreview,
   setShowPortPreview,
+  selectedFile,
+  setSelectedFile,
 }: WorkspaceMainContentProps) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -523,7 +527,11 @@ export function WorkspaceMainContent({
               <div className="h-full">
                 <WorkspaceDiffViewer
                   worktree={worktree}
-                  onClose={() => setShowDiffView(false)}
+                  selectedFile={selectedFile}
+                  onClose={() => {
+                    setShowDiffView(false);
+                    setSelectedFile?.(undefined);
+                  }}
                 />
               </div>
             ) : (

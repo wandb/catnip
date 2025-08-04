@@ -41,6 +41,7 @@ interface WorkspaceRightSidebarProps {
   setShowDiffView: (showDiff: boolean) => void;
   showPortPreview: number | null;
   setShowPortPreview: (port: number | null) => void;
+  setSelectedFile?: (file: string | undefined) => void;
   onSync?: (id: string) => void;
 }
 
@@ -184,12 +185,14 @@ function ChangedFiles({
   showDiffView,
   setShowDiffView,
   setShowPortPreview,
+  setSelectedFile,
   onSync,
 }: {
   worktree: Worktree;
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
   setShowPortPreview: (port: number | null) => void;
+  setSelectedFile?: (file: string | undefined) => void;
   onSync?: (id: string) => void;
 }) {
   const { diffStats, loading, error } = useWorktreeDiff(
@@ -317,7 +320,14 @@ function ChangedFiles({
               return (
                 <Tooltip key={index}>
                   <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer">
+                    <div
+                      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer"
+                      onClick={() => {
+                        setShowDiffView(true);
+                        setShowPortPreview(null);
+                        setSelectedFile?.(file.file_path);
+                      }}
+                    >
                       {getFileStatusIcon(file.change_type)}
                       <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                       <span className="text-sm truncate flex-1">
@@ -492,6 +502,7 @@ export function WorkspaceRightSidebar({
   setShowDiffView,
   showPortPreview,
   setShowPortPreview,
+  setSelectedFile,
   onSync,
 }: WorkspaceRightSidebarProps) {
   return (
@@ -510,6 +521,7 @@ export function WorkspaceRightSidebar({
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
           setShowPortPreview={setShowPortPreview}
+          setSelectedFile={setSelectedFile}
           onSync={onSync}
         />
         <SidebarSeparator className="mx-0" />
