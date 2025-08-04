@@ -207,6 +207,14 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 			if v, ok := value.(string); ok {
 				worktree.PullRequestURL = v
 			}
+		case "pull_request_title":
+			if v, ok := value.(string); ok {
+				worktree.PullRequestTitle = v
+			}
+		case "pull_request_body":
+			if v, ok := value.(string); ok {
+				worktree.PullRequestBody = v
+			}
 		case "session_title":
 			if v, ok := value.(*models.TitleEntry); ok {
 				worktree.SessionTitle = v
