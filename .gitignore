@@ -36,6 +36,9 @@ coverage.out
 # worker is generating js?
 worker/*.js
 
+# crush
+.crush/
+
 # secrets
 *.pem
 
