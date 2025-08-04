@@ -126,7 +126,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
       </SidebarGroupLabel>
       <SidebarGroupContent>
         <ScrollArea className="h-48">
-          <div className="space-y-2">
+          <div className="space-y-0.5">
             {/* Render todos in original order while preserving styling logic */}
             {todos.map((todo, _index) => {
               const isCompleted = todo.status === "completed";
@@ -136,7 +136,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
                 return (
                   <div
                     key={todo.id}
-                    className="flex items-start gap-2 p-2 rounded-md"
+                    className="flex items-start gap-2 px-2 py-1 rounded-md"
                   >
                     <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
@@ -156,7 +156,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
                 return (
                   <div
                     key={todo.id}
-                    className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/50"
+                    className="flex items-start gap-2 px-2 py-1 rounded-md hover:bg-muted/50"
                   >
                     <Circle
                       className={`h-3 w-3 mt-0.5 flex-shrink-0 ${isMostRecent ? "text-foreground" : "text-muted-foreground"}`}

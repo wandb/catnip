@@ -178,10 +178,6 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
     ws.onmessage = async (event) => {
       let data: string | Uint8Array | undefined;
-      const rePaint = () => {
-        fitAddon.current?.fit();
-        scrollToBottom();
-      };
 
       // Handle both binary and text data
       if (event.data instanceof ArrayBuffer) {
@@ -197,20 +193,41 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
           const msg = JSON.parse(event.data);
           if (msg.type === "buffer-size") {
             if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
+              // Clear terminal before resize to prevent corruption
+              instance.clear();
               instance.resize(msg.cols, msg.rows);
+              // Force synchronous refresh after resize
+              instance.refresh(0, msg.rows - 1);
             }
             bufferingRef.current = true;
             return;
           } else if (msg.type === "buffer-complete") {
             terminalReady.current = true;
-            requestAnimationFrame(() => {
-              if (fitAddon.current) {
-                fitAddon.current.fit();
-                scrollToBottom();
+
+            // Process any remaining buffered data first
+            if (buffer.length > 0) {
+              for (const chunk of buffer) {
+                instance.write(chunk);
               }
-            });
-            const dims = { cols: instance.cols, rows: instance.rows };
-            wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+              buffer.length = 0;
+            }
+
+            // Add a small delay before fitting to ensure content is rendered
+            setTimeout(() => {
+              requestAnimationFrame(() => {
+                if (fitAddon.current) {
+                  fitAddon.current.fit();
+                  scrollToBottom();
+                  // Force a full refresh after fit to fix any rendering issues
+                  instance.refresh(0, instance.rows - 1);
+                }
+                // Send current dimensions after everything is settled
+                const dims = { cols: instance.cols, rows: instance.rows };
+                wsRef.current?.send(
+                  JSON.stringify({ type: "resize", ...dims }),
+                );
+              });
+            }, 50);
             return;
           } else if (msg.type === "read-only") {
             setIsReadOnly(msg.data === true);
@@ -239,13 +256,10 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
       }
 
       if (!bufferingRef.current && buffer.length > 0) {
-        rePaint();
-        for (const chunk of buffer) {
-          instance.write(chunk);
-        }
+        // Buffer replay already handled in buffer-complete
         buffer.length = 0;
       }
-      if (data) {
+      if (data && !bufferingRef.current) {
         instance.write(data);
       }
     };
@@ -322,12 +336,16 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     // Delay initial fit to allow layout to settle
     const initialFitTimeout = setTimeout(() => {
       requestAnimationFrame(() => {
-        if (fitAddon.current) {
+        if (fitAddon.current && instance) {
           fitAddon.current.fit();
           scrollToBottom();
+          // Ensure terminal is properly refreshed after initial fit
+          instance.refresh(0, instance.rows - 1);
+          // Send ready signal after initial fit is complete
+          sendReadySignal();
         }
       });
-    }, 50);
+    }, 100);
 
     // Set up resize observer
     const resizeObserver = new ResizeObserver((entries) => {
@@ -359,7 +377,6 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
       }
     });
 
-    sendReadySignal();
     resizeObserver.observe(ref.current);
     observerRef.current = resizeObserver;
 

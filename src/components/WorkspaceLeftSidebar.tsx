@@ -147,29 +147,33 @@ export function WorkspaceLeftSidebar() {
                       onOpenChange={() => toggleRepo(repo.id)}
                     >
                       <SidebarMenuItem>
-                        <SidebarMenuButton asChild>
-                          <button className="w-full">
+                        <div className="flex items-center w-full">
+                          <SidebarMenuButton
+                            onClick={() => toggleRepo(repo.id)}
+                            className="flex-1"
+                          >
                             <Folder className="h-4 w-4" />
                             <span className="truncate">{projectName}</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddWorkspace(repo);
-                              }}
-                              className="ml-auto p-0.5 hover:bg-accent rounded"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          </button>
-                        </SidebarMenuButton>
-                        <CollapsibleTrigger asChild>
+                          </SidebarMenuButton>
                           <SidebarMenuAction
-                            className="data-[state=open]:rotate-90"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddWorkspace(repo);
+                            }}
+                            className="hover:bg-accent"
                             showOnHover
                           >
-                            <ChevronRight />
+                            <Plus className="h-4 w-4" />
                           </SidebarMenuAction>
-                        </CollapsibleTrigger>
+                          <CollapsibleTrigger asChild>
+                            <SidebarMenuAction
+                              className="data-[state=open]:rotate-90"
+                              showOnHover
+                            >
+                              <ChevronRight />
+                            </SidebarMenuAction>
+                          </CollapsibleTrigger>
+                        </div>
                         <CollapsibleContent>
                           <SidebarMenuSub className="mx-0 mr-0">
                             {worktrees.map((worktree) => {
