@@ -54,24 +54,6 @@ builds:
         goarch: arm
 
 # Code signing and notarization for macOS binaries
-signs:
-  - cmd: codesign
-    env:
-      - CODESIGN_PASSWORD={{ .Env.APPLE_PASSWORD }}
-    args:
-      - "--timestamp"
-      - "--options=runtime"
-      - "--entitlements"
-      - "entitlements.plist"
-      - "--verbose"
-      - "--force"
-      - "--sign"
-      - "{{ .Env.APPLE_DEVELOPER_ID }}"
-      - "${artifact}"
-    artifacts: checksum
-    output: true
-    stdin: '{{ .Env.CODESIGN_PASSWORD }}'
-
 notarize:
   macos:
     - enabled: true
