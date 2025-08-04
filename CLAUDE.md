@@ -23,7 +23,7 @@ Catnip is an agentic coding environment with three main components:
 - Build tool: `just` (run `just build` in container/ directory)
 - Documentation: OpenAPI/Swagger (auto-generated on build - ensure API endpoints and models are well commented)
 - Architecture: JSONRPC where possible
-- Terminal UI: Bubbletea-based CLI tool (`catctrl`)
+- Terminal UI: Bubbletea-based CLI tool (`catnip`)
 
 ## Directory Structure
 

@@ -116,11 +116,11 @@ jobs:
         working-directory: container
 
       - name: Build CLI
-        run: go build -o bin/catctrl ./cmd/cli/main.go
+        run: go build -o bin/catnip ./cmd/cli/main.go
         working-directory: container
 
       - name: Build Server
-        run: go build -o bin/catnip ./cmd/server/main.go
+        run: go build -o bin/catnip-server ./cmd/server/main.go
         working-directory: container
 
   lint:

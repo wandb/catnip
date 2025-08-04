@@ -30,7 +30,7 @@ jobs:
       #    p12-file-base64: ${{ secrets.CERT_P12_BASE64 }}
       #    p12-password: ${{ secrets.CERT_PASSWORD }}
 
-      # Docker setup removed - focusing on binaries only for catctrl
+      # Docker setup removed - focusing on binaries only for catnip
       # - name: Set up Docker Buildx
       #   uses: docker/setup-buildx-action@v3
 
