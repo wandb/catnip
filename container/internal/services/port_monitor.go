@@ -7,12 +7,15 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/config"
 )
 
 // ServiceInfo represents a detected service
@@ -50,12 +53,18 @@ func NewPortMonitor() *PortMonitor {
 	return pm
 }
 
-// Start begins monitoring /proc/net/tcp for port changes
+// Start begins monitoring for port changes using the appropriate method for the OS
 func (pm *PortMonitor) Start() {
 	ticker := time.NewTicker(500 * time.Millisecond) // Check every 500ms for fast detection
 	defer ticker.Stop()
 
-	log.Printf("🔍 Started real-time port monitoring using /proc/net/tcp")
+	var method string
+	if config.Runtime.PortMonitorEnabled {
+		method = "/proc/net/tcp (Linux)"
+	} else {
+		method = "netstat/lsof (macOS/other)"
+	}
+	log.Printf("🔍 Started real-time port monitoring using %s", method)
 
 	for {
 		select {
@@ -91,10 +100,23 @@ func (pm *PortMonitor) GetServices() map[int]*ServiceInfo {
 
 // checkPortChanges compares current ports with last known state
 func (pm *PortMonitor) checkPortChanges() {
-	currentPorts, err := pm.parseProcNetTcp()
-	if err != nil {
-		log.Printf("❌ Error parsing /proc/net/tcp: %v", err)
-		return
+	var currentPorts map[int]*PortWithPID
+	var err error
+
+	if config.Runtime.PortMonitorEnabled {
+		// Linux: Use /proc/net/tcp
+		currentPorts, err = pm.parseProcNetTcp()
+		if err != nil {
+			log.Printf("❌ Error parsing /proc/net/tcp: %v", err)
+			return
+		}
+	} else {
+		// macOS/other: Use netstat + lsof
+		currentPorts, err = pm.parseNetstatPorts()
+		if err != nil {
+			log.Printf("❌ Error parsing netstat output: %v", err)
+			return
+		}
 	}
 
 	pm.mutex.Lock()
@@ -198,6 +220,97 @@ func (pm *PortMonitor) parseProcNetTcp() (map[int]*PortWithPID, error) {
 	}
 
 	return listeningPorts, scanner.Err()
+}
+
+// parseNetstatPorts parses netstat output for macOS/other Unix systems
+func (pm *PortMonitor) parseNetstatPorts() (map[int]*PortWithPID, error) {
+	// Use netstat to find listening TCP ports
+	cmd := exec.Command("netstat", "-an", "-p", "tcp")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run netstat: %v", err)
+	}
+
+	listeningPorts := make(map[int]*PortWithPID)
+	lines := strings.Split(string(output), "\n")
+
+	for _, line := range lines[1:] { // Skip header
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+
+		// Check if it's in LISTEN state
+		state := fields[5]
+		if state != "LISTEN" {
+			continue
+		}
+
+		// Parse local address (format: *.PORT, IP.PORT, or [::]:PORT)
+		localAddr := fields[3]
+		var portStr string
+
+		// Handle different address formats
+		if strings.Contains(localAddr, ".") {
+			// IPv4: 127.0.0.1.8080 or *.8080
+			parts := strings.Split(localAddr, ".")
+			if len(parts) >= 2 {
+				portStr = parts[len(parts)-1]
+			}
+		} else if strings.Contains(localAddr, ":") {
+			// IPv6: [::]:8080 or similar
+			parts := strings.Split(localAddr, ":")
+			if len(parts) >= 2 {
+				portStr = parts[len(parts)-1]
+			}
+		}
+
+		if portStr == "" {
+			continue
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			continue
+		}
+
+		// Filter out ports we don't want to proxy (same logic as Linux version)
+		if port >= 1024 && port != 8080 && port != 22 {
+			// For macOS, we'll resolve PID using lsof in a separate step
+			listeningPorts[port] = &PortWithPID{
+				Port: port,
+				PID:  0, // Will be resolved by lsof
+			}
+		}
+	}
+
+	// Resolve PIDs using lsof for each port
+	for port, portInfo := range listeningPorts {
+		pid := pm.resolvePIDFromPortMacOS(port)
+		portInfo.PID = pid
+	}
+
+	return listeningPorts, nil
+}
+
+// resolvePIDFromPortMacOS uses lsof to find the PID listening on a specific port (macOS/Unix)
+func (pm *PortMonitor) resolvePIDFromPortMacOS(port int) int {
+	// Use lsof to find process listening on the port
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", port), "-t")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	// lsof -t returns PIDs, one per line
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) > 0 && lines[0] != "" {
+		if pid, err := strconv.Atoi(lines[0]); err == nil {
+			return pid
+		}
+	}
+
+	return 0
 }
 
 // addService adds a new service to the registry with health checking
@@ -373,12 +486,23 @@ func (pm *PortMonitor) resolvePIDFromInode(inode int) int {
 	return 0 // PID not found
 }
 
-// getCommandFromPID extracts the command name from a PID
+// getCommandFromPID extracts the command name from a PID (cross-platform)
 func (pm *PortMonitor) getCommandFromPID(pid int) string {
 	if pid == 0 {
 		return ""
 	}
 
+	if config.Runtime.PortMonitorEnabled {
+		// Linux: Use /proc filesystem
+		return pm.getCommandFromPIDLinux(pid)
+	} else {
+		// macOS/other: Use ps command
+		return pm.getCommandFromPIDMacOS(pid)
+	}
+}
+
+// getCommandFromPIDLinux extracts command name using /proc (Linux)
+func (pm *PortMonitor) getCommandFromPIDLinux(pid int) string {
 	// Try to read /proc/PID/cmdline first (full command line)
 	cmdlinePath := filepath.Join("/proc", strconv.Itoa(pid), "cmdline")
 	if data, err := os.ReadFile(cmdlinePath); err == nil {
@@ -406,16 +530,64 @@ func (pm *PortMonitor) getCommandFromPID(pid int) string {
 	return ""
 }
 
-// getWorkingDirFromPID extracts the working directory from a PID
+// getCommandFromPIDMacOS extracts command name using ps (macOS/Unix)
+func (pm *PortMonitor) getCommandFromPIDMacOS(pid int) string {
+	// Use ps to get command name
+	cmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	command := strings.TrimSpace(string(output))
+	if command != "" {
+		// Extract just the command name from the full path
+		return filepath.Base(command)
+	}
+
+	return ""
+}
+
+// getWorkingDirFromPID extracts the working directory from a PID (cross-platform)
 func (pm *PortMonitor) getWorkingDirFromPID(pid int) string {
 	if pid == 0 {
 		return ""
 	}
 
+	if config.Runtime.PortMonitorEnabled {
+		// Linux: Use /proc filesystem
+		return pm.getWorkingDirFromPIDLinux(pid)
+	} else {
+		// macOS/other: Use lsof or pwdx if available
+		return pm.getWorkingDirFromPIDMacOS(pid)
+	}
+}
+
+// getWorkingDirFromPIDLinux extracts working directory using /proc (Linux)
+func (pm *PortMonitor) getWorkingDirFromPIDLinux(pid int) string {
 	// Read the cwd symlink from /proc/PID/cwd
 	cwdPath := filepath.Join("/proc", strconv.Itoa(pid), "cwd")
 	if workingDir, err := os.Readlink(cwdPath); err == nil {
 		return workingDir
+	}
+	return ""
+}
+
+// getWorkingDirFromPIDMacOS extracts working directory using lsof (macOS/Unix)
+func (pm *PortMonitor) getWorkingDirFromPIDMacOS(pid int) string {
+	// Use lsof to get the current working directory
+	cmd := exec.Command("lsof", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	// lsof -Fn output format: n<path>
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "n") && len(line) > 1 {
+			return line[1:] // Remove the 'n' prefix
+		}
 	}
 
 	return ""
