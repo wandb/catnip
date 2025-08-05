@@ -42,7 +42,6 @@ func NewContainerService() (*ContainerService, error) {
 func NewContainerServiceWithRuntime(preferredRuntime string) (*ContainerService, error) {
 	var runtime ContainerRuntime
 	var err error
-	var detectionMethod string
 
 	if preferredRuntime != "" {
 		// Use the specified runtime if provided
@@ -52,13 +51,11 @@ func NewContainerServiceWithRuntime(preferredRuntime string) (*ContainerService,
 				return nil, fmt.Errorf("docker runtime requested but docker command not found")
 			}
 			runtime = RuntimeDocker
-			detectionMethod = "explicit --runtime flag"
 		case "container", "apple":
 			if !commandExists("container") {
 				return nil, fmt.Errorf("container runtime requested but container command not found")
 			}
 			runtime = RuntimeApple
-			detectionMethod = "explicit --runtime flag"
 		case "native":
 			return nil, fmt.Errorf("native runtime is not supported for container operations. Use 'catnip serve' for native mode")
 		default:
@@ -70,10 +67,9 @@ func NewContainerServiceWithRuntime(preferredRuntime string) (*ContainerService,
 		if err != nil {
 			return nil, err
 		}
-		detectionMethod = "auto-detection"
 	}
 
-	log.Printf("🐱 Using %s runtime for container operations (via %s)", runtime, detectionMethod)
+	// Using runtime for container operations
 
 	return &ContainerService{
 		runtime: runtime,
@@ -110,24 +106,20 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	if cs.ContainerExists(ctx, name) {
 		if cs.IsContainerRunning(ctx, name) {
 			// Container is already running, return success
-			log.Printf("🐱 Container '%s' is already running", name)
 			return []string{"container", "already", "running"}, nil
 		}
 
 		// Container exists but is stopped
 		if rmFlag {
 			// If --rm flag was specified, remove the existing container first
-			log.Printf("🐱 Removing existing stopped container '%s' (--rm flag specified)", name)
 			if err := cs.RemoveContainer(ctx, name); err != nil {
 				return nil, fmt.Errorf("failed to remove existing container: %w", err)
 			}
 			// Continue to create new container below
 		} else {
 			// Try to start the existing container
-			log.Printf("🐱 Starting existing stopped container '%s'", name)
 			if err := cs.StartContainer(ctx, name); err != nil {
 				// If starting fails, remove and recreate as fallback
-				log.Printf("🐱 Failed to start existing container, removing and recreating: %v", err)
 				_ = cs.StopContainer(ctx, name)   // Stop if partially running
 				_ = cs.RemoveContainer(ctx, name) // Remove the container
 				// Continue to create new container below
