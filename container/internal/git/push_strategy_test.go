@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/vanpelt/catnip/internal/config"
 )
 
 // MockExecutorForURLRewrite records git commands to verify URL rewriting
@@ -50,24 +51,33 @@ func TestPushStrategyConvertHTTPS(t *testing.T) {
 			Branch:       "test-branch",
 			Remote:       "origin",
 			SetUpstream:  true,
-			ConvertHTTPS: true, // This should add URL rewriting
+			ConvertHTTPS: true, // This should add URL rewriting in Docker mode
 		}
 
 		err := pushExecutor.PushBranch("/test/worktree", strategy)
 		assert.NoError(t, err)
 
-		// Verify that git was called with URL rewriting config
+		// Verify that git was called
 		assert.Len(t, mockExec.recordedCommands, 1)
 
 		gitArgs := mockExec.recordedCommands[0]
 
-		// Check that the command includes the URL rewriting config
-		assert.Equal(t, "-c", gitArgs[0])
-		assert.Equal(t, "url.https://github.com/.insteadOf=git@github.com:", gitArgs[1])
-		assert.Equal(t, "push", gitArgs[2])
-		assert.Equal(t, "-u", gitArgs[3])
-		assert.Equal(t, "origin", gitArgs[4])
-		assert.Equal(t, "test-branch", gitArgs[5])
+		// Behavior depends on runtime mode
+		if config.Runtime.IsDocker() {
+			// In Docker mode, should include URL rewriting config
+			assert.Equal(t, "-c", gitArgs[0])
+			assert.Equal(t, "url.https://github.com/.insteadOf=git@github.com:", gitArgs[1])
+			assert.Equal(t, "push", gitArgs[2])
+			assert.Equal(t, "-u", gitArgs[3])
+			assert.Equal(t, "origin", gitArgs[4])
+			assert.Equal(t, "test-branch", gitArgs[5])
+		} else {
+			// In native mode, should skip URL rewriting
+			assert.Equal(t, "push", gitArgs[0])
+			assert.Equal(t, "-u", gitArgs[1])
+			assert.Equal(t, "origin", gitArgs[2])
+			assert.Equal(t, "test-branch", gitArgs[3])
+		}
 	})
 
 	t.Run("ConvertHTTPS_false_no_config", func(t *testing.T) {
@@ -133,12 +143,20 @@ func TestPushStrategyWithGitExecutor(t *testing.T) {
 		assert.Len(t, mockShell.recordedCommands, 1)
 		gitArgs := mockShell.recordedCommands[0]
 
-		// The git command should include the URL rewriting
-		expectedArgs := []string{
-			"-c", "url.https://github.com/.insteadOf=git@github.com:",
-			"push", "-u", "origin", "test-branch",
+		// Behavior depends on runtime mode
+		if config.Runtime.IsDocker() {
+			// In Docker mode, should include URL rewriting config
+			expectedArgs := []string{
+				"-c", "url.https://github.com/.insteadOf=git@github.com:",
+				"push", "-u", "origin", "test-branch",
+			}
+			assert.Equal(t, expectedArgs, gitArgs)
+		} else {
+			// In native mode, should skip URL rewriting
+			expectedArgs := []string{
+				"push", "-u", "origin", "test-branch",
+			}
+			assert.Equal(t, expectedArgs, gitArgs)
 		}
-
-		assert.Equal(t, expectedArgs, gitArgs)
 	})
 }
