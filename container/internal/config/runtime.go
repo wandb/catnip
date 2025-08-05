@@ -115,45 +115,35 @@ func DetectRuntime() *RuntimeConfig {
 func detectMode() RuntimeMode {
 	// Check for container environment variable first (can override detection)
 	if containerType := os.Getenv("CATNIP_RUNTIME"); containerType != "" {
-		log.Printf("🐛 [DEBUG] CATNIP_RUNTIME environment variable found: %s", containerType)
 		switch containerType {
 		case "docker":
-			log.Printf("🐛 [DEBUG] Detected Docker mode via CATNIP_RUNTIME")
 			return DockerMode
 		case "container", "apple":
-			log.Printf("🐛 [DEBUG] Detected Apple Container mode via CATNIP_RUNTIME")
 			return ContainerMode
 		case "true":
 			// Legacy support - assume Docker
-			log.Printf("🐛 [DEBUG] Detected legacy Docker mode via CATNIP_RUNTIME=true")
 			return DockerMode
 		}
-	} else {
-		log.Printf("🐛 [DEBUG] CATNIP_RUNTIME environment variable not found")
 	}
 
 	// Check for Docker-specific files/environment
 	if _, err := os.Stat("/.dockerenv"); err == nil {
-		log.Printf("🐛 [DEBUG] Detected Docker mode via /.dockerenv file")
 		return DockerMode
 	}
 
 	// Check for Docker in cgroup
 	if data, err := os.ReadFile("/proc/1/cgroup"); err == nil {
 		if strings.Contains(string(data), "docker") || strings.Contains(string(data), "containerd") {
-			log.Printf("🐛 [DEBUG] Detected Docker mode via cgroup")
 			return DockerMode
 		}
 	}
 
 	// Check for Apple Container environment
-	// Apple containers might have specific environment markers
 	if containerEnv := os.Getenv("container"); containerEnv == "apple" {
-		log.Printf("🐛 [DEBUG] Detected Apple Container mode via container=apple environment")
 		return ContainerMode
 	}
 
-	log.Printf("🐛 [DEBUG] No container runtime detected, defaulting to native mode")
+	// Default to native mode
 	return NativeMode
 }
 

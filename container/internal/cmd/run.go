@@ -142,20 +142,22 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
-	// Find git root early - all our operations should be relative to this
+	// Find git root - operations will be relative to this if it exists
 	gitRoot, isGitRepo := git.FindGitRoot(workDir)
-	if !isGitRepo {
-		return fmt.Errorf("not in a git repository")
-	}
 
 	// Generate container name if not provided
 	if name == "" {
-		basename := filepath.Base(gitRoot)
-		// Avoid double "catnip" in name
-		if basename == "catnip" {
-			name = "catnip"
+		if isGitRepo {
+			basename := filepath.Base(gitRoot)
+			// Avoid double "catnip" in name
+			if basename == "catnip" {
+				name = "catnip"
+			} else {
+				name = fmt.Sprintf("catnip-%s", basename)
+			}
 		} else {
-			name = fmt.Sprintf("catnip-%s", basename)
+			// Use current directory name if not in git repo
+			name = fmt.Sprintf("catnip-%s", filepath.Base(workDir))
 		}
 		if dev {
 			name = name + "-dev"
@@ -182,6 +184,9 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	if !isTTY() && !containerService.IsContainerRunning(ctx, name) {
 		// Check if we need to build/pull image
 		if dev {
+			if !isGitRepo {
+				return fmt.Errorf("development mode requires a git repository")
+			}
 			if !containerService.ImageExists(ctx, containerImage) || refresh {
 				fmt.Printf("Running 'just build-dev' in container directory...\n")
 				if err := runBuildDevDirect(gitRoot); err != nil {
@@ -199,7 +204,11 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 		// Start the container
 		fmt.Printf("Starting container '%s'...\n", name)
-		if cmd, err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, !disableSSH, rmFlag, cpus, memoryGB); err != nil {
+		workDirForContainer := workDir
+		if isGitRepo {
+			workDirForContainer = gitRoot
+		}
+		if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB); err != nil {
 			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
 		fmt.Printf("Container started successfully!\n")
@@ -226,8 +235,12 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Start the TUI - it will handle all initialization and container management
-	tuiApp := tui.NewApp(containerService, name, gitRoot, containerImage, dev, refresh, ports, !disableSSH, GetVersion(), rmFlag)
-	if err := tuiApp.Run(ctx, gitRoot, ports); err != nil {
+	workDirForTUI := workDir
+	if isGitRepo {
+		workDirForTUI = gitRoot
+	}
+	tuiApp := tui.NewApp(containerService, name, workDirForTUI, containerImage, dev, refresh, ports, !disableSSH, GetVersion(), rmFlag)
+	if err := tuiApp.Run(ctx, workDirForTUI, ports); err != nil {
 		// Clean up container on TUI error
 		fmt.Printf("Stopping container '%s'...\n", name)
 		_ = containerService.StopContainer(ctx, name)
