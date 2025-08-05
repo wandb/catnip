@@ -277,7 +277,8 @@ async function main(): Promise<void> {
   }
 
   // Calculate new version
-  const newVersion = bumpVersion(baseVersion, bump);
+  const versionToBump = bump === "dev" ? currentVersion : baseVersion;
+  const newVersion = bumpVersion(versionToBump, bump);
   console.log(`⬆️  New version: v${newVersion} (${bump} bump)`);
 
   // Prompt for push if not specified
