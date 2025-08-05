@@ -22,6 +22,11 @@ func GetVersion() string {
 	return version
 }
 
+// GetBuildInfo returns build information
+func GetBuildInfo() (string, string, string) {
+	return commit, date, builtBy
+}
+
 // SetVersionInfo sets the version information from the main package
 func SetVersionInfo(v, c, d, b string) {
 	version = v

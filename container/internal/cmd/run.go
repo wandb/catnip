@@ -60,6 +60,8 @@ var (
 	dev        bool
 	refresh    bool
 	disableSSH bool
+	runtime    string
+	rmFlag     bool
 )
 
 func init() {
@@ -73,6 +75,8 @@ func init() {
 	runCmd.Flags().BoolVar(&dev, "dev", false, "Run in development mode with dev image and node_modules volume")
 	runCmd.Flags().BoolVar(&refresh, "refresh", false, "Force refresh: rebuild dev image with 'just build-dev' or pull production image from registry")
 	runCmd.Flags().BoolVar(&disableSSH, "disable-ssh", false, "Disable SSH server (enabled by default on port 2222)")
+	runCmd.Flags().StringVar(&runtime, "runtime", "", "Container runtime to use (docker, container, or auto-detect if not specified)")
+	runCmd.Flags().BoolVar(&rmFlag, "rm", false, "Automatically remove the container when it exits (default: false - container is stopped and can be restarted)")
 }
 
 // cleanVersionForProduction removes the -dev suffix and v prefix from version string
@@ -143,14 +147,19 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	// Generate container name if not provided
 	if name == "" {
 		basename := filepath.Base(gitRoot)
-		name = fmt.Sprintf("catnip-%s", basename)
+		// Avoid double "catnip" in name
+		if basename == "catnip" {
+			name = "catnip"
+		} else {
+			name = fmt.Sprintf("catnip-%s", basename)
+		}
 		if dev {
 			name = name + "-dev"
 		}
 	}
 
-	// Initialize container service
-	containerService, err := services.NewContainerService()
+	// Initialize container service with optional runtime
+	containerService, err := services.NewContainerServiceWithRuntime(runtime)
 	if err != nil {
 		return err
 	}
@@ -186,7 +195,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 		// Start the container
 		fmt.Printf("Starting container '%s'...\n", name)
-		if cmd, err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, !disableSSH); err != nil {
+		if cmd, err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, !disableSSH, rmFlag); err != nil {
 			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
 		fmt.Printf("Container started successfully!\n")
@@ -213,7 +222,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Start the TUI - it will handle all initialization and container management
-	tuiApp := tui.NewApp(containerService, name, gitRoot, containerImage, dev, refresh, ports, !disableSSH, GetVersion())
+	tuiApp := tui.NewApp(containerService, name, gitRoot, containerImage, dev, refresh, ports, !disableSSH, GetVersion(), rmFlag)
 	if err := tuiApp.Run(ctx, gitRoot, ports); err != nil {
 		// Clean up container on TUI error
 		fmt.Printf("Stopping container '%s'...\n", name)
@@ -222,11 +231,24 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	}
 
 	// Clean up container when TUI exits normally
-	fmt.Printf("Stopping container '%s'...\n", name)
-	if err := containerService.StopContainer(ctx, name); err != nil {
-		fmt.Printf("Warning: Failed to stop container: %v\n", err)
+	if rmFlag {
+		fmt.Printf("Stopping and removing container '%s'...\n", name)
+		if err := containerService.StopContainer(ctx, name); err != nil {
+			fmt.Printf("Warning: Failed to stop container: %v\n", err)
+		} else {
+			if err := containerService.RemoveContainer(ctx, name); err != nil {
+				fmt.Printf("Warning: Failed to remove container: %v\n", err)
+			} else {
+				fmt.Printf("Container stopped and removed successfully.\n")
+			}
+		}
 	} else {
-		fmt.Printf("Container stopped successfully.\n")
+		fmt.Printf("Stopping container '%s'...\n", name)
+		if err := containerService.StopContainer(ctx, name); err != nil {
+			fmt.Printf("Warning: Failed to stop container: %v\n", err)
+		} else {
+			fmt.Printf("Container stopped successfully.\n")
+		}
 	}
 
 	return nil
@@ -317,7 +339,7 @@ func isTTY() bool {
 // runBuildDevDirect runs 'just build-dev' directly without TUI
 func runBuildDevDirect(gitRoot string) error {
 	// Use the container service to get the build command
-	containerService, err := services.NewContainerService()
+	containerService, err := services.NewContainerServiceWithRuntime(runtime)
 	if err != nil {
 		return fmt.Errorf("failed to create container service: %w", err)
 	}
