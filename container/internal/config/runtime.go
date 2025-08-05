@@ -44,6 +44,14 @@ func init() {
 	Runtime = DetectRuntime()
 }
 
+// getEnvOrDefault returns the environment variable value if set, otherwise returns the default
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 // DetectRuntime determines the current runtime environment and returns appropriate configuration
 func DetectRuntime() *RuntimeConfig {
 	mode := detectMode()
@@ -52,34 +60,35 @@ func DetectRuntime() *RuntimeConfig {
 		Mode: mode,
 	}
 
+	// Get user's home directory for defaults
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = os.Getenv("HOME")
+		if homeDir == "" {
+			homeDir = "."
+		}
+	}
+
+	// Set defaults based on runtime mode
 	switch mode {
 	case DockerMode, ContainerMode:
-		config.WorkspaceDir = "/workspace"
-		config.VolumeDir = "/volume"
-		config.LiveDir = "/live"
-		config.HomeDir = "/home/catnip"
-		config.TempDir = "/tmp"
+		config.WorkspaceDir = getEnvOrDefault("CATNIP_WORKSPACE_DIR", "/workspace")
+		config.VolumeDir = getEnvOrDefault("CATNIP_VOLUME_DIR", "/volume")
+		config.LiveDir = getEnvOrDefault("CATNIP_LIVE_DIR", "/live")
+		config.HomeDir = getEnvOrDefault("CATNIP_HOME_DIR", "/home/catnip")
+		config.TempDir = getEnvOrDefault("CATNIP_TEMP_DIR", "/tmp")
 		config.SyncEnabled = true
 		config.PortMonitorEnabled = true
 
 	case NativeMode:
-		// Get user's home directory
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			homeDir = os.Getenv("HOME")
-			if homeDir == "" {
-				homeDir = "."
-			}
-		}
-
 		// Create catnip directory in user's home
 		catnipDir := filepath.Join(homeDir, ".catnip")
 
-		config.WorkspaceDir = filepath.Join(catnipDir, "workspace")
-		config.VolumeDir = catnipDir // Settings stored directly in ~/.catnip
-		config.LiveDir = ""          // Will be set if running from a git repo
-		config.HomeDir = homeDir
-		config.TempDir = os.TempDir()
+		config.WorkspaceDir = getEnvOrDefault("CATNIP_WORKSPACE_DIR", filepath.Join(catnipDir, "workspace"))
+		config.VolumeDir = getEnvOrDefault("CATNIP_VOLUME_DIR", catnipDir) // Settings stored directly in ~/.catnip
+		config.LiveDir = getEnvOrDefault("CATNIP_LIVE_DIR", "")            // Will be set if running from a git repo
+		config.HomeDir = getEnvOrDefault("CATNIP_HOME_DIR", homeDir)
+		config.TempDir = getEnvOrDefault("CATNIP_TEMP_DIR", os.TempDir())
 		config.SyncEnabled = false                          // No need to sync in native mode
 		config.PortMonitorEnabled = runtime.GOOS == "linux" // Only on Linux
 

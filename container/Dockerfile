@@ -162,6 +162,13 @@ ENV CATNIP_ROOT="/opt/catnip"
 ENV WORKSPACE="/workspace"
 ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
 
+# Set default paths for container environments
+ENV CATNIP_WORKSPACE_DIR="/workspace"
+ENV CATNIP_VOLUME_DIR="/volume"
+ENV CATNIP_LIVE_DIR="/live"
+ENV CATNIP_HOME_DIR="/home/catnip"
+ENV CATNIP_TEMP_DIR="/tmp"
+
 # Enable title interception by default
 ENV CATNIP_TITLE_INTERCEPT="1"
 ENV CATNIP_TITLE_LOG="/home/catnip/.catnip/title_events.log"
