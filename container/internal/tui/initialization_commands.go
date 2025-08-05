@@ -217,26 +217,65 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 				"FORCE_COLOR=1",
 				"CLICOLOR_FORCE=1")
 
-			// For Docker commands, first try to detect if Docker daemon is running
-			// by running the command with CombinedOutput to capture daemon errors
+			// For Docker commands, use proper streaming with real-time output
 			if strings.Contains(strings.Join(cmd.Args, " "), "docker") {
-				// Create a test command to check if Docker daemon is accessible
-				testCmd := *cmd
-				output, err := testCmd.CombinedOutput()
+				// Set up pipes for stdout and stderr
+				stdout, err := cmd.StdoutPipe()
 				if err != nil {
-					// Command failed, send the actual output (including Docker daemon errors)
-					if len(output) > 0 {
-						outputChan <- output
-					} else {
-						outputChan <- []byte(fmt.Sprintf("Command failed with error: %v", err))
-					}
+					outputChan <- []byte(fmt.Sprintf("Error: Failed to create stdout pipe: %v", err))
 					return
 				}
-				// If we get here, the command succeeded, send the output and signal completion
-				if len(output) > 0 {
-					outputChan <- output
+
+				stderr, err := cmd.StderrPipe()
+				if err != nil {
+					outputChan <- []byte(fmt.Sprintf("Error: Failed to create stderr pipe: %v", err))
+					return
 				}
-				outputChan <- []byte("✅ Command completed successfully!\n")
+
+				// Start the command
+				if err := cmd.Start(); err != nil {
+					outputChan <- []byte(fmt.Sprintf("Error: Failed to start Docker command: %v", err))
+					return
+				}
+
+				// Stream stdout and stderr concurrently
+				go func() {
+					buf := make([]byte, 1024)
+					for {
+						n, err := stdout.Read(buf)
+						if n > 0 {
+							data := make([]byte, n)
+							copy(data, buf[:n])
+							outputChan <- data
+						}
+						if err != nil {
+							break
+						}
+					}
+				}()
+
+				go func() {
+					buf := make([]byte, 1024)
+					for {
+						n, err := stderr.Read(buf)
+						if n > 0 {
+							data := make([]byte, n)
+							copy(data, buf[:n])
+							outputChan <- data
+						}
+						if err != nil {
+							break
+						}
+					}
+				}()
+
+				// Wait for command completion
+				if err := cmd.Wait(); err != nil {
+					outputChan <- []byte(fmt.Sprintf("\nCommand failed with error: %v", err))
+					return
+				}
+
+				outputChan <- []byte("\n✅ Command completed successfully!\n")
 				doneChan <- true
 				return
 			}
