@@ -127,9 +127,9 @@ func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
 func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status --show-token 2>/dev/null")
 
-	// In Docker mode, override HOME for catnip user
+	// In containerized mode, override HOME for catnip user
 	// In native mode, use the existing environment
-	if config.Runtime.IsDocker() {
+	if config.Runtime.IsContainerized() {
 		cmd.Env = append(os.Environ(),
 			"HOME="+config.Runtime.HomeDir,
 		)
@@ -164,9 +164,9 @@ func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
 func (h *AuthHandler) getTokenScopes() []string {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status 2>&1 | grep 'Token scopes'")
 
-	// In Docker mode, override HOME for catnip user
+	// In containerized mode, override HOME for catnip user
 	// In native mode, use the existing environment
-	if config.Runtime.IsDocker() {
+	if config.Runtime.IsContainerized() {
 		cmd.Env = append(os.Environ(),
 			"HOME="+config.Runtime.HomeDir,
 		)
@@ -217,9 +217,9 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 	// Start new auth process with workflow scope for GitHub Actions support
 	cmd := exec.Command("bash", "--login", "-c", "gh auth login --web --scopes 'repo,read:org,workflow' 2>&1")
 
-	// In Docker mode, override HOME for catnip user
+	// In containerized mode, override HOME for catnip user
 	// In native mode, use the existing environment
-	if config.Runtime.IsDocker() {
+	if config.Runtime.IsContainerized() {
 		cmd.Env = append(os.Environ(),
 			"HOME="+config.Runtime.HomeDir,
 		)
