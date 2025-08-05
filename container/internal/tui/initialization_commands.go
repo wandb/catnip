@@ -217,6 +217,31 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 				"FORCE_COLOR=1",
 				"CLICOLOR_FORCE=1")
 
+			// For Docker commands, first try to detect if Docker daemon is running
+			// by running the command with CombinedOutput to capture daemon errors
+			if strings.Contains(strings.Join(cmd.Args, " "), "docker") {
+				// Create a test command to check if Docker daemon is accessible
+				testCmd := *cmd
+				output, err := testCmd.CombinedOutput()
+				if err != nil {
+					// Command failed, send the actual output (including Docker daemon errors)
+					if len(output) > 0 {
+						outputChan <- output
+					} else {
+						outputChan <- []byte(fmt.Sprintf("Command failed with error: %v", err))
+					}
+					return
+				}
+				// If we get here, the command succeeded, send the output and signal completion
+				if len(output) > 0 {
+					outputChan <- output
+				}
+				outputChan <- []byte("✅ Command completed successfully!\n")
+				doneChan <- true
+				return
+			}
+
+			// For non-Docker commands, use PTY streaming as before
 			ptmx, err := pty.Start(cmd)
 			if err != nil {
 				outputChan <- []byte(fmt.Sprintf("Error: Failed to start command: %v", err))
@@ -239,7 +264,9 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 			}
 
 			if err := cmd.Wait(); err != nil {
-				outputChan <- []byte(fmt.Sprintf("Build failed with error: %v", err))
+				// When command fails, try to capture any remaining output
+				// The PTY should have captured most output, but show error details
+				outputChan <- []byte(fmt.Sprintf("Command failed with error: %v", err))
 				return
 			}
 
@@ -278,6 +305,12 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 			// Parse the error to extract the base error and output
 			errStr := err.Error()
 			cmdStr := strings.Join(cmd, " ")
+
+			// Enhanced error handling with specific cases
+			errorMsg := detectSpecificErrors(errStr, cmdStr, image, containerService)
+			if errorMsg != "" {
+				return ContainerStartFailedMsg{Error: errorMsg}
+			}
 
 			// Handle "container already exists" error gracefully
 			if strings.Contains(errStr, "already exists") || strings.Contains(errStr, "exists:") {
@@ -329,7 +362,7 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 				if len(parts) > 1 {
 					output = parts[1]
 				}
-				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s\nOutput:%s", baseErr, cmdStr, output)}
+				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s\nOutput: %s", baseErr, cmdStr, output)}
 			} else {
 				// Simple error without output
 				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s", errStr, cmdStr)}
@@ -583,4 +616,96 @@ func StreamingContainerLogsReader(outputChan <-chan string, doneChan <-chan bool
 		// Continue reading (but don't send empty lines)
 		return ContainerLogsOutputMsg{Line: "", OutputChan: outputChan, DoneChan: doneChan}
 	}
+}
+
+// detectSpecificErrors analyzes container start errors and provides specific guidance
+func detectSpecificErrors(errStr, cmdStr, image string, containerService *services.ContainerService) string {
+	errLower := strings.ToLower(errStr)
+
+	// Check for Docker not running
+	if strings.Contains(errLower, "cannot connect to the docker daemon") ||
+		strings.Contains(errLower, "docker daemon is not running") ||
+		strings.Contains(errLower, "connection refused") ||
+		(containerService.GetRuntime() == services.RuntimeDocker &&
+			(strings.Contains(errLower, "no such file or directory") ||
+				strings.Contains(errLower, "command not found"))) {
+
+		return fmt.Sprintf(`Docker is not running or not accessible.
+
+🔧 To fix this:
+• Start Docker Desktop (macOS/Windows)
+• Or start the Docker daemon (Linux): sudo systemctl start docker
+• Make sure your user is in the docker group (Linux): sudo usermod -aG docker $USER
+
+Command: %s
+Output: %s`, cmdStr, extractOutput(errStr))
+	}
+
+	// Check for missing or inaccessible image
+	if strings.Contains(errLower, "unable to find image") ||
+		strings.Contains(errLower, "pull access denied") ||
+		strings.Contains(errLower, "repository does not exist") ||
+		strings.Contains(errLower, "no such image") ||
+		strings.Contains(errLower, "manifest unknown") ||
+		strings.Contains(errLower, "401 unauthorized") {
+
+		runtime := string(containerService.GetRuntime())
+		return fmt.Sprintf(`Container image '%s' is not available locally and could not be pulled.
+
+🔧 To fix this:
+• Try manually pulling the image: %s pull %s
+• Check if the image name and tag are correct
+• If it's a private image, make sure you're authenticated
+
+Command: %s
+Output: %s`, image, runtime, image, cmdStr, extractOutput(errStr))
+	}
+
+	// Check for port already in use
+	if strings.Contains(errLower, "port is already allocated") ||
+		strings.Contains(errLower, "bind: address already in use") {
+
+		return fmt.Sprintf(`Port conflict - another service is using the required ports.
+
+🔧 To fix this:
+• Stop other containers using the same ports
+• Use different ports with the --port flag
+• Check what's using the ports: lsof -i :8080
+
+Command: %s
+Output: %s`, cmdStr, extractOutput(errStr))
+	}
+
+	// Check for insufficient resources
+	if strings.Contains(errLower, "insufficient memory") ||
+		strings.Contains(errLower, "not enough memory") ||
+		strings.Contains(errLower, "no space left on device") {
+
+		return fmt.Sprintf(`Insufficient system resources to start the container.
+
+🔧 To fix this:
+• Free up disk space or memory
+• Reduce resource limits with --cpus and --memory flags
+• Clean up unused Docker images: docker system prune
+
+Command: %s
+Output: %s`, cmdStr, extractOutput(errStr))
+	}
+
+	return "" // No specific error detected, use generic handling
+}
+
+// extractOutput extracts the "Output:" section from an error string, preserving useful details
+func extractOutput(errStr string) string {
+	if strings.Contains(errStr, "\nOutput:") {
+		parts := strings.Split(errStr, "\nOutput:")
+		if len(parts) > 1 {
+			// Don't use TrimSpace here as it might remove important newlines
+			output := strings.TrimPrefix(parts[1], " ")
+			return output
+		}
+		// If no output section, return the full error
+		return strings.TrimSpace(parts[0])
+	}
+	return strings.TrimSpace(errStr)
 }
