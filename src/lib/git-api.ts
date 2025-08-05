@@ -498,4 +498,46 @@ export const gitApi = {
       return null;
     }
   },
+
+  async createFromTemplate(
+    templateId: string,
+    projectName: string,
+    errorHandler: (error: Error) => void,
+  ): Promise<{ success: boolean; worktreeName?: string }> {
+    try {
+      const response = await fetch("/v1/git/template", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          template_id: templateId,
+          project_name: projectName,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          success: true,
+          worktreeName: data.worktree_name,
+        };
+      }
+
+      if (response.status === 400) {
+        const error = await response.json();
+        errorHandler(new Error(error.error || "Invalid template request"));
+        return { success: false };
+      }
+
+      errorHandler(
+        new Error(`Failed to create from template: ${response.statusText}`),
+      );
+      return { success: false };
+    } catch (error) {
+      console.error("Error creating from template:", error);
+      errorHandler(error instanceof Error ? error : new Error("Network error"));
+      return { success: false };
+    }
+  },
 };

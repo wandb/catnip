@@ -63,8 +63,8 @@ func TestPushStrategyConvertHTTPS(t *testing.T) {
 		gitArgs := mockExec.recordedCommands[0]
 
 		// Behavior depends on runtime mode
-		if config.Runtime.IsDocker() {
-			// In Docker mode, should include URL rewriting config
+		if config.Runtime.IsContainerized() {
+			// In containerized mode, should include URL rewriting config
 			assert.Equal(t, "-c", gitArgs[0])
 			assert.Equal(t, "url.https://github.com/.insteadOf=git@github.com:", gitArgs[1])
 			assert.Equal(t, "push", gitArgs[2])
@@ -144,8 +144,8 @@ func TestPushStrategyWithGitExecutor(t *testing.T) {
 		gitArgs := mockShell.recordedCommands[0]
 
 		// Behavior depends on runtime mode
-		if config.Runtime.IsDocker() {
-			// In Docker mode, should include URL rewriting config
+		if config.Runtime.IsContainerized() {
+			// In containerized mode, should include URL rewriting config
 			expectedArgs := []string{
 				"-c", "url.https://github.com/.insteadOf=git@github.com:",
 				"push", "-u", "origin", "test-branch",

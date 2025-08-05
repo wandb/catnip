@@ -51,6 +51,10 @@ catnip/
 - For Go changes, run `just build` in container/ directory to ensure compilation
 - Don't restart the container, our dev server uses air to restart the main binary automatically and restarting the container causes state to be lost
 
+### Common Issues & Best Practices
+
+- **TooltipPrimitive**: Always use `TooltipPrimitive.Provider`, `TooltipPrimitive.Root`, etc. - never use `TooltipPrimitive` directly as a JSX component. This is a recurring issue when working with Radix UI tooltips.
+
 ### Container Commands
 
 - Execute in dev container: `docker exec -it catnip-dev bash --login -c '...'`
