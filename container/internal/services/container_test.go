@@ -53,6 +53,11 @@ func TestNewContainerServiceWithRuntime(t *testing.T) {
 				t.Skip("Apple Container SDK not available on this system")
 			}
 
+			// For auto-detection test, skip if no container runtime is available
+			if tt.name == "empty runtime auto-detects" && !commandExists("docker") && !commandExists("container") {
+				t.Skip("No container runtime available for auto-detection")
+			}
+
 			cs, err := NewContainerServiceWithRuntime(tt.preferredRuntime)
 
 			if tt.expectError {
