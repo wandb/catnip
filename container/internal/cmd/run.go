@@ -62,6 +62,8 @@ var (
 	disableSSH bool
 	runtime    string
 	rmFlag     bool
+	cpus       float64
+	memoryGB   float64
 )
 
 func init() {
@@ -77,6 +79,8 @@ func init() {
 	runCmd.Flags().BoolVar(&disableSSH, "disable-ssh", false, "Disable SSH server (enabled by default on port 2222)")
 	runCmd.Flags().StringVar(&runtime, "runtime", "", "Container runtime to use (docker, container, or auto-detect if not specified)")
 	runCmd.Flags().BoolVar(&rmFlag, "rm", false, "Automatically remove the container when it exits (default: false - container is stopped and can be restarted)")
+	runCmd.Flags().Float64Var(&cpus, "cpus", 4.0, "Number of CPUs to allocate to the container (default: 4.0)")
+	runCmd.Flags().Float64Var(&memoryGB, "memory", 4.0, "Amount of memory in GB to allocate to the container (default: 4.0)")
 }
 
 // cleanVersionForProduction removes the -dev suffix and v prefix from version string
@@ -195,7 +199,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 		// Start the container
 		fmt.Printf("Starting container '%s'...\n", name)
-		if cmd, err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, !disableSSH, rmFlag); err != nil {
+		if cmd, err := containerService.RunContainer(ctx, containerImage, name, gitRoot, ports, dev, !disableSSH, rmFlag, cpus, memoryGB); err != nil {
 			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
 		fmt.Printf("Container started successfully!\n")
