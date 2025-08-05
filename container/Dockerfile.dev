@@ -1,5 +1,5 @@
 # Development Dockerfile based on main catnip image
-FROM catnip
+FROM catnip:base
 
 # Pre-create live directory and project directory with correct ownership
 RUN mkdir -p /live && chown -R catnip:catnip /live
@@ -20,7 +20,7 @@ RUN chmod +x ./dev-entrypoint.sh
 
 # Set development environment variables
 ENV CATNIP_DEV=true
-ENV VITE_DEV_SERVER=http://localhost:5173
+ENV VITE_DEV_SERVER=http://127.0.0.1:5173
 
 # Expose ports for Go server and Vite dev server
 EXPOSE 8080 5173

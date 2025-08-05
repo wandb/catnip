@@ -19,6 +19,7 @@ bin/
 *.out
 go.work
 go.work.sum
+container/bin/
 
 # Development
 .git/
@@ -53,6 +54,8 @@ Thumbs.db
 dist/
 build/
 coverage/
+container/internal/assets/dist/
+container/tmp/
 
 # Logs
 logs

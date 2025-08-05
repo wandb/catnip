@@ -113,13 +113,6 @@ format-go-changed:
 lint: golangci-lint
 	golangci-lint run
 
-# Docker build
-docker-build:
-	docker build -t catnip:latest .
-
-# Docker build for development
-build-dev:
-	docker build -t catnip-dev:dev .
 
 # All-in-one development setup
 setup: deps swagger build
