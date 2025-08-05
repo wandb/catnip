@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -100,23 +101,25 @@ func (lrm *LocalRepoManager) detectCurrentRepo() map[string]*models.Repository {
 		return repositories
 	}
 
-	// Get the current working directory (should be the repo root)
-	repoPath, err := os.Getwd()
+	// Find the actual git repository root using git command
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
 	if err != nil {
 		return repositories
 	}
-	gitPath := filepath.Join(repoPath, ".git")
+	repoPath := strings.TrimSpace(string(output))
 
-	// Check if it's a valid git repository
+	gitPath := filepath.Join(repoPath, ".git")
+	// Verify the git directory exists
 	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
 		return repositories
 	}
 
 	// Get current branch
-	output, err := lrm.operations.ExecuteGit(repoPath, "branch", "--show-current")
+	branchOutput, err := lrm.operations.ExecuteGit(repoPath, "branch", "--show-current")
 	branch := "main"
 	if err == nil {
-		branch = strings.TrimSpace(string(output))
+		branch = strings.TrimSpace(string(branchOutput))
 		if branch == "" {
 			branch = "main"
 		}

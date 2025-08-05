@@ -18,7 +18,8 @@ if (
 }
 
 const TITLE_LOG_PATH =
-  process.env.CATNIP_TITLE_LOG || "/home/catnip/.catnip/title_events.log";
+  process.env.CATNIP_TITLE_LOG ||
+  require("os").homedir() + "/.catnip/title_events.log";
 const TITLE_START_SEQ = "\x1b]0;";
 const TITLE_END_CHAR = "\x07";
 

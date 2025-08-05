@@ -141,7 +141,7 @@ func (s *SessionService) FindSessionByDirectory(workDir string) (*SessionState, 
 	// First, try to find the newest session file directly from .claude/projects
 	// Claude stores projects in ~/.claude/projects/{transformed-path}/
 	// where the path is transformed: /workspace/catnip/buddy -> -workspace-catnip-buddy
-	homeDir := "/home/catnip"
+	homeDir := config.Runtime.HomeDir
 	transformedPath := strings.ReplaceAll(workDir, "/", "-")
 	transformedPath = strings.TrimPrefix(transformedPath, "-")
 	transformedPath = "-" + transformedPath // Add back the leading dash
@@ -235,7 +235,7 @@ func (s *SessionService) getLastClaudeActivityTime(workDir string) time.Time {
 	}
 
 	// Fallback to file modification time method
-	homeDir := "/home/catnip"
+	homeDir := config.Runtime.HomeDir
 	transformedPath := strings.ReplaceAll(workDir, "/", "-")
 	transformedPath = strings.TrimPrefix(transformedPath, "-")
 	transformedPath = "-" + transformedPath // Add back the leading dash

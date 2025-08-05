@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
 )
 
@@ -556,9 +557,9 @@ func (o *OperationsImpl) SetConfig(repoPath, key, value string) error {
 func (o *OperationsImpl) SetGlobalConfig(key, value string) error {
 	// Execute without working directory for global config
 	cmd := exec.Command("git", "config", "--global", key, value)
+	// Set HOME for git config location, preserve existing USER
 	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
 	)
 	return cmd.Run()
 }
