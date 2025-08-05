@@ -97,7 +97,7 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool, rmFlag bool) ([]string, error) {
+func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool, rmFlag bool, cpus float64, memoryGB float64) ([]string, error) {
 	args := []string{
 		"run",
 		"--name", name,
@@ -107,6 +107,21 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	// Only add --rm flag if explicitly requested
 	if rmFlag {
 		args = append(args, "--rm")
+	}
+
+	// Add resource limits if specified
+	if cpus > 0 {
+		args = append(args, "--cpus", fmt.Sprintf("%.1f", cpus))
+	}
+	if memoryGB > 0 {
+		// Convert GB to bytes for Docker, but use GB format for Apple Container
+		switch cs.runtime {
+		case RuntimeDocker:
+			memoryBytes := int64(memoryGB * 1024 * 1024 * 1024)
+			args = append(args, "--memory", fmt.Sprintf("%d", memoryBytes))
+		case RuntimeApple:
+			args = append(args, "--memory", fmt.Sprintf("%.0fG", memoryGB))
+		}
 	}
 
 	// Add quality of life volume mounts and environment variables
