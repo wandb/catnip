@@ -13,6 +13,7 @@ import (
 
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/git/templates"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/recovery"
 )
@@ -2216,8 +2217,16 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	log.Printf("✅ Project directory verified: %s", projectPath)
 
 	// For templates that just create directories, we need to set up the files manually
-	if templateID == "node-express" || templateID == "python-fastapi" {
-		if err := s.setupTemplateFiles(templateID, projectPath); err != nil {
+	supportedTemplates := templates.GetSupportedTemplates()
+	isSupported := false
+	for _, supported := range supportedTemplates {
+		if templateID == supported {
+			isSupported = true
+			break
+		}
+	}
+	if isSupported {
+		if err := templates.SetupTemplateFiles(templateID, projectPath); err != nil {
 			// Clean up on failure
 			os.RemoveAll(projectPath)
 			return nil, nil, fmt.Errorf("failed to setup template files: %v", err)
@@ -2289,191 +2298,4 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 
 	log.Printf("✅ Successfully created project %s from template %s with initial worktree %s", projectName, templateID, worktree.Name)
 	return repo, worktree, nil
-}
-
-// setupTemplateFiles sets up template files for templates that need manual file creation
-func (s *GitService) setupTemplateFiles(templateID, projectPath string) error {
-	switch templateID {
-	case "node-express":
-		// Create package.json
-		packageJSON := `{
-  "name": "express-api",
-  "version": "1.0.0",
-  "description": "Express API with TypeScript",
-  "main": "dist/index.js",
-  "scripts": {
-    "dev": "nodemon",
-    "build": "tsc",
-    "start": "node dist/index.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1"
-  },
-  "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^20.10.0",
-    "@types/cors": "^2.8.17",
-    "nodemon": "^3.0.2",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.0"
-  }
-}`
-		if err := os.WriteFile(filepath.Join(projectPath, "package.json"), []byte(packageJSON), 0644); err != nil {
-			return err
-		}
-
-		// Create tsconfig.json
-		tsConfig := `{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "moduleResolution": "node"
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
-}`
-		if err := os.WriteFile(filepath.Join(projectPath, "tsconfig.json"), []byte(tsConfig), 0644); err != nil {
-			return err
-		}
-
-		// Create src directory
-		srcDir := filepath.Join(projectPath, "src")
-		if err := os.MkdirAll(srcDir, 0755); err != nil {
-			return err
-		}
-
-		// Create index.ts
-		indexTS := `import express, { Request, Response } from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-app.get('/', (req: Request, res: Response) => {
-  res.json({
-    message: 'Welcome to Express TypeScript API',
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.get('/api/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(` + "`Server is running on port ${PORT}`" + `);
-});`
-		if err := os.WriteFile(filepath.Join(srcDir, "index.ts"), []byte(indexTS), 0644); err != nil {
-			return err
-		}
-
-		// Create .gitignore
-		gitignore := `node_modules/
-dist/
-.env
-.DS_Store
-*.log`
-		if err := os.WriteFile(filepath.Join(projectPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
-			return err
-		}
-
-	case "python-fastapi":
-		// Create requirements.txt
-		requirements := `fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-python-dotenv==1.0.0`
-		if err := os.WriteFile(filepath.Join(projectPath, "requirements.txt"), []byte(requirements), 0644); err != nil {
-			return err
-		}
-
-		// Create main.py
-		mainPy := `from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from datetime import datetime
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-app = FastAPI(
-    title="FastAPI Template",
-    description="A simple FastAPI template with basic endpoints",
-    version="1.0.0"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class HealthResponse(BaseModel):
-    status: str
-    timestamp: datetime
-    version: str
-
-class MessageResponse(BaseModel):
-    message: str
-    timestamp: datetime
-
-@app.get("/")
-async def root():
-    return MessageResponse(
-        message="Welcome to FastAPI!",
-        timestamp=datetime.now()
-    )
-
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    return HealthResponse(
-        status="healthy",
-        timestamp=datetime.now(),
-        version="1.0.0"
-    )
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)`
-		if err := os.WriteFile(filepath.Join(projectPath, "main.py"), []byte(mainPy), 0644); err != nil {
-			return err
-		}
-
-		// Create .gitignore
-		gitignore := `__pycache__/
-*.py[cod]
-.env
-venv/
-.venv/
-.DS_Store`
-		if err := os.WriteFile(filepath.Join(projectPath, ".gitignore"), []byte(gitignore), 0644); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }

@@ -6,11 +6,4 @@ export interface ProjectTemplate {
   language: string;
   framework?: string;
   icon?: string;
-  files: TemplateFile[];
-}
-
-export interface TemplateFile {
-  path: string;
-  content: string;
-  binary?: boolean;
 }
