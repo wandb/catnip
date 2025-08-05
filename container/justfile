@@ -25,6 +25,9 @@ build: swagger build-frontend build-scripts
 		-X main.builtBy=just" \
 		-o bin/catnip cmd/cli/main.go
 
+	# Restore placeholder frontend assets after building
+	just restore-placeholder
+
 # Legacy alias for build
 build-cli: build
 
@@ -142,6 +145,25 @@ build-scripts:
 	cd scripts && pnpm run build
 	echo "✅ Proxy injection script built"
 
+# Restore placeholder frontend assets (cleanup after build)
+restore-placeholder:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	echo "Restoring placeholder frontend assets..."
+	
+	# Restore the placeholder index.html from git
+	if git show main:container/internal/assets/dist/index.html > internal/assets/dist/index.html 2>/dev/null; then
+		echo "✅ Restored placeholder index.html from main branch"
+	else
+		echo "⚠️  Could not restore from git, using current version (already restored)"
+	fi
+	
+	# Remove any other built frontend assets that shouldn't be in git
+	find internal/assets/dist -name "*.js" -delete 2>/dev/null || true
+	find internal/assets/dist -name "*.css" -delete 2>/dev/null || true
+	find internal/assets/dist -name "assets" -type d -exec rm -rf {} + 2>/dev/null || true
+	
+	echo "✅ Placeholder assets restored"
 
 # Show available commands
 default:
