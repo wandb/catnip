@@ -68,11 +68,16 @@ export function NewWorkspaceDialog({
       setSelectedTemplate(null);
       setProjectName("");
       setActiveTab(showTemplateFirst ? "template" : "repository");
-    } else if (open && initialRepoUrl) {
-      // Set initial values when dialog opens with pre-selected repo
-      setGithubUrl(initialRepoUrl);
-      if (initialBranch) {
-        setSelectedBranch(initialBranch);
+    } else if (open) {
+      // Set active tab when dialog opens
+      setActiveTab(showTemplateFirst ? "template" : "repository");
+
+      if (initialRepoUrl) {
+        // Set initial values when dialog opens with pre-selected repo
+        setGithubUrl(initialRepoUrl);
+        if (initialBranch) {
+          setSelectedBranch(initialBranch);
+        }
       }
     }
   }, [open, initialRepoUrl, initialBranch, showTemplateFirst]);
