@@ -101,7 +101,7 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool, rmFlag bool, cpus float64, memoryGB float64) ([]string, error) {
+func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool, rmFlag bool, cpus float64, memoryGB float64, envVars []string) ([]string, error) {
 	// Check if container already exists
 	if cs.ContainerExists(ctx, name) {
 		if cs.IsContainerRunning(ctx, name) {
@@ -190,6 +190,11 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	args = append(args, "-e", "CATNIP_SESSION=catnip")
 	if user := os.Getenv("USER"); user != "" {
 		args = append(args, "-e", fmt.Sprintf("CATNIP_USERNAME=%s", user))
+	}
+
+	// Add user-specified environment variables
+	for _, envVar := range envVars {
+		args = append(args, "-e", envVar)
 	}
 
 	// Mount SSH public key if SSH is enabled

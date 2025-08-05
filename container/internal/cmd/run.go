@@ -64,6 +64,7 @@ var (
 	rmFlag     bool
 	cpus       float64
 	memoryGB   float64
+	envVars    []string
 )
 
 func init() {
@@ -81,6 +82,7 @@ func init() {
 	runCmd.Flags().BoolVar(&rmFlag, "rm", false, "Automatically remove the container when it exits (default: false - container is stopped and can be restarted)")
 	runCmd.Flags().Float64Var(&cpus, "cpus", 4.0, "Number of CPUs to allocate to the container (default: 4.0)")
 	runCmd.Flags().Float64Var(&memoryGB, "memory", 4.0, "Amount of memory in GB to allocate to the container (default: 4.0)")
+	runCmd.Flags().StringSliceVarP(&envVars, "env", "e", nil, "Set environment variables (e.g., -e FOO=bar or -e VAR to forward from host)")
 }
 
 // cleanVersionForProduction removes the -dev suffix and v prefix from version string
@@ -170,6 +172,21 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Process environment variables (handle both FOO=bar and FOO formats)
+	processedEnvVars := make([]string, 0, len(envVars))
+	for _, envVar := range envVars {
+		if strings.Contains(envVar, "=") {
+			// Format: FOO=bar - use as-is
+			processedEnvVars = append(processedEnvVars, envVar)
+		} else {
+			// Format: FOO - forward value from host environment
+			if value, exists := os.LookupEnv(envVar); exists {
+				processedEnvVars = append(processedEnvVars, fmt.Sprintf("%s=%s", envVar, value))
+			}
+			// If the environment variable doesn't exist on the host, we skip it
+		}
+	}
+
 	// Determine container image
 	containerImage := image
 	if dev {
@@ -208,7 +225,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		if isGitRepo {
 			workDirForContainer = gitRoot
 		}
-		if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB); err != nil {
+		if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB, processedEnvVars); err != nil {
 			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
 		fmt.Printf("Container started successfully!\n")

@@ -18,8 +18,9 @@ import (
 )
 
 var serveCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "🚀 Start the Catnip server",
+	Use:    "serve",
+	Short:  "🚀 Start the Catnip server",
+	Hidden: true,
 	Long: `Start the Catnip HTTP/WebSocket server.
 
 This command starts the main Catnip server that provides:
