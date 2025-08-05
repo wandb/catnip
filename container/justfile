@@ -4,7 +4,7 @@
 GOLANGCI_LINT_VERSION := "2.3.0"
 
 # Build the unified catnip binary
-build: swagger build-scripts
+build: swagger build-frontend build-scripts
 	#!/usr/bin/env bash
 	set -euo pipefail
 
@@ -121,6 +121,17 @@ build-dev:
 # All-in-one development setup
 setup: deps swagger build
 	@echo "✅ Catnip is ready for development!"
+
+# Build frontend assets
+build-frontend:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	echo "Building frontend assets..."
+	cd .. && pnpm install --frozen-lockfile && pnpm build
+	echo "Copying frontend assets to internal/assets/dist..."
+	mkdir -p container/internal/assets/dist
+	if [ -d "dist" ]; then cp -r dist/* container/internal/assets/dist/; else echo "Warning: dist directory not found"; fi
+	echo "✅ Frontend assets built and copied"
 
 # Build proxy injection script
 build-scripts:

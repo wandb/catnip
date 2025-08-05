@@ -17,6 +17,9 @@ COPY . .
 # Build frontend
 RUN pnpm build
 
+# Build proxy injection script
+RUN cd container/scripts && pnpm install --frozen-lockfile && pnpm run build
+
 # Stage 2: Build the Go binary
 FROM golang:1.24 AS builder
 
@@ -36,6 +39,9 @@ COPY container/ .
 
 # Copy built frontend assets for embedding (relative to embedded.go)
 COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
+
+# Copy built proxy injection script
+COPY --from=frontend-builder /frontend/container/internal/assets/scripts ./internal/assets/scripts
 
 # Install swag and generate swagger documentation, then build the binary
 RUN swag init -g internal/cmd/serve.go -o docs --parseDependency --parseInternal && \
