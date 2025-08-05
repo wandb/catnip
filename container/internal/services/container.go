@@ -111,7 +111,12 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 
 	// Add resource limits if specified
 	if cpus > 0 {
-		args = append(args, "--cpus", fmt.Sprintf("%.1f", cpus))
+		switch cs.runtime {
+		case RuntimeDocker:
+			args = append(args, "--cpus", fmt.Sprintf("%.1f", cpus))
+		case RuntimeApple:
+			args = append(args, "--cpus", fmt.Sprintf("%.0f", cpus))
+		}
 	}
 	if memoryGB > 0 {
 		// Convert GB to bytes for Docker, but use GB format for Apple Container
@@ -143,11 +148,11 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	switch cs.runtime {
 	case RuntimeDocker:
 		args = append(args, "-e", "CLAUDE_CODE_IDE_HOST_OVERRIDE=host.docker.internal")
-		args = append(args, "-e", "CATNIP_CONTAINER=docker")
+		args = append(args, "-e", "CATNIP_RUNTIME=docker")
 	case RuntimeApple:
 		// Apple containers might use a different host override
 		args = append(args, "-e", "CLAUDE_CODE_IDE_HOST_OVERRIDE=host.containers.internal")
-		args = append(args, "-e", "CATNIP_CONTAINER=container")
+		args = append(args, "-e", "CATNIP_RUNTIME=container")
 	}
 	args = append(args, "-e", "CATNIP_SESSION=catnip")
 	if user := os.Getenv("USER"); user != "" {
@@ -182,7 +187,20 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 		}
 	}
 
-	// Dev mode specific mounts
+	// Check if we're in a git repository and determine mount strategy
+	gitRoot, isGitRepo := git.FindGitRoot(workDir)
+	if isGitRepo {
+		if isDevMode {
+			// In dev mode, always mount to /live/catnip for consistency with dev-entrypoint
+			args = append(args, "-v", fmt.Sprintf("%s:/live/catnip", gitRoot))
+		} else {
+			// In normal mode, use the basename of the repo path
+			repoName := filepath.Base(gitRoot)
+			args = append(args, "-v", fmt.Sprintf("%s:/live/%s", gitRoot, repoName))
+		}
+	}
+
+	// Dev mode specific mounts (AFTER git repo mount so they override)
 	if isDevMode {
 		switch cs.runtime {
 		case RuntimeDocker:
@@ -196,15 +214,6 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 			}
 			args = append(args, "-v", fmt.Sprintf("%s:/live/catnip/node_modules", nodeModulesPath))
 		}
-	}
-
-	// Check if we're in a git repository and determine mount strategy
-	gitRoot, isGitRepo := git.FindGitRoot(workDir)
-	if isGitRepo {
-		// Use git repository basename for mount path
-		basename := filepath.Base(gitRoot)
-		mountPath := fmt.Sprintf("/live/%s", basename)
-		args = append(args, "-v", fmt.Sprintf("%s:%s", gitRoot, mountPath))
 	}
 	// If not a git repo, don't mount any directory
 	var hasVite = false
