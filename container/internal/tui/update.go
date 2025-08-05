@@ -67,6 +67,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleShellOutput(msg)
 	case shellErrorMsg:
 		return m.handleShellError(msg)
+	case VersionCheckMsg:
+		return m.handleVersionCheck(msg)
 	}
 
 	// Let current view handle any remaining messages
@@ -582,4 +584,15 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 	}
 
 	return &m, nil, true
+}
+
+// Version check handler
+func (m Model) handleVersionCheck(msg VersionCheckMsg) (tea.Model, tea.Cmd) {
+	m.upgradeAvailable = msg.UpgradeAvailable
+	if msg.UpgradeAvailable {
+		debugLog("Version mismatch detected: CLI=%s, Container=%s", msg.CLIVersion, msg.ContainerVersion)
+	} else {
+		debugLog("Versions match: CLI=%s, Container=%s", msg.CLIVersion, msg.ContainerVersion)
+	}
+	return m, nil
 }

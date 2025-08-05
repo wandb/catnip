@@ -32,6 +32,7 @@ import { useState, useMemo, useEffect } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
 import { useGlobalKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import type { Worktree } from "@/lib/git-api";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
@@ -45,21 +46,28 @@ export function WorkspaceLeftSidebar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Use stable selectors to avoid infinite loops
-  const repositoriesCount = useAppStore(
-    (state) => state.getRepositoriesList().length,
-  );
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
   );
   // Subscribe to the actual worktrees map to get updates when individual worktrees change
   const worktrees = useAppStore((state) => state.worktrees);
   const getWorktreesByRepo = useAppStore((state) => state.getWorktreesByRepo);
+  const getRepository = useAppStore((state) => state.getRepositoryById);
 
-  // Get repositories using direct store access to avoid array reference changes
-  const repositories = useMemo(() => {
-    if (repositoriesCount === 0) return [];
-    return useAppStore.getState().getRepositoriesList();
-  }, [repositoriesCount, worktreesCount, worktrees]);
+  // Get repositories that have worktrees, grouped by repository
+  const repositoriesWithWorktrees = useMemo(() => {
+    if (worktreesCount === 0) return [];
+
+    const worktreesList = useAppStore.getState().getWorktreesList();
+    const repoIds = new Set(worktreesList.map((w) => w.repo_id));
+
+    return Array.from(repoIds)
+      .map((repoId) => {
+        const repo = getRepository(repoId);
+        return repo ? { ...repo, worktrees: getWorktreesByRepo(repoId) } : null;
+      })
+      .filter((repo): repo is NonNullable<typeof repo> => repo !== null);
+  }, [worktreesCount, worktrees, getWorktreesByRepo, getRepository]);
 
   // Find current worktree to get its repo_id for expanded state
   const currentWorkspaceName = `${project}/${workspace}`;
@@ -71,10 +79,10 @@ export function WorkspaceLeftSidebar() {
       branch: string;
     } | null>(null);
 
-  // Keep all repositories expanded by default
+  // Keep all repositories with worktrees expanded by default
   useEffect(() => {
-    setExpandedRepos(new Set(repositories.map((repo) => repo.id)));
-  }, [repositories]);
+    setExpandedRepos(new Set(repositoriesWithWorktrees.map((repo) => repo.id)));
+  }, [repositoriesWithWorktrees]);
 
   const toggleRepo = (repoIdToToggle: string) => {
     const newExpanded = new Set(expandedRepos);
@@ -86,7 +94,7 @@ export function WorkspaceLeftSidebar() {
     setExpandedRepos(newExpanded);
   };
 
-  const getWorktreeStatus = (worktree: any) => {
+  const getWorktreeStatus = (worktree: Worktree) => {
     // Use the claude_activity_state to determine the status
     switch (worktree.claude_activity_state) {
       case "active":
@@ -127,11 +135,11 @@ export function WorkspaceLeftSidebar() {
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
-            <SidebarGroupLabel>Repositories</SidebarGroupLabel>
+            <SidebarGroupLabel>Workspaces</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {repositories.map((repo) => {
-                  const worktrees = getWorktreesByRepo(repo.id);
+                {repositoriesWithWorktrees.map((repo) => {
+                  const worktrees = repo.worktrees;
                   const isExpanded = expandedRepos.has(repo.id);
 
                   // Get project name from the first worktree
@@ -176,7 +184,7 @@ export function WorkspaceLeftSidebar() {
                         </div>
                         <CollapsibleContent>
                           <SidebarMenuSub className="mx-0 mr-0">
-                            {worktrees.map((worktree) => {
+                            {worktrees.map((worktree: Worktree) => {
                               const isActive =
                                 worktree.name === currentWorkspaceName;
                               const nameParts = worktree.name.split("/");

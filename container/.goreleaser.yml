@@ -1,9 +1,9 @@
-# GoReleaser configuration for catnip CLI (catctrl)
+# GoReleaser configuration for catnip CLI
 # Documentation: https://goreleaser.com
 
 version: 2
 
-project_name: catctrl
+project_name: catnip
 
 # Git configuration
 git:
@@ -15,9 +15,9 @@ git:
 
 # Build configuration
 builds:
-  - id: catctrl
+  - id: catnip
     main: ./cmd/cli/main.go
-    binary: catctrl
+    binary: catnip
 
     # Build flags and ldflags for version injection
     flags:
@@ -72,7 +72,7 @@ notarize:
 archives:
   - id: default
     # Modern v2 syntax: use ids instead of builds
-    ids: [catctrl]
+    ids: [catnip]
 
     # Archive name template
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
@@ -140,9 +140,9 @@ release:
 
   # Release header and footer
   header: |
-    ## 🐱 Catnip CLI (catctrl) {{.Version}}
+    ## 🐱 Catnip CLI {{.Version}}
 
-    Welcome to this new release of catctrl!
+    Welcome to this new release of catnip!
 
     ### 📦 Installation
 
@@ -181,7 +181,7 @@ release:
 
 # Homebrew tap (disabled for now - can be enabled later)
 # brews:
-#   - name: catctrl
+#   - name: catnip
 #     description: "🐱 Catnip CLI - Modern containerized coding environment"
 #     homepage: "https://github.com/wandb/catnip"
 #     url_template: "https://github.com/wandb/catnip/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
@@ -195,15 +195,15 @@ release:
 #
 #     # Install configuration
 #     install: |
-#       bin.install "catctrl"
+#       bin.install "catnip"
 #
 #     # Test configuration
 #     test: |
-#       system "#{bin}/catctrl", "--version"
+#       system "#{bin}/catnip", "--version"
 
 # Scoop package for Windows (disabled for now - can be enabled later)
 # scoops:
-#   - name: catctrl
+#   - name: catnip
 #     description: "🐱 Catnip CLI - Modern containerized coding environment"
 #     homepage: "https://github.com/wandb/catnip"
 #
@@ -214,11 +214,11 @@ release:
 #       branch: main
 #       token: "{{ .Env.SCOOP_BUCKET_GITHUB_TOKEN }}"
 
-# Docker images (disabled - focusing on binaries only for catctrl)
+# Docker images (disabled - focusing on binaries only for catnip)
 # dockers:
 #   - image_templates:
-#       - "ghcr.io/wandb/catctrl:{{ .Version }}"
-#       - "ghcr.io/wandb/catctrl:latest"
+#       - "ghcr.io/wandb/catnip:{{ .Version }}"
+#       - "ghcr.io/wandb/catnip:latest"
 #
 #     dockerfile: Dockerfile.goreleaser
 #
@@ -236,7 +236,7 @@ release:
 
 # Snapcraft (disabled - for Linux snap packages, we would need to install it in our action)
 # snapcrafts:
-#   - name: catctrl
+#   - name: catnip
 #     title: Catnip CLI
 #     summary: Modern containerized coding environment CLI
 #     description: |
@@ -249,8 +249,8 @@ release:
 #     publish: true
 #
 #     apps:
-#       catctrl:
-#         command: catctrl
+#       catnip:
+#         command: catnip
 #         plugs: ["home", "network", "removable-media"]
 
 # Validation rules

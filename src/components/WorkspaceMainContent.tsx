@@ -93,6 +93,9 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     }
   }, []);
 
+  // Track if this is the very first connection to the worktree
+  const isFirstConnection = useRef(true);
+
   // Reset state when worktree changes
   useEffect(() => {
     isSetup.current = false;
@@ -100,6 +103,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     terminalReady.current = false;
     bufferingRef.current = false;
     lastConnectionAttempt.current = 0;
+    isFirstConnection.current = true; // Reset first connection flag when worktree changes
     setError(null);
 
     // Close existing WebSocket if any
@@ -149,6 +153,8 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     lastConnectionAttempt.current = now;
 
     isSetup.current = true;
+
+    // Always clear terminal on new connections to ensure clean state
     instance.clear();
 
     // Set up WebSocket connection for Claude agent in the workspace directory
@@ -208,7 +214,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
             // Process any remaining buffered data first
             if (buffer.length > 0) {
-              // Clear terminal before replaying buffer to prevent corruption
+              // Always clear terminal before replaying buffer to prevent corruption
               instance.clear();
               for (const chunk of buffer) {
                 instance.write(chunk);

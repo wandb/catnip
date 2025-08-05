@@ -38,10 +38,10 @@ Logs are saved to **/tmp/** directory:
 ## 💡 Examples
 
 Stream wrangler dev logs:
-` + "```bash\ncatctrl logs wrangler dev\n```" + `
+` + "```bash\ncatnip logs wrangler dev\n```" + `
 
 Stream build process:
-` + "```bash\ncatctrl logs pnpm run build\n```" + `
+` + "```bash\ncatnip logs pnpm run build\n```" + `
 
 Tail the latest log (in another terminal):
 ` + "```bash\ntail -f /tmp/command-latest.log\n```",

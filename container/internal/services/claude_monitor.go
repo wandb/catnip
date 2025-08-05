@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/fsnotify/fsnotify"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 )
@@ -73,10 +74,10 @@ type WorktreeTodoMonitor struct {
 
 // NewClaudeMonitorService creates a new Claude monitor service
 func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService) *ClaudeMonitorService {
-	// Get log path from environment or use default
+	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
-		titlesLogPath = "/home/catnip/.catnip/title_events.log"
+		titlesLogPath = filepath.Join(config.Runtime.VolumeDir, "title_events.log")
 	}
 
 	return &ClaudeMonitorService{
@@ -278,6 +279,11 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 		source:    source,
 	}
 	s.recentTitlesMutex.Unlock()
+
+	// Update activity time for title changes
+	s.activityMutex.Lock()
+	s.lastActivityTimes[workDir] = time.Now()
+	s.activityMutex.Unlock()
 
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
@@ -759,7 +765,9 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 	}
 
 	// Convert worktree path to project directory
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDirName = strings.TrimPrefix(projectDirName, "-")
 	projectDirName = "-" + projectDirName
 	log.Printf("🔍 Looking for project directory: %s", projectDirName)
@@ -789,8 +797,8 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 
 // findProjectDirectory finds the Claude project directory for a given project name
 func (s *ClaudeMonitorService) findProjectDirectory(projectDirName string) string {
-	homeDir := "/home/catnip/.claude/projects"
-	projectPath := filepath.Join(homeDir, projectDirName)
+	claudeProjectsDir := filepath.Join(config.Runtime.HomeDir, ".claude", "projects")
+	projectPath := filepath.Join(claudeProjectsDir, projectDirName)
 
 	if stat, err := os.Stat(projectPath); err == nil && stat.IsDir() {
 		return projectPath
@@ -861,6 +869,11 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 
 	// Todos have changed!
 	log.Printf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
+
+	// Update activity time to prevent session cleanup
+	m.claudeMonitor.activityMutex.Lock()
+	m.claudeMonitor.lastActivityTimes[m.workDir] = time.Now()
+	m.claudeMonitor.activityMutex.Unlock()
 
 	// Update state
 	m.lastModTime = modTime

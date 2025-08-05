@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# Catnip CLI (catctrl) Installation Script
+# Catnip CLI Installation Script
 # 
-# This script downloads and installs the latest version of catctrl
+# This script downloads and installs the latest version of catnip
 # from GitHub releases with SHA256 verification.
 #
 # Usage:
@@ -14,7 +14,7 @@ set -euo pipefail
 
 # Default configuration
 GITHUB_REPO="wandb/catnip"
-BINARY_NAME="catctrl"
+BINARY_NAME="catnip"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 VERSION="${1:-latest}"
 CATNIP_PROXY_URL="${CATNIP_PROXY_URL:-https://install.catnip.sh}"
@@ -179,7 +179,7 @@ check_path() {
 }
 
 # Main installation function
-install_catctrl() {
+install_catnip() {
     local os arch version binary_url checksum_url
     local temp_dir binary_file checksum_file
     local expected_checksum
@@ -197,7 +197,7 @@ install_catctrl() {
         version="$VERSION"
     fi
     
-    log "Installing catctrl version: $version"
+    log "Installing catnip version: $version"
     
     # Construct download URLs (GoReleaser format) - using proxy
     local base_url="${CATNIP_PROXY_URL}/v1/github/releases/download/${version}"
@@ -228,7 +228,7 @@ install_catctrl() {
     verify_checksum "$binary_file" "$expected_checksum"
     
     # Extract and install
-    log "Extracting and installing catctrl..."
+    log "Extracting and installing catnip..."
     create_install_dir
     
     # Extract tar.gz archive
@@ -252,7 +252,7 @@ install_catctrl() {
         fatal "Failed to make binary executable"
     fi
     
-    success "catctrl installed successfully to $install_path"
+    success "catnip installed successfully to $install_path"
     
     # Verify installation
     if command_exists "$BINARY_NAME"; then
@@ -264,7 +264,7 @@ install_catctrl() {
     fi
     
     log ""
-    log "Installation complete! You can now use catctrl:"
+    log "Installation complete! You can now use catnip:"
     log "  $BINARY_NAME --help"
     log ""
     log "If the command is not found, make sure $INSTALL_DIR is in your PATH."
@@ -284,7 +284,7 @@ parse_args() {
                 ;;
             --help|-h)
                 cat << 'EOF'
-Catnip CLI (catctrl) Installation Script
+Catnip CLI Installation Script
 
 USAGE:
     install.sh [OPTIONS]
@@ -319,12 +319,12 @@ EOF
 
 # Main execution
 main() {
-    log "Catnip CLI (catctrl) Installation Script"
+    log "Catnip CLI Installation Script"
     log "========================================"
     
     parse_args "$@"
     verify_dependencies
-    install_catctrl
+    install_catnip
     
     success "Installation completed successfully!"
 }

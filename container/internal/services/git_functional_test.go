@@ -21,9 +21,9 @@ func TestGitServiceFunctional(t *testing.T) {
 
 	// Create temporary workspace
 	tempDir := t.TempDir()
-	oldWorkspace := os.Getenv("WORKSPACE_DIR")
-	require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
-	defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
 
 	// Create required directories
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
@@ -188,6 +188,16 @@ func testStateManagement(t *testing.T, service *GitService) {
 
 // TestGitServiceHelperFunctions tests the helper functions with various inputs
 func TestGitServiceHelperFunctions(t *testing.T) {
+	// Create temporary workspace
+	tempDir := t.TempDir()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
+
+	// Create required directories
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+
 	service := NewGitService()
 
 	t.Run("GenerateUniqueSessionName", func(t *testing.T) {
@@ -249,6 +259,16 @@ func TestGitServiceGitHubOperationsFunctional(t *testing.T) {
 		t.Skip("Skipping GitHub operations tests in short mode")
 	}
 
+	// Create temporary workspace
+	tempDir := t.TempDir()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
+
+	// Create required directories
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+
 	service := NewGitService()
 
 	// Add a test worktree for GitHub operations
@@ -305,6 +325,16 @@ func TestGitServiceGitHubOperationsFunctional(t *testing.T) {
 
 // TestGitServiceConflictOperationsFunctional tests conflict detection and resolution
 func TestGitServiceConflictOperationsFunctional(t *testing.T) {
+	// Create temporary workspace
+	tempDir := t.TempDir()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
+
+	// Create required directories
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+
 	service := NewGitService()
 
 	// Add test worktree for conflict operations
@@ -362,6 +392,16 @@ func TestGitServiceConflictOperationsFunctional(t *testing.T) {
 
 // TestGitServiceCleanupOperationsFunctional tests cleanup functionality
 func TestGitServiceCleanupOperationsFunctional(t *testing.T) {
+	// Create temporary workspace
+	tempDir := t.TempDir()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
+
+	// Create required directories
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+
 	service := NewGitService()
 
 	t.Run("CleanupMergedWorktrees", func(t *testing.T) {

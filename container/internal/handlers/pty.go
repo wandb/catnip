@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,6 +19,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
@@ -636,19 +638,19 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Validate session ID and get workspace directory
 	// Only allow "default" or existing worktree directories
 	if baseSessionID == "default" {
-		// Check if /workspace/current symlink exists
-		currentSymlinkPath := filepath.Join("/workspace", "current")
+		// Check if current symlink exists in workspace directory
+		currentSymlinkPath := filepath.Join(config.Runtime.WorkspaceDir, "current")
 		if target, err := os.Readlink(currentSymlinkPath); err == nil {
 			// Symlink exists, check if target is valid
 			if info, err := os.Stat(target); err == nil && info.IsDir() {
 				workDir = target
 				log.Printf("📁 Using current workspace symlink for default session: %s", workDir)
 			} else {
-				log.Printf("❌ /workspace/current symlink target is invalid: %s", target)
+				log.Printf("❌ Current workspace symlink target is invalid: %s", target)
 				return nil
 			}
 		} else {
-			log.Printf("❌ Default session requested but /workspace/current symlink does not exist")
+			log.Printf("❌ Default session requested but current symlink does not exist at %s", currentSymlinkPath)
 			return nil
 		}
 	} else if strings.Contains(baseSessionID, "/") {
@@ -658,8 +660,8 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			repo := parts[0]
 			branch := parts[1]
 
-			// Check for worktree at /workspace/repo/branch (our standard pattern)
-			branchWorktreePath := filepath.Join("/workspace", repo, branch)
+			// Check for worktree at workspace/repo/branch (our standard pattern)
+			branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repo, branch)
 			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
 				// Additional validation: check if it's actually a git worktree
 				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
@@ -679,7 +681,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		}
 	} else {
 		// Single name session - check if directory exists
-		sessionWorkDir := filepath.Join("/workspace", baseSessionID)
+		sessionWorkDir := filepath.Join(config.Runtime.WorkspaceDir, baseSessionID)
 		if info, err := os.Stat(sessionWorkDir); err == nil && info.IsDir() {
 			workDir = sessionWorkDir
 			log.Printf("📁 Using existing workspace directory: %s", workDir)
@@ -931,8 +933,7 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		cmd = exec.Command("claude", args...)
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
-			"HOME=/home/catnip",
-			"USER=catnip",
+			"HOME="+config.Runtime.HomeDir,
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
@@ -956,8 +957,7 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		cmd = exec.Command("bash", "--login")
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
-			"HOME=/home/catnip",
-			"USER=catnip",
+			"HOME="+config.Runtime.HomeDir,
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
@@ -1254,6 +1254,16 @@ func (h *PTYHandler) saveSessionState(session *Session) {
 	}
 }
 
+// getClaudeSessionTimeout returns the Claude session monitoring timeout from environment or default
+func getClaudeSessionTimeout() time.Duration {
+	if timeoutStr := os.Getenv("CATNIP_CLAUDE_SESSION_TIMEOUT_SECONDS"); timeoutStr != "" {
+		if timeout, err := strconv.Atoi(timeoutStr); err == nil && timeout > 0 {
+			return time.Duration(timeout) * time.Second
+		}
+	}
+	return 120 * time.Second // Default: Give Claude 2 minutes to create session file
+}
+
 // monitorClaudeSession monitors .claude/projects directory for new session files
 func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	log.Printf("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
@@ -1262,7 +1272,7 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	defer ticker.Stop()
 
 	startTime := time.Now()
-	timeout := 30 * time.Second // Give Claude 30 seconds to create session file
+	timeout := getClaudeSessionTimeout()
 
 	claudeProjectsDir := filepath.Join(session.WorkDir, ".claude", "projects")
 

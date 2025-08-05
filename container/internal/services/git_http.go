@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -113,8 +114,7 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 		fmt.Sprintf("SERVER_NAME=%s", c.Hostname()),
 		"SERVER_PORT=8080",
 		fmt.Sprintf("REMOTE_ADDR=%s", c.IP()),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
 	)
 
 	// Add HTTP headers as environment variables

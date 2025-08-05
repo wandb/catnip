@@ -3,12 +3,8 @@
 # Configuration
 GOLANGCI_LINT_VERSION := "2.3.0"
 
-# Build the server binary
-build: swagger build-cli build-scripts
-	go build -o bin/catnip cmd/server/main.go
-
-# Build the CLI binary
-build-cli:
+# Build the unified catnip binary
+build: swagger build-frontend build-scripts
 	#!/usr/bin/env bash
 	set -euo pipefail
 
@@ -20,18 +16,24 @@ build-cli:
 	COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 	DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-	echo "Building catctrl ${VERSION} (commit: ${COMMIT})"
+	echo "Building catnip ${VERSION} (commit: ${COMMIT})"
 
 	go build -ldflags "\
 		-X main.version=${VERSION} \
 		-X main.commit=${COMMIT} \
 		-X main.date=${DATE} \
 		-X main.builtBy=just" \
-		-o bin/catctrl cmd/cli/main.go
+		-o bin/catnip cmd/cli/main.go
+
+	# Restore placeholder frontend assets after building
+	just restore-placeholder
+
+# Legacy alias for build
+build-cli: build
 
 # Run the server
 run: build
-	./bin/catnip
+	./bin/catnip serve
 
 # Development mode with hot reload (local)
 dev:
@@ -40,12 +42,12 @@ dev:
 
 # Development mode without Air (simple)
 dev-simple:
-	go run cmd/server/main.go
+	go run cmd/cli/main.go serve
 
 # Generate Swagger documentation
 swagger:
 	@command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
-	swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal
+	swag init -g internal/cmd/serve.go -o docs --parseDependency --parseInternal
 
 # Run unit tests (excludes integration tests)
 test:
@@ -111,17 +113,21 @@ format-go-changed:
 lint: golangci-lint
 	golangci-lint run
 
-# Docker build
-docker-build:
-	docker build -t catnip:latest .
-
-# Docker build for development
-build-dev:
-	docker build -t catnip-dev:dev .
 
 # All-in-one development setup
 setup: deps swagger build
 	@echo "✅ Catnip is ready for development!"
+
+# Build frontend assets
+build-frontend:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	echo "Building frontend assets..."
+	cd .. && pnpm install --frozen-lockfile && pnpm build
+	echo "Copying frontend assets to internal/assets/dist..."
+	mkdir -p container/internal/assets/dist
+	if [ -d "dist" ]; then cp -r dist/* container/internal/assets/dist/; else echo "Warning: dist directory not found"; fi
+	echo "✅ Frontend assets built and copied"
 
 # Build proxy injection script
 build-scripts:
@@ -132,6 +138,25 @@ build-scripts:
 	cd scripts && pnpm run build
 	echo "✅ Proxy injection script built"
 
+# Restore placeholder frontend assets (cleanup after build)
+restore-placeholder:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	echo "Restoring placeholder frontend assets..."
+	
+	# Restore the placeholder index.html from git
+	if git show main:container/internal/assets/dist/index.html > internal/assets/dist/index.html 2>/dev/null; then
+		echo "✅ Restored placeholder index.html from main branch"
+	else
+		echo "⚠️  Could not restore from git, using current version (already restored)"
+	fi
+	
+	# Remove any other built frontend assets that shouldn't be in git
+	find internal/assets/dist -name "*.js" -delete 2>/dev/null || true
+	find internal/assets/dist -name "*.css" -delete 2>/dev/null || true
+	find internal/assets/dist -name "assets" -type d -exec rm -rf {} + 2>/dev/null || true
+	
+	echo "✅ Placeholder assets restored"
 
 # Show available commands
 default:
