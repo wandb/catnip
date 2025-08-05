@@ -9,21 +9,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// setupTestWorkspace creates an isolated workspace for tests and returns a cleanup function
+func setupTestWorkspace(t *testing.T) func() {
+	tempDir := t.TempDir()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+
+	// Create required directories
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+
+	return func() {
+		if oldWorkspace == "" {
+			_ = os.Unsetenv("CATNIP_WORKSPACE_DIR")
+		} else {
+			_ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace)
+		}
+	}
+}
+
 func TestGitServiceIntegration(t *testing.T) {
 	// Skip if not in CI or test environment
 	if os.Getenv("CI") == "" && os.Getenv("RUN_INTEGRATION_TESTS") == "" {
 		t.Skip("Skipping integration test. Set RUN_INTEGRATION_TESTS=1 to run")
 	}
 
-	// Create test workspace
-	tempDir := t.TempDir()
-	oldWorkspace := os.Getenv("WORKSPACE_DIR")
-	require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
-	defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
-
-	// Create required directories
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
 
 	// Create service
 	service := NewGitService()
@@ -45,6 +58,10 @@ func TestGitServiceIntegration(t *testing.T) {
 }
 
 func TestGitServiceMethods(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
@@ -62,6 +79,10 @@ func TestGitServiceMethods(t *testing.T) {
 }
 
 func TestGitServiceGitHubOperations(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
@@ -102,6 +123,10 @@ func TestGitServiceGitHubOperations(t *testing.T) {
 }
 
 func TestGitServiceConflictOperations(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
@@ -137,6 +162,10 @@ func TestGitServiceConflictOperations(t *testing.T) {
 }
 
 func TestGitServiceHelperMethods(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
@@ -158,6 +187,10 @@ func TestGitServiceHelperMethods(t *testing.T) {
 }
 
 func TestGitServiceRepositoryManagement(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
@@ -182,6 +215,10 @@ func TestGitServiceRepositoryManagement(t *testing.T) {
 }
 
 func TestGitServiceWorktreeDiff(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
@@ -194,16 +231,14 @@ func TestGitServiceWorktreeDiff(t *testing.T) {
 }
 
 func TestGitServiceStateManagement(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
 	t.Run("SaveAndLoadState", func(t *testing.T) {
-		// Create a temporary workspace directory
-		tempDir := t.TempDir()
-		oldWorkspace := os.Getenv("WORKSPACE_DIR")
-		require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
-		defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
-
 		// State management is now handled automatically by the state manager
 		// No explicit save/load needed
 
@@ -214,6 +249,10 @@ func TestGitServiceStateManagement(t *testing.T) {
 }
 
 func TestGitServiceCleanupOperations(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 
@@ -241,6 +280,10 @@ func (m *mockSetupExecutor) ExecuteSetupScript(worktreePath string) {
 }
 
 func TestGitServiceSetupExecutor(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
 	service := NewGitService()
 	require.NotNil(t, service)
 

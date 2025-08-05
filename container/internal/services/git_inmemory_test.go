@@ -20,9 +20,9 @@ import (
 func TestGitServiceWithInMemoryOperations(t *testing.T) {
 	// Create temporary workspace
 	tempDir := t.TempDir()
-	oldWorkspace := os.Getenv("WORKSPACE_DIR")
-	require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
-	defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
 
 	// Create required directories
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
@@ -239,6 +239,22 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec 
 
 // TestGitServiceInMemoryAdvanced demonstrates advanced testing scenarios with in-memory operations
 func TestGitServiceInMemoryAdvanced(t *testing.T) {
+	// Create temporary workspace
+	tempDir := t.TempDir()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() {
+		if oldWorkspace == "" {
+			_ = os.Unsetenv("CATNIP_WORKSPACE_DIR")
+		} else {
+			_ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace)
+		}
+	}()
+
+	// Create required directories
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+
 	// Create service with in-memory operations
 	exec := executor.NewInMemoryExecutor()
 	operations := git.NewOperationsWithExecutor(exec)
