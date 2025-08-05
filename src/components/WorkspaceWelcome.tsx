@@ -99,7 +99,11 @@ export function WorkspaceWelcome() {
                     </CardDescription>
                   </div>
                 </div>
-                <Button onClick={handleNewFromRepo} size="sm" variant="outline">
+                <Button
+                  onClick={handleNewFromTemplate}
+                  size="sm"
+                  variant="outline"
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   New Workspace
                 </Button>
