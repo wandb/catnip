@@ -773,6 +773,23 @@ func (s *GitService) detectLocalRepos() {
 	for repoID, repo := range repos {
 		if err := s.stateManager.AddRepository(repo); err != nil {
 			log.Printf("⚠️ Failed to add repository %s to state: %v", repoID, err)
+			continue
+		}
+
+		// Check if any worktrees exist for this repo
+		if s.shouldCreateInitialWorktree(repoID) {
+			log.Printf("🌱 Creating initial worktree for %s", repoID)
+
+			// Proactively prune any missing worktrees before attempting to create new ones
+			if pruneErr := s.operations.PruneWorktrees(repo.Path); pruneErr != nil {
+				log.Printf("⚠️  Failed to prune worktrees for %s: %v", repoID, pruneErr)
+			}
+
+			if _, worktree, err := s.handleLocalRepoWorktree(repoID, repo.DefaultBranch); err != nil {
+				log.Printf("❌ Failed to create initial worktree for %s: %v", repoID, err)
+			} else {
+				log.Printf("✅ Initial worktree created: %s", worktree.Name)
+			}
 		}
 	}
 }

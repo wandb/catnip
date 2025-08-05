@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/config"
 )
 
 // PTYService manages PTY sessions and setup script execution
@@ -48,8 +50,8 @@ func (s *PTYService) ExecuteSetupScript(worktreePath string) {
 	log.Printf("🔧 Found setup.sh in %s, executing in terminal", worktreePath)
 
 	// Extract workspace name from worktree path for session ID
-	// Format: /workspace/repo/branch -> repo/branch
-	parts := strings.Split(strings.TrimPrefix(worktreePath, "/workspace/"), "/")
+	// Format: workspace/repo/branch -> repo/branch
+	parts := strings.Split(strings.TrimPrefix(worktreePath, config.Runtime.WorkspaceDir+"/"), "/")
 	if len(parts) < 2 {
 		log.Printf("⚠️ Cannot determine session ID from worktree path: %s", worktreePath)
 		return
@@ -101,10 +103,10 @@ func (s *PTYService) getOrCreateSetupSession(sessionID, workDir string) *SetupSe
 
 	// Create command to run setup script and capture output to file
 	cmd := exec.Command("bash", "-c", "chmod +x setup.sh && echo '🔧 Running setup.sh...' && ./setup.sh && echo '\n✅ Setup completed'")
+	// Set environment for setup script execution
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("SESSION_ID=%s", sessionID),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
 		"TERM=xterm-direct",
 		"COLORTERM=truecolor",
 	)
