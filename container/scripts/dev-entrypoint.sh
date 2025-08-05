@@ -24,7 +24,7 @@ cd /live/catnip
 
 # Install frontend dependencies (will be fast due to pre-warmed cache)
 echo "📦 Installing frontend dependencies..."
-pnpm install
+pnpm install --frozen-lockfile --force
 
 # Start Vite dev server in background (config handled by vite.config.ts)
 echo "🎨 Starting Vite development server on port 5173..."
