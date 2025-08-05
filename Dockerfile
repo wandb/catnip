@@ -93,7 +93,7 @@ EOF
 RUN just swagger
 
 # Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/server/main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o catnip cmd/cli/main.go
 
 # Stage 2: Final runtime image
 FROM ubuntu:24.04
@@ -273,4 +273,4 @@ EXPOSE 8080
 
 # Default entrypoint and command
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["catnip"]
+CMD ["catnip", "serve"]
