@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 )
@@ -24,22 +26,37 @@ func NewLocalRepoManager(operations git.Operations) *LocalRepoManager {
 	}
 }
 
-// DetectLocalRepos scans /live for any Git repositories and loads them
+// DetectLocalRepos scans the live directory for any Git repositories and loads them
 func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 	repositories := make(map[string]*models.Repository)
 
-	const liveDir = "/live"
+	liveDir := config.Runtime.LiveDir
 
-	// Check if /live directory exists
-	if _, err := os.Stat(liveDir); os.IsNotExist(err) {
-		log.Printf("📁 No /live directory found, skipping local repo detection")
+	// In native mode, only detect the current repo to avoid scanning all sibling repos
+	if config.Runtime.IsNative() {
+		if config.Runtime.CurrentRepo != "" {
+			log.Printf("📦 Native mode: Running from git repository: %s", config.Runtime.CurrentRepo)
+			return lrm.detectCurrentRepo()
+		}
+		log.Printf("📁 Native mode: Not running from a git repository, no local repos to detect")
 		return repositories
 	}
 
-	// Read all entries in /live
+	// Docker mode: Check if live directory exists
+	if liveDir == "" {
+		log.Printf("📁 No live directory configured, skipping local repo detection")
+		return repositories
+	}
+
+	if _, err := os.Stat(liveDir); os.IsNotExist(err) {
+		log.Printf("📁 Live directory does not exist, skipping local repo detection")
+		return repositories
+	}
+
+	// Read all entries in live directory
 	entries, err := os.ReadDir(liveDir)
 	if err != nil {
-		log.Printf("❌ Failed to read /live directory: %v", err)
+		log.Printf("❌ Failed to read live directory: %v", err)
 		return repositories
 	}
 
@@ -72,6 +89,58 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 		repositories[repoID] = repo
 		log.Printf("✅ Local repository loaded: %s", repoID)
 	}
+
+	return repositories
+}
+
+// detectCurrentRepo handles the case where we're running from within a git repo in native mode
+func (lrm *LocalRepoManager) detectCurrentRepo() map[string]*models.Repository {
+	repositories := make(map[string]*models.Repository)
+
+	if config.Runtime.CurrentRepo == "" {
+		return repositories
+	}
+
+	// Find the actual git repository root using git command
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		return repositories
+	}
+	repoPath := strings.TrimSpace(string(output))
+
+	gitPath := filepath.Join(repoPath, ".git")
+	// Verify the git directory exists
+	if _, err := os.Stat(gitPath); os.IsNotExist(err) {
+		return repositories
+	}
+
+	// Get current branch
+	branchOutput, err := lrm.operations.ExecuteGit(repoPath, "branch", "--show-current")
+	branch := "main"
+	if err == nil {
+		branch = strings.TrimSpace(string(branchOutput))
+		if branch == "" {
+			branch = "main"
+		}
+	}
+
+	// Create repository object
+	repoName := config.Runtime.CurrentRepo
+	repoID := fmt.Sprintf("local/%s", repoName)
+
+	repo := &models.Repository{
+		ID:            repoID,
+		URL:           "file://" + repoPath,
+		Path:          repoPath,
+		DefaultBranch: branch,
+		CreatedAt:     time.Now(),
+		LastAccessed:  time.Now(),
+		Description:   fmt.Sprintf("Local repository: %s", repoName),
+	}
+
+	log.Printf("✅ Detected current repository: %s (branch: %s)", repoName, branch)
+	repositories[repoID] = repo
 
 	return repositories
 }

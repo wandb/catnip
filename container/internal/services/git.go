@@ -11,23 +11,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/git/templates"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/recovery"
 )
 
-const (
-	defaultWorkspaceDir = "/workspace"
-	liveDir             = "/live"
-	devRepoPath         = "/live/catnip" // Kept for backwards compatibility
-)
-
-// getWorkspaceDir returns the workspace directory, configurable via CATNIP_WORKSPACE_DIR
+// getWorkspaceDir returns the workspace directory for the current runtime
 func getWorkspaceDir() string {
 	if dir := os.Getenv("CATNIP_WORKSPACE_DIR"); dir != "" {
 		return dir
 	}
-	return defaultWorkspaceDir
+	return config.Runtime.WorkspaceDir
 }
 
 // getGitStateDir returns the git state directory based on workspace dir
@@ -249,6 +245,7 @@ type GitService struct {
 	gitWorktreeManager *git.WorktreeManager  // Git layer worktree operations
 	conflictResolver   *git.ConflictResolver // Handles conflict detection/resolution
 	githubManager      *git.GitHubManager    // Handles all GitHub CLI operations
+	localRepoManager   *LocalRepoManager     // Handles local repository detection
 	commitSync         *CommitSyncService    // Handles automatic checkpointing and commit sync
 	setupExecutor      SetupExecutor         // Handles setup.sh execution in PTY sessions
 	worktreeCache      *WorktreeStatusCache  // Handles worktree status caching with event updates
@@ -311,8 +308,8 @@ func (s *GitService) isLocalRepo(repoID string) bool {
 func (s *GitService) execCommand(command string, args ...string) *exec.Cmd {
 	cmd := exec.Command(command, args...)
 	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
+		"USER="+os.Getenv("USER"),
 	)
 	return cmd
 }
@@ -421,6 +418,7 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 		gitWorktreeManager: git.NewWorktreeManager(operations),
 		conflictResolver:   git.NewConflictResolver(operations),
 		githubManager:      git.NewGitHubManager(operations),
+		localRepoManager:   NewLocalRepoManager(operations),
 	}
 
 	// Initialize CommitSync service
@@ -442,8 +440,12 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 	_ = os.MkdirAll(getWorkspaceDir(), 0755)
 	_ = os.MkdirAll(getGitStateDir(), 0755)
 
-	// Configure Git to use gh as credential helper if available
-	s.configureGitCredentials()
+	// Configure Git to use gh as credential helper if available (containerized mode only)
+	if config.Runtime.IsContainerized() {
+		s.configureGitCredentials()
+	} else {
+		log.Printf("ℹ️ Running in native mode - respecting existing git configuration")
+	}
 
 	// State is already loaded by the state manager
 
@@ -764,53 +766,16 @@ func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) 
 	return repos, nil
 }
 
-// detectLocalRepos scans /live for any Git repositories and loads them
+// detectLocalRepos delegates to LocalRepoManager for detecting local repositories
 func (s *GitService) detectLocalRepos() {
-	// Check if /live directory exists
-	if _, err := os.Stat(liveDir); os.IsNotExist(err) {
-		log.Printf("📁 No /live directory found, skipping local repo detection")
-		return
-	}
+	repos := s.localRepoManager.DetectLocalRepos()
 
-	// Read all entries in /live
-	entries, err := os.ReadDir(liveDir)
-	if err != nil {
-		log.Printf("❌ Failed to read /live directory: %v", err)
-		return
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		repoPath := filepath.Join(liveDir, entry.Name())
-		gitPath := filepath.Join(repoPath, ".git")
-
-		// Check if it's a git repository
-		if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-			continue
-		}
-
-		log.Printf("🔍 Detected local repository at %s", repoPath)
-
-		// Create repository object
-		repoID := fmt.Sprintf("local/%s", entry.Name())
-		repo := &models.Repository{
-			ID:            repoID,
-			URL:           "file://" + repoPath,
-			Path:          repoPath,
-			DefaultBranch: s.getLocalRepoDefaultBranch(repoPath),
-			CreatedAt:     time.Now(),
-			LastAccessed:  time.Now(),
-		}
-
-		// Add to repositories map
+	// Add detected repos to our repository map via state manager
+	for repoID, repo := range repos {
 		if err := s.stateManager.AddRepository(repo); err != nil {
-			log.Printf("⚠️ Failed to add repository to state: %v", err)
+			log.Printf("⚠️ Failed to add repository %s to state: %v", repoID, err)
+			continue
 		}
-
-		log.Printf("✅ Local repository loaded: %s", repoID)
 
 		// Check if any worktrees exist for this repo
 		if s.shouldCreateInitialWorktree(repoID) {
@@ -2191,4 +2156,146 @@ func (s *GitService) RefreshWorktreeStatusByID(worktreeID string) error {
 
 	log.Printf("✅ Force refreshed worktree %s status: %d commits ahead", worktree.Name, worktree.CommitCount)
 	return nil
+}
+
+// CreateFromTemplate creates a new project from a template
+func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models.Repository, *models.Worktree, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Validate project name
+	if projectName == "" {
+		return nil, nil, fmt.Errorf("project name is required")
+	}
+
+	// Check if project already exists in /live
+	projectPath := filepath.Join("/live", projectName)
+	if _, err := os.Stat(projectPath); err == nil {
+		return nil, nil, fmt.Errorf("project %s already exists", projectName)
+	}
+
+	// Create the project based on template type
+	log.Printf("🏗️ Creating project from template %s at %s", templateID, projectPath)
+
+	var cmd *exec.Cmd
+	switch templateID {
+	case "react-vite":
+		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "react-ts")
+		cmd.Dir = "/live"
+	case "vue-vite":
+		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "vue-ts")
+		cmd.Dir = "/live"
+	case "nextjs-app":
+		cmd = exec.Command("pnpm", "create", "next-app", projectName, "--typescript", "--tailwind", "--app", "--no-eslint")
+		cmd.Dir = "/live"
+	case "node-express", "python-fastapi":
+		// For these, we create the directory manually and populate it
+		if err := os.MkdirAll(projectPath, 0755); err != nil {
+			return nil, nil, fmt.Errorf("failed to create project directory: %v", err)
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported template: %s", templateID)
+	}
+
+	// Execute the creation command if one was set
+	if cmd != nil {
+		log.Printf("🏗️ Running command: %s", strings.Join(cmd.Args, " "))
+		output, err := cmd.CombinedOutput()
+		log.Printf("📄 Command output: %s", string(output))
+		if err != nil {
+			log.Printf("❌ Command failed: %v", err)
+			return nil, nil, fmt.Errorf("failed to create project: %v\nOutput: %s", err, string(output))
+		}
+		log.Printf("✅ Command completed successfully")
+	}
+
+	// Verify the project directory was created
+	if _, err := os.Stat(projectPath); os.IsNotExist(err) {
+		log.Printf("❌ Project directory %s does not exist after command execution", projectPath)
+		return nil, nil, fmt.Errorf("project directory %s was not created by template command", projectPath)
+	}
+	log.Printf("✅ Project directory verified: %s", projectPath)
+
+	// For templates that just create directories, we need to set up the files manually
+	supportedTemplates := templates.GetSupportedTemplates()
+	isSupported := false
+	for _, supported := range supportedTemplates {
+		if templateID == supported {
+			isSupported = true
+			break
+		}
+	}
+	if isSupported {
+		if err := templates.SetupTemplateFiles(templateID, projectPath); err != nil {
+			// Clean up on failure
+			os.RemoveAll(projectPath)
+			return nil, nil, fmt.Errorf("failed to setup template files: %v", err)
+		}
+	}
+
+	// Initialize git repository
+	gitInitCmd := exec.Command("git", "init")
+	gitInitCmd.Dir = projectPath
+	if output, err := gitInitCmd.CombinedOutput(); err != nil {
+		// Clean up on failure
+		os.RemoveAll(projectPath)
+		return nil, nil, fmt.Errorf("failed to initialize git repo: %v\nOutput: %s", err, string(output))
+	}
+
+	// Configure git user for the repo (needed for commits)
+	gitConfigEmailCmd := exec.Command("git", "config", "user.email", "user@catnip.local")
+	gitConfigEmailCmd.Dir = projectPath
+	_, _ = gitConfigEmailCmd.CombinedOutput()
+
+	gitConfigNameCmd := exec.Command("git", "config", "user.name", "Catnip User")
+	gitConfigNameCmd.Dir = projectPath
+	_, _ = gitConfigNameCmd.CombinedOutput()
+
+	// Add all files and make initial commit
+	gitAddCmd := exec.Command("git", "add", ".")
+	gitAddCmd.Dir = projectPath
+	if output, err := gitAddCmd.CombinedOutput(); err != nil {
+		log.Printf("⚠️ Failed to add files to git: %v\nOutput: %s", err, string(output))
+	}
+
+	gitCommitCmd := exec.Command("git", "commit", "-m", fmt.Sprintf("Initial commit from %s template", templateID))
+	gitCommitCmd.Dir = projectPath
+	if output, err := gitCommitCmd.CombinedOutput(); err != nil {
+		log.Printf("⚠️ Failed to make initial commit: %v\nOutput: %s", err, string(output))
+	}
+
+	// Create a repository entry for this local project (like /live/catnip)
+	repoID := fmt.Sprintf("local/%s", projectName)
+	repo := &models.Repository{
+		ID:            repoID,
+		URL:           projectPath,
+		Path:          projectPath,
+		DefaultBranch: "main",
+		Description:   fmt.Sprintf("Created from %s template", templateID),
+		CreatedAt:     time.Now(),
+		LastAccessed:  time.Now(),
+	}
+
+	// Add repository to state
+	if err := s.stateManager.AddRepository(repo); err != nil {
+		log.Printf("⚠️ Failed to add repository to state: %v", err)
+	}
+
+	// Create an initial worktree for the template project so the user can immediately start working
+	log.Printf("🌱 Creating initial worktree for template project %s", projectName)
+
+	// Generate a unique session name for the initial worktree
+	funName := s.generateUniqueSessionName(repo.Path)
+
+	// Create worktree for the local repo using main branch
+	worktree, err := s.createLocalRepoWorktree(repo, "main", funName)
+	if err != nil {
+		log.Printf("⚠️ Failed to create initial worktree for template project: %v", err)
+		// Still return success since the repository was created successfully
+		// The user can create worktrees manually later
+		return repo, nil, nil
+	}
+
+	log.Printf("✅ Successfully created project %s from template %s with initial worktree %s", projectName, templateID, worktree.Name)
+	return repo, worktree, nil
 }

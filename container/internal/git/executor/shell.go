@@ -6,6 +6,8 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+
+	"github.com/vanpelt/catnip/internal/config"
 )
 
 // ShellExecutor implements CommandExecutor using the git binary
@@ -17,8 +19,7 @@ type ShellExecutor struct {
 func NewShellExecutor() CommandExecutor {
 	return &ShellExecutor{
 		defaultEnv: []string{
-			"HOME=/home/catnip",
-			"USER=catnip",
+			"HOME=" + config.Runtime.HomeDir,
 		},
 	}
 }

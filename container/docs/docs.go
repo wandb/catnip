@@ -429,6 +429,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/git/template": {
+            "post": {
+                "description": "Creates a new Git repository and workspace from a predefined project template",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Create workspace from template",
+                "parameters": [
+                    {
+                        "description": "Template creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request or template not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/worktrees": {
             "get": {
                 "description": "Returns a list of all worktrees for the current repository with fast cache-enhanced responses",
@@ -2046,6 +2101,21 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.CreateTemplateRequest": {
+            "type": "object",
+            "required": [
+                "project_name",
+                "template_id"
+            ],
+            "properties": {
+                "project_name": {
+                    "type": "string"
+                },
+                "template_id": {
                     "type": "string"
                 }
             }

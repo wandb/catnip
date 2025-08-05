@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -32,7 +33,7 @@ var debugEnabled bool
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		logFile, err := os.OpenFile("/tmp/catnip-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			log.Fatalln("Failed to open debug log file:", err)
 		}
@@ -60,10 +61,15 @@ type App struct {
 	refreshFlag    bool
 	sshEnabled     bool
 	version        string
+	runtime        string
+	rmFlag         bool
 }
 
 // NewApp creates a new application instance
-func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string) *App {
+func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool) *App {
+	// Get runtime information from container service
+	runtime := string(containerService.GetRuntime())
+
 	return &App{
 		containerService: containerService,
 		containerName:    containerName,
@@ -72,6 +78,8 @@ func NewApp(containerService *services.ContainerService, containerName, workDir,
 		refreshFlag:      refreshFlag,
 		sshEnabled:       sshEnabled,
 		version:          version,
+		runtime:          runtime,
+		rmFlag:           rmFlag,
 	}
 }
 
@@ -95,7 +103,7 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
 
 	// Create the model - always with initialization
-	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version)
+	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag)
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport
@@ -145,7 +153,11 @@ func (m Model) View() string {
 
 	// Header
 	headerStyle := components.HeaderStyle.Width(m.width-2).Padding(0, 1)
-	header := headerStyle.Render(fmt.Sprintf("🐱 Catnip - %s", m.version))
+	headerText := fmt.Sprintf("🐱 Catnip - %s (%s)", m.version, m.runtime)
+	if m.upgradeAvailable {
+		headerText += " • ⚠️ Upgrade Available"
+	}
+	header := headerStyle.Render(headerText)
 
 	// Footer
 	footer := m.renderFooter()
@@ -296,4 +308,46 @@ func (m Model) overlayOnContent(content, overlay string) string {
 	)
 
 	return centeredOverlay
+}
+
+// ContainerVersionInfo represents the response from /v1/info endpoint
+type ContainerVersionInfo struct {
+	Version string `json:"version"`
+	Build   struct {
+		Commit  string `json:"commit"`
+		Date    string `json:"date"`
+		BuiltBy string `json:"builtBy"`
+	} `json:"build"`
+}
+
+// fetchContainerVersion fetches the version information from the running container
+func fetchContainerVersion() (*ContainerVersionInfo, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:8080/v1/info")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch container version: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("container version endpoint returned status %d", resp.StatusCode)
+	}
+
+	var versionInfo ContainerVersionInfo
+	if err := json.NewDecoder(resp.Body).Decode(&versionInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode container version response: %w", err)
+	}
+
+	return &versionInfo, nil
+}
+
+// compareVersions compares two version strings and returns true if they differ
+// This is a simple string comparison - for more complex versioning, a proper semver library could be used
+func compareVersions(cliVersion, containerVersion string) bool {
+	// Remove "v" prefix if present and normalize
+	cliVersion = strings.TrimPrefix(cliVersion, "v")
+	containerVersion = strings.TrimPrefix(containerVersion, "v")
+
+	// Simple string comparison - different versions indicate an upgrade is available
+	return cliVersion != containerVersion
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
 )
 
@@ -175,16 +176,20 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 	args = append(args, strategy.Remote, strategy.Branch)
 
 	// Execute push with URL rewriting if HTTPS is needed (safer than modifying .git/config)
+	// Only apply URL rewriting in containerized mode to avoid interfering with native git config
 	var output []byte
 	var err error
-	if strategy.ConvertHTTPS {
+	if strategy.ConvertHTTPS && config.Runtime.IsContainerized() {
 		// Use git config URL rewriting - works for SSH (converts) and HTTPS (no-op)
 		// This avoids OAuth scope issues and doesn't modify .git/config
 		gitArgs := append([]string{"-c", "url.https://github.com/.insteadOf=git@github.com:"}, args...)
 		log.Printf("🔄 Executing git push with URL rewriting: %v", gitArgs)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, gitArgs...)
 	} else {
-		// Normal push execution
+		// Normal push execution (native mode or no HTTPS conversion needed)
+		if strategy.ConvertHTTPS && config.Runtime.IsNative() {
+			log.Printf("🔄 Native mode: skipping URL rewriting, using existing git configuration")
+		}
 		log.Printf("🔄 Executing git push without URL rewriting: %v", args)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, args...)
 	}

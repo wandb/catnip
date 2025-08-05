@@ -66,14 +66,17 @@ type Model struct {
 	customPorts    []string
 	sshEnabled     bool
 	version        string
+	runtime        string
+	rmFlag         bool
 
 	// Current state
-	currentView   ViewType
-	width         int
-	height        int
-	lastUpdate    time.Time
-	err           error
-	quitRequested bool
+	currentView      ViewType
+	width            int
+	height           int
+	lastUpdate       time.Time
+	err              error
+	quitRequested    bool
+	upgradeAvailable bool
 
 	// Data state
 	containerInfo  map[string]interface{}
@@ -124,12 +127,15 @@ type Model struct {
 }
 
 // NewModel creates a new application model with initialized views
-func NewModel(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string) *Model {
-	return NewModelWithInitialization(containerService, containerName, gitRoot, containerImage, devMode, refreshFlag, customPorts, sshEnabled, version)
+func NewModel(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool) *Model {
+	return NewModelWithInitialization(containerService, containerName, gitRoot, containerImage, devMode, refreshFlag, customPorts, sshEnabled, version, rmFlag)
 }
 
 // NewModelWithInitialization creates a new application model with initialization parameters
-func NewModelWithInitialization(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string) *Model {
+func NewModelWithInitialization(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool) *Model {
+	// Get runtime information from container service
+	runtime := string(containerService.GetRuntime())
+
 	m := &Model{
 		containerService: containerService,
 		containerName:    containerName,
@@ -140,6 +146,8 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 		customPorts:      customPorts,
 		sshEnabled:       sshEnabled,
 		version:          version,
+		runtime:          runtime,
+		rmFlag:           rmFlag,
 		currentView:      InitializationView,
 		containerInfo:    make(map[string]interface{}),
 		repositoryInfo:   make(map[string]interface{}),

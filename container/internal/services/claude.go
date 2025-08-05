@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/config"
+
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -70,9 +72,9 @@ func readJSONLines(filePath string, handler func([]byte) error) error {
 
 // NewClaudeService creates a new Claude service
 func NewClaudeService() *ClaudeService {
-	// Use catnip user's home directory explicitly
-	homeDir := "/home/catnip"
-	volumeDir := "/volume"
+	// Use runtime-appropriate directories
+	homeDir := config.Runtime.HomeDir
+	volumeDir := config.Runtime.VolumeDir
 	return &ClaudeService{
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
@@ -83,9 +85,9 @@ func NewClaudeService() *ClaudeService {
 
 // NewClaudeServiceWithWrapper creates a new Claude service with a custom subprocess wrapper (for testing)
 func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeService {
-	// Use catnip user's home directory explicitly
-	homeDir := "/home/catnip"
-	volumeDir := "/volume"
+	// Use runtime-appropriate directories
+	homeDir := config.Runtime.HomeDir
+	volumeDir := config.Runtime.VolumeDir
 	return &ClaudeService{
 		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
@@ -127,7 +129,9 @@ func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.
 	}
 
 	// Check if the project directory exists in either location
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDir := s.findProjectDirectory(projectDirName)
 	if projectDir == "" {
 		// Project directory doesn't exist in either location, skip this session
@@ -225,7 +229,9 @@ type SessionTimingWithID struct {
 func (s *ClaudeService) getSessionTiming(worktreePath string) (*SessionTimingWithID, error) {
 	// Convert worktree path to project directory name
 	// "/workspace/openui/debug-quokka" -> "-workspace-openui-debug-quokka"
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -466,7 +472,9 @@ func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData 
 // GetAllSessionsForWorkspace returns all session IDs for a workspace with metadata
 func (s *ClaudeService) GetAllSessionsForWorkspace(worktreePath string) ([]models.SessionListEntry, error) {
 	// Convert worktree path to project directory name
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -532,7 +540,9 @@ func (s *ClaudeService) GetAllSessionsForWorkspace(worktreePath string) ([]model
 // GetSessionMessages reads all messages from a specific session file
 func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]models.ClaudeSessionMessage, error) {
 	// Convert worktree path to project directory name
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -665,7 +675,9 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, error) {
 	// Convert worktree path to project directory name
 	// /workspace/vllmulator/midnight -> -workspace-vllmulator-midnight
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDirName = strings.TrimPrefix(projectDirName, "-")
 	projectDirName = "-" + projectDirName // Add back the leading dash
 	projectDir := s.findProjectDirectory(projectDirName)
@@ -763,7 +775,7 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 	// Set default working directory if not provided
 	workingDir := req.WorkingDirectory
 	if workingDir == "" {
-		workingDir = "/workspace/current"
+		workingDir = filepath.Join(config.Runtime.WorkspaceDir, "current")
 	}
 
 	// Set up subprocess options
@@ -792,7 +804,7 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 	// Set default working directory if not provided
 	workingDir := req.WorkingDirectory
 	if workingDir == "" {
-		workingDir = "/workspace/current"
+		workingDir = filepath.Join(config.Runtime.WorkspaceDir, "current")
 	}
 
 	// Set up subprocess options for streaming

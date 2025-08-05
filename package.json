@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:cf": "pnpm run build && wrangler dev 2>&1 | tee /tmp/wrangler.log",
-    "dev:cf:catctrl": "./container/bin/catctrl logs pnpm run build && ./container/bin/catctrl logs wrangler dev",
+    "dev:cf:catnip": "./container/bin/catnip logs pnpm run build && ./container/bin/catnip logs wrangler dev",
     "dev:cf:vite": "CLOUDFLARE_DEV=true vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
@@ -38,6 +38,7 @@
     "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.5",
+    "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tailwindcss/typography": "^0.5.16",
     "@tailwindcss/vite": "^4.1.11",

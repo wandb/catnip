@@ -52,7 +52,7 @@ gosu 1000:1000 git config --global user.name "$GIT_USERNAME"
 gosu 1000:1000 git config --global user.email "$GIT_EMAIL"
 gosu 1000:1000 git config --global init.defaultBranch main
 # TODO: This should be tightly scoped to mounted volume. Bad!
-gosu 1000:1000 git config --global --add safe.directory /workspace
+gosu 1000:1000 git config --global --add safe.directory "${CATNIP_WORKSPACE_DIR:-/workspace}"
 
 # Install specific versions if requested via environment variables (run as catnip user)
 if [ -n "$CATNIP_NODE_VERSION" ]; then
@@ -93,11 +93,11 @@ gosu 1000:1000 mkdir -p "${WORKSPACE}/projects"
 chown -R 1000:1000 "${GOPATH}" 2>/dev/null || true
 
 # Initialize volume directory for persistent data
-if [ -d "/volume" ]; then
+if [ -d "${CATNIP_VOLUME_DIR:-/volume}" ]; then
     echo "📁 Setting up persistent volume..."
     # Set permissions so catnip user can write to entire volume
-    sudo chown -R 1000:1000 /volume 2>/dev/null || true
-    sudo chmod -R 755 /volume 2>/dev/null || true
+    sudo chown -R 1000:1000 "${CATNIP_VOLUME_DIR:-/volume}" 2>/dev/null || true
+    sudo chmod -R 755 "${CATNIP_VOLUME_DIR:-/volume}" 2>/dev/null || true
 fi
 
 # Ensure workspace has proper ownership

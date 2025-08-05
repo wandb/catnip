@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -364,6 +365,11 @@ func (g *GitHubManager) IsAuthenticated() bool {
 
 // ConfigureGitCredentials sets up Git to use gh CLI for GitHub authentication
 func (g *GitHubManager) ConfigureGitCredentials() error {
+	if config.Runtime.IsNative() {
+		log.Printf("ℹ️ Running in native mode - skipping git credential configuration")
+		return nil
+	}
+
 	if !g.IsAuthenticated() {
 		log.Printf("ℹ️ GitHub CLI not authenticated, Git operations will only work with public repositories")
 		return fmt.Errorf("GitHub CLI not authenticated")

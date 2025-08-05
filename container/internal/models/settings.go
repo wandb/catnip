@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/config"
 )
 
 // Settings manages persistence of Claude and GitHub configuration files
@@ -25,8 +27,8 @@ type Settings struct {
 // NewSettings creates a new settings manager
 func NewSettings() *Settings {
 	return &Settings{
-		volumePath:   "/volume",
-		homePath:     "/home/catnip",
+		volumePath:   config.Runtime.VolumeDir,
+		homePath:     config.Runtime.HomeDir,
 		lastModTimes: make(map[string]time.Time),
 		debounceMap:  make(map[string]*time.Timer),
 		done:         make(chan bool),
@@ -276,7 +278,7 @@ func (s *Settings) copyLockFile(src, dst string) error {
 func (s *Settings) mapWorkspacePath(hostPath string) string {
 	// Get the final component of the path
 	baseName := filepath.Base(hostPath)
-	containerWorkspacePath := filepath.Join("/workspace", baseName)
+	containerWorkspacePath := filepath.Join(config.Runtime.WorkspaceDir, baseName)
 
 	// Check if this workspace exists in the container
 	if _, err := os.Stat(containerWorkspacePath); err == nil {

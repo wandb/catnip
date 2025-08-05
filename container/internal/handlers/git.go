@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"net/url"
 	"strings"
@@ -783,4 +784,69 @@ func (h *GitHandler) RefreshWorktreeStatus(c *fiber.Ctx) error {
 		"message": "Worktree status refreshed successfully",
 		"id":      worktreeID,
 	})
+}
+
+// CreateTemplateRequest defines the request body for creating from template
+type CreateTemplateRequest struct {
+	TemplateID  string `json:"template_id" binding:"required"`
+	ProjectName string `json:"project_name" binding:"required"`
+}
+
+// CreateFromTemplate creates a new workspace from a project template
+// @Summary Create workspace from template
+// @Description Creates a new Git repository and workspace from a predefined project template
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param request body CreateTemplateRequest true "Template creation request"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string "Invalid request or template not found"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /v1/git/template [post]
+func (h *GitHandler) CreateFromTemplate(c *fiber.Ctx) error {
+	var req CreateTemplateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body: " + err.Error(),
+		})
+	}
+
+	// Validate template ID
+	if req.TemplateID == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "template_id is required",
+		})
+	}
+
+	// Validate project name
+	if req.ProjectName == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "project_name is required",
+		})
+	}
+
+	// Create project from template
+	repo, worktree, err := h.gitService.CreateFromTemplate(req.TemplateID, req.ProjectName)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Return success response with repository information
+	response := fiber.Map{
+		"success": true,
+		"repo_id": repo.ID,
+		"path":    repo.Path,
+		"message": fmt.Sprintf("Successfully created project %s from template %s", req.ProjectName, req.TemplateID),
+	}
+
+	// Include worktree info if one was created
+	if worktree != nil {
+		response["worktree"] = worktree.ID
+		response["worktree_path"] = worktree.Path
+		response["worktree_name"] = worktree.Name
+	}
+
+	return c.JSON(response)
 }

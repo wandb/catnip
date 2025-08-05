@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/config"
 	"gopkg.in/yaml.v2"
 )
 
@@ -97,7 +98,7 @@ func (h *AuthHandler) checkGitHubAuthStatus() (*AuthUser, error) {
 
 // readGitHubHosts reads the GitHub CLI hosts.yml file
 func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
-	hostsPath := filepath.Join("/home/catnip", ".config", "gh", "hosts.yml")
+	hostsPath := filepath.Join(config.Runtime.HomeDir, ".config", "gh", "hosts.yml")
 
 	data, err := os.ReadFile(hostsPath)
 	if err != nil {
@@ -125,10 +126,16 @@ func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
 // runGitHubAuthStatus runs gh auth status command
 func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status --show-token 2>/dev/null")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
+
+	// In containerized mode, override HOME for catnip user
+	// In native mode, use the existing environment
+	if config.Runtime.IsContainerized() {
+		cmd.Env = append(os.Environ(),
+			"HOME="+config.Runtime.HomeDir,
+		)
+	} else {
+		cmd.Env = os.Environ()
+	}
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -156,10 +163,16 @@ func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
 // getTokenScopes gets the token scopes from gh auth status
 func (h *AuthHandler) getTokenScopes() []string {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status 2>&1 | grep 'Token scopes'")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
+
+	// In containerized mode, override HOME for catnip user
+	// In native mode, use the existing environment
+	if config.Runtime.IsContainerized() {
+		cmd.Env = append(os.Environ(),
+			"HOME="+config.Runtime.HomeDir,
+		)
+	} else {
+		cmd.Env = os.Environ()
+	}
 
 	output, err := cmd.Output()
 	if err != nil {
@@ -203,10 +216,16 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 
 	// Start new auth process with workflow scope for GitHub Actions support
 	cmd := exec.Command("bash", "--login", "-c", "gh auth login --web --scopes 'repo,read:org,workflow' 2>&1")
-	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
-	)
+
+	// In containerized mode, override HOME for catnip user
+	// In native mode, use the existing environment
+	if config.Runtime.IsContainerized() {
+		cmd.Env = append(os.Environ(),
+			"HOME="+config.Runtime.HomeDir,
+		)
+	} else {
+		cmd.Env = os.Environ()
+	}
 
 	// Set stdin to null to avoid hanging on prompts
 	cmd.Stdin = nil
