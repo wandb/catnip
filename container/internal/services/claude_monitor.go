@@ -280,6 +280,11 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 	}
 	s.recentTitlesMutex.Unlock()
 
+	// Update activity time for title changes
+	s.activityMutex.Lock()
+	s.lastActivityTimes[workDir] = time.Now()
+	s.activityMutex.Unlock()
+
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
 	if !exists {
@@ -760,7 +765,9 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 	}
 
 	// Convert worktree path to project directory
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDirName = strings.TrimPrefix(projectDirName, "-")
 	projectDirName = "-" + projectDirName
 	log.Printf("🔍 Looking for project directory: %s", projectDirName)
@@ -862,6 +869,11 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 
 	// Todos have changed!
 	log.Printf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
+
+	// Update activity time to prevent session cleanup
+	m.claudeMonitor.activityMutex.Lock()
+	m.claudeMonitor.lastActivityTimes[m.workDir] = time.Now()
+	m.claudeMonitor.activityMutex.Unlock()
 
 	// Update state
 	m.lastModTime = modTime
