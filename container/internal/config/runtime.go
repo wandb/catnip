@@ -16,6 +16,8 @@ type RuntimeMode string
 const (
 	// DockerMode indicates running inside a Docker container
 	DockerMode RuntimeMode = "docker"
+	// ContainerMode indicates running inside an Apple Container
+	ContainerMode RuntimeMode = "container"
 	// NativeMode indicates running on the host system
 	NativeMode RuntimeMode = "native"
 )
@@ -42,6 +44,14 @@ func init() {
 	Runtime = DetectRuntime()
 }
 
+// getEnvOrDefault returns the environment variable value if set, otherwise returns the default
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 // DetectRuntime determines the current runtime environment and returns appropriate configuration
 func DetectRuntime() *RuntimeConfig {
 	mode := detectMode()
@@ -50,34 +60,35 @@ func DetectRuntime() *RuntimeConfig {
 		Mode: mode,
 	}
 
+	// Get user's home directory for defaults
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = os.Getenv("HOME")
+		if homeDir == "" {
+			homeDir = "."
+		}
+	}
+
+	// Set defaults based on runtime mode
 	switch mode {
-	case DockerMode:
-		config.WorkspaceDir = "/workspace"
-		config.VolumeDir = "/volume"
-		config.LiveDir = "/live"
-		config.HomeDir = "/home/catnip"
-		config.TempDir = "/tmp"
+	case DockerMode, ContainerMode:
+		config.WorkspaceDir = getEnvOrDefault("CATNIP_WORKSPACE_DIR", "/workspace")
+		config.VolumeDir = getEnvOrDefault("CATNIP_VOLUME_DIR", "/volume")
+		config.LiveDir = getEnvOrDefault("CATNIP_LIVE_DIR", "/live")
+		config.HomeDir = getEnvOrDefault("CATNIP_HOME_DIR", "/home/catnip")
+		config.TempDir = getEnvOrDefault("CATNIP_TEMP_DIR", "/tmp")
 		config.SyncEnabled = true
 		config.PortMonitorEnabled = true
 
 	case NativeMode:
-		// Get user's home directory
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			homeDir = os.Getenv("HOME")
-			if homeDir == "" {
-				homeDir = "."
-			}
-		}
-
 		// Create catnip directory in user's home
 		catnipDir := filepath.Join(homeDir, ".catnip")
 
-		config.WorkspaceDir = filepath.Join(catnipDir, "workspace")
-		config.VolumeDir = catnipDir // Settings stored directly in ~/.catnip
-		config.LiveDir = ""          // Will be set if running from a git repo
-		config.HomeDir = homeDir
-		config.TempDir = os.TempDir()
+		config.WorkspaceDir = getEnvOrDefault("CATNIP_WORKSPACE_DIR", filepath.Join(catnipDir, "workspace"))
+		config.VolumeDir = getEnvOrDefault("CATNIP_VOLUME_DIR", catnipDir) // Settings stored directly in ~/.catnip
+		config.LiveDir = getEnvOrDefault("CATNIP_LIVE_DIR", "")            // Will be set if running from a git repo
+		config.HomeDir = getEnvOrDefault("CATNIP_HOME_DIR", homeDir)
+		config.TempDir = getEnvOrDefault("CATNIP_TEMP_DIR", os.TempDir())
 		config.SyncEnabled = false                          // No need to sync in native mode
 		config.PortMonitorEnabled = runtime.GOOS == "linux" // Only on Linux
 
@@ -100,8 +111,21 @@ func DetectRuntime() *RuntimeConfig {
 	return config
 }
 
-// detectMode determines if we're running in Docker or natively
+// detectMode determines if we're running in Docker, Apple Container, or natively
 func detectMode() RuntimeMode {
+	// Check for container environment variable first (can override detection)
+	if containerType := os.Getenv("CATNIP_RUNTIME"); containerType != "" {
+		switch containerType {
+		case "docker":
+			return DockerMode
+		case "container", "apple":
+			return ContainerMode
+		case "true":
+			// Legacy support - assume Docker
+			return DockerMode
+		}
+	}
+
 	// Check for Docker-specific files/environment
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return DockerMode
@@ -114,11 +138,12 @@ func detectMode() RuntimeMode {
 		}
 	}
 
-	// Check for container environment variables
-	if os.Getenv("CATNIP_CONTAINER") == "true" {
-		return DockerMode
+	// Check for Apple Container environment
+	if containerEnv := os.Getenv("container"); containerEnv == "apple" {
+		return ContainerMode
 	}
 
+	// Default to native mode
 	return NativeMode
 }
 
@@ -185,7 +210,7 @@ func (rc *RuntimeConfig) ResolvePath(containerPath string) string {
 // GetClaudeBinaryPaths returns the paths to search for Claude binary
 func (rc *RuntimeConfig) GetClaudeBinaryPaths() []string {
 	switch rc.Mode {
-	case DockerMode:
+	case DockerMode, ContainerMode:
 		return []string{
 			"/opt/catnip/nvm/versions/node/*/bin/claude",
 			"/usr/local/bin/claude",
@@ -212,7 +237,17 @@ func (rc *RuntimeConfig) IsDocker() bool {
 	return rc.Mode == DockerMode
 }
 
+// IsContainer returns true if running in Container mode
+func (rc *RuntimeConfig) IsContainer() bool {
+	return rc.Mode == ContainerMode
+}
+
 // IsNative returns true if running in Native mode
 func (rc *RuntimeConfig) IsNative() bool {
 	return rc.Mode == NativeMode
+}
+
+// IsContainerized returns true if running in any container (Docker or Apple)
+func (rc *RuntimeConfig) IsContainerized() bool {
+	return rc.Mode == DockerMode || rc.Mode == ContainerMode
 }

@@ -635,6 +635,16 @@ definitions:
       title:
         type: string
     type: object
+  internal_handlers.CreateTemplateRequest:
+    properties:
+      project_name:
+        type: string
+      template_id:
+        type: string
+    required:
+    - project_name
+    - template_id
+    type: object
   internal_handlers.DeleteSessionResponse:
     description: Response confirming session deletion
     properties:
@@ -1235,6 +1245,43 @@ paths:
           schema:
             $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.GitStatus'
       summary: Get Git status
+      tags:
+      - git
+  /v1/git/template:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new Git repository and workspace from a predefined project
+        template
+      parameters:
+      - description: Template creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request or template not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create workspace from template
       tags:
       - git
   /v1/git/worktrees:

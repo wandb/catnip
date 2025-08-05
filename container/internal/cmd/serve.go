@@ -58,9 +58,9 @@ func startServer(cmd *cobra.Command) {
 		}
 	}
 
-	// Start settings persistence manager only in Docker mode
+	// Start settings persistence manager in containerized environments
 	var settings *models.Settings
-	if config.Runtime.IsDocker() {
+	if config.Runtime.IsContainerized() {
 		settings = models.NewSettings()
 		settings.Start()
 		defer settings.Stop()
@@ -219,6 +219,7 @@ func startServer(cmd *cobra.Command) {
 	v1.Post("/git/worktrees/:id/refresh", gitHandler.RefreshWorktreeStatus)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
+	v1.Post("/git/template", gitHandler.CreateFromTemplate)
 
 	// Claude routes
 	v1.Get("/claude/session", claudeHandler.GetWorktreeSessionSummary)
@@ -239,6 +240,19 @@ func startServer(cmd *cobra.Command) {
 	// Port monitoring routes
 	v1.Get("/ports", portsHandler.GetPorts)
 	v1.Get("/ports/:port", portsHandler.GetPortInfo)
+
+	// Server info route
+	v1.Get("/info", func(c *fiber.Ctx) error {
+		commit, date, builtBy := GetBuildInfo()
+		return c.JSON(fiber.Map{
+			"version": GetVersion(),
+			"build": fiber.Map{
+				"commit":  commit,
+				"date":    date,
+				"builtBy": builtBy,
+			},
+		})
+	})
 
 	// Events routes
 	v1.Get("/events", eventsHandler.HandleSSE)
