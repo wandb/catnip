@@ -263,7 +263,7 @@ func streamReader(reader io.Reader, outputChan chan<- string) {
 }
 
 // StartContainerCmd starts the container after initialization
-func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool) tea.Cmd {
+func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool, rmFlag bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -274,10 +274,51 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 		}
 
 		// Start the container
-		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled); err != nil {
+		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag); err != nil {
 			// Parse the error to extract the base error and output
 			errStr := err.Error()
 			cmdStr := strings.Join(cmd, " ")
+
+			// Handle "container already exists" error gracefully
+			if strings.Contains(errStr, "already exists") || strings.Contains(errStr, "exists:") {
+				// Check if the existing container is running
+				if containerService.IsContainerRunning(ctx, name) {
+					// Container is already running, skip to success
+					return ContainerStartedMsg{
+						ContainerName:    name,
+						ContainerService: containerService,
+					}
+				}
+
+				// Container exists but isn't running, try to start it
+				if err := containerService.StartContainer(ctx, name); err != nil {
+					// Starting the existing container failed, remove and recreate
+					_ = containerService.StopContainer(ctx, name)   // Stop if partially running
+					_ = containerService.RemoveContainer(ctx, name) // Remove the container
+
+					// Give it a moment to clean up
+					time.Sleep(500 * time.Millisecond)
+
+					// Try to create a new container
+					if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag); err != nil {
+						// Still failed after cleanup, report the error
+						errStr = err.Error()
+						cmdStr = strings.Join(cmd, " ")
+					} else {
+						// Success after cleanup
+						return ContainerStartedMsg{
+							ContainerName:    name,
+							ContainerService: containerService,
+						}
+					}
+				} else {
+					// Successfully started existing container
+					return ContainerStartedMsg{
+						ContainerName:    name,
+						ContainerService: containerService,
+					}
+				}
+			}
 
 			// Check if the error already contains "Output:" section
 			if strings.Contains(errStr, "\nOutput:") {
@@ -465,6 +506,39 @@ type ContainerLogsOutputMsg struct {
 // ContainerHealthyMsg indicates the container is healthy and ready
 type ContainerHealthyMsg struct {
 	ContainerName string
+}
+
+// VersionCheckMsg indicates the result of a version check
+type VersionCheckMsg struct {
+	UpgradeAvailable bool
+	ContainerVersion string
+	CLIVersion       string
+}
+
+// CheckContainerVersionCmd checks if the container version differs from CLI version
+func CheckContainerVersionCmd(cliVersion string) tea.Cmd {
+	return func() tea.Msg {
+		containerVersionInfo, err := fetchContainerVersion()
+		if err != nil {
+			// If we can't fetch the version, don't show upgrade warning
+			debugLog("CheckContainerVersionCmd: failed to fetch container version: %v", err)
+			return VersionCheckMsg{
+				UpgradeAvailable: false,
+				ContainerVersion: "unknown",
+				CLIVersion:       cliVersion,
+			}
+		}
+
+		upgradeAvailable := compareVersions(cliVersion, containerVersionInfo.Version)
+		debugLog("CheckContainerVersionCmd: CLI=%s, Container=%s, UpgradeAvailable=%t",
+			cliVersion, containerVersionInfo.Version, upgradeAvailable)
+
+		return VersionCheckMsg{
+			UpgradeAvailable: upgradeAvailable,
+			ContainerVersion: containerVersionInfo.Version,
+			CLIVersion:       cliVersion,
+		}
+	}
 }
 
 // StreamingContainerLogsReader reads from container logs channels and sends output messages

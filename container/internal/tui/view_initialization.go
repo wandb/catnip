@@ -64,14 +64,14 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		v.completed = true
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag)
 
 	case InitializationCompleteWithOutputMsg:
 		v.completed = true
 		v.output = append(v.output, msg.Output...)
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag)
 
 	case InitializationFailedMsg:
 		v.failed = true
@@ -93,7 +93,7 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 
 		if msg.StartContainer {
 			// Need to start container
-			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
+			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag)
 		}
 
 		// Trigger the appropriate streaming command based on the action
@@ -215,10 +215,13 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 	case ContainerHealthyMsg:
 		v.completed = true
 		v.status = "Container is healthy and ready!"
-		// Switch to overview after a brief delay to show the success message
-		return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
-			return SwitchViewMsg{ViewType: OverviewView}
-		})
+		// Trigger version check and switch to overview after a brief delay
+		return m, tea.Batch(
+			CheckContainerVersionCmd(m.version),
+			tea.Tick(time.Second, func(time.Time) tea.Msg {
+				return SwitchViewMsg{ViewType: OverviewView}
+			}),
+		)
 
 	case SwitchViewMsg:
 		if msg.ViewType != InitializationView {

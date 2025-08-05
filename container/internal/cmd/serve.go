@@ -240,6 +240,19 @@ func startServer(cmd *cobra.Command) {
 	v1.Get("/ports", portsHandler.GetPorts)
 	v1.Get("/ports/:port", portsHandler.GetPortInfo)
 
+	// Server info route
+	v1.Get("/info", func(c *fiber.Ctx) error {
+		commit, date, builtBy := GetBuildInfo()
+		return c.JSON(fiber.Map{
+			"version": GetVersion(),
+			"build": fiber.Map{
+				"commit":  commit,
+				"date":    date,
+				"builtBy": builtBy,
+			},
+		})
+	})
+
 	// Events routes
 	v1.Get("/events", eventsHandler.HandleSSE)
 

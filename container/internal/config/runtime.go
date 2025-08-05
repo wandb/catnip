@@ -16,6 +16,8 @@ type RuntimeMode string
 const (
 	// DockerMode indicates running inside a Docker container
 	DockerMode RuntimeMode = "docker"
+	// ContainerMode indicates running inside an Apple Container
+	ContainerMode RuntimeMode = "container"
 	// NativeMode indicates running on the host system
 	NativeMode RuntimeMode = "native"
 )
@@ -51,7 +53,7 @@ func DetectRuntime() *RuntimeConfig {
 	}
 
 	switch mode {
-	case DockerMode:
+	case DockerMode, ContainerMode:
 		config.WorkspaceDir = "/workspace"
 		config.VolumeDir = "/volume"
 		config.LiveDir = "/live"
@@ -100,8 +102,21 @@ func DetectRuntime() *RuntimeConfig {
 	return config
 }
 
-// detectMode determines if we're running in Docker or natively
+// detectMode determines if we're running in Docker, Apple Container, or natively
 func detectMode() RuntimeMode {
+	// Check for container environment variable first (can override detection)
+	if containerType := os.Getenv("CATNIP_CONTAINER"); containerType != "" {
+		switch containerType {
+		case "docker":
+			return DockerMode
+		case "container", "apple":
+			return ContainerMode
+		case "true":
+			// Legacy support - assume Docker
+			return DockerMode
+		}
+	}
+
 	// Check for Docker-specific files/environment
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return DockerMode
@@ -114,9 +129,10 @@ func detectMode() RuntimeMode {
 		}
 	}
 
-	// Check for container environment variables
-	if os.Getenv("CATNIP_CONTAINER") == "true" {
-		return DockerMode
+	// Check for Apple Container environment
+	// Apple containers might have specific environment markers
+	if os.Getenv("container") == "apple" {
+		return ContainerMode
 	}
 
 	return NativeMode
@@ -185,7 +201,7 @@ func (rc *RuntimeConfig) ResolvePath(containerPath string) string {
 // GetClaudeBinaryPaths returns the paths to search for Claude binary
 func (rc *RuntimeConfig) GetClaudeBinaryPaths() []string {
 	switch rc.Mode {
-	case DockerMode:
+	case DockerMode, ContainerMode:
 		return []string{
 			"/opt/catnip/nvm/versions/node/*/bin/claude",
 			"/usr/local/bin/claude",
@@ -212,7 +228,17 @@ func (rc *RuntimeConfig) IsDocker() bool {
 	return rc.Mode == DockerMode
 }
 
+// IsContainer returns true if running in Container mode
+func (rc *RuntimeConfig) IsContainer() bool {
+	return rc.Mode == ContainerMode
+}
+
 // IsNative returns true if running in Native mode
 func (rc *RuntimeConfig) IsNative() bool {
 	return rc.Mode == NativeMode
+}
+
+// IsContainerized returns true if running in any container (Docker or Apple)
+func (rc *RuntimeConfig) IsContainerized() bool {
+	return rc.Mode == DockerMode || rc.Mode == ContainerMode
 }
