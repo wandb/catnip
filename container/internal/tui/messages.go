@@ -26,6 +26,9 @@ type shellErrorMsg struct {
 	sessionID string
 	err       error
 }
+type shellConnectedMsg struct {
+	sessionID string
+}
 
 // SSE event messages
 type sseConnectedMsg struct{}

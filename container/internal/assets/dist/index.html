@@ -1,81 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon@2x.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Catnip - Frontend Not Built</title>
-    <style>
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        margin: 0;
-        padding: 2rem;
-        background: #1a1a1a;
-        color: #ffffff;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .container {
-        text-align: center;
-        max-width: 600px;
-      }
-      h1 {
-        color: #ff6b6b;
-        margin-bottom: 1rem;
-      }
-      p {
-        line-height: 1.6;
-        margin-bottom: 1rem;
-        color: #cccccc;
-      }
-      .code {
-        background: #2a2a2a;
-        padding: 1rem;
-        border-radius: 8px;
-        font-family: 'Monaco', 'Menlo', monospace;
-        margin: 1rem 0;
-        color: #00ff88;
-      }
-      .warning {
-        background: #3a2a00;
-        border: 1px solid #ff9900;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-      }
-    </style>
+    <title>Catnip</title>
+    <script type="module" crossorigin src="/assets/index-CrtenHuv.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BnAGEvdE.css">
   </head>
   <body>
-    <div class="container">
-      <h1>⚠️ Frontend Assets Not Built</h1>
-      
-      <div class="warning">
-        <p><strong>Development Mode:</strong> The frontend assets haven't been built yet.</p>
-      </div>
-      
-      <p>This is a placeholder page served from embedded fallback assets. To get the full Catnip frontend:</p>
-      
-      <div class="code">
-        # Build frontend assets<br>
-        pnpm build
-      </div>
-      
-      <p>Or run in development mode with Vite:</p>
-      
-      <div class="code">
-        # Start frontend dev server<br>
-        pnpm dev
-      </div>
-      
-      <p>Then restart the Go server to pick up the assets.</p>
-      
-      <p><strong>API is still available:</strong></p>
-      <ul style="text-align: left; display: inline-block;">
-        <li><a href="/health" style="color: #00ff88;">/health</a> - Health check</li>
-        <li><a href="/swagger/" style="color: #00ff88;">/swagger/</a> - API documentation</li>
-        <li><a href="/v1/" style="color: #00ff88;">/v1/</a> - API endpoints</li>
-      </ul>
-    </div>
+    <div id="root"></div>
   </body>
 </html>
