@@ -50,6 +50,7 @@ export function PullRequestDialog({
   const [isGenerating, setIsGenerating] = useState(false);
   const lastClaudeCallRef = useRef<number>(0);
   const [loading, setLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [errorDialog, setErrorDialog] = useState<{
     open: boolean;
     error: string;
