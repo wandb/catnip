@@ -469,6 +469,10 @@ func (m Model) handleShellOutput(msg shellOutputMsg) (tea.Model, tea.Cmd) {
 		shellView := m.views[ShellView].(*ShellViewImpl)
 		newModel, cmd := shellView.handleShellOutput(&m, msg)
 		return *newModel, cmd
+	} else if m.currentView == WorkspaceView {
+		workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
+		newModel, cmd := workspaceView.Update(&m, msg)
+		return *newModel, cmd
 	}
 	return m, nil
 }
@@ -477,6 +481,10 @@ func (m Model) handleShellError(msg shellErrorMsg) (tea.Model, tea.Cmd) {
 	if m.currentView == ShellView {
 		shellView := m.views[ShellView].(*ShellViewImpl)
 		newModel, cmd := shellView.handleShellError(&m, msg)
+		return *newModel, cmd
+	} else if m.currentView == WorkspaceView {
+		workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
+		newModel, cmd := workspaceView.Update(&m, msg)
 		return *newModel, cmd
 	}
 	return m, nil

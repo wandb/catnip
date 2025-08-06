@@ -140,6 +140,32 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 
 	sections = append(sections, "")
 
+	// Detected Services (condensed)
+	if len(m.ports) > 0 {
+		sections = append(sections, components.SubHeaderStyle.Render("🌐 Detected Services"))
+		
+		// Show up to 3 services in a compact format
+		serviceCount := 0
+		for _, portInfo := range m.ports {
+			if serviceCount >= 3 {
+				break
+			}
+			sections = append(sections, fmt.Sprintf("  %s → :%s", portInfo.Title, portInfo.Port))
+			serviceCount++
+		}
+		
+		if len(m.ports) > 3 {
+			sections = append(sections, fmt.Sprintf("  ... and %d more services", len(m.ports)-3))
+		}
+		
+		sections = append(sections, fmt.Sprintf("  Press %s to open service browser", components.KeyHighlightStyle.Render("Ctrl+B")))
+	} else {
+		sections = append(sections, components.SubHeaderStyle.Render("🌐 Detected Services"))
+		sections = append(sections, "  No services detected")
+	}
+
+	sections = append(sections, "")
+
 	// Repository Info
 	sections = append(sections, components.SectionHeaderStyle.Render("📁 Repository Info"))
 

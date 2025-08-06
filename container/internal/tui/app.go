@@ -332,7 +332,7 @@ func (m Model) renderWorkspaceSelector() string {
 			changeText = fmt.Sprintf(" • %d changes", changeCount)
 		}
 
-		item := fmt.Sprintf("%s %s %s (%s)%s", statusIndicator, workspace.Name, workspace.Branch, changeText)
+		item := fmt.Sprintf("%s %s (%s)%s", statusIndicator, workspace.Name, workspace.Branch, changeText)
 		menuItems = append(menuItems, prefix+item)
 	}
 
