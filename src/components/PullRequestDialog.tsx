@@ -161,6 +161,10 @@ export function PullRequestDialog({
     setDescription("");
     setIsGenerating(true);
 
+    // Create abort controller for this generation request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     // Update throttle timestamp
     lastClaudeCallRef.current = now;
 
@@ -197,6 +201,7 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
+        signal: abortController.signal,
       });
 
       if (response.ok) {
@@ -251,6 +256,12 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
         setIsGenerating(false);
       }
     } catch (error) {
+      // Check if this was an abort - if so, don't log error or set fallback
+      if (error instanceof DOMException && error.name === "AbortError") {
+        console.log("PR content generation was cancelled");
+        return; // Don't set fallback values, keep current state
+      }
+
       console.error("Error generating PR details:", error);
       // Fallback to summary or defaults
       const fallbackTitle =
@@ -266,6 +277,9 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
       setTitle(fallbackTitle);
       setDescription(fallbackDescription);
       setIsGenerating(false);
+    } finally {
+      // Clean up abort controller reference
+      abortControllerRef.current = null;
     }
   };
 
