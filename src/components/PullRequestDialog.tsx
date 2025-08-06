@@ -545,12 +545,19 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSubmit()} disabled={loading}>
+          <Button
+            onClick={
+              isGenerating ? handleCancelGeneration : () => void handleSubmit()
+            }
+            disabled={loading}
+          >
             {loading ? (
               <>
                 <RefreshCw className="animate-spin h-4 w-4 mr-2" />
                 {isUpdate ? "Updating PR..." : "Creating PR..."}
               </>
+            ) : isGenerating ? (
+              "Cancel Generation"
             ) : isUpdate ? (
               "Update PR"
             ) : (
