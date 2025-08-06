@@ -98,6 +98,8 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	// Initialize viewports
 	logsViewport := viewport.New(80, 20)
 	shellViewport := viewport.New(80, 24)
+	workspaceClaudeTerminal := viewport.New(60, 18)
+	workspaceRegularTerminal := viewport.New(60, 6)
 
 	// Initialize SSE client
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
@@ -107,6 +109,8 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport
+	m.workspaceClaudeTerminal = workspaceClaudeTerminal
+	m.workspaceRegularTerminal = workspaceRegularTerminal
 	m.shellSpinner = spinner.New()
 	m.sseClient = sseClient
 	m.sseStarted = true // SSE will be started immediately
