@@ -72,7 +72,7 @@ func (v *WorkspaceViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Mode
 	
 	// Main content area is 75% width, right sidebar is 25%
 	mainWidth := (msg.Width * 75) / 100
-	sidebarWidth := msg.Width - mainWidth - 2 // Account for borders
+	_ = msg.Width - mainWidth - 2 // sidebarWidth - Account for borders
 	
 	// Claude terminal gets 75% of main height, regular terminal gets 25%
 	claudeHeight := (totalHeight * 75) / 100
@@ -415,18 +415,35 @@ func createAndConnectWorkspaceShell(sessionID string, width, height int, workspa
 			return shellErrorMsg{sessionID: sessionID, err: fmt.Errorf("shell manager not initialized")}
 		}
 
-		// Create PTY client with workspace-specific settings
-		client := NewPTYClient("http://localhost:8080/v1/pty/"+sessionID+agentParam, sessionID)
+		// Create session using the existing shell manager pattern
+		session := globalShellManager.CreateSession(sessionID)
 		
-		// Set working directory to workspace path
-		client.workingDir = workspacePath
-		
-		if err := client.Connect(width, height); err != nil {
-			return shellErrorMsg{sessionID: sessionID, err: err}
-		}
+		// Connect in background and send initial size
+		go func() {
+			baseURL := "http://localhost:8080"
+			if agentParam != "" {
+				baseURL += agentParam
+			}
+			
+			err := session.Client.Connect(baseURL)
+			if err != nil {
+				debugLog("Failed to connect workspace shell session %s: %v", sessionID, err)
+				return
+			}
 
-		// Add session to manager
-		globalShellManager.AddSession(sessionID, client)
+			// Send resize to set initial terminal size
+			if err := session.Client.Resize(width, height); err != nil {
+				debugLog("Failed to resize workspace terminal %s: %v", sessionID, err)
+			}
+
+			// Change to workspace directory
+			if workspacePath != "" {
+				cdCmd := fmt.Sprintf("cd %s\n", workspacePath)
+				if err := session.Client.Send([]byte(cdCmd)); err != nil {
+					debugLog("Failed to change directory for workspace %s: %v", sessionID, err)
+				}
+			}
+		}()
 
 		return shellConnectedMsg{sessionID: sessionID}
 	}
