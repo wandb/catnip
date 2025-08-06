@@ -19,6 +19,9 @@ const (
 	// Browser shortcuts
 	KeyOpenBrowser = "ctrl+b"
 
+	// Workspace shortcuts
+	KeyWorkspace = "ctrl+w"
+
 	// Common keys
 	KeyEscape    = "esc"
 	KeyEnter     = "enter"
@@ -84,7 +87,7 @@ const (
 // IsGlobalNavigationKey checks if a key is a global navigation command
 func IsGlobalNavigationKey(key string) bool {
 	switch key {
-	case KeyQuit, KeyQuitAlt, KeyOverview, KeyLogs, KeyShell, KeyOpenBrowser:
+	case KeyQuit, KeyQuitAlt, KeyOverview, KeyLogs, KeyShell, KeyOpenBrowser, KeyWorkspace:
 		return true
 	}
 	return false
