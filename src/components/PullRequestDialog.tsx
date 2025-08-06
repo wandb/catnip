@@ -283,6 +283,29 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
     }
   };
 
+  const handleCancelGeneration = () => {
+    // Abort the ongoing generation request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // Set fallback values
+    const fallbackTitle =
+      summary?.status === "completed" && summary.title
+        ? summary.title
+        : `Pull request from ${worktree.branch}`;
+
+    const fallbackDescription =
+      summary?.status === "completed" && summary.summary
+        ? summary.summary
+        : `Automated pull request created from worktree ${worktree.branch}`;
+
+    setTitle(fallbackTitle);
+    setDescription(fallbackDescription);
+    setIsGenerating(false);
+  };
+
   const handleForceSubmit = async () => {
     setLoading(true);
     setErrorDialog({ open: false, error: "" }); // Close error dialog
