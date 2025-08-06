@@ -164,11 +164,31 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			m.bootingBoldTimer = time.Now()
 		}
 		return &m, nil, true
+	
+	case components.KeyWorkspace:
+		// Show workspace selector overlay if we have workspaces
+		if len(m.workspaces) > 0 {
+			m.showWorkspaceSelector = true
+			m.selectedWorkspaceIndex = 0 // Default to first workspace
+		} else {
+			// Initialize mock workspaces for now - TODO: fetch from API
+			m.workspaces = m.initializeMockWorkspaces()
+			if len(m.workspaces) > 0 {
+				m.showWorkspaceSelector = true
+				m.selectedWorkspaceIndex = 0
+			}
+		}
+		return &m, nil, true
 	}
 
 	// Handle port selector overlay if active
 	if m.showPortSelector {
 		return m.handlePortSelectorKeys(msg)
+	}
+
+	// Handle workspace selector overlay if active
+	if m.showWorkspaceSelector {
+		return m.handleWorkspaceSelectorKeys(msg)
 	}
 
 	// Key not handled globally
@@ -584,6 +604,117 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 	}
 
 	return &m, nil, true
+}
+
+// handleWorkspaceSelectorKeys handles key input for the workspace selector overlay
+func (m Model) handleWorkspaceSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case components.KeyEscape:
+		// Close workspace selector
+		m.showWorkspaceSelector = false
+		return &m, nil, true
+
+	case components.KeyEnter:
+		// Select workspace and switch to workspace view
+		if m.selectedWorkspaceIndex < len(m.workspaces) {
+			workspace := &m.workspaces[m.selectedWorkspaceIndex]
+			m.currentWorkspace = workspace
+			m.SwitchToView(WorkspaceView)
+			
+			// Create workspace terminal sessions
+			workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
+			newModel, cmd := workspaceView.CreateWorkspaceSessions(&m, workspace)
+			m.showWorkspaceSelector = false
+			return newModel, cmd, true
+		}
+		m.showWorkspaceSelector = false
+		return &m, nil, true
+
+	case components.KeyUp, "k":
+		// Move up in workspace list
+		if m.selectedWorkspaceIndex > 0 {
+			m.selectedWorkspaceIndex--
+		} else {
+			m.selectedWorkspaceIndex = len(m.workspaces) - 1 // Wrap to bottom
+		}
+		return &m, nil, true
+
+	case components.KeyDown, "j":
+		// Move down in workspace list
+		if m.selectedWorkspaceIndex < len(m.workspaces)-1 {
+			m.selectedWorkspaceIndex++
+		} else {
+			m.selectedWorkspaceIndex = 0 // Wrap to top
+		}
+		return &m, nil, true
+
+	default:
+		// Check for number keys 1-9 for direct selection
+		if len(keyStr) == 1 && keyStr >= "1" && keyStr <= "9" {
+			index := int(keyStr[0] - '1') // Convert to 0-based index
+			if index < len(m.workspaces) {
+				workspace := &m.workspaces[index]
+				m.currentWorkspace = workspace
+				m.SwitchToView(WorkspaceView)
+				
+				// Create workspace terminal sessions
+				workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
+				newModel, cmd := workspaceView.CreateWorkspaceSessions(&m, workspace)
+				m.showWorkspaceSelector = false
+				return newModel, cmd, true
+			}
+		}
+	}
+
+	return &m, nil, true
+}
+
+// initializeMockWorkspaces creates mock workspace data for development
+func (m Model) initializeMockWorkspaces() []WorkspaceInfo {
+	// TODO: Replace this with actual API call to fetch workspaces
+	return []WorkspaceInfo{
+		{
+			ID:       "workspace-1",
+			Name:     "catnip-main",
+			Path:     "/workspace/catnip",
+			Branch:   "main",
+			IsActive: true,
+			ChangedFiles: []string{
+				"container/internal/tui/view_workspace.go",
+				"container/internal/tui/model.go",
+				"src/components/WorkspaceRightSidebar.tsx",
+			},
+			Ports: []PortInfo{
+				{Port: "3000", Title: "React Dev Server", Service: "vite"},
+				{Port: "8080", Title: "Main API", Service: "go-api"},
+			},
+		},
+		{
+			ID:       "workspace-2", 
+			Name:     "feature-branch",
+			Path:     "/workspace/catnip-feature",
+			Branch:   "feature/workspace-ui",
+			IsActive: false,
+			ChangedFiles: []string{
+				"frontend/src/App.tsx",
+				"README.md",
+			},
+			Ports: []PortInfo{
+				{Port: "3001", Title: "Test Server", Service: "node"},
+			},
+		},
+		{
+			ID:       "workspace-3",
+			Name:     "tom-repo", 
+			Path:     "/workspace/tom",
+			Branch:   "main",
+			IsActive: false,
+			ChangedFiles: []string{},
+			Ports:       []PortInfo{},
+		},
+	}
 }
 
 // Version check handler
