@@ -12,9 +12,11 @@
 
 **🔥 Run multiple AI agents in parallel, each in their own isolated git worktree with live preview!**
 
+<img src="public/screenshot.png" alt="Catnip UI Screenshot"/>
+
 </div>
 
-Catnip supercharges your development workflow by providing a **containerized environment** that can effortlessly run multiple agents in parallel. Catnip was purpose built for Claude Code, but additional agentic toolkits will be supported in the future.
+Catnip supercharges your development workflow by providing a **containerized environment** that can effortlessly run multiple agents in parallel using Claude Code.
 
 ## 🚀 Why Catnip?
 
