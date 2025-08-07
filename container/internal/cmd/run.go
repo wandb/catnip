@@ -256,29 +256,30 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	if isGitRepo {
 		workDirForTUI = gitRoot
 	}
-	tuiApp := tui.NewApp(containerService, name, workDirForTUI, containerImage, dev, refresh, ports, !disableSSH, GetVersion(), rmFlag)
-	if err := tuiApp.Run(ctx, workDirForTUI, ports); err != nil {
+    tuiApp := tui.NewApp(containerService, name, workDirForTUI, containerImage, dev, refresh, ports, !disableSSH, GetVersion(), rmFlag)
+    finalContainerName, err := tuiApp.Run(ctx, workDirForTUI, ports)
+    if err != nil {
 		// Clean up container on TUI error
-		fmt.Printf("Stopping container '%s'...\n", name)
-		_ = containerService.StopContainer(ctx, name)
+        fmt.Printf("Stopping container '%s'...\n", finalContainerName)
+        _ = containerService.StopContainer(ctx, finalContainerName)
 		return fmt.Errorf("TUI error: %w", err)
 	}
 
 	// Clean up container when TUI exits normally
-	if rmFlag {
-		fmt.Printf("Stopping and removing container '%s'...\n", name)
-		if err := containerService.StopContainer(ctx, name); err != nil {
+    if rmFlag {
+        fmt.Printf("Stopping and removing container '%s'...\n", finalContainerName)
+        if err := containerService.StopContainer(ctx, finalContainerName); err != nil {
 			fmt.Printf("Warning: Failed to stop container: %v\n", err)
 		} else {
-			if err := containerService.RemoveContainer(ctx, name); err != nil {
+            if err := containerService.RemoveContainer(ctx, finalContainerName); err != nil {
 				fmt.Printf("Warning: Failed to remove container: %v\n", err)
 			} else {
 				fmt.Printf("Container stopped and removed successfully.\n")
 			}
 		}
 	} else {
-		fmt.Printf("Stopping container '%s'...\n", name)
-		if err := containerService.StopContainer(ctx, name); err != nil {
+        fmt.Printf("Stopping container '%s'...\n", finalContainerName)
+        if err := containerService.StopContainer(ctx, finalContainerName); err != nil {
 			fmt.Printf("Warning: Failed to stop container: %v\n", err)
 		} else {
 			fmt.Printf("Container stopped successfully.\n")
