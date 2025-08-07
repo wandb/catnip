@@ -47,6 +47,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePorts(msg)
 	case healthStatusMsg:
 		return m.handleHealthStatus(msg)
+	case workspacesMsg:
+		return m.handleWorkspaces(msg)
+	case sseWorktreeUpdatedMsg:
+		return m.handleSSEWorktreeUpdated(msg)
 	case errMsg:
 		return m.handleError(msg)
 	case quitMsg:
@@ -171,12 +175,9 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			m.showWorkspaceSelector = true
 			m.selectedWorkspaceIndex = 0 // Default to first workspace
 		} else {
-			// Initialize mock workspaces for now - TODO: fetch from API
-			m.workspaces = m.initializeMockWorkspaces()
-			if len(m.workspaces) > 0 {
-				m.showWorkspaceSelector = true
-				m.selectedWorkspaceIndex = 0
-			}
+			// Set flag to show selector when workspaces load and fetch workspaces from API
+			m.waitingToShowWorkspaces = true
+			return &m, m.fetchWorkspaces(), true
 		}
 		return &m, nil, true
 	}
@@ -230,6 +231,12 @@ func (m Model) handleTick(msg tickMsg) (tea.Model, tea.Cmd) {
 	// Once SSE is connected, we use that as our health indicator
 	if !m.sseConnected {
 		cmds = append(cmds, m.fetchHealthStatus())
+	}
+
+	// Fetch workspaces periodically (every 5 ticks = 25 seconds)
+	// This is a fallback in case SSE events are missed
+	if int(m.lastUpdate.Unix())%25 == 0 {
+		cmds = append(cmds, m.fetchWorkspaces())
 	}
 
 	return m, tea.Batch(cmds...)
@@ -738,4 +745,26 @@ func (m Model) handleVersionCheck(msg VersionCheckMsg) (tea.Model, tea.Cmd) {
 		debugLog("Versions match: CLI=%s, Container=%s", msg.CLIVersion, msg.ContainerVersion)
 	}
 	return m, nil
+}
+
+// Workspaces message handler
+func (m Model) handleWorkspaces(msg workspacesMsg) (tea.Model, tea.Cmd) {
+	m.workspaces = []WorkspaceInfo(msg)
+	debugLog("Updated workspaces: %d workspaces loaded", len(m.workspaces))
+
+	// If we were waiting to show workspaces and now have some, show the selector
+	if len(m.workspaces) > 0 && m.waitingToShowWorkspaces {
+		m.waitingToShowWorkspaces = false
+		m.showWorkspaceSelector = true
+		m.selectedWorkspaceIndex = 0
+	}
+
+	return m, nil
+}
+
+// SSE worktree updated handler
+func (m Model) handleSSEWorktreeUpdated(msg sseWorktreeUpdatedMsg) (tea.Model, tea.Cmd) {
+	debugLog("SSE worktree updated event received, refreshing workspaces")
+	// Refresh workspaces when SSE event is received
+	return m, m.fetchWorkspaces()
 }

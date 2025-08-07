@@ -2,10 +2,13 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vanpelt/catnip/internal/models"
 )
 
 // Ticker commands
@@ -114,6 +117,23 @@ func (m *Model) fetchHealthStatus() tea.Cmd {
 	}
 }
 
+func (m *Model) fetchWorkspaces() tea.Cmd {
+	return func() tea.Msg {
+		// If quit was requested, don't execute this command
+		if m.quitRequested {
+			debugLog("fetchWorkspaces: quit requested, skipping")
+			return nil
+		}
+
+		workspaces, err := fetchWorkspacesFromAPI()
+		if err != nil {
+			debugLog("fetchWorkspaces: error: %v", err)
+			return workspacesMsg{} // Return empty list on error
+		}
+		return workspacesMsg(workspaces)
+	}
+}
+
 // Batch commands for initialization
 func (m *Model) initCommands() tea.Cmd {
 	var commands []tea.Cmd
@@ -132,6 +152,7 @@ func (m *Model) initCommands() tea.Cmd {
 		m.fetchRepositoryInfo(),
 		m.fetchHealthStatus(),
 		m.fetchPorts(),
+		m.fetchWorkspaces(),
 		m.fetchContainerInfo(),
 		m.shellSpinner.Tick,
 		tick(),
@@ -140,4 +161,46 @@ func (m *Model) initCommands() tea.Cmd {
 	)
 
 	return tea.Batch(commands...)
+}
+
+// fetchWorkspacesFromAPI fetches workspaces from the container API
+func fetchWorkspacesFromAPI() ([]WorkspaceInfo, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://localhost:8080/v1/git/worktrees")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, err // Return empty if API call fails
+	}
+
+	var worktrees []models.Worktree
+	if err := json.NewDecoder(resp.Body).Decode(&worktrees); err != nil {
+		return nil, err
+	}
+
+	// Convert models.Worktree to WorkspaceInfo
+	var workspaces []WorkspaceInfo
+	for _, wt := range worktrees {
+		workspace := WorkspaceInfo{
+			ID:           wt.ID,
+			Name:         wt.Name,
+			Path:         wt.Path,
+			Branch:       wt.Branch,
+			IsActive:     string(wt.ClaudeActivityState) != "inactive", // Use Claude activity as active indicator
+			ChangedFiles: []string{},                                   // TODO: Get changed files from git status if needed
+			Ports:        []PortInfo{},                                 // TODO: Map ports if available in worktree model
+		}
+
+		// Add indicator if worktree is dirty (has uncommitted changes)
+		if wt.IsDirty {
+			workspace.ChangedFiles = []string{"(uncommitted changes)"} // Placeholder
+		}
+
+		workspaces = append(workspaces, workspace)
+	}
+
+	return workspaces, nil
 }
