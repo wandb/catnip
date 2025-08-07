@@ -164,7 +164,7 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			m.bootingBoldTimer = time.Now()
 		}
 		return &m, nil, true
-	
+
 	case components.KeyWorkspace:
 		// Show workspace selector overlay if we have workspaces
 		if len(m.workspaces) > 0 {
@@ -465,29 +465,33 @@ func (m Model) handleSSEError(msg sseErrorMsg) (tea.Model, tea.Cmd) {
 
 // Shell message handlers
 func (m Model) handleShellOutput(msg shellOutputMsg) (tea.Model, tea.Cmd) {
-	if m.currentView == ShellView {
+	switch m.currentView {
+	case ShellView:
 		shellView := m.views[ShellView].(*ShellViewImpl)
 		newModel, cmd := shellView.handleShellOutput(&m, msg)
 		return *newModel, cmd
-	} else if m.currentView == WorkspaceView {
+	case WorkspaceView:
 		workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
 		newModel, cmd := workspaceView.Update(&m, msg)
 		return *newModel, cmd
+	default:
+		return m, nil
 	}
-	return m, nil
 }
 
 func (m Model) handleShellError(msg shellErrorMsg) (tea.Model, tea.Cmd) {
-	if m.currentView == ShellView {
+	switch m.currentView {
+	case ShellView:
 		shellView := m.views[ShellView].(*ShellViewImpl)
 		newModel, cmd := shellView.handleShellError(&m, msg)
 		return *newModel, cmd
-	} else if m.currentView == WorkspaceView {
+	case WorkspaceView:
 		workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
 		newModel, cmd := workspaceView.Update(&m, msg)
 		return *newModel, cmd
+	default:
+		return m, nil
 	}
-	return m, nil
 }
 
 // handlePortSelectorKeys handles key input for the port selector overlay
@@ -630,7 +634,7 @@ func (m Model) handleWorkspaceSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, boo
 			workspace := &m.workspaces[m.selectedWorkspaceIndex]
 			m.currentWorkspace = workspace
 			m.SwitchToView(WorkspaceView)
-			
+
 			// Create workspace terminal sessions
 			workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
 			newModel, cmd := workspaceView.CreateWorkspaceSessions(&m, workspace)
@@ -666,7 +670,7 @@ func (m Model) handleWorkspaceSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, boo
 				workspace := &m.workspaces[index]
 				m.currentWorkspace = workspace
 				m.SwitchToView(WorkspaceView)
-				
+
 				// Create workspace terminal sessions
 				workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
 				newModel, cmd := workspaceView.CreateWorkspaceSessions(&m, workspace)
@@ -700,7 +704,7 @@ func (m Model) initializeMockWorkspaces() []WorkspaceInfo {
 			},
 		},
 		{
-			ID:       "workspace-2", 
+			ID:       "workspace-2",
 			Name:     "feature-branch",
 			Path:     "/workspace/catnip-feature",
 			Branch:   "feature/workspace-ui",
@@ -714,13 +718,13 @@ func (m Model) initializeMockWorkspaces() []WorkspaceInfo {
 			},
 		},
 		{
-			ID:       "workspace-3",
-			Name:     "tom-repo", 
-			Path:     "/workspace/tom",
-			Branch:   "main",
-			IsActive: false,
+			ID:           "workspace-3",
+			Name:         "tom-repo",
+			Path:         "/workspace/tom",
+			Branch:       "main",
+			IsActive:     false,
 			ChangedFiles: []string{},
-			Ports:       []PortInfo{},
+			Ports:        []PortInfo{},
 		},
 	}
 }
