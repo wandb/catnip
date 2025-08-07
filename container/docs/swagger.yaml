@@ -301,6 +301,10 @@ definitions:
   github_com_vanpelt_catnip_internal_models.Repository:
     description: Git repository information and metadata
     properties:
+      available:
+        description: Whether the repository is currently available on disk
+        example: true
+        type: boolean
       created_at:
         description: When this repository was first cloned
         example: "2024-01-15T10:30:00Z"

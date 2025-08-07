@@ -1,5 +1,12 @@
 import { Link, useParams } from "@tanstack/react-router";
-import { ChevronRight, Folder, GitBranch, Plus, Settings } from "lucide-react";
+import {
+  ChevronRight,
+  Folder,
+  GitBranch,
+  Plus,
+  Settings,
+  AlertTriangle,
+} from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -33,6 +40,15 @@ import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
 import { useGlobalKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import type { Worktree } from "@/lib/git-api";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
@@ -44,6 +60,10 @@ export function WorkspaceLeftSidebar() {
     useGlobalKeyboardShortcuts();
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [unavailableRepoAlert, setUnavailableRepoAlert] = useState<{
+    open: boolean;
+    repoName: string;
+  }>({ open: false, repoName: "" });
 
   // Use stable selectors to avoid infinite loops
   const worktreesCount = useAppStore(
@@ -79,9 +99,12 @@ export function WorkspaceLeftSidebar() {
       branch: string;
     } | null>(null);
 
-  // Keep all repositories with worktrees expanded by default
+  // Keep only available repositories expanded by default
   useEffect(() => {
-    setExpandedRepos(new Set(repositoriesWithWorktrees.map((repo) => repo.id)));
+    const availableRepos = repositoriesWithWorktrees
+      .filter((repo) => repo.available !== false)
+      .map((repo) => repo.id);
+    setExpandedRepos(new Set(availableRepos));
   }, [repositoriesWithWorktrees]);
 
   const toggleRepo = (repoIdToToggle: string) => {
@@ -141,6 +164,7 @@ export function WorkspaceLeftSidebar() {
                 {repositoriesWithWorktrees.map((repo) => {
                   const worktrees = repo.worktrees;
                   const isExpanded = expandedRepos.has(repo.id);
+                  const isAvailable = repo.available !== false; // Default to true if not specified
 
                   // Get project name from the first worktree
                   const projectName =
@@ -158,7 +182,7 @@ export function WorkspaceLeftSidebar() {
                         <div className="flex items-center w-full">
                           <SidebarMenuButton
                             onClick={() => toggleRepo(repo.id)}
-                            className="flex-1"
+                            className={`flex-1 ${!isAvailable ? "opacity-50" : ""}`}
                           >
                             <Folder className="h-4 w-4" />
                             <span className="truncate">{projectName}</span>
@@ -168,15 +192,51 @@ export function WorkspaceLeftSidebar() {
                               <ChevronRight />
                             </SidebarMenuAction>
                           </CollapsibleTrigger>
-                          <SidebarMenuAction
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAddWorkspace(repo);
-                            }}
-                            className="hover:bg-accent mr-5"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </SidebarMenuAction>
+                          {isAvailable ? (
+                            <SidebarMenuAction
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddWorkspace(repo);
+                              }}
+                              className="hover:bg-accent mr-5"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </SidebarMenuAction>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <SidebarMenuAction
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setUnavailableRepoAlert({
+                                      open: true,
+                                      repoName: projectName,
+                                    });
+                                  }}
+                                  className="mr-5 text-yellow-500 hover:bg-accent"
+                                >
+                                  <AlertTriangle className="h-4 w-4" />
+                                </SidebarMenuAction>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="left"
+                                className="max-w-xs space-y-1"
+                              >
+                                <div className="text-sm">
+                                  Repo {projectName} isn't available in the
+                                  container.
+                                </div>
+                                <div className="text-sm">
+                                  Run{" "}
+                                  <code className="inline-block bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded text-xs font-mono">
+                                    catnip run
+                                  </code>{" "}
+                                  from the git repo on your host to make it
+                                  available.
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
                         </div>
                         <CollapsibleContent>
                           <SidebarMenuSub className="mx-0 mr-0">
@@ -188,46 +248,83 @@ export function WorkspaceLeftSidebar() {
                               return (
                                 <SidebarMenuSubItem key={worktree.id}>
                                   <SidebarMenuSubButton
-                                    asChild
+                                    asChild={isAvailable}
                                     isActive={isActive}
+                                    className={
+                                      !isAvailable
+                                        ? "opacity-50 cursor-not-allowed"
+                                        : ""
+                                    }
+                                    onClick={
+                                      !isAvailable
+                                        ? (e) => {
+                                            e.preventDefault();
+                                            setUnavailableRepoAlert({
+                                              open: true,
+                                              repoName: projectName,
+                                            });
+                                          }
+                                        : undefined
+                                    }
                                   >
-                                    <Link
-                                      to="/workspace/$project/$workspace"
-                                      params={{
-                                        project: nameParts[0],
-                                        workspace: nameParts[1],
-                                      }}
-                                      className="flex items-center gap-1.5 pr-2"
-                                    >
-                                      <div
-                                        className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
-                                        title={status.label}
-                                      />
-                                      <span className="truncate">
-                                        {worktree.name.split("/")[1] ||
-                                          worktree.name}
-                                      </span>
-                                      {worktree.branch && (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <div className="ml-auto flex items-center gap-0.5">
-                                              <GitBranch className="h-3 w-3 text-muted-foreground/70" />
-                                              <span className="text-xs text-muted-foreground truncate max-w-24">
+                                    {isAvailable ? (
+                                      <Link
+                                        to="/workspace/$project/$workspace"
+                                        params={{
+                                          project: nameParts[0],
+                                          workspace: nameParts[1],
+                                        }}
+                                        className="flex items-center gap-1.5 pr-2"
+                                      >
+                                        <div
+                                          className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
+                                          title={status.label}
+                                        />
+                                        <span className="truncate">
+                                          {worktree.name.split("/")[1] ||
+                                            worktree.name}
+                                        </span>
+                                        {worktree.branch && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <div className="ml-auto flex items-center gap-0.5">
+                                                <GitBranch className="h-3 w-3 text-muted-foreground/70" />
+                                                <span className="text-xs text-muted-foreground truncate max-w-24">
+                                                  {worktree.branch}
+                                                </span>
+                                              </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent
+                                              side="right"
+                                              align="center"
+                                            >
+                                              <div className="text-xs">
                                                 {worktree.branch}
-                                              </span>
-                                            </div>
-                                          </TooltipTrigger>
-                                          <TooltipContent
-                                            side="right"
-                                            align="center"
-                                          >
-                                            <div className="text-xs">
+                                              </div>
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        )}
+                                      </Link>
+                                    ) : (
+                                      <span className="flex items-center gap-1.5 pr-2">
+                                        <div
+                                          className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
+                                          title={status.label}
+                                        />
+                                        <span className="truncate">
+                                          {worktree.name.split("/")[1] ||
+                                            worktree.name}
+                                        </span>
+                                        {worktree.branch && (
+                                          <span className="ml-auto flex items-center gap-0.5">
+                                            <GitBranch className="h-3 w-3 text-muted-foreground/70" />
+                                            <span className="text-xs text-muted-foreground truncate max-w-24">
                                               {worktree.branch}
-                                            </div>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                    </Link>
+                                            </span>
+                                          </span>
+                                        )}
+                                      </span>
+                                    )}
                                   </SidebarMenuSubButton>
                                 </SidebarMenuSubItem>
                               );
@@ -280,6 +377,26 @@ export function WorkspaceLeftSidebar() {
         initialBranch={selectedRepoForNewWorkspace?.branch}
       />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <AlertDialog
+        open={unavailableRepoAlert.open}
+        onOpenChange={(open) =>
+          setUnavailableRepoAlert({ ...unavailableRepoAlert, open })
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Repository Not Available</AlertDialogTitle>
+            <AlertDialogDescription>
+              Repo {unavailableRepoAlert.repoName} isn't available in the
+              container. Run `catnip run` from the git repo on your host to make
+              it available within the container.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

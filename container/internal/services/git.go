@@ -26,9 +26,9 @@ func getWorkspaceDir() string {
 	return config.Runtime.WorkspaceDir
 }
 
-// getGitStateDir returns the git state directory based on workspace dir
+// getGitStateDir returns the git state directory based on volume dir
 func getGitStateDir() string {
-	return filepath.Join(getWorkspaceDir(), ".git-state")
+	return config.Runtime.VolumeDir
 }
 
 // generateUniqueSessionName generates a unique session name that doesn't already exist as a branch
@@ -463,6 +463,9 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 		log.Printf("⚠️ Failed to start CommitSync service: %v", err)
 	}
 
+	// Set up GitService as the WorktreeRestorer for state restoration
+	stateManager.SetWorktreeRestorer(s)
+
 	return s
 }
 
@@ -488,7 +491,14 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 	}
 
 	repoName := strings.ReplaceAll(repo, "/", "-")
-	barePath := filepath.Join(getWorkspaceDir(), fmt.Sprintf("%s.git", repoName))
+	reposDir := filepath.Join(config.Runtime.VolumeDir, "repos")
+
+	// Ensure repos directory exists
+	if err := os.MkdirAll(reposDir, 0755); err != nil {
+		return nil, nil, fmt.Errorf("failed to create repos directory: %v", err)
+	}
+
+	barePath := filepath.Join(reposDir, fmt.Sprintf("%s.git", repoName))
 
 	// Check if a directory is already mounted at the repo location
 	if s.isRepoMounted(getWorkspaceDir(), repoName) {
@@ -807,6 +817,15 @@ func (s *GitService) detectLocalRepos() {
 
 // shouldCreateInitialWorktree checks if we should create an initial worktree for a repo
 func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
+	// First check if worktrees exist in state manager (for restore scenario)
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
+		if worktree.RepoID == repoID {
+			log.Printf("🔍 Found existing worktree in state for %s: %s", repoID, worktree.Name)
+			return false
+		}
+	}
+
 	// Check if any worktrees exist for this repo in /workspace
 	dirName := filepath.Base(strings.TrimPrefix(repoID, "local/"))
 	repoWorkspaceDir := filepath.Join(getWorkspaceDir(), dirName)
@@ -943,6 +962,12 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 			return s.operations.GetRemoteBranchesFromURL(remoteURL)
 		}
 		return nil, fmt.Errorf("repository %s not found", repoID)
+	}
+
+	// Check if repository is available for local repos only
+	// Remote repos can still be queried even if not locally available
+	if s.isLocalRepo(repoID) && !repo.Available {
+		return nil, fmt.Errorf("repository %s is not available", repoID)
 	}
 
 	// Handle local repos specially
@@ -1385,6 +1410,11 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 	repo, exists := s.stateManager.GetRepository(worktree.RepoID)
 	if !exists {
 		return fmt.Errorf("local repository %s not found", worktree.RepoID)
+	}
+
+	// Check if repository is available
+	if !repo.Available {
+		return fmt.Errorf("repository %s is not available", worktree.RepoID)
 	}
 
 	previewBranchName := fmt.Sprintf("catnip/%s", git.ExtractWorkspaceName(worktree.Branch))
@@ -2315,4 +2345,68 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 
 	log.Printf("✅ Successfully created project %s from template %s with initial worktree %s", projectName, templateID, worktree.Name)
 	return repo, worktree, nil
+}
+
+// RecreateWorktree implements the WorktreeRestorer interface
+func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Repository) error {
+	log.Printf("🚨🚨🚨 RECREATE WORKTREE METHOD CALLED FOR %s 🚨🚨🚨", worktree.Name)
+	log.Printf("🔄 Attempting to recreate worktree %s at %s (from repo %s)", worktree.Name, worktree.Path, repo.Path)
+
+	// Ensure the parent directory exists
+	parentDir := filepath.Dir(worktree.Path)
+	log.Printf("🔧 Creating parent directory %s", parentDir)
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		log.Printf("❌ Failed to create parent directory %s: %v", parentDir, err)
+		return fmt.Errorf("failed to create parent directory %s: %v", parentDir, err)
+	}
+
+	// Create the worktree using git operations
+	// For renamed branches, we need to find the original catnip branch reference
+	branchRef := worktree.Branch
+	if worktree.HasBeenRenamed && !strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+		// For renamed branches, extract just the workspace name (without repo prefix)
+		// from the worktree name (e.g., "vllmulator/simba" -> "simba")
+		parts := strings.Split(worktree.Name, "/")
+		workspaceName := parts[len(parts)-1]
+		branchRef = fmt.Sprintf("refs/catnip/%s", workspaceName)
+		log.Printf("🔍 Using catnip ref %s for recreating renamed worktree %s", branchRef, worktree.Name)
+	}
+	log.Printf("🔍 Using branch reference: %s", branchRef)
+	log.Printf("✅ Repository passed directly: %s at %s", repo.ID, repo.Path)
+
+	// Use the git worktree manager to create the worktree
+	// For restoration, we need to pass the workspace root, not the repo-specific directory
+	// The CreateWorktree method will append repoName/workspaceName to this path
+	workspaceRoot := "/workspace" // The CreateWorktree method will build the full path
+	log.Printf("🔧 Calling CreateWorktree with: repo=%s, sourceBranch=%s, branchName=%s, workspaceDir=%s",
+		repo.Path, worktree.SourceBranch, branchRef, workspaceRoot)
+
+	// Add some validation before calling CreateWorktree
+	if s.gitWorktreeManager == nil {
+		log.Printf("❌ gitWorktreeManager is nil")
+		return fmt.Errorf("git worktree manager is not initialized")
+	}
+
+	log.Printf("🔧 About to call CreateWorktree...")
+	result, err := s.gitWorktreeManager.CreateWorktree(git.CreateWorktreeRequest{
+		Repository:   repo,
+		SourceBranch: worktree.SourceBranch,
+		BranchName:   branchRef,
+		WorkspaceDir: workspaceRoot,
+		IsInitial:    false,
+	})
+	log.Printf("🔧 CreateWorktree returned: result=%v, err=%v", result, err)
+
+	if err != nil {
+		log.Printf("❌ CreateWorktree failed for %s: %v", worktree.Name, err)
+		return fmt.Errorf("failed to create git worktree: %v", err)
+	}
+
+	log.Printf("✅ Successfully recreated worktree %s", worktree.Name)
+	return nil
+}
+
+// RestoreState restores worktree state from persistent storage
+func (s *GitService) RestoreState() error {
+	return s.stateManager.RestoreState()
 }
