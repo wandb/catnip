@@ -217,70 +217,7 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 				"FORCE_COLOR=1",
 				"CLICOLOR_FORCE=1")
 
-			// For Docker commands, use proper streaming with real-time output
-			if strings.Contains(strings.Join(cmd.Args, " "), "docker") {
-				// Set up pipes for stdout and stderr
-				stdout, err := cmd.StdoutPipe()
-				if err != nil {
-					outputChan <- []byte(fmt.Sprintf("Error: Failed to create stdout pipe: %v", err))
-					return
-				}
-
-				stderr, err := cmd.StderrPipe()
-				if err != nil {
-					outputChan <- []byte(fmt.Sprintf("Error: Failed to create stderr pipe: %v", err))
-					return
-				}
-
-				// Start the command
-				if err := cmd.Start(); err != nil {
-					outputChan <- []byte(fmt.Sprintf("Error: Failed to start Docker command: %v", err))
-					return
-				}
-
-				// Stream stdout and stderr concurrently
-				go func() {
-					buf := make([]byte, 1024)
-					for {
-						n, err := stdout.Read(buf)
-						if n > 0 {
-							data := make([]byte, n)
-							copy(data, buf[:n])
-							outputChan <- data
-						}
-						if err != nil {
-							break
-						}
-					}
-				}()
-
-				go func() {
-					buf := make([]byte, 1024)
-					for {
-						n, err := stderr.Read(buf)
-						if n > 0 {
-							data := make([]byte, n)
-							copy(data, buf[:n])
-							outputChan <- data
-						}
-						if err != nil {
-							break
-						}
-					}
-				}()
-
-				// Wait for command completion
-				if err := cmd.Wait(); err != nil {
-					outputChan <- []byte(fmt.Sprintf("\nCommand failed with error: %v", err))
-					return
-				}
-
-				outputChan <- []byte("\n✅ Command completed successfully!\n")
-				doneChan <- true
-				return
-			}
-
-			// For non-Docker commands, use PTY streaming as before
+			// Use PTY streaming for all commands to ensure proper terminal handling
 			ptmx, err := pty.Start(cmd)
 			if err != nil {
 				outputChan <- []byte(fmt.Sprintf("Error: Failed to start command: %v", err))
@@ -309,7 +246,7 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 				return
 			}
 
-			outputChan <- []byte("✅ Build completed successfully!\n")
+			outputChan <- []byte("✅ Command completed successfully!\n")
 			doneChan <- true
 		}()
 
