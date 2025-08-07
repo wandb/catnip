@@ -218,7 +218,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	targetURL := fmt.Sprintf("http://localhost:%d%s", port, path)
 
 	// Add query parameters
-	if c.Request().URI().QueryString() != nil {
+	if len(c.Request().URI().QueryString()) > 0 {
 		targetURL += "?" + string(c.Request().URI().QueryString())
 	}
 
@@ -662,7 +662,7 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 	targetURL := fmt.Sprintf("ws://localhost:%d%s", port, path)
 
 	// Add query parameters
-	if c.Request().URI().QueryString() != nil {
+	if len(c.Request().URI().QueryString()) > 0 {
 		targetURL += "?" + string(c.Request().URI().QueryString())
 	}
 
