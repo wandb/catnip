@@ -22,7 +22,7 @@ Catnip's purpose is to make developing with AI more accessible and productive.
 
 - **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK](https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
 - **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
-- **💻 Full Terminal Access**: Open mutliple terminals via the web interface, CLI, or directly via SSH.
+- **💻 Full Terminal Access**: Open multiple terminals via the web interface, CLI, or directly via SSH.
 - **👀 Preview Changes**: Catnip has a built in proxy and port detection. Start a web service and preview it live!
 - **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is supported.
 
@@ -98,14 +98,14 @@ Catnip currently looks for a file named `setup.sh` in the root of your repo and 
 
 ### SSH
 
-The `catnip run` command configures SSH witnin the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh).
+The `catnip run` command configures SSH within the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh).
 
 ### Git
 
-If you run `catnip` from within a git repo, we mount the repo into the contaienr and create a default workspace. When you start a claude session in Catnip the system automatically commits changes as claude makes them.
+If you run `catnip` from within a git repo, we mount the repo into the container and create a default workspace. When you start a claude session in Catnip the system automatically commits changes as claude makes them.
 
 > [!TIP]
-> The workspace within the container is commiting to a custom ref `refs/catnip/$NAME`. For convenience we also create a nicely named branch like `feature/make-something-great`. This branch is kept in sync with the workspace ref which means you can run `git checkout feature/make-something-great` outside of the container to see changes locally!
+> The workspace within the container is committing to a custom ref `refs/catnip/$NAME`. For convenience we also create a nicely named branch like `feature/make-something-great`. This branch is kept in sync with the workspace ref which means you can run `git checkout feature/make-something-great` outside of the container to see changes locally!
 
 ### Ports
 
