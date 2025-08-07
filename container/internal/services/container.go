@@ -372,47 +372,47 @@ func (cs *ContainerService) StartContainer(ctx context.Context, containerName st
 
 // GetContainerImageForName returns the image (including tag) that a container was created with
 func (cs *ContainerService) GetContainerImageForName(ctx context.Context, containerName string) (string, error) {
-    switch cs.runtime {
-    case RuntimeDocker:
-        // docker inspect -f '{{.Config.Image}}' <name>
-        cmd := exec.CommandContext(ctx, string(cs.runtime), "inspect", "-f", "{{.Config.Image}}", containerName)
-        output, err := cmd.Output()
-        if err != nil {
-            return "", fmt.Errorf("failed to inspect container image: %w", err)
-        }
-        return strings.TrimSpace(string(output)), nil
-    case RuntimeApple:
-        // `container list --all` prints a table; IMAGE is the second column
-        cmd := exec.CommandContext(ctx, string(cs.runtime), "list", "--all")
-        output, err := cmd.Output()
-        if err != nil {
-            return "", fmt.Errorf("failed to list containers: %w", err)
-        }
-        lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-        for _, line := range lines {
-            if strings.HasPrefix(line, "ID") { // header
-                continue
-            }
-            fields := strings.Fields(line)
-            if len(fields) < 2 {
-                continue
-            }
-            id := fields[0]
-            if id == containerName {
-                return fields[1], nil
-            }
-        }
-        return "", fmt.Errorf("container %s not found in list output", containerName)
-    default:
-        return "", fmt.Errorf("unsupported runtime: %s", cs.runtime)
-    }
+	switch cs.runtime {
+	case RuntimeDocker:
+		// docker inspect -f '{{.Config.Image}}' <name>
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "inspect", "-f", "{{.Config.Image}}", containerName)
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to inspect container image: %w", err)
+		}
+		return strings.TrimSpace(string(output)), nil
+	case RuntimeApple:
+		// `container list --all` prints a table; IMAGE is the second column
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "list", "--all")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to list containers: %w", err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "ID") { // header
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			id := fields[0]
+			if id == containerName {
+				return fields[1], nil
+			}
+		}
+		return "", fmt.Errorf("container %s not found in list output", containerName)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", cs.runtime)
+	}
 }
 
 func (cs *ContainerService) ContainerExists(ctx context.Context, containerName string) bool {
 	var cmd *exec.Cmd
 	switch cs.runtime {
 	case RuntimeDocker:
-        cmd = exec.CommandContext(ctx, string(cs.runtime), "ps", "-a", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "ps", "-a", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
 	case RuntimeApple:
 		cmd = exec.CommandContext(ctx, string(cs.runtime), "list", "--all")
 	}
@@ -423,16 +423,16 @@ func (cs *ContainerService) ContainerExists(ctx context.Context, containerName s
 
 	switch cs.runtime {
 	case RuntimeDocker:
-        out := strings.TrimSpace(string(output))
-        if out == "" {
-            return false
-        }
-        for _, line := range strings.Split(out, "\n") {
-            if strings.TrimSpace(line) == containerName {
-                return true
-            }
-        }
-        return false
+		out := strings.TrimSpace(string(output))
+		if out == "" {
+			return false
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if strings.TrimSpace(line) == containerName {
+				return true
+			}
+		}
+		return false
 	case RuntimeApple:
 		// Parse Apple Container table output (including stopped containers)
 		// Format: ID      IMAGE                         OS     ARCH   STATE    ADDR
@@ -464,7 +464,7 @@ func (cs *ContainerService) IsContainerRunning(ctx context.Context, containerNam
 	var cmd *exec.Cmd
 	switch cs.runtime {
 	case RuntimeDocker:
-        cmd = exec.CommandContext(ctx, string(cs.runtime), "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
 	case RuntimeApple:
 		cmd = exec.CommandContext(ctx, string(cs.runtime), "list")
 	}
@@ -475,16 +475,16 @@ func (cs *ContainerService) IsContainerRunning(ctx context.Context, containerNam
 
 	switch cs.runtime {
 	case RuntimeDocker:
-        out := strings.TrimSpace(string(output))
-        if out == "" {
-            return false
-        }
-        for _, line := range strings.Split(out, "\n") {
-            if strings.TrimSpace(line) == containerName {
-                return true
-            }
-        }
-        return false
+		out := strings.TrimSpace(string(output))
+		if out == "" {
+			return false
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if strings.TrimSpace(line) == containerName {
+				return true
+			}
+		}
+		return false
 	case RuntimeApple:
 		// Parse Apple Container table output
 		// Format: ID      IMAGE                         OS     ARCH   STATE    ADDR
@@ -516,58 +516,58 @@ func (cs *ContainerService) IsContainerRunning(ctx context.Context, containerNam
 // FindRunningCatnipContainer scans running containers and returns the first Catnip container found
 // It returns the container name and image, and ok=true if found
 func (cs *ContainerService) FindRunningCatnipContainer(ctx context.Context) (string, string, bool) {
-    switch cs.runtime {
-    case RuntimeDocker:
-        // List running containers with names and images
-        cmd := exec.CommandContext(ctx, string(cs.runtime), "ps", "--format", "{{.Names}}||{{.Image}}")
-        output, err := cmd.Output()
-        if err != nil {
-            return "", "", false
-        }
-        lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-        for _, line := range lines {
-            if strings.TrimSpace(line) == "" {
-                continue
-            }
-            parts := strings.SplitN(line, "||", 2)
-            if len(parts) != 2 {
-                continue
-            }
-            name := strings.TrimSpace(parts[0])
-            image := strings.TrimSpace(parts[1])
-            // Heuristic: consider any image containing "catnip" as a Catnip container
-            if strings.Contains(image, "catnip") {
-                return name, image, true
-            }
-        }
-        return "", "", false
-    case RuntimeApple:
-        // container list shows running containers; columns: ID IMAGE OS ARCH STATE ADDR
-        cmd := exec.CommandContext(ctx, string(cs.runtime), "list")
-        output, err := cmd.Output()
-        if err != nil {
-            return "", "", false
-        }
-        lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-        for _, line := range lines {
-            if strings.HasPrefix(line, "ID") || strings.TrimSpace(line) == "" {
-                continue
-            }
-            fields := strings.Fields(line)
-            if len(fields) < 5 {
-                continue
-            }
-            name := fields[0]
-            image := fields[1]
-            state := fields[4]
-            if state == "running" && strings.Contains(image, "catnip") {
-                return name, image, true
-            }
-        }
-        return "", "", false
-    default:
-        return "", "", false
-    }
+	switch cs.runtime {
+	case RuntimeDocker:
+		// List running containers with names and images
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "ps", "--format", "{{.Names}}||{{.Image}}")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", "", false
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			parts := strings.SplitN(line, "||", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			name := strings.TrimSpace(parts[0])
+			image := strings.TrimSpace(parts[1])
+			// Heuristic: consider any image containing "catnip" as a Catnip container
+			if strings.Contains(image, "catnip") {
+				return name, image, true
+			}
+		}
+		return "", "", false
+	case RuntimeApple:
+		// container list shows running containers; columns: ID IMAGE OS ARCH STATE ADDR
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "list")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", "", false
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "ID") || strings.TrimSpace(line) == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 5 {
+				continue
+			}
+			name := fields[0]
+			image := fields[1]
+			state := fields[4]
+			if state == "running" && strings.Contains(image, "catnip") {
+				return name, image, true
+			}
+		}
+		return "", "", false
+	default:
+		return "", "", false
+	}
 }
 
 func (cs *ContainerService) GetContainerPorts(ctx context.Context, containerName string) ([]string, error) {

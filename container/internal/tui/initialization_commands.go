@@ -278,7 +278,7 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 
 			debugLog("ExecuteStreamingBuildCmd: starting command execution with PTY")
 
-            cmd.Env = append(os.Environ(),
+			cmd.Env = append(os.Environ(),
 				"TERM=xterm-256color",
 				"DOCKER_BUILDKIT=1",
 				"FORCE_COLOR=1",
@@ -306,18 +306,18 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 				}
 			}
 
-            if err := cmd.Wait(); err != nil {
+			if err := cmd.Wait(); err != nil {
 				// When command fails, try to capture any remaining output
 				// The PTY should have captured most output, but show error details
 				outputChan <- []byte(fmt.Sprintf("Command failed with error: %v", err))
-                // Ensure we emit a terminal reset to avoid leaving the user's terminal in a weird state
-                outputChan <- []byte("\x1b[0m\x1b[?7h\x1b[?25h")
-                return
+				// Ensure we emit a terminal reset to avoid leaving the user's terminal in a weird state
+				outputChan <- []byte("\x1b[0m\x1b[?7h\x1b[?25h")
+				return
 			}
 
-            outputChan <- []byte("✅ Command completed successfully!\n")
-            // Emit a terminal reset sequence to leave terminal in a good state
-            outputChan <- []byte("\x1b[0m\x1b[?7h\x1b[?25h")
+			outputChan <- []byte("✅ Command completed successfully!\n")
+			// Emit a terminal reset sequence to leave terminal in a good state
+			outputChan <- []byte("\x1b[0m\x1b[?7h\x1b[?25h")
 			doneChan <- true
 		}()
 
@@ -584,7 +584,7 @@ func ExecuteStreamingContainerLogsCmd(cmd *exec.Cmd, containerName string, conta
 				}
 			}()
 
-            // Wait for either the command to exit or health check to complete
+			// Wait for either the command to exit or health check to complete
 			select {
 			case healthy := <-healthyChan:
 				if healthy {
@@ -607,8 +607,8 @@ func ExecuteStreamingContainerLogsCmd(cmd *exec.Cmd, containerName string, conta
 				}
 			}
 
-            // Ensure terminal reset sequences are emitted at the end of streaming
-            outputChan <- "\x1b[0m\x1b[?7h\x1b[?25h"
+			// Ensure terminal reset sequences are emitted at the end of streaming
+			outputChan <- "\x1b[0m\x1b[?7h\x1b[?25h"
 		}()
 
 		// Return a message that will trigger the streaming reader with health monitoring

@@ -66,15 +66,15 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 	case InitializationCompleteMsg:
 		v.completed = true
 		v.status = "Initialization complete!"
-        // Trigger container start
-        return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
+		// Trigger container start
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
 
 	case InitializationCompleteWithOutputMsg:
 		v.completed = true
 		v.output = append(v.output, msg.Output...)
 		v.status = "Initialization complete!"
-        // Trigger container start
-        return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
+		// Trigger container start
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
 
 	case InitializationFailedMsg:
 		v.failed = true
@@ -95,8 +95,8 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		}
 
 		if msg.StartContainer {
-            // Need to start container
-            return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
+			// Need to start container
+			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
 		}
 
 		// Trigger the appropriate streaming command based on the action
@@ -173,9 +173,9 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
 
 	case ContainerStartedMsg:
-        // Update active container name in the model in case we attached to an existing container
-        m.containerName = msg.ContainerName
-        v.status = "Container started, checking health..."
+		// Update active container name in the model in case we attached to an existing container
+		m.containerName = msg.ContainerName
+		v.status = "Container started, checking health..."
 		// Start monitoring container health instead of switching to overview
 		return m, MonitorContainerHealthCmd(msg.ContainerService, msg.ContainerName)
 
