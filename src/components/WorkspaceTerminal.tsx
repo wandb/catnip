@@ -10,9 +10,13 @@ import type { Worktree } from "@/lib/git-api";
 
 interface WorkspaceTerminalProps {
   worktree: Worktree;
+  terminalId?: string;
 }
 
-export function WorkspaceTerminal({ worktree }: WorkspaceTerminalProps) {
+export function WorkspaceTerminal({
+  worktree,
+  terminalId = "default",
+}: WorkspaceTerminalProps) {
   const { instance, ref } = useXTerm();
   const { setIsConnected } = useWebSocketContext();
   const wsRef = useRef<WebSocket | null>(null);
@@ -115,7 +119,12 @@ export function WorkspaceTerminal({ worktree }: WorkspaceTerminalProps) {
     // Set up WebSocket connection for bash terminal in the workspace directory
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const urlParams = new URLSearchParams();
-    urlParams.set("session", worktree.name);
+    // Create unique session name using terminalId
+    const sessionName =
+      terminalId === "default"
+        ? worktree.name
+        : `${worktree.name}:${terminalId}`;
+    urlParams.set("session", sessionName);
     // Don't set agent parameter - this should be a regular bash terminal
 
     const socketUrl = `${protocol}//${window.location.host}/v1/pty?${urlParams.toString()}`;
