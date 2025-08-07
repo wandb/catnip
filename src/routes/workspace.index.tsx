@@ -3,6 +3,8 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppStore } from "@/stores/appStore";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
+import { BackendErrorScreen } from "@/components/BackendErrorScreen";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 function WorkspaceRedirect() {
   const navigate = useNavigate();
@@ -10,12 +12,13 @@ function WorkspaceRedirect() {
 
   // Use stable selectors to avoid infinite loops
   const initialLoading = useAppStore((state) => state.initialLoading);
+  const loadError = useAppStore((state) => state.loadError);
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
   );
 
   useEffect(() => {
-    if (hasRedirected.current || initialLoading) {
+    if (hasRedirected.current || initialLoading || loadError) {
       return; // Prevent multiple redirects or wait for data to load
     }
 
@@ -39,7 +42,12 @@ function WorkspaceRedirect() {
     }
 
     // Don't redirect if no workspaces - show welcome screen instead
-  }, [initialLoading, worktreesCount, navigate]);
+  }, [initialLoading, loadError, worktreesCount, navigate]);
+
+  // Show error screen if backend is unavailable
+  if (loadError) {
+    return <BackendErrorScreen />;
+  }
 
   // Show welcome screen if no workspaces
   if (!initialLoading && worktreesCount === 0) {
@@ -49,10 +57,7 @@ function WorkspaceRedirect() {
   // Show loading while checking for workspaces
   return (
     <div className="flex h-screen items-center justify-center">
-      <div className="text-center space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-        <p className="text-muted-foreground">Finding workspace...</p>
-      </div>
+      <LoadingSpinner message="Finding workspace..." size="lg" />
     </div>
   );
 }

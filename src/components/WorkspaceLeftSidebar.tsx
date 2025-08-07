@@ -163,24 +163,20 @@ export function WorkspaceLeftSidebar() {
                             <Folder className="h-4 w-4" />
                             <span className="truncate">{projectName}</span>
                           </SidebarMenuButton>
+                          <CollapsibleTrigger asChild>
+                            <SidebarMenuAction className="data-[state=open]:rotate-90">
+                              <ChevronRight />
+                            </SidebarMenuAction>
+                          </CollapsibleTrigger>
                           <SidebarMenuAction
                             onClick={(e) => {
                               e.stopPropagation();
                               handleAddWorkspace(repo);
                             }}
-                            className="hover:bg-accent"
-                            showOnHover
+                            className="hover:bg-accent mr-5"
                           >
                             <Plus className="h-4 w-4" />
                           </SidebarMenuAction>
-                          <CollapsibleTrigger asChild>
-                            <SidebarMenuAction
-                              className="data-[state=open]:rotate-90"
-                              showOnHover
-                            >
-                              <ChevronRight />
-                            </SidebarMenuAction>
-                          </CollapsibleTrigger>
                         </div>
                         <CollapsibleContent>
                           <SidebarMenuSub className="mx-0 mr-0">
