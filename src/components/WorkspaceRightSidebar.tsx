@@ -30,6 +30,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
+import { useGitApi } from "@/hooks/useGitApi";
+import { useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { WorkspaceActions } from "@/components/WorkspaceActions";
 import { useAppStore } from "@/stores/appStore";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
@@ -195,6 +208,44 @@ function ChangedFiles({
   setSelectedFile?: (file: string | undefined) => void;
   onSync?: (id: string) => void;
 }) {
+  const { deleteWorktree } = useGitApi();
+  const navigate = useNavigate();
+  const [deleteDialog, setDeleteDialog] = useState<{
+    open: boolean;
+    worktreeId: string;
+    worktreeName: string;
+    hasChanges: boolean;
+    commitCount: number;
+  }>({
+    open: false,
+    worktreeId: "",
+    worktreeName: "",
+    hasChanges: false,
+    commitCount: 0,
+  });
+
+  // Handle delete with confirmation
+  const handleConfirmDelete = (id: string, name: string) => {
+    setDeleteDialog({
+      open: true,
+      worktreeId: id,
+      worktreeName: name,
+      hasChanges: worktree.is_dirty,
+      commitCount: worktree.commit_count,
+    });
+  };
+
+  const handleDeleteConfirmed = async () => {
+    try {
+      await deleteWorktree(deleteDialog.worktreeId);
+      setDeleteDialog({ ...deleteDialog, open: false });
+      // Redirect to workspace index to find next available workspace or show onboarding
+      void navigate({ to: "/workspace" });
+    } catch (error) {
+      console.error("Failed to delete worktree:", error);
+      // Keep dialog open on error so user can retry
+    }
+  };
   const { diffStats, loading, error } = useWorktreeDiff(
     worktree.id,
     worktree.commit_hash,
@@ -229,13 +280,85 @@ function ChangedFiles({
   }
 
   if (fileDiffs.length === 0) {
+    const changesList = [];
+    if (deleteDialog.hasChanges) changesList.push("uncommitted changes");
+    if (deleteDialog.commitCount > 0)
+      changesList.push(`${deleteDialog.commitCount} commits`);
+
     return (
-      <SidebarGroup>
-        <SidebarGroupLabel>Changed Files</SidebarGroupLabel>
-        <SidebarGroupContent>
-          <div className="text-sm text-muted-foreground p-2">No changes</div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <>
+        <SidebarGroup>
+          <SidebarGroupLabel>
+            <div className="flex items-center justify-between w-full">
+              <span>Changed Files</span>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-xs">
+                  0
+                </Badge>
+                {worktree.pull_request_url && (
+                  <a
+                    href={worktree.pull_request_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                    title="Open pull request"
+                  >
+                    <span>
+                      PR{" "}
+                      {worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] ||
+                        "?"}
+                    </span>
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+                <WorkspaceActions
+                  mode="workspace"
+                  worktree={worktree}
+                  onSync={onSync}
+                  onDelete={handleConfirmDelete}
+                />
+              </div>
+            </div>
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <div className="text-sm text-muted-foreground p-2">No changes</div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <AlertDialog
+          open={deleteDialog.open}
+          onOpenChange={(open) => setDeleteDialog({ ...deleteDialog, open })}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
+              <AlertDialogDescription>
+                {changesList.length > 0 ? (
+                  <>
+                    Delete workspace "{deleteDialog.worktreeName}"? This
+                    workspace has <strong>{changesList.join(" and ")}</strong>.
+                    This action cannot be undone.
+                  </>
+                ) : (
+                  <>
+                    Delete workspace "{deleteDialog.worktreeName}"? This action
+                    cannot be undone.
+                  </>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirmed}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete Workspace
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
     );
   }
 
@@ -273,117 +396,155 @@ function ChangedFiles({
     }
   };
 
-  return (
-    <SidebarGroup>
-      <SidebarGroupLabel>
-        <div className="flex items-center justify-between w-full">
-          <span>Changed Files</span>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-xs">
-              {fileDiffs.length}
-            </Badge>
-            {worktree.pull_request_url && (
-              <a
-                href={worktree.pull_request_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
-                title="Open pull request"
-              >
-                <span>
-                  PR{" "}
-                  {worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"}
-                </span>
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            )}
-            <WorkspaceActions
-              mode="workspace"
-              worktree={worktree}
-              onSync={onSync}
-              onDelete={(id, name) => {
-                // TODO: Implement workspace deletion
-                console.log("Delete workspace:", id, name);
-                alert(`Delete workspace "${name}" - implementation needed`);
-              }}
-            />
-          </div>
-        </div>
-      </SidebarGroupLabel>
-      <SidebarGroupContent>
-        <ScrollArea className="h-48">
-          <div className="space-y-0.5">
-            {fileDiffs.map((file, index) => {
-              const fileName =
-                file.file_path.split("/").pop() || file.file_path;
+  const changesList = [];
+  if (deleteDialog.hasChanges) changesList.push("uncommitted changes");
+  if (deleteDialog.commitCount > 0)
+    changesList.push(`${deleteDialog.commitCount} commits`);
 
-              return (
-                <Tooltip key={index}>
-                  <TooltipTrigger asChild>
-                    <div
-                      className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer"
-                      onClick={() => {
-                        setShowDiffView(true);
-                        setShowPortPreview(null);
-                        setSelectedFile?.(file.file_path);
-                      }}
-                    >
-                      {getFileStatusIcon(file.change_type)}
-                      <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                      <span className="text-sm truncate flex-1">
-                        {fileName}
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        {getFileStatusBadge(file.change_type)}
-                      </Badge>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" align="center">
-                    <div className="space-y-1">
-                      <div className="font-medium">
-                        {getFileStatusLabel(file.change_type)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {file.file_path}
-                      </div>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
+  return (
+    <>
+      <SidebarGroup>
+        <SidebarGroupLabel>
+          <div className="flex items-center justify-between w-full">
+            <span>Changed Files</span>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-xs">
+                {fileDiffs.length}
+              </Badge>
+              {worktree.pull_request_url && (
+                <a
+                  href={worktree.pull_request_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                  title="Open pull request"
+                >
+                  <span>
+                    PR{" "}
+                    {worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] ||
+                      "?"}
+                  </span>
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
+              <WorkspaceActions
+                mode="workspace"
+                worktree={worktree}
+                onSync={onSync}
+                onDelete={handleConfirmDelete}
+              />
+            </div>
           </div>
-        </ScrollArea>
-      </SidebarGroupContent>
-      {fileDiffs.length > 0 && (
-        <div className="px-2 py-2">
-          <Button
-            variant={showDiffView ? "default" : "outline"}
-            size="sm"
-            onClick={() => {
-              setShowDiffView(!showDiffView);
-              // Close port preview when showing diff view
-              if (!showDiffView) {
-                setShowPortPreview(null);
-              }
-            }}
-            className="w-full h-8 text-xs"
-            title={showDiffView ? "Show Claude Terminal" : "View Diff"}
-          >
-            {showDiffView ? (
-              <>
-                <Terminal className="h-3 w-3 mr-2" />
-                Show Claude
-              </>
-            ) : (
-              <>
-                <Eye className="h-3 w-3 mr-2" />
-                View Diff
-              </>
-            )}
-          </Button>
-        </div>
-      )}
-    </SidebarGroup>
+        </SidebarGroupLabel>
+        <SidebarGroupContent>
+          <ScrollArea className="h-48">
+            <div className="space-y-0.5">
+              {fileDiffs.map((file, index) => {
+                const fileName =
+                  file.file_path.split("/").pop() || file.file_path;
+
+                return (
+                  <Tooltip key={index}>
+                    <TooltipTrigger asChild>
+                      <div
+                        className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 cursor-pointer"
+                        onClick={() => {
+                          setShowDiffView(true);
+                          setShowPortPreview(null);
+                          setSelectedFile?.(file.file_path);
+                        }}
+                      >
+                        {getFileStatusIcon(file.change_type)}
+                        <FileText className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                        <span className="text-sm truncate flex-1">
+                          {fileName}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {getFileStatusBadge(file.change_type)}
+                        </Badge>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" align="center">
+                      <div className="space-y-1">
+                        <div className="font-medium">
+                          {getFileStatusLabel(file.change_type)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {file.file_path}
+                        </div>
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </SidebarGroupContent>
+        {fileDiffs.length > 0 && (
+          <div className="px-2 py-2">
+            <Button
+              variant={showDiffView ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setShowDiffView(!showDiffView);
+                // Close port preview when showing diff view
+                if (!showDiffView) {
+                  setShowPortPreview(null);
+                }
+              }}
+              className="w-full h-8 text-xs"
+              title={showDiffView ? "Show Claude Terminal" : "View Diff"}
+            >
+              {showDiffView ? (
+                <>
+                  <Terminal className="h-3 w-3 mr-2" />
+                  Show Claude
+                </>
+              ) : (
+                <>
+                  <Eye className="h-3 w-3 mr-2" />
+                  View Diff
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </SidebarGroup>
+
+      <AlertDialog
+        open={deleteDialog.open}
+        onOpenChange={(open) => setDeleteDialog({ ...deleteDialog, open })}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
+            <AlertDialogDescription>
+              {changesList.length > 0 ? (
+                <>
+                  Delete workspace "{deleteDialog.worktreeName}"? This workspace
+                  has <strong>{changesList.join(" and ")}</strong>. This action
+                  cannot be undone.
+                </>
+              ) : (
+                <>
+                  Delete workspace "{deleteDialog.worktreeName}"? This action
+                  cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirmed}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Workspace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
