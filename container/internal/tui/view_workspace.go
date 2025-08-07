@@ -24,30 +24,29 @@ func (v *WorkspaceViewImpl) GetViewType() ViewType {
 
 // Update handles workspace-specific message processing
 func (v *WorkspaceViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd) {
-	// Handle shell output and error messages for both terminals
+	// Handle shell output and error messages for Claude terminal only (simplified view)
 	switch msg := msg.(type) {
 	case shellOutputMsg:
-		// Determine which terminal this is for based on session ID
-		if strings.HasSuffix(msg.sessionID, "-claude") {
+		debugLog("WorkspaceView Update - received shellOutputMsg for session: %s", msg.sessionID)
+		// Only handle Claude terminal messages (check if it matches our current workspace)
+		if m.currentWorkspace != nil && strings.HasSuffix(msg.sessionID, ":claude") && strings.HasPrefix(msg.sessionID, m.currentWorkspace.Name) {
+			debugLog("WorkspaceView Update - handling Claude output message")
 			return v.handleClaudeOutput(m, msg)
-		} else if strings.HasSuffix(msg.sessionID, "-regular") {
-			return v.handleRegularOutput(m, msg)
 		}
 	case shellErrorMsg:
-		// Handle errors for both terminals
-		if strings.HasSuffix(msg.sessionID, "-claude") {
+		debugLog("WorkspaceView Update - received shellErrorMsg for session: %s, error: %v", msg.sessionID, msg.err)
+		// Only handle Claude terminal errors (check if it matches our current workspace)
+		if m.currentWorkspace != nil && strings.HasSuffix(msg.sessionID, ":claude") && strings.HasPrefix(msg.sessionID, m.currentWorkspace.Name) {
+			debugLog("WorkspaceView Update - handling Claude error message")
 			return v.handleClaudeError(m, msg)
-		} else if strings.HasSuffix(msg.sessionID, "-regular") {
-			return v.handleRegularError(m, msg)
 		}
 	}
 
-	// Update both viewport models
-	var cmd1, cmd2 tea.Cmd
-	m.workspaceClaudeTerminal, cmd1 = m.workspaceClaudeTerminal.Update(msg)
-	m.workspaceRegularTerminal, cmd2 = m.workspaceRegularTerminal.Update(msg)
+	// Update only Claude viewport model (simplified view)
+	var cmd tea.Cmd
+	m.workspaceClaudeTerminal, cmd = m.workspaceClaudeTerminal.Update(msg)
 
-	return m, tea.Batch(cmd1, cmd2)
+	return m, cmd
 }
 
 // HandleKey processes key messages for the workspace view
@@ -58,75 +57,124 @@ func (v *WorkspaceViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, tea.Cmd
 		m.SwitchToView(OverviewView)
 		return m, nil
 	default:
-		// Forward all other input to the regular terminal (bottom terminal)
-		v.forwardToRegularTerminal(m, msg)
+		// Forward all other input to the Claude terminal (simplified view)
+		v.forwardToClaudeTerminal(m, msg)
 		return m, nil
 	}
 }
 
 // HandleResize processes window resize for the workspace view
 func (v *WorkspaceViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model, tea.Cmd) {
-	// Calculate layout dimensions
+	// Calculate layout dimensions with proper padding
 	headerHeight := 3
-	totalHeight := msg.Height - headerHeight
-	
-	// Main content area is 75% width, right sidebar is 25%
-	mainWidth := (msg.Width * 75) / 100
-	_ = msg.Width - mainWidth - 2 // sidebarWidth - Account for borders
-	
-	// Claude terminal gets 75% of main height, regular terminal gets 25%
-	claudeHeight := (totalHeight * 75) / 100
-	regularHeight := totalHeight - claudeHeight - 1 // Account for separator
-	
-	// Update viewport sizes
-	m.workspaceClaudeTerminal.Width = mainWidth - 2
-	m.workspaceClaudeTerminal.Height = claudeHeight
-	m.workspaceRegularTerminal.Width = mainWidth - 2
-	m.workspaceRegularTerminal.Height = regularHeight
+	padding := 2 // Overall padding
+	availableHeight := msg.Height - headerHeight - padding
+	availableWidth := msg.Width - padding
 
-	// Resize PTY sessions if they exist
-	v.resizeWorkspaceTerminals(m, mainWidth-2, claudeHeight, regularHeight)
+	// Ensure minimum dimensions
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+	if availableWidth < 40 {
+		availableWidth = 40
+	}
+
+	// Simplified layout: Claude terminal (70% width) + right sidebar (30% width)
+	mainWidth := (availableWidth * 70) / 100
+
+	// Claude terminal takes full height (simplified view)
+	claudeHeight := availableHeight
+
+	// Ensure minimum terminal height
+	if claudeHeight < 10 {
+		claudeHeight = 10
+	}
+
+	// Update viewport size (account for terminal borders)
+	terminalWidth := mainWidth - 4 // Account for terminal borders (2 per side)
+	if terminalWidth < 20 {
+		terminalWidth = 20
+	}
+
+	m.workspaceClaudeTerminal.Width = terminalWidth
+	m.workspaceClaudeTerminal.Height = claudeHeight - 2 // Account for terminal border
+
+	// Resize terminal emulator if it exists
+	if m.workspaceClaudeTerminalEmulator != nil {
+		m.workspaceClaudeTerminalEmulator.Resize(terminalWidth, claudeHeight-2)
+		debugLog("HandleResize - resized terminal emulator: width=%d, height=%d", terminalWidth, claudeHeight-2)
+	}
+
+	// Resize PTY session if it exists - only Claude terminal now
+	v.resizeClaudeTerminal(m, terminalWidth, claudeHeight-2)
 
 	return m, nil
 }
 
 // Render generates the workspace view content
 func (v *WorkspaceViewImpl) Render(m *Model) string {
+	debugLog("WorkspaceView Render called - currentWorkspace: %+v", m.currentWorkspace)
+	debugLog("WorkspaceView Render - terminal dimensions: width=%d height=%d", m.width, m.height)
 	if m.currentWorkspace == nil {
+		debugLog("WorkspaceView Render - no current workspace, showing no workspace screen")
 		return v.renderNoWorkspace(m)
 	}
 
-	// Calculate layout dimensions
+	// Calculate layout dimensions with proper padding
 	headerHeight := 3
-	totalHeight := m.height - headerHeight
-	
-	// Main content area is 75% width, right sidebar is 25%
-	mainWidth := (m.width * 75) / 100
-	sidebarWidth := m.width - mainWidth - 2 // Account for borders
-	
-	// Claude terminal gets 75% of main height, regular terminal gets 25%
-	claudeHeight := (totalHeight * 75) / 100
-	regularHeight := totalHeight - claudeHeight - 1 // Account for separator
+	padding := 2 // Overall padding
+	availableHeight := m.height - headerHeight - padding
+	availableWidth := m.width - padding
 
-	// Header for the workspace
-	headerStyle := components.ShellHeaderStyle.Width(m.width - 2)
-	header := headerStyle.Render(fmt.Sprintf("📁 Workspace: %s (%s) | Press Esc to return to overview", 
-		m.currentWorkspace.Name, m.currentWorkspace.Branch))
+	// Ensure minimum dimensions
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+	if availableWidth < 40 {
+		availableWidth = 40
+	}
 
-	// Main content area (left side)
-	mainContent := v.renderMainContent(m, mainWidth, claudeHeight, regularHeight)
-	
-	// Right sidebar content
-	sidebarContent := v.renderSidebar(m, sidebarWidth, totalHeight)
-	
-	// Combine main and sidebar horizontally
-	workspaceContent := lipgloss.JoinHorizontal(
-		lipgloss.Top,
-		mainContent,
-		sidebarContent,
-	)
+	// Claude terminal takes full height (simplified view)
+	claudeHeight := availableHeight
 
-	return fmt.Sprintf("%s\n%s", header, workspaceContent)
+	// Ensure minimum terminal height
+	if claudeHeight < 10 {
+		claudeHeight = 10
+	}
+
+	// Fixed sidebar width: 20-30 columns, terminal takes the rest
+	newSidebarWidth := 25 // Default to 25 columns
+	if newSidebarWidth > 30 {
+		newSidebarWidth = 30
+	}
+	if newSidebarWidth < 20 {
+		newSidebarWidth = 20
+	}
+
+	terminalWidth := availableWidth - newSidebarWidth
+
+	// Ensure minimum terminal width
+	if terminalWidth < 60 {
+		terminalWidth = 60
+		newSidebarWidth = availableWidth - terminalWidth
+		// Clamp sidebar to valid range after adjustment
+		if newSidebarWidth > 30 {
+			newSidebarWidth = 30
+		}
+		if newSidebarWidth < 20 {
+			newSidebarWidth = 20
+		}
+	}
+
+	claudeContent := v.renderClaudeTerminal(m, terminalWidth, claudeHeight)
+	sidebarContent := v.renderSimpleSidebar(m, newSidebarWidth, claudeHeight)
+	debugLog("WorkspaceView Render - Claude: %d chars, Sidebar: %d chars", len(claudeContent), len(sidebarContent))
+
+	// Use lipgloss JoinHorizontal with no borders
+	workspaceContent := lipgloss.JoinHorizontal(lipgloss.Top, claudeContent, sidebarContent)
+	debugLog("WorkspaceView Render - final content length: %d", len(workspaceContent))
+
+	return workspaceContent
 }
 
 // Helper methods
@@ -137,136 +185,152 @@ func (v *WorkspaceViewImpl) renderNoWorkspace(m *Model) string {
 		Width(m.width - 2).
 		Height(m.height - 6)
 
-	content := "No workspace selected.\n\nPress Ctrl+W to select a workspace."
+	content := "No workspaces detected.\n\nPress Ctrl+W to select a workspace."
 	return centerStyle.Render(content)
 }
 
-func (v *WorkspaceViewImpl) renderMainContent(m *Model, width, claudeHeight, regularHeight int) string {
-	// Claude terminal (top 75%)
-	claudeStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Width(width).
-		Height(claudeHeight + 2) // Account for border
-
-	claudeHeader := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("39")).
-		Padding(0, 1).
-		Render("🤖 Claude Terminal (?agent=claude)")
+func (v *WorkspaceViewImpl) renderClaudeTerminal(m *Model, width, height int) string {
+	debugLog("renderClaudeTerminal called - width=%d, height=%d", width, height)
+	// FUCK THE STYLING - Just return raw terminal content
+	debugLog("renderClaudeTerminal - SIMPLIFIED: no lipgloss styling")
 
 	// Set content for Claude terminal viewport
 	if m.currentWorkspace != nil {
-		claudeSessionID := m.currentWorkspace.ID + "-claude"
+		claudeSessionID := m.currentWorkspace.Name
+		debugLog("renderClaudeTerminal - looking for session: %s", claudeSessionID)
 		if globalShellManager != nil {
+			debugLog("renderClaudeTerminal - globalShellManager exists, sessions count: %d", len(globalShellManager.sessions))
+			// DEBUG: List all sessions to see what actually exists
+			for sessionID := range globalShellManager.sessions {
+				debugLog("renderClaudeTerminal - existing session: %s", sessionID)
+			}
 			if session := globalShellManager.GetSession(claudeSessionID); session != nil {
-				m.workspaceClaudeTerminal.SetContent(string(session.Output))
+				debugLog("renderClaudeTerminal - found session, output length: %d, connected: %v", len(session.Output), session.Connected)
+
+				// Initialize terminal emulator if needed
+				if m.workspaceClaudeTerminalEmulator == nil {
+					terminalWidth := width - 4 // Some padding
+					debugLog("renderClaudeTerminal - initializing terminal emulator with width=%d, height=%d", terminalWidth, height)
+					m.workspaceClaudeTerminalEmulator = NewTerminalEmulator(terminalWidth, height)
+				}
+
+				// Only process session output if it has changed
+				if len(session.Output) > 0 {
+					// Check if output length has changed since last render
+					if len(session.Output) != m.workspaceLastOutputLength {
+						debugLog("renderClaudeTerminal - output changed: %d -> %d bytes", m.workspaceLastOutputLength, len(session.Output))
+						// Process PTY output directly (JSON filtering now handled at WebSocket level)
+						m.workspaceClaudeTerminalEmulator.Clear()
+						m.workspaceClaudeTerminalEmulator.Write(session.Output)
+						terminalOutput := m.workspaceClaudeTerminalEmulator.Render()
+						debugLog("renderClaudeTerminal - processed %d bytes through emulator, got %d chars", len(session.Output), len(terminalOutput))
+						m.workspaceClaudeTerminal.SetContent(terminalOutput)
+						m.workspaceClaudeTerminal.GotoBottom()
+						m.workspaceLastOutputLength = len(session.Output)
+					} else {
+						// Content hasn't changed, don't reprocess
+						debugLog("renderClaudeTerminal - content unchanged (%d bytes), skipping emulator processing", len(session.Output))
+					}
+				} else {
+					m.workspaceClaudeTerminal.SetContent("Connecting to Claude terminal...")
+				}
 			} else {
+				debugLog("renderClaudeTerminal - no session found, showing connecting message")
 				m.workspaceClaudeTerminal.SetContent("Connecting to Claude terminal...")
 			}
+		} else {
+			debugLog("renderClaudeTerminal - globalShellManager is nil")
+			m.workspaceClaudeTerminal.SetContent("Shell manager not available")
 		}
+	} else {
+		debugLog("renderClaudeTerminal - no current workspace")
+		m.workspaceClaudeTerminal.SetContent("No workspace")
 	}
 
-	claudeContent := claudeStyle.Render(claudeHeader + "\n" + m.workspaceClaudeTerminal.View())
-
-	// Regular terminal (bottom 25%)
-	regularStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Width(width).
-		Height(regularHeight + 2) // Account for border
-
-	regularHeader := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("39")).
-		Padding(0, 1).
-		Render("💻 Regular Terminal")
-
-	// Set content for regular terminal viewport
-	if m.currentWorkspace != nil {
-		regularSessionID := m.currentWorkspace.ID + "-regular"
-		if globalShellManager != nil {
-			if session := globalShellManager.GetSession(regularSessionID); session != nil {
-				m.workspaceRegularTerminal.SetContent(string(session.Output))
-			} else {
-				m.workspaceRegularTerminal.SetContent("Connecting to terminal...")
-			}
-		}
-	}
-
-	regularContent := regularStyle.Render(regularHeader + "\n" + m.workspaceRegularTerminal.View())
-
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		claudeContent,
-		regularContent,
-	)
+	// Return just the raw terminal view - clean, no header
+	terminalView := m.workspaceClaudeTerminal.View()
+	debugLog("renderClaudeTerminal - terminal view length: %d", len(terminalView))
+	return terminalView
 }
 
-func (v *WorkspaceViewImpl) renderSidebar(m *Model, width, height int) string {
-	sidebarStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("62")).
-		Width(width).
-		Height(height + 2). // Account for border
-		Padding(1)
+func (v *WorkspaceViewImpl) renderSimpleSidebar(m *Model, width, height int) string {
+	debugLog("renderSimpleSidebar called - width=%d, height=%d", width, height)
 
 	var sections []string
-	
+
 	if m.currentWorkspace != nil {
-		// Git status section
-		sections = append(sections, lipgloss.NewStyle().Bold(true).Render("📝 Git Status"))
-		sections = append(sections, fmt.Sprintf("Branch: %s", m.currentWorkspace.Branch))
+		// Workspace info - no borders, just clean text
+		sections = append(sections, "📁 "+m.currentWorkspace.Name)
+		sections = append(sections, "🌿 "+m.currentWorkspace.Branch)
+		sections = append(sections, "📂 "+m.currentWorkspace.Path)
 		sections = append(sections, "")
-		
-		// Changed files section
-		sections = append(sections, lipgloss.NewStyle().Bold(true).Render("📄 Changed Files"))
+
+		// Git status
 		if len(m.currentWorkspace.ChangedFiles) > 0 {
+			sections = append(sections, fmt.Sprintf("📝 %d changes", len(m.currentWorkspace.ChangedFiles)))
 			for i, file := range m.currentWorkspace.ChangedFiles {
-				if i >= 5 { // Limit display to first 5 files
-					sections = append(sections, fmt.Sprintf("... and %d more", len(m.currentWorkspace.ChangedFiles)-5))
+				if i >= 3 { // Limit to first 3 files
+					sections = append(sections, fmt.Sprintf("   ...%d more", len(m.currentWorkspace.ChangedFiles)-3))
 					break
 				}
-				// Extract just filename from path
+				// Extract just filename
 				filename := file
 				if lastSlash := strings.LastIndex(file, "/"); lastSlash != -1 {
 					filename = file[lastSlash+1:]
 				}
-				sections = append(sections, fmt.Sprintf("• %s", filename))
+				sections = append(sections, "   • "+filename)
 			}
 		} else {
-			sections = append(sections, "No changes")
+			sections = append(sections, "📝 No changes")
 		}
 		sections = append(sections, "")
-		
-		// Ports section
-		sections = append(sections, lipgloss.NewStyle().Bold(true).Render("🌐 Active Ports"))
+
+		// Ports
 		if len(m.currentWorkspace.Ports) > 0 {
+			sections = append(sections, "🌐 Active Ports")
 			for _, port := range m.currentWorkspace.Ports {
-				sections = append(sections, fmt.Sprintf(":%s %s", port.Port, port.Title))
+				sections = append(sections, fmt.Sprintf("   :%s %s", port.Port, port.Title))
 			}
 		} else {
-			sections = append(sections, "No active ports")
+			sections = append(sections, "🌐 No ports")
 		}
 	} else {
-		sections = append(sections, "No workspace data available")
+		sections = append(sections, "No workspace")
 	}
 
+	// Join all sections and ensure it fits the width
 	content := strings.Join(sections, "\n")
-	return sidebarStyle.Render(content)
+
+	// Simple style with just width constraint, no borders
+	style := lipgloss.NewStyle().Width(width).Align(lipgloss.Left)
+	result := style.Render(content)
+
+	debugLog("renderSimpleSidebar - final length: %d", len(result))
+	return result
 }
 
 func (v *WorkspaceViewImpl) handleClaudeOutput(m *Model, msg shellOutputMsg) (*Model, tea.Cmd) {
-	// Update the Claude terminal viewport
-	m.workspaceClaudeTerminal.SetContent(string(msg.data))
-	m.workspaceClaudeTerminal.GotoBottom()
-	return m, nil
-}
+	debugLog("handleClaudeOutput - received %d bytes of data", len(msg.data))
 
-func (v *WorkspaceViewImpl) handleRegularOutput(m *Model, msg shellOutputMsg) (*Model, tea.Cmd) {
-	// Update the regular terminal viewport
-	m.workspaceRegularTerminal.SetContent(string(msg.data))
-	m.workspaceRegularTerminal.GotoBottom()
+	// Initialize terminal emulator if needed
+	if m.workspaceClaudeTerminalEmulator == nil {
+		terminalWidth := m.workspaceClaudeTerminal.Width - 2
+		debugLog("handleClaudeOutput - initializing terminal emulator with width=%d, height=%d", terminalWidth, m.workspaceClaudeTerminal.Height)
+		m.workspaceClaudeTerminalEmulator = NewTerminalEmulator(terminalWidth, m.workspaceClaudeTerminal.Height)
+	}
+
+	// Process PTY output directly (JSON filtering now handled at WebSocket level)
+	if len(msg.data) > 0 {
+		// Process output through terminal emulator
+		m.workspaceClaudeTerminalEmulator.Write(msg.data)
+		// Always use the terminal emulator for proper handling
+		terminalOutput := m.workspaceClaudeTerminalEmulator.Render()
+		debugLog("handleClaudeOutput - terminal emulator rendered %d chars", len(terminalOutput))
+		m.workspaceClaudeTerminal.SetContent(terminalOutput)
+		// Auto-scroll to bottom for new output
+		m.workspaceClaudeTerminal.GotoBottom()
+	}
+
 	return m, nil
 }
 
@@ -276,23 +340,17 @@ func (v *WorkspaceViewImpl) handleClaudeError(m *Model, msg shellErrorMsg) (*Mod
 	return m, nil
 }
 
-func (v *WorkspaceViewImpl) handleRegularError(m *Model, msg shellErrorMsg) (*Model, tea.Cmd) {
-	debugLog("Regular terminal error for workspace %s: %v", m.currentWorkspace.ID, msg.err)
-	// Could add error display to regular terminal
-	return m, nil
-}
-
-func (v *WorkspaceViewImpl) forwardToRegularTerminal(m *Model, msg tea.KeyMsg) {
+func (v *WorkspaceViewImpl) forwardToClaudeTerminal(m *Model, msg tea.KeyMsg) {
 	if m.currentWorkspace == nil {
 		return
 	}
 
-	// Send input to the regular terminal PTY session
-	regularSessionID := m.currentWorkspace.ID + "-regular"
-	debugLog("Workspace view forwarding key to regular terminal: %s", msg.String())
-	
+	// Send input to the Claude terminal PTY session (use base name for PTY lookup)
+	claudeSessionID := m.currentWorkspace.Name
+	debugLog("Workspace view forwarding key to Claude terminal: %s", msg.String())
+
 	if globalShellManager != nil {
-		if session := globalShellManager.GetSession(regularSessionID); session != nil && session.Client != nil {
+		if session := globalShellManager.GetSession(claudeSessionID); session != nil && session.Client != nil {
 			var data []byte
 			if len(msg.Runes) > 0 {
 				data = []byte(string(msg.Runes))
@@ -328,7 +386,7 @@ func (v *WorkspaceViewImpl) forwardToRegularTerminal(m *Model, msg tea.KeyMsg) {
 			if len(data) > 0 {
 				go func(d []byte, sessionID string) {
 					if err := session.Client.Send(d); err != nil {
-						debugLog("Failed to send data to workspace regular terminal: %v", err)
+						debugLog("Failed to send data to workspace Claude terminal: %v", err)
 						if globalShellManager != nil && globalShellManager.program != nil {
 							globalShellManager.program.Send(shellErrorMsg{
 								sessionID: sessionID,
@@ -336,34 +394,24 @@ func (v *WorkspaceViewImpl) forwardToRegularTerminal(m *Model, msg tea.KeyMsg) {
 							})
 						}
 					}
-				}(data, regularSessionID)
+				}(data, claudeSessionID)
 			}
 		}
 	}
 }
 
-func (v *WorkspaceViewImpl) resizeWorkspaceTerminals(m *Model, width, claudeHeight, regularHeight int) {
+func (v *WorkspaceViewImpl) resizeClaudeTerminal(m *Model, width, height int) {
 	if m.currentWorkspace == nil {
 		return
 	}
 
 	if globalShellManager != nil {
-		// Resize Claude terminal
-		claudeSessionID := m.currentWorkspace.ID + "-claude"
+		// Resize Claude terminal (use base name for PTY lookup)
+		claudeSessionID := m.currentWorkspace.Name
 		if session := globalShellManager.GetSession(claudeSessionID); session != nil && session.Client != nil {
 			go func() {
-				if err := session.Client.Resize(width, claudeHeight); err != nil {
+				if err := session.Client.Resize(width, height); err != nil {
 					debugLog("Failed to resize Claude terminal: %v", err)
-				}
-			}()
-		}
-
-		// Resize regular terminal
-		regularSessionID := m.currentWorkspace.ID + "-regular"
-		if session := globalShellManager.GetSession(regularSessionID); session != nil && session.Client != nil {
-			go func() {
-				if err := session.Client.Resize(width, regularHeight); err != nil {
-					debugLog("Failed to resize regular terminal: %v", err)
 				}
 			}()
 		}
@@ -372,77 +420,98 @@ func (v *WorkspaceViewImpl) resizeWorkspaceTerminals(m *Model, width, claudeHeig
 
 // CreateWorkspaceSessions creates both Claude and regular terminal sessions for a workspace
 func (v *WorkspaceViewImpl) CreateWorkspaceSessions(m *Model, workspace *WorkspaceInfo) (*Model, tea.Cmd) {
+	debugLog("CreateWorkspaceSessions called for workspace: %+v", workspace)
 	if workspace == nil {
+		debugLog("CreateWorkspaceSessions - workspace is nil")
 		return m, nil
 	}
 
-	claudeSessionID := workspace.ID + "-claude"
-	regularSessionID := workspace.ID + "-regular"
+	claudeSessionID := workspace.Name
 
-	// Calculate terminal dimensions
+	// Calculate terminal dimensions using same logic as Render method (simplified)
 	headerHeight := 3
-	totalHeight := m.height - headerHeight
-	mainWidth := (m.width * 75) / 100
-	claudeHeight := (totalHeight * 75) / 100
-	regularHeight := totalHeight - claudeHeight - 1
+	padding := 2
+	availableHeight := m.height - headerHeight - padding
+	availableWidth := m.width - padding
 
-	terminalWidth := mainWidth - 2
+	// Ensure minimum dimensions
+	if availableHeight < 10 {
+		availableHeight = 10
+	}
+	if availableWidth < 40 {
+		availableWidth = 40
+	}
 
-	// Initialize viewports
+	mainWidth := (availableWidth * 70) / 100
+	claudeHeight := availableHeight // Full height for simplified view
+
+	// Ensure minimum terminal height
+	if claudeHeight < 10 {
+		claudeHeight = 10
+	}
+
+	terminalWidth := mainWidth - 4 // Account for terminal borders
+	if terminalWidth < 20 {
+		terminalWidth = 20
+	}
+
+	// Initialize viewport (account for terminal borders)
 	m.workspaceClaudeTerminal.Width = terminalWidth
-	m.workspaceClaudeTerminal.Height = claudeHeight
-	m.workspaceRegularTerminal.Width = terminalWidth
-	m.workspaceRegularTerminal.Height = regularHeight
+	m.workspaceClaudeTerminal.Height = claudeHeight - 2 // Account for terminal border
+	debugLog("CreateWorkspaceSessions - initialized viewport: width=%d, height=%d", m.workspaceClaudeTerminal.Width, m.workspaceClaudeTerminal.Height)
 
-	// Create both terminal sessions
-	var cmds []tea.Cmd
+	// Initialize terminal emulator
+	if m.workspaceClaudeTerminalEmulator == nil {
+		m.workspaceClaudeTerminalEmulator = NewTerminalEmulator(terminalWidth, claudeHeight-2)
+		debugLog("CreateWorkspaceSessions - initialized terminal emulator: width=%d, height=%d", terminalWidth, claudeHeight-2)
+	} else {
+		m.workspaceClaudeTerminalEmulator.Clear()
+		m.workspaceClaudeTerminalEmulator.Resize(terminalWidth, claudeHeight-2)
+		debugLog("CreateWorkspaceSessions - resized existing terminal emulator: width=%d, height=%d", terminalWidth, claudeHeight-2)
+	}
 
-	// Create Claude terminal session with ?agent=claude parameter
-	claudeCmd := createAndConnectWorkspaceShell(claudeSessionID, terminalWidth, claudeHeight, workspace.Path, "?agent=claude")
-	cmds = append(cmds, claudeCmd)
+	debugLog("CreateWorkspaceSessions - creating Claude session: %s, terminalWidth=%d, terminalHeight=%d", claudeSessionID, terminalWidth, claudeHeight-2)
+	// Create Claude terminal session
+	claudeCmd := createAndConnectWorkspaceShell(claudeSessionID, terminalWidth, claudeHeight-2, workspace.Path, "?agent=claude")
 
-	// Create regular terminal session
-	regularCmd := createAndConnectWorkspaceShell(regularSessionID, terminalWidth, regularHeight, workspace.Path, "")
-	cmds = append(cmds, regularCmd)
-
-	return m, tea.Batch(cmds...)
+	return m, claudeCmd
 }
 
 // createAndConnectWorkspaceShell creates a shell session for a workspace with specific parameters
 func createAndConnectWorkspaceShell(sessionID string, width, height int, workspacePath, agentParam string) tea.Cmd {
 	return func() tea.Msg {
+		debugLog("createAndConnectWorkspaceShell called - sessionID: %s, width: %d, height: %d, path: %s, agent: %s", sessionID, width, height, workspacePath, agentParam)
 		if globalShellManager == nil {
+			debugLog("createAndConnectWorkspaceShell - globalShellManager is nil")
 			return shellErrorMsg{sessionID: sessionID, err: fmt.Errorf("shell manager not initialized")}
 		}
 
 		// Create session using the existing shell manager pattern
 		session := globalShellManager.CreateSession(sessionID)
-		
+		debugLog("createAndConnectWorkspaceShell - created session: %+v", session)
+
 		// Connect in background and send initial size
 		go func() {
 			baseURL := "http://localhost:8080"
 			if agentParam != "" {
 				baseURL += agentParam
 			}
-			
+			debugLog("createAndConnectWorkspaceShell - connecting to: %s", baseURL)
+
 			err := session.Client.Connect(baseURL)
 			if err != nil {
-				debugLog("Failed to connect workspace shell session %s: %v", sessionID, err)
+				debugLog("createAndConnectWorkspaceShell - Failed to connect workspace shell session %s: %v", sessionID, err)
 				return
 			}
+			debugLog("createAndConnectWorkspaceShell - connected successfully")
 
 			// Send resize to set initial terminal size
 			if err := session.Client.Resize(width, height); err != nil {
 				debugLog("Failed to resize workspace terminal %s: %v", sessionID, err)
 			}
 
-			// Change to workspace directory
-			if workspacePath != "" {
-				cdCmd := fmt.Sprintf("cd %s\n", workspacePath)
-				if err := session.Client.Send([]byte(cdCmd)); err != nil {
-					debugLog("Failed to change directory for workspace %s: %v", sessionID, err)
-				}
-			}
+			// Note: Directory changing is handled by the backend automatically
+			// No need to inject cd commands that show up in the terminal
 		}()
 
 		return shellConnectedMsg{sessionID: sessionID}

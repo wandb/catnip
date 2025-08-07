@@ -136,8 +136,10 @@ type Model struct {
 	waitingToShowWorkspaces bool
 
 	// Workspace view state
-	workspaceClaudeTerminal  viewport.Model
-	workspaceRegularTerminal viewport.Model
+	workspaceClaudeTerminal         viewport.Model
+	workspaceRegularTerminal        viewport.Model
+	workspaceClaudeTerminalEmulator *TerminalEmulator
+	workspaceLastOutputLength       int
 
 	// SSE connection state
 	sseConnected bool

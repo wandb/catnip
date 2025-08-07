@@ -690,52 +690,6 @@ func (m Model) handleWorkspaceSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, boo
 	return &m, nil, true
 }
 
-// initializeMockWorkspaces creates mock workspace data for development
-func (m Model) initializeMockWorkspaces() []WorkspaceInfo {
-	// TODO: Replace this with actual API call to fetch workspaces
-	return []WorkspaceInfo{
-		{
-			ID:       "workspace-1",
-			Name:     "catnip-main",
-			Path:     "/workspace/catnip",
-			Branch:   "main",
-			IsActive: true,
-			ChangedFiles: []string{
-				"container/internal/tui/view_workspace.go",
-				"container/internal/tui/model.go",
-				"src/components/WorkspaceRightSidebar.tsx",
-			},
-			Ports: []PortInfo{
-				{Port: "3000", Title: "React Dev Server", Service: "vite"},
-				{Port: "8080", Title: "Main API", Service: "go-api"},
-			},
-		},
-		{
-			ID:       "workspace-2",
-			Name:     "feature-branch",
-			Path:     "/workspace/catnip-feature",
-			Branch:   "feature/workspace-ui",
-			IsActive: false,
-			ChangedFiles: []string{
-				"frontend/src/App.tsx",
-				"README.md",
-			},
-			Ports: []PortInfo{
-				{Port: "3001", Title: "Test Server", Service: "node"},
-			},
-		},
-		{
-			ID:           "workspace-3",
-			Name:         "tom-repo",
-			Path:         "/workspace/tom",
-			Branch:       "main",
-			IsActive:     false,
-			ChangedFiles: []string{},
-			Ports:        []PortInfo{},
-		},
-	}
-}
-
 // Version check handler
 func (m Model) handleVersionCheck(msg VersionCheckMsg) (tea.Model, tea.Cmd) {
 	m.upgradeAvailable = msg.UpgradeAvailable
@@ -752,11 +706,18 @@ func (m Model) handleWorkspaces(msg workspacesMsg) (tea.Model, tea.Cmd) {
 	m.workspaces = []WorkspaceInfo(msg)
 	debugLog("Updated workspaces: %d workspaces loaded", len(m.workspaces))
 
-	// If we were waiting to show workspaces and now have some, show the selector
+	// If we were waiting to show workspaces and now have some, automatically select the first one
 	if len(m.workspaces) > 0 && m.waitingToShowWorkspaces {
 		m.waitingToShowWorkspaces = false
-		m.showWorkspaceSelector = true
-		m.selectedWorkspaceIndex = 0
+		// Automatically select the first workspace instead of showing selector
+		workspace := &m.workspaces[0]
+		m.currentWorkspace = workspace
+		m.SwitchToView(WorkspaceView)
+
+		// Create workspace terminal sessions
+		workspaceView := m.views[WorkspaceView].(*WorkspaceViewImpl)
+		newModel, cmd := workspaceView.CreateWorkspaceSessions(&m, workspace)
+		return newModel, cmd
 	}
 
 	return m, nil
