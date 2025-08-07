@@ -67,6 +67,15 @@ interface GitHubAuthStatus {
   };
 }
 
+interface CatnipVersion {
+  version: string;
+  build: {
+    commit: string;
+    date: string;
+    builtBy: string;
+  };
+}
+
 // Simple JSON syntax highlighter component
 const JsonHighlighter = ({ data }: { data: any }) => {
   const jsonString = JSON.stringify(data, null, 2);
@@ -100,6 +109,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     React.useState(false);
   const [githubAuthStatus, setGithubAuthStatus] =
     React.useState<GitHubAuthStatus | null>(null);
+  const [catnipVersion, setCatnipVersion] =
+    React.useState<CatnipVersion | null>(null);
 
   // Fetch swagger data when component mounts
   React.useEffect(() => {
@@ -140,6 +151,18 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         );
     }
   }, [open, activeSection, githubAuthStatus]);
+
+  // Fetch catnip version when component mounts or when switching to authentication
+  React.useEffect(() => {
+    if (open && activeSection === "authentication" && !catnipVersion) {
+      fetch("/v1/info")
+        .then((response) => response.json())
+        .then((data) => setCatnipVersion(data))
+        .catch((error) =>
+          console.error("Failed to fetch catnip version:", error),
+        );
+    }
+  }, [open, activeSection, catnipVersion]);
 
   // Function to update Claude theme setting
   const updateClaudeTheme = async (theme: string) => {
@@ -373,6 +396,43 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </h3>
 
               <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <svg
+                      className="h-5 w-5"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+                    </svg>
+                    <div>
+                      <p className="font-medium">Catnip</p>
+                      <p className="text-sm text-muted-foreground">
+                        Container Environment Version
+                      </p>
+                      {catnipVersion && (
+                        <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                          <div>Version: {catnipVersion.version}</div>
+                          {catnipVersion.build.commit &&
+                            catnipVersion.build.commit !== "none" && (
+                              <div>
+                                Commit:{" "}
+                                {catnipVersion.build.commit.substring(0, 7)}
+                              </div>
+                            )}
+                          {catnipVersion.build.date &&
+                            catnipVersion.build.date !== "unknown" && (
+                              <div>Built: {catnipVersion.build.date}</div>
+                            )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Badge variant="secondary">
+                    {catnipVersion ? catnipVersion.version : "Loading..."}
+                  </Badge>
+                </div>
+
                 <div className="flex items-center justify-between p-4 border rounded-lg">
                   <div className="flex items-center gap-3">
                     <User className="h-5 w-5" />
