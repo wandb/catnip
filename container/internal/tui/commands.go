@@ -152,6 +152,7 @@ func (m *Model) initCommands() tea.Cmd {
 		m.fetchRepositoryInfo(),
 		m.fetchHealthStatus(),
 		m.fetchPorts(),
+		m.fetchWorkspaces(),
 		m.fetchContainerInfo(),
 		m.shellSpinner.Tick,
 		tick(),
@@ -160,4 +161,44 @@ func (m *Model) initCommands() tea.Cmd {
 	)
 
 	return tea.Batch(commands...)
+}
+
+// fetchWorkspacesFromAPI fetches workspaces from the container API
+func fetchWorkspacesFromAPI() ([]WorkspaceInfo, error) {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://localhost:8080/v1/git/worktrees")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, err // Return empty if API call fails
+	}
+
+	var worktrees []models.Worktree
+	if err := json.NewDecoder(resp.Body).Decode(&worktrees); err != nil {
+		return nil, err
+	}
+
+	// Convert models.Worktree to WorkspaceInfo
+	var workspaces []WorkspaceInfo
+	for _, wt := range worktrees {
+		workspace := WorkspaceInfo{
+			ID:           wt.ID,
+			Name:         wt.Name,
+			Path:         wt.Path,
+			Branch:       wt.Branch,
+			IsActive:     wt.IsActive,
+			ChangedFiles: make([]string, len(wt.ChangedFiles)),
+			Ports:        []PortInfo{}, // TODO: Map ports if available in worktree model
+		}
+
+		// Copy changed files
+		copy(workspace.ChangedFiles, wt.ChangedFiles)
+
+		workspaces = append(workspaces, workspace)
+	}
+
+	return workspaces, nil
 }
