@@ -175,12 +175,8 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			m.showWorkspaceSelector = true
 			m.selectedWorkspaceIndex = 0 // Default to first workspace
 		} else {
-			// Initialize mock workspaces for now - TODO: fetch from API
-			m.workspaces = m.initializeMockWorkspaces()
-			if len(m.workspaces) > 0 {
-				m.showWorkspaceSelector = true
-				m.selectedWorkspaceIndex = 0
-			}
+			// Fetch workspaces from API
+			return &m, m.fetchWorkspaces(), true
 		}
 		return &m, nil, true
 	}
@@ -234,6 +230,12 @@ func (m Model) handleTick(msg tickMsg) (tea.Model, tea.Cmd) {
 	// Once SSE is connected, we use that as our health indicator
 	if !m.sseConnected {
 		cmds = append(cmds, m.fetchHealthStatus())
+	}
+
+	// Fetch workspaces periodically (every 5 ticks = 25 seconds)
+	// This is a fallback in case SSE events are missed
+	if int(m.lastUpdate.Unix())%25 == 0 {
+		cmds = append(cmds, m.fetchWorkspaces())
 	}
 
 	return m, tea.Batch(cmds...)
@@ -748,6 +750,13 @@ func (m Model) handleVersionCheck(msg VersionCheckMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleWorkspaces(msg workspacesMsg) (tea.Model, tea.Cmd) {
 	m.workspaces = []WorkspaceInfo(msg)
 	debugLog("Updated workspaces: %d workspaces loaded", len(m.workspaces))
+
+	// If we were trying to show the workspace selector but had no workspaces,
+	// show it now if we have workspaces
+	if len(m.workspaces) > 0 && m.showWorkspaceSelector {
+		m.selectedWorkspaceIndex = 0
+	}
+
 	return m, nil
 }
 
