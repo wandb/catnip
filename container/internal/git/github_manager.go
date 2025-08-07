@@ -232,34 +232,49 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string, forcePush bool) (*models.PullRequestResponse, error) {
 	log.Printf("🚀 Creating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
-	// Handle custom refs (e.g., refs/catnip/ninja) by creating a regular branch
+	// Handle custom refs (e.g., refs/catnip/ninja) by using the nice branch for pushing
 	branchToPush := worktree.Branch
 	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
-		// Extract the simple branch name from the custom ref
-		simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+		// Check if there's a nice branch mapped to this custom ref
+		configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(worktree.Branch, "/", "."))
+		niceBranchOutput, err := g.operations.GetConfig(worktree.Path, configKey)
+		if err == nil && strings.TrimSpace(niceBranchOutput) != "" {
+			// Use the mapped nice branch
+			branchToPush = strings.TrimSpace(niceBranchOutput)
+			log.Printf("🔍 Using nice branch %s for PR (worktree remains on %s)", branchToPush, worktree.Branch)
 
-		// Create a regular branch from the current HEAD
-		// We need to use checkout -b instead of branch when HEAD points to a custom ref
-		log.Printf("🔄 Creating regular branch %s from custom ref %s", simpleBranchName, worktree.Branch)
-
-		// First check if the branch already exists
-		if g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
-			log.Printf("ℹ️ Branch %s already exists, checking it out", simpleBranchName)
-			// Checkout the existing branch
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", simpleBranchName)
-			if err != nil {
-				return nil, fmt.Errorf("failed to checkout existing branch %s: %v", simpleBranchName, err)
+			// Ensure the nice branch is up to date with the custom ref
+			currentCommit, _ := g.operations.GetCommitHash(worktree.Path, "HEAD")
+			if currentCommit != "" {
+				_, err = g.operations.ExecuteGit(worktree.Path, "branch", "-f", branchToPush, currentCommit)
+				if err != nil {
+					log.Printf("⚠️ Failed to update nice branch to current commit: %v", err)
+				}
 			}
 		} else {
-			// Create and checkout the new branch in one step
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create branch from custom ref: %v", err)
-			}
-			log.Printf("✅ Created and checked out branch %s", simpleBranchName)
-		}
+			// Fallback: Extract the simple branch name from the custom ref and create a branch
+			simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+			log.Printf("🔄 Creating fallback branch %s from custom ref %s", simpleBranchName, worktree.Branch)
 
-		branchToPush = simpleBranchName
+			// Create the branch WITHOUT switching to it (worktree stays on custom ref)
+			currentCommit, _ := g.operations.GetCommitHash(worktree.Path, "HEAD")
+			if currentCommit != "" {
+				if !g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
+					err := g.operations.CreateBranch(worktree.Path, simpleBranchName, currentCommit)
+					if err != nil {
+						return nil, fmt.Errorf("failed to create branch from custom ref: %v", err)
+					}
+					log.Printf("✅ Created branch %s (worktree remains on %s)", simpleBranchName, worktree.Branch)
+				} else {
+					// Update existing branch to current commit
+					_, err = g.operations.ExecuteGit(worktree.Path, "branch", "-f", simpleBranchName, currentCommit)
+					if err != nil {
+						log.Printf("⚠️ Failed to update branch to current commit: %v", err)
+					}
+				}
+			}
+			branchToPush = simpleBranchName
+		}
 	}
 
 	// Push the branch

@@ -70,6 +70,8 @@ type Worktree struct {
 	Branch string `json:"branch" example:"feature/api-docs"`
 	// Branch this worktree was originally created from
 	SourceBranch string `json:"source_branch" example:"main"`
+	// Whether this worktree's branch has been renamed from its original catnip ref
+	HasBeenRenamed bool `json:"has_been_renamed" example:"true"`
 	// Commit hash where this worktree diverged from source branch (updated after merges)
 	CommitHash string `json:"commit_hash" example:"abc123def456"`
 	// Number of commits ahead of the divergence point (CommitHash)

@@ -113,9 +113,18 @@ func (w *WorktreeManager) CreateLocalWorktree(req CreateWorktreeRequest) (*model
 		return nil, fmt.Errorf("failed to create worktree: %v", err)
 	}
 
-	// For local repos, worktrees already share the same git repository,
-	// so we don't need a separate remote. The worktree can directly access
-	// all branches and refs from the main repository.
+	// For local repos, set up a "catnip-live" remote pointing back to the main repository
+	// This allows us to push nice branches back to the main repo for external access
+	// Local repos are identified by repo IDs starting with "local/"
+	if strings.HasPrefix(req.Repository.ID, "local/") {
+		// Add "catnip-live" remote pointing to the main repository
+		if err := w.operations.AddRemote(worktreePath, "catnip-live", req.Repository.Path); err != nil {
+			// Log warning but don't fail - remote might already exist
+			log.Printf("⚠️ Failed to add catnip-live remote (may already exist): %v", err)
+		} else {
+			log.Printf("✅ Added 'catnip-live' remote pointing to main repository at %s", req.Repository.Path)
+		}
+	}
 
 	// Get current commit hash
 	commitHash, err := w.operations.GetCommitHash(worktreePath, "HEAD")
@@ -210,20 +219,20 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 }
 
 // detectWorktreeActualState inspects the actual Git state of a worktree
-// and returns the real branch/ref. For source branch detection, we rely on stored metadata
-// since determining the "correct" source branch is a business logic decision, not a git operation.
+// and returns the display branch name (with nice name mapping for catnip branches).
+// For source branch detection, we rely on stored metadata since determining the "correct"
+// source branch is a business logic decision, not a git operation.
 func (w *WorktreeManager) detectWorktreeActualState(worktreePath string) (actualBranch string, err error) {
-	// Get the actual HEAD reference
-	branchOutput, err := w.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD")
-	if err != nil {
-		// Might be detached HEAD, get the commit hash
-		if commitHash, hashErr := w.operations.ExecuteGit(worktreePath, "rev-parse", "HEAD"); hashErr == nil {
-			actualBranch = strings.TrimSpace(string(commitHash))
-		} else {
-			return "", fmt.Errorf("failed to get HEAD reference: %v, %v", err, hashErr)
-		}
+	// Get the display branch (handles nice name mapping for catnip branches)
+	if displayBranch, err := w.operations.GetDisplayBranch(worktreePath); err == nil {
+		return displayBranch, nil
+	}
+
+	// Fallback: might be detached HEAD, get the commit hash
+	if commitHash, hashErr := w.operations.ExecuteGit(worktreePath, "rev-parse", "HEAD"); hashErr == nil {
+		actualBranch = strings.TrimSpace(string(commitHash))
 	} else {
-		actualBranch = strings.TrimSpace(string(branchOutput))
+		return "", fmt.Errorf("failed to get HEAD reference: %v, %v", err, hashErr)
 	}
 
 	return actualBranch, nil
@@ -242,11 +251,17 @@ func (w *WorktreeManager) UpdateWorktreeStatus(worktree *models.Worktree, getSou
 		log.Printf("⚠️ Failed to detect actual worktree state for %s: %v", worktree.Name, err)
 		// Fall back to stored metadata
 	} else {
-		// Update stored metadata if it differs from reality
+		// Only update branch field if worktree hasn't been renamed
+		// If renamed, Branch field shows nice name for UI, git HEAD stays on actual ref
 		if actualBranch != worktree.Branch {
-			log.Printf("🔄 Worktree %s actual branch (%s) differs from stored (%s), updating",
-				worktree.Name, actualBranch, worktree.Branch)
-			worktree.Branch = actualBranch
+			if worktree.HasBeenRenamed {
+				log.Printf("🔍 Worktree %s actual git ref (%s) differs from display name (%s), but has_been_renamed=true, keeping display name",
+					worktree.Name, actualBranch, worktree.Branch)
+			} else {
+				log.Printf("🔄 Worktree %s actual branch (%s) differs from stored (%s), updating",
+					worktree.Name, actualBranch, worktree.Branch)
+				worktree.Branch = actualBranch
+			}
 		}
 	}
 
