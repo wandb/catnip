@@ -49,3 +49,4 @@ type sseContainerStatusMsg struct {
 	status  string
 	message string
 }
+type sseWorktreeUpdatedMsg struct{}
