@@ -94,26 +94,25 @@ CATNIP_GO_VERSION=1.22
 
 ### Environment Setup
 
-Catnip currently looks for a file named `setup.sh` in the root of your repo and runs it when a workspace is created.  This is a great place to run `pnpm install` or `uv sync` etc.
+Catnip currently looks for a file named `setup.sh` in the root of your repo and runs it when a workspace is created. This is a great place to run `pnpm install` or `uv sync` etc.
 
 ### SSH
 
-The `catnip run` command configures SSH witnin the container by default.  It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh).
+The `catnip run` command configures SSH witnin the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh).
 
 ### Git
 
-If you run `catnip` from within a git repo, we mount the repo into the contaienr and create a default workspace.  When you start a claude session in Catnip the system automatically commits changes as claude makes them.
-
+If you run `catnip` from within a git repo, we mount the repo into the contaienr and create a default workspace. When you start a claude session in Catnip the system automatically commits changes as claude makes them.
 
 > [!TIP]
-> The workspace within the container is commiting to a custom ref `refs/catnip/$NAME`.  For convenience we also create a nicely named branch like `feature/make-something-great`.  This branch is kept in sync with the workspace ref which means you can run `git checkout feature/make-something-great` outside of the container to see changes locally!
+> The workspace within the container is commiting to a custom ref `refs/catnip/$NAME`. For convenience we also create a nicely named branch like `feature/make-something-great`. This branch is kept in sync with the workspace ref which means you can run `git checkout feature/make-something-great` outside of the container to see changes locally!
 
 ### Ports
 
-Catnip detects any ports that are bound within the container.  Each workspace also has the `PORT` environment variable set to a known free port.  When a port is opened we notify you in the UI and make the port accessible at `http://localhost:8080/$PORT`.  Your application should not need to know it's running under a sub-path.  We do a bunch of hacky stuff to make links and fetch request do the right thing.
+Catnip detects any ports that are bound within the container. Each workspace also has the `PORT` environment variable set to a known free port. When a port is opened we notify you in the UI and make the port accessible at `http://localhost:8080/$PORT`. Your application should not need to know it's running under a sub-path. We do a bunch of hacky stuff to make links and fetch request do the right thing.
 
 > [!CAUTION]
-> We're doing some terrible hacky awful stuff to make our proxy work currently.  It's likely brittle and may miss more complex scenarios.  If you're having issues with our proxy, you can forward ports directly to your host with ssh `ssh -L 3000:localhost:3000 catnip` or use the built in port forwarding of VSCode or Cursor.
+> We're doing some terrible hacky awful stuff to make our proxy work currently. It's likely brittle and may miss more complex scenarios. If you're having issues with our proxy, you can forward ports directly to your host with ssh `ssh -L 3000:localhost:3000 catnip` or use the built in port forwarding of VSCode or Cursor.
 
 ## 🗺️ Roadmap
 
@@ -135,6 +134,7 @@ Catnip is Open Source, built to be extensible, and prioritizes local development
 <summary><b>What AI assistants does Catnip support?</b></summary>
 
 Currently optimized for Claude Code, with support for additional AI coding assistants likely coming soon. The architecture is designed to be extensible.
+
 </details>
 <details>
 <summary><b>Did you develop Catnip with Catnip?</b></summary>
@@ -168,10 +168,10 @@ This project is licensed under the Apache 2.0 - see the [LICENSE](LICENSE) file 
     <img src="https://img.shields.io/badge/🐾_Get_Started-4CAF50?style=for-the-badge" alt="Get Started"/>
   </a>
 
-  <br/><br/>
+<br/><br/>
 
-  **Made with ❤️ by the [Weights & Biases](https://wandb.ai) team**
+**Made with ❤️ by the [Weights & Biases](https://wandb.ai) team**
 
-  *If you like Catnip, give it a ⭐ on GitHub!*
+_If you like Catnip, give it a ⭐ on GitHub!_
 
 </div>
