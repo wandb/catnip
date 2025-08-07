@@ -189,13 +189,15 @@ func fetchWorkspacesFromAPI() ([]WorkspaceInfo, error) {
 			Name:         wt.Name,
 			Path:         wt.Path,
 			Branch:       wt.Branch,
-			IsActive:     wt.IsActive,
-			ChangedFiles: make([]string, len(wt.ChangedFiles)),
-			Ports:        []PortInfo{}, // TODO: Map ports if available in worktree model
+			IsActive:     string(wt.ClaudeActivityState) != "inactive", // Use Claude activity as active indicator
+			ChangedFiles: []string{},                                   // TODO: Get changed files from git status if needed
+			Ports:        []PortInfo{},                                 // TODO: Map ports if available in worktree model
 		}
 
-		// Copy changed files
-		copy(workspace.ChangedFiles, wt.ChangedFiles)
+		// Add indicator if worktree is dirty (has uncommitted changes)
+		if wt.IsDirty {
+			workspace.ChangedFiles = []string{"(uncommitted changes)"} // Placeholder
+		}
 
 		workspaces = append(workspaces, workspace)
 	}
