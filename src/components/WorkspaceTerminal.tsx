@@ -341,7 +341,14 @@ export function WorkspaceTerminal({
       }
       clearTimeout(initialFitTimeout);
     };
-  }, [instance, worktree.id, worktree.name, setDims, sendReadySignal]);
+  }, [
+    instance,
+    worktree.id,
+    worktree.name,
+    terminalId,
+    setDims,
+    sendReadySignal,
+  ]);
 
   // Handle read-only data input separately to avoid re-rendering the entire terminal
   useEffect(() => {
