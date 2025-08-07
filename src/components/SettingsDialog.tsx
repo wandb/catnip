@@ -67,6 +67,15 @@ interface GitHubAuthStatus {
   };
 }
 
+interface CatnipVersion {
+  version: string;
+  build: {
+    commit: string;
+    date: string;
+    builtBy: string;
+  };
+}
+
 // Simple JSON syntax highlighter component
 const JsonHighlighter = ({ data }: { data: any }) => {
   const jsonString = JSON.stringify(data, null, 2);
@@ -100,6 +109,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     React.useState(false);
   const [githubAuthStatus, setGithubAuthStatus] =
     React.useState<GitHubAuthStatus | null>(null);
+  const [catnipVersion, setCatnipVersion] =
+    React.useState<CatnipVersion | null>(null);
 
   // Fetch swagger data when component mounts
   React.useEffect(() => {
@@ -140,6 +151,18 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         );
     }
   }, [open, activeSection, githubAuthStatus]);
+
+  // Fetch catnip version when component mounts or when switching to authentication
+  React.useEffect(() => {
+    if (open && activeSection === "authentication" && !catnipVersion) {
+      fetch("/v1/info")
+        .then((response) => response.json())
+        .then((data) => setCatnipVersion(data))
+        .catch((error) =>
+          console.error("Failed to fetch catnip version:", error),
+        );
+    }
+  }, [open, activeSection, catnipVersion]);
 
   // Function to update Claude theme setting
   const updateClaudeTheme = async (theme: string) => {
