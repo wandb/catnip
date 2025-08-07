@@ -109,12 +109,34 @@ func (o *OperationsImpl) GetRemoteBranchesFromURL(remoteURL string) ([]string, e
 }
 
 func (o *OperationsImpl) CreateBranch(repoPath, branch, fromRef string) error {
-	args := []string{"branch", branch}
+	// Determine the commit to create the branch from
+	var commitHash string
+	var err error
+
 	if fromRef != "" {
-		args = append(args, fromRef)
+		// If fromRef is already a commit hash, use it directly
+		// If it's a reference, resolve it to a commit hash
+		commitHash, err = o.GetCommitHash(repoPath, fromRef)
+		if err != nil {
+			return fmt.Errorf("failed to resolve fromRef %q to commit hash: %v", fromRef, err)
+		}
+	} else {
+		// Resolve HEAD to a commit hash
+		commitHash, err = o.GetCommitHash(repoPath, "HEAD")
+		if err != nil {
+			return fmt.Errorf("failed to resolve HEAD to commit hash: %v", err)
+		}
 	}
-	_, err := o.ExecuteGit(repoPath, args...)
-	return err
+
+	// Use update-ref to create the branch reference directly
+	// This bypasses git branch's safety checks about HEAD being under refs/heads
+	branchRef := "refs/heads/" + branch
+	_, err = o.ExecuteGit(repoPath, "update-ref", branchRef, commitHash)
+	if err != nil {
+		return fmt.Errorf("failed to create branch %q: %v", branch, err)
+	}
+
+	return nil
 }
 
 func (o *OperationsImpl) DeleteBranch(repoPath, branch string, force bool) error {
@@ -562,6 +584,37 @@ func (o *OperationsImpl) SetGlobalConfig(key, value string) error {
 		"HOME="+config.Runtime.HomeDir,
 	)
 	return cmd.Run()
+}
+
+// GetDisplayBranch returns the display branch name, checking for nice name mapping first
+func (o *OperationsImpl) GetDisplayBranch(worktreePath string) (string, error) {
+	// First get the actual git branch/ref
+	var actualBranch string
+	if branchOutput, err := o.ExecuteGit(worktreePath, "symbolic-ref", "HEAD"); err == nil {
+		actualBranch = strings.TrimSpace(string(branchOutput))
+	} else {
+		// Fallback to branch --show-current for detached HEAD or other cases
+		if branchOutput, err := o.ExecuteGit(worktreePath, "branch", "--show-current"); err == nil {
+			actualBranch = strings.TrimSpace(string(branchOutput))
+		} else {
+			return "", err
+		}
+	}
+
+	// If it's a catnip branch, check if there's a nice name mapping
+	if strings.HasPrefix(actualBranch, "refs/catnip/") {
+		// Check git config for nice branch mapping
+		configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(actualBranch, "/", "."))
+		if niceBranch, err := o.GetConfig(worktreePath, configKey); err == nil && strings.TrimSpace(niceBranch) != "" {
+			// Return the nice branch name
+			return strings.TrimSpace(niceBranch), nil
+		}
+	}
+
+	// Clean up the branch name (remove refs/heads/ prefix if present)
+	actualBranch = strings.TrimPrefix(actualBranch, "refs/heads/")
+
+	return actualBranch, nil
 }
 
 // Rev operations

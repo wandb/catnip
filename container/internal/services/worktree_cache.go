@@ -102,7 +102,9 @@ func (c *WorktreeStatusCache) EnhanceWorktreeWithCache(worktree *models.Worktree
 	if cached.CommitsBehind != nil {
 		worktree.CommitsBehind = *cached.CommitsBehind
 	}
-	if cached.Branch != "" {
+	// Only update branch field if worktree hasn't been renamed
+	// If renamed, Branch field shows nice name for UI, don't overwrite with actual git ref
+	if cached.Branch != "" && !worktree.HasBeenRenamed {
 		worktree.Branch = cached.Branch
 	}
 }
@@ -430,10 +432,8 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 		cached.CommitHash = commitHash
 	}
 
-	// Get current branch (detect actual state)
-	if branchOutput, err := c.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD"); err == nil {
-		branch := strings.TrimSpace(string(branchOutput))
-		branch = strings.TrimPrefix(branch, "refs/heads/")
+	// Get display branch (handles nice name mapping for catnip branches)
+	if branch, err := c.operations.GetDisplayBranch(worktreePath); err == nil {
 		cached.Branch = branch
 	}
 

@@ -555,6 +555,45 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "patch": {
+                "description": "Updates specific fields of a worktree (for testing purposes)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Update worktree fields",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "updates",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
+                        }
+                    }
+                }
             }
         },
         "/v1/git/worktrees/{id}/diff": {
@@ -1811,6 +1850,11 @@ const docTemplate = `{
                     "description": "Whether there's an active Claude session for this worktree (deprecated - use ClaudeActivityState)",
                     "type": "boolean"
                 },
+                "has_been_renamed": {
+                    "description": "Whether this worktree's branch has been renamed from its original catnip ref",
+                    "type": "boolean",
+                    "example": true
+                },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
                     "type": "boolean",
@@ -2178,6 +2222,11 @@ const docTemplate = `{
                 "has_active_claude_session": {
                     "description": "Whether there's an active Claude session for this worktree (deprecated - use ClaudeActivityState)",
                     "type": "boolean"
+                },
+                "has_been_renamed": {
+                    "description": "Whether this worktree's branch has been renamed from its original catnip ref",
+                    "type": "boolean",
+                    "example": true
                 },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
