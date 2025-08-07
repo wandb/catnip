@@ -18,8 +18,13 @@ import {
 } from "@/components/ui/resizable";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
-import { Eye, ChevronDown, ChevronUp } from "lucide-react";
+import { Eye, ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
+
+interface TerminalTab {
+  id: string;
+  name: string;
+}
 
 interface WorkspaceMainContentProps {
   worktree: Worktree;
@@ -477,6 +482,41 @@ export function WorkspaceMainContent({
   const [isTerminalMinimized, setIsTerminalMinimized] = useState(false);
   const [previousTerminalSize, setPreviousTerminalSize] = useState(30);
   const [terminalSize, setTerminalSize] = useState(30);
+
+  // Terminal tabs state
+  const [terminals, setTerminals] = useState<TerminalTab[]>([
+    { id: "default", name: "Terminal 1" },
+  ]);
+  const [activeTerminal, setActiveTerminal] = useState("default");
+
+  // Terminal management functions
+  const addTerminal = useCallback(() => {
+    if (terminals.length >= 3) return;
+
+    const newId = `terminal-${terminals.length + 1}`;
+    const newTerminal = {
+      id: newId,
+      name: `Terminal ${terminals.length + 1}`,
+    };
+
+    setTerminals((prev) => [...prev, newTerminal]);
+    setActiveTerminal(newId);
+  }, [terminals.length]);
+
+  const removeTerminal = useCallback(
+    (terminalId: string) => {
+      if (terminals.length <= 1) return; // Always keep at least one terminal
+
+      setTerminals((prev) => prev.filter((t) => t.id !== terminalId));
+
+      // If removing active terminal, switch to first remaining terminal
+      if (activeTerminal === terminalId) {
+        const remaining = terminals.filter((t) => t.id !== terminalId);
+        setActiveTerminal(remaining[0]?.id || "default");
+      }
+    },
+    [terminals, activeTerminal],
+  );
 
   // Get diff stats to check if we have changes
   const { diffStats } = useWorktreeDiff(
