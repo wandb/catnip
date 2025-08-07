@@ -16,8 +16,6 @@
 
 </div>
 
-Catnip supercharges your development workflow by providing a **containerized environment** that can effortlessly run multiple agents in parallel using Claude Code.
-
 ## 🚀 Why Catnip?
 
 Catnip's purpose is to make developing with AI more accessible and productive.
