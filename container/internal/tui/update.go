@@ -47,6 +47,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePorts(msg)
 	case healthStatusMsg:
 		return m.handleHealthStatus(msg)
+	case workspacesMsg:
+		return m.handleWorkspaces(msg)
+	case sseWorktreeUpdatedMsg:
+		return m.handleSSEWorktreeUpdated(msg)
 	case errMsg:
 		return m.handleError(msg)
 	case quitMsg:
@@ -738,4 +742,18 @@ func (m Model) handleVersionCheck(msg VersionCheckMsg) (tea.Model, tea.Cmd) {
 		debugLog("Versions match: CLI=%s, Container=%s", msg.CLIVersion, msg.ContainerVersion)
 	}
 	return m, nil
+}
+
+// Workspaces message handler
+func (m Model) handleWorkspaces(msg workspacesMsg) (tea.Model, tea.Cmd) {
+	m.workspaces = []WorkspaceInfo(msg)
+	debugLog("Updated workspaces: %d workspaces loaded", len(m.workspaces))
+	return m, nil
+}
+
+// SSE worktree updated handler
+func (m Model) handleSSEWorktreeUpdated(msg sseWorktreeUpdatedMsg) (tea.Model, tea.Cmd) {
+	debugLog("SSE worktree updated event received, refreshing workspaces")
+	// Refresh workspaces when SSE event is received
+	return m, m.fetchWorkspaces()
 }
