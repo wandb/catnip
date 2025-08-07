@@ -13,6 +13,7 @@ import { LoginModal } from "@/components/LoginModal";
 import { GitHubAuthProvider } from "@/lib/github-auth-context";
 import { useGitHubAuth } from "@/lib/hooks";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 function RootLayout() {
   const location = useLocation();
@@ -21,7 +22,7 @@ function RootLayout() {
   const { showAuthModal, setShowAuthModal } = useGitHubAuth();
 
   // Check if we're on a workspace route
-  const isWorkspaceRoute = location.pathname.startsWith("/workspace/");
+  const isWorkspaceRoute = location.pathname.startsWith("/workspace");
 
   // Show login modal if auth is required and user is not authenticated
   const showLoginModal = !isLoading && authRequired && !isAuthenticated;
@@ -75,10 +76,7 @@ function RootLayout() {
               <Suspense
                 fallback={
                   <div className="flex items-center justify-center h-full">
-                    <div className="text-center space-y-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-                      <p className="text-muted-foreground">Loading...</p>
-                    </div>
+                    <LoadingSpinner size="lg" />
                   </div>
                 }
               >

@@ -224,6 +224,50 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 	return c.JSON(enhancedWorktrees)
 }
 
+// UpdateWorktree updates specific fields of a worktree
+// @Summary Update worktree fields
+// @Description Updates specific fields of a worktree (for testing purposes)
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param updates body object true "Fields to update"
+// @Success 200 {object} models.Worktree
+// @Router /v1/git/worktrees/{id} [patch]
+func (h *GitHandler) UpdateWorktree(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	if worktreeID == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Worktree ID is required",
+		})
+	}
+
+	// Parse the request body to get the fields to update
+	var updates map[string]interface{}
+	if err := c.BodyParser(&updates); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": fmt.Sprintf("Invalid request body: %v", err),
+		})
+	}
+
+	// Update the worktree using the state manager
+	if err := h.gitService.UpdateWorktreeFields(worktreeID, updates); err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": fmt.Sprintf("Failed to update worktree: %v", err),
+		})
+	}
+
+	// Get the updated worktree
+	worktree, exists := h.gitService.GetWorktree(worktreeID)
+	if !exists {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "Worktree not found",
+		})
+	}
+
+	return c.JSON(worktree)
+}
+
 // ListGitHubRepositories returns user's GitHub repositories
 // @Summary List GitHub repositories
 // @Description Returns a list of GitHub repositories accessible to the authenticated user

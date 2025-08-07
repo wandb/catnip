@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { fetchWithTimeout, TimeoutError } from "./fetch-with-timeout";
 
 export interface GitStatus {
   repositories?: Record<string, LocalRepository>;
@@ -125,27 +126,63 @@ export const gitApi = {
   // Components should use the zustand store (useAppStore) directly for state access.
 
   async fetchGitStatus(): Promise<GitStatus> {
-    const response = await fetch("/v1/git/status");
-    if (response.ok) {
-      return await response.json();
+    try {
+      const response = await fetchWithTimeout("/v1/git/status", {
+        timeout: 30000,
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      throw new Error("Failed to fetch git status");
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        console.error("Git status request timed out");
+        throw new Error(
+          "Request timed out. The backend server may be unavailable.",
+        );
+      }
+      throw error;
     }
-    throw new Error("Failed to fetch git status");
   },
 
   async fetchWorktrees(): Promise<Worktree[]> {
-    const response = await fetch("/v1/git/worktrees");
-    if (response.ok) {
-      return await response.json();
+    try {
+      const response = await fetchWithTimeout("/v1/git/worktrees", {
+        timeout: 30000,
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      throw new Error("Failed to fetch worktrees");
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        console.error("Worktrees request timed out");
+        throw new Error(
+          "Request timed out. The backend server may be unavailable.",
+        );
+      }
+      throw error;
     }
-    throw new Error("Failed to fetch worktrees");
   },
 
   async fetchRepositories(): Promise<Repository[]> {
-    const response = await fetch("/v1/git/github/repos");
-    if (response.ok) {
-      return await response.json();
+    try {
+      const response = await fetchWithTimeout("/v1/git/github/repos", {
+        timeout: 30000,
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      throw new Error("Failed to fetch repositories");
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        console.error("Repositories request timed out");
+        throw new Error(
+          "Request timed out. The backend server may be unavailable.",
+        );
+      }
+      throw error;
     }
-    throw new Error("Failed to fetch repositories");
   },
 
   async fetchBranches(repoId: string): Promise<string[]> {

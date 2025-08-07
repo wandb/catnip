@@ -424,6 +424,11 @@ definitions:
         description: Whether there's an active Claude session for this worktree (deprecated
           - use ClaudeActivityState)
         type: boolean
+      has_been_renamed:
+        description: Whether this worktree's branch has been renamed from its original
+          catnip ref
+        example: true
+        type: boolean
       has_conflicts:
         description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
         example: false
@@ -690,6 +695,11 @@ definitions:
       has_active_claude_session:
         description: Whether there's an active Claude session for this worktree (deprecated
           - use ClaudeActivityState)
+        type: boolean
+      has_been_renamed:
+        description: Whether this worktree's branch has been renamed from its original
+          catnip ref
+        example: true
         type: boolean
       has_conflicts:
         description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
@@ -1317,6 +1327,32 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
       summary: Delete worktree
+      tags:
+      - git
+    patch:
+      consumes:
+      - application/json
+      description: Updates specific fields of a worktree (for testing purposes)
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: updates
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+      summary: Update worktree fields
       tags:
       - git
   /v1/git/worktrees/{id}/diff:

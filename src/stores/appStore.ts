@@ -47,6 +47,7 @@ interface AppState {
   worktreesLoading: boolean;
   repositoriesLoading: boolean;
   gitStatusLoading: boolean;
+  loadError: string | null;
 
   // Actions
   connectSSE: () => void;
@@ -100,6 +101,7 @@ export const useAppStore = create<AppState>()(
     worktreesLoading: false,
     repositoriesLoading: false,
     gitStatusLoading: false,
+    loadError: null,
 
     connectSSE: () => {
       // Prevent multiple simultaneous connections
@@ -473,15 +475,40 @@ export const useAppStore = create<AppState>()(
 
     // Load initial data from APIs
     loadInitialData: async () => {
-      set({ initialLoading: true });
+      set({ initialLoading: true, loadError: null });
       try {
-        // Load data in parallel
-        const [worktreesData, gitStatusData, githubReposData] =
-          await Promise.all([
-            gitApi.fetchWorktrees().catch(() => []),
-            gitApi.fetchGitStatus().catch(() => ({})),
-            gitApi.fetchRepositories().catch(() => []),
+        // Load data in parallel with proper error handling
+        const [worktreesResult, gitStatusResult, githubReposResult] =
+          await Promise.allSettled([
+            gitApi.fetchWorktrees(),
+            gitApi.fetchGitStatus(),
+            gitApi.fetchRepositories(),
           ]);
+
+        // Check if all critical requests failed
+        if (
+          worktreesResult.status === "rejected" &&
+          gitStatusResult.status === "rejected"
+        ) {
+          const errorMessage =
+            worktreesResult.reason?.message ||
+            "Failed to connect to backend server";
+          set({
+            loadError: errorMessage,
+            initialLoading: false,
+          });
+          return;
+        }
+
+        // Extract successful data with fallbacks
+        const worktreesData =
+          worktreesResult.status === "fulfilled" ? worktreesResult.value : [];
+        const gitStatusData =
+          gitStatusResult.status === "fulfilled" ? gitStatusResult.value : {};
+        const githubReposData =
+          githubReposResult.status === "fulfilled"
+            ? githubReposResult.value
+            : [];
 
         // Transform and set worktrees
         const worktreeMap = new Map<string, Worktree>();
@@ -516,11 +543,17 @@ export const useAppStore = create<AppState>()(
           repositories: repositoryMap,
           gitStatus: gitStatusData,
           githubRepositories: githubReposData,
+          initialLoading: false,
+          loadError: null,
         });
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to load initial data:", error);
+        set({
+          loadError: error?.message || "Failed to load application data",
+          initialLoading: false,
+        });
       } finally {
-        set({ initialLoading: false });
+        // initialLoading is already set to false above
       }
     },
 

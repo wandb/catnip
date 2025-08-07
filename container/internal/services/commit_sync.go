@@ -153,21 +153,49 @@ func (css *CommitSyncService) addWorktreeWatcher(worktreePath string) {
 
 	// Watch the .git directory for changes
 	gitDir := filepath.Join(worktreePath, ".git")
-	if _, err := os.Stat(gitDir); err == nil {
-		// Watch both refs/heads and refs/catnip for new commits
-		refsDirs := []string{
-			filepath.Join(gitDir, "refs", "heads"),
-			filepath.Join(gitDir, "refs", "catnip"),
-		}
 
-		for _, refsDir := range refsDirs {
-			if _, err := os.Stat(refsDir); err == nil {
-				if err := css.watcher.Add(refsDir); err != nil {
-					log.Printf("⚠️ Failed to watch refs directory %s: %v", refsDir, err)
-				} else {
-					log.Printf("👀 Watching worktree refs directory: %s", refsDir)
+	// For worktrees, check if .git is a file pointing to the main repo
+	var mainRepoGitDir string
+	if gitDirContent, err := os.ReadFile(gitDir); err == nil {
+		// This is a worktree - .git file contains "gitdir: /path/to/main/repo/.git/worktrees/name"
+		gitDirStr := string(gitDirContent)
+		if strings.HasPrefix(gitDirStr, "gitdir: ") {
+			worktreeGitDir := strings.TrimSpace(strings.TrimPrefix(gitDirStr, "gitdir: "))
+			// Extract main repo git directory: /path/to/main/repo/.git/worktrees/name -> /path/to/main/repo/.git
+			parts := strings.Split(worktreeGitDir, string(filepath.Separator))
+			for i := len(parts) - 1; i >= 0; i-- {
+				if parts[i] == ".git" {
+					mainRepoGitDir = strings.Join(parts[:i+1], string(filepath.Separator))
+					break
 				}
 			}
+		}
+	}
+
+	// Watch both the worktree's local refs and the main repo's custom refs
+	var refsDirsToWatch []string
+
+	if _, err := os.Stat(gitDir); err == nil {
+		// For regular worktrees, watch local refs/heads
+		localRefsDir := filepath.Join(gitDir, "refs", "heads")
+		if _, err := os.Stat(localRefsDir); err == nil {
+			refsDirsToWatch = append(refsDirsToWatch, localRefsDir)
+		}
+	}
+
+	// For custom refs like refs/catnip/*, watch the main repository's refs/catnip directory
+	if mainRepoGitDir != "" {
+		catnipRefsDir := filepath.Join(mainRepoGitDir, "refs", "catnip")
+		if _, err := os.Stat(catnipRefsDir); err == nil {
+			refsDirsToWatch = append(refsDirsToWatch, catnipRefsDir)
+		}
+	}
+
+	for _, refsDir := range refsDirsToWatch {
+		if err := css.watcher.Add(refsDir); err != nil {
+			log.Printf("⚠️ Failed to watch refs directory %s: %v", refsDir, err)
+		} else {
+			log.Printf("👀 Watching refs directory: %s", refsDir)
 		}
 	}
 }
@@ -235,9 +263,25 @@ func (css *CommitSyncService) handleCommitEvent(event fsnotify.Event) {
 
 // extractWorktreePath extracts the worktree path from a Git refs file path
 func (css *CommitSyncService) extractWorktreePath(refsPath string) string {
-	// Convert /workspace/repo/branch/.git/refs/heads/branchname to /workspace/repo/branch
+	// Handle two cases:
+	// 1. Regular worktree refs: /workspace/repo/branch/.git/refs/heads/branchname -> /workspace/repo/branch
+	// 2. Main repo custom refs: /live/repo/.git/refs/catnip/workspacename -> find corresponding worktree
+
 	parts := strings.Split(refsPath, string(filepath.Separator))
 
+	// Check if this is a custom ref from the main repository (refs/catnip/*)
+	if strings.Contains(refsPath, "refs/catnip/") {
+		// Extract workspace name from refs/catnip/workspacename
+		for i, part := range parts {
+			if part == "catnip" && i+1 < len(parts) {
+				workspaceName := parts[i+1]
+				// Find the corresponding worktree by checking all worktrees
+				return css.findWorktreePathByName(workspaceName)
+			}
+		}
+	}
+
+	// Regular case: find .git directory and return path up to it
 	for i, part := range parts {
 		if part == ".git" && i > 0 {
 			// Return path up to but not including .git
@@ -245,6 +289,18 @@ func (css *CommitSyncService) extractWorktreePath(refsPath string) string {
 		}
 	}
 
+	return ""
+}
+
+// findWorktreePathByName finds the worktree path for a given workspace name
+func (css *CommitSyncService) findWorktreePathByName(workspaceName string) string {
+	// Get all worktrees from the git service
+	worktrees := css.gitService.ListWorktrees()
+	for _, worktree := range worktrees {
+		if worktree.Name == workspaceName {
+			return worktree.Path
+		}
+	}
 	return ""
 }
 
@@ -301,15 +357,15 @@ func (css *CommitSyncService) getCommitInfo(worktreePath string) (*CommitInfo, e
 
 // syncCommitToBareRepo syncs a commit from a worktree to the bare repository
 func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error {
-	// Lock to prevent concurrent sync operations from interfering
-	css.mu.Lock()
-	defer css.mu.Unlock()
-
-	// Find the repository for this worktree
+	// Find the repository for this worktree BEFORE acquiring the lock to avoid holding it during external calls
 	repo, err := css.findRepositoryForWorktree(commitInfo.WorktreePath)
 	if err != nil {
 		return fmt.Errorf("failed to find repository for worktree: %v", err)
 	}
+
+	// Lock to prevent concurrent sync operations from interfering
+	css.mu.Lock()
+	defer css.mu.Unlock()
 
 	bareRepoPath := repo.Path
 
@@ -318,6 +374,13 @@ func (css *CommitSyncService) syncCommitToBareRepo(commitInfo *CommitInfo) error
 	if err != nil {
 		log.Printf("⚠️ Commit %s doesn't exist in worktree %s, skipping sync", commitInfo.CommitHash[:8], commitInfo.WorktreePath)
 		return nil // Skip rather than error
+	}
+
+	// IMPORTANT: Also sync to the nice branch if this is a custom ref
+	if strings.HasPrefix(commitInfo.Branch, "refs/catnip/") {
+		if err := css.syncToNiceBranch(commitInfo); err != nil {
+			log.Printf("⚠️ Failed to sync to nice branch: %v", err)
+		}
 	}
 
 	// Check if commit already exists in bare repo
@@ -426,6 +489,7 @@ func (css *CommitSyncService) PerformManualSync() {
 
 // performPeriodicSync checks all worktrees for unsync'd commits (NO AUTO-COMMITS)
 func (css *CommitSyncService) performPeriodicSync() {
+	// Get worktrees WITHOUT holding the commit sync lock to avoid deadlocks
 	worktrees := css.gitService.ListWorktrees()
 
 	for _, worktree := range worktrees {
@@ -441,7 +505,30 @@ func (css *CommitSyncService) performPeriodicSync() {
 			if err := css.syncCommitToBareRepo(commitInfo); err != nil {
 				log.Printf("⚠️ Failed to sync commit during periodic sync: %v", err)
 			} else {
-				log.Printf("🔄 Periodic sync: synced commit %s", commitInfo.CommitHash[:8])
+				log.Printf("✅ Synced commit %s to bare repository", commitInfo.CommitHash[:8])
+			}
+		}
+
+		// Check for custom refs that need nice branch syncing
+		if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+			// Get current commit info
+			commitInfo, err := css.getCommitInfo(worktree.Path)
+			if err != nil {
+				log.Printf("⚠️ Failed to get commit info for nice branch sync for %s: %v", worktree.Path, err)
+			} else {
+				// Check if nice branch needs syncing
+				if css.hasUnsyncedNiceBranch(commitInfo) {
+					if err := css.syncToNiceBranch(commitInfo); err != nil {
+						log.Printf("⚠️ Failed to sync to nice branch during periodic sync: %v", err)
+					} else {
+						log.Printf("✅ Synced nice branch for commit %s", commitInfo.CommitHash[:8])
+					}
+				}
+			}
+
+			// Check for bidirectional sync - external changes to nice branches
+			if err := css.syncFromNiceBranch(worktree.Path, worktree.Branch); err != nil {
+				log.Printf("⚠️ Failed to sync from nice branch for %s: %v", worktree.Path, err)
 			}
 		}
 	}
@@ -476,6 +563,147 @@ func (css *CommitSyncService) cleanupOrphanedRemotesForRepo(bareRepoPath string)
 			_ = css.operations.RemoveRemote(bareRepoPath, remoteName) // Ignore errors
 		}
 	}
+}
+
+// syncToNiceBranch syncs commits from a custom ref to its corresponding nice branch
+func (css *CommitSyncService) syncToNiceBranch(commitInfo *CommitInfo) error {
+	// Get the nice branch name from git config
+	configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(commitInfo.Branch, "/", "."))
+	niceBranchOutput, err := css.operations.GetConfig(commitInfo.WorktreePath, configKey)
+	if err != nil {
+		// No mapping found, skip syncing
+		return nil
+	}
+	niceBranch := strings.TrimSpace(niceBranchOutput)
+	if niceBranch == "" {
+		return nil
+	}
+
+	// Check if the nice branch exists
+	if !css.operations.BranchExists(commitInfo.WorktreePath, niceBranch, false) {
+		log.Printf("⚠️ Nice branch %s doesn't exist, skipping sync", niceBranch)
+		return nil
+	}
+
+	// Update the nice branch to point to the same commit as the custom ref
+	_, err = css.operations.ExecuteGit(commitInfo.WorktreePath, "branch", "-f", niceBranch, commitInfo.CommitHash)
+	if err != nil {
+		return fmt.Errorf("failed to update nice branch %s to commit %s: %v", niceBranch, commitInfo.CommitHash[:8], err)
+	}
+
+	log.Printf("🔄 Synced nice branch %s to commit %s from %s", niceBranch, commitInfo.CommitHash[:8], commitInfo.Branch)
+
+	// For local repositories, also push the nice branch to the main repository
+	repo, err := css.findRepositoryForWorktree(commitInfo.WorktreePath)
+	if err == nil && strings.HasPrefix(repo.ID, "local/") {
+		// Push the nice branch to the catnip-live remote (which points to the main repo)
+		_, pushErr := css.operations.ExecuteGit(commitInfo.WorktreePath, "push", "catnip-live", fmt.Sprintf("%s:%s", niceBranch, niceBranch), "--force-with-lease")
+		if pushErr != nil {
+			log.Printf("⚠️ Failed to push nice branch to catnip-live remote: %v", pushErr)
+		} else {
+			log.Printf("✅ Pushed nice branch %s to catnip-live remote", niceBranch)
+		}
+	}
+
+	return nil
+}
+
+// syncFromNiceBranch syncs commits from the nice branch back to the custom ref (bidirectional sync)
+func (css *CommitSyncService) syncFromNiceBranch(worktreePath string, customRef string) error {
+	// Get the nice branch name from git config
+	configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(customRef, "/", "."))
+	niceBranchOutput, err := css.operations.GetConfig(worktreePath, configKey)
+	if err != nil {
+		// No mapping found, skip syncing
+		return nil
+	}
+	niceBranch := strings.TrimSpace(niceBranchOutput)
+	if niceBranch == "" {
+		return nil
+	}
+
+	// Check if the nice branch exists
+	if !css.operations.BranchExists(worktreePath, niceBranch, false) {
+		// Nice branch doesn't exist, nothing to sync
+		return nil
+	}
+
+	// Get commit hashes for both branches
+	customRefHash, err := css.operations.GetCommitHash(worktreePath, customRef)
+	if err != nil {
+		return fmt.Errorf("failed to get commit hash for custom ref %s: %v", customRef, err)
+	}
+
+	niceBranchHash, err := css.operations.GetCommitHash(worktreePath, niceBranch)
+	if err != nil {
+		return fmt.Errorf("failed to get commit hash for nice branch %s: %v", niceBranch, err)
+	}
+
+	// If they're the same, nothing to sync
+	if customRefHash == niceBranchHash {
+		return nil
+	}
+
+	// Check if nice branch is ahead of custom ref
+	mergeBaseOutput, err := css.operations.ExecuteGit(worktreePath, "merge-base", customRef, niceBranch)
+	if err != nil {
+		log.Printf("⚠️ Failed to find merge base between %s and %s: %v", customRef, niceBranch, err)
+		return nil
+	}
+	mergeBase := strings.TrimSpace(string(mergeBaseOutput))
+
+	// If merge base equals custom ref hash, nice branch is ahead and can be fast-forwarded
+	if mergeBase == customRefHash {
+		log.Printf("🔄 Nice branch %s is ahead of %s, performing fast-forward sync", niceBranch, customRef)
+
+		// Fast-forward the custom ref to the nice branch
+		_, err = css.operations.ExecuteGit(worktreePath, "update-ref", customRef, niceBranchHash)
+		if err != nil {
+			return fmt.Errorf("failed to fast-forward %s to %s: %v", customRef, niceBranchHash[:8], err)
+		}
+
+		log.Printf("✅ Fast-forwarded %s to %s (%s)", customRef, niceBranchHash[:8], niceBranch)
+		return nil
+	}
+
+	// If merge base equals nice branch hash, custom ref is ahead (already handled by normal sync)
+	if mergeBase == niceBranchHash {
+		return nil
+	}
+
+	// Branches have diverged - this requires a merge
+	log.Printf("🔀 Branches have diverged: %s and %s. Attempting merge.", customRef, niceBranch)
+
+	// For now, we'll create a merge commit on the custom ref
+	// First, we need to temporarily switch to the custom ref to perform the merge
+	currentHeadOutput, _ := css.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD")
+	currentHead := strings.TrimSpace(string(currentHeadOutput))
+
+	// Switch to custom ref
+	_, err = css.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD", customRef)
+	if err != nil {
+		return fmt.Errorf("failed to switch to custom ref for merge: %v", err)
+	}
+
+	// Attempt merge
+	_, mergeErr := css.operations.ExecuteGit(worktreePath, "merge", "--no-ff", "-m",
+		fmt.Sprintf("Merge external changes from %s into %s", niceBranch, customRef), niceBranch)
+
+	// Switch back to original HEAD
+	if currentHead != "" {
+		if _, err := css.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD", currentHead); err != nil {
+			log.Printf("⚠️ Failed to switch back to original HEAD: %v", err)
+		}
+	}
+
+	if mergeErr != nil {
+		log.Printf("⚠️ Failed to merge %s into %s: %v", niceBranch, customRef, mergeErr)
+		log.Printf("💡 Manual intervention may be required to resolve conflicts")
+		return fmt.Errorf("merge conflict: %v", mergeErr)
+	}
+
+	log.Printf("✅ Successfully merged external changes from %s into %s", niceBranch, customRef)
+	return nil
 }
 
 // hasUnsyncedCommits checks if a worktree has commits not in the bare repository
@@ -522,4 +750,38 @@ func (css *CommitSyncService) hasUnsyncedCommits(worktreePath string) bool {
 
 	// Compare HEADs
 	return strings.TrimSpace(worktreeHead) != strings.TrimSpace(bareHead)
+}
+
+// hasUnsyncedNiceBranch checks if a custom ref needs syncing to its nice branch
+func (css *CommitSyncService) hasUnsyncedNiceBranch(commitInfo *CommitInfo) bool {
+	// Only applies to custom refs
+	if !strings.HasPrefix(commitInfo.Branch, "refs/catnip/") {
+		return false
+	}
+
+	// Get the nice branch name from git config
+	configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(commitInfo.Branch, "/", "."))
+	niceBranchOutput, err := css.operations.GetConfig(commitInfo.WorktreePath, configKey)
+	if err != nil {
+		// No mapping found, skip syncing
+		return false
+	}
+	niceBranch := strings.TrimSpace(niceBranchOutput)
+	if niceBranch == "" {
+		return false
+	}
+
+	// Check if the nice branch exists
+	if !css.operations.BranchExists(commitInfo.WorktreePath, niceBranch, false) {
+		return false
+	}
+
+	// Get commit hash of the nice branch
+	niceBranchHash, err := css.operations.GetCommitHash(commitInfo.WorktreePath, niceBranch)
+	if err != nil {
+		return false
+	}
+
+	// Compare commit hashes - if they're different, nice branch needs syncing
+	return strings.TrimSpace(commitInfo.CommitHash) != strings.TrimSpace(niceBranchHash)
 }
