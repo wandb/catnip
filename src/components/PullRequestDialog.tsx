@@ -50,6 +50,7 @@ export function PullRequestDialog({
   const [isGenerating, setIsGenerating] = useState(false);
   const lastClaudeCallRef = useRef<number>(0);
   const [loading, setLoading] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [errorDialog, setErrorDialog] = useState<{
     open: boolean;
     error: string;
@@ -160,6 +161,10 @@ export function PullRequestDialog({
     setDescription("");
     setIsGenerating(true);
 
+    // Create abort controller for this generation request
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     // Update throttle timestamp
     lastClaudeCallRef.current = now;
 
@@ -196,6 +201,7 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
+        signal: abortController.signal,
       });
 
       if (response.ok) {
@@ -250,6 +256,12 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
         setIsGenerating(false);
       }
     } catch (error) {
+      // Check if this was an abort - if so, don't log error or set fallback
+      if (error instanceof DOMException && error.name === "AbortError") {
+        console.log("PR content generation was cancelled");
+        return; // Don't set fallback values, keep current state
+      }
+
       console.error("Error generating PR details:", error);
       // Fallback to summary or defaults
       const fallbackTitle =
@@ -265,7 +277,33 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
       setTitle(fallbackTitle);
       setDescription(fallbackDescription);
       setIsGenerating(false);
+    } finally {
+      // Clean up abort controller reference
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleCancelGeneration = () => {
+    // Abort the ongoing generation request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // Set fallback values
+    const fallbackTitle =
+      summary?.status === "completed" && summary.title
+        ? summary.title
+        : `Pull request from ${worktree.branch}`;
+
+    const fallbackDescription =
+      summary?.status === "completed" && summary.summary
+        ? summary.summary
+        : `Automated pull request created from worktree ${worktree.branch}`;
+
+    setTitle(fallbackTitle);
+    setDescription(fallbackDescription);
+    setIsGenerating(false);
   };
 
   const handleForceSubmit = async () => {
@@ -507,12 +545,19 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSubmit()} disabled={loading}>
+          <Button
+            onClick={
+              isGenerating ? handleCancelGeneration : () => void handleSubmit()
+            }
+            disabled={loading}
+          >
             {loading ? (
               <>
                 <RefreshCw className="animate-spin h-4 w-4 mr-2" />
                 {isUpdate ? "Updating PR..." : "Creating PR..."}
               </>
+            ) : isGenerating ? (
+              "Cancel Generation"
             ) : isUpdate ? (
               "Update PR"
             ) : (

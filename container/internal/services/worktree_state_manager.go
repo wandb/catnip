@@ -6,11 +6,21 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/vanpelt/catnip/internal/models"
 )
+
+// GitOperations interface for branch renaming operations
+type GitOperations interface {
+	GetCommitHash(worktreePath, ref string) (string, error)
+	CreateBranch(repoPath, branch, fromRef string) error
+	BranchExists(repoPath, branch string, isRemote bool) bool
+	SetConfig(repoPath, key, value string) error
+	GetConfig(repoPath, key string) (string, error)
+}
 
 // WorktreeStateChange represents a change to worktree state
 type WorktreeStateChange struct {
@@ -53,6 +63,7 @@ type worktreeFieldState struct {
 	HasActiveClaudeSession bool
 	ClaudeActivityState    models.ClaudeActivityState
 	Todos                  []models.Todo
+	HasBeenRenamed         bool // Whether this worktree has had its branch renamed
 }
 
 // NewWorktreeStateManager creates a new centralized state manager
@@ -238,6 +249,10 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 		case "todos":
 			if v, ok := value.([]models.Todo); ok {
 				worktree.Todos = v
+			}
+		case "has_been_renamed":
+			if v, ok := value.(bool); ok {
+				worktree.HasBeenRenamed = v
 			}
 		}
 	}
@@ -502,6 +517,7 @@ func (wsm *WorktreeStateManager) captureFieldState(wt *models.Worktree) worktree
 		SessionTitle:           wt.SessionTitle,
 		HasActiveClaudeSession: wt.HasActiveClaudeSession,
 		ClaudeActivityState:    wt.ClaudeActivityState,
+		HasBeenRenamed:         wt.HasBeenRenamed,
 	}
 
 	// Deep copy title history
@@ -596,4 +612,104 @@ func (wsm *WorktreeStateManager) syncClaudeActivityStates() {
 			log.Printf("⚠️ Failed to update Claude activity states: %v", err)
 		}
 	}
+}
+
+// RenameWorktreeBranch is the centralized method for renaming catnip branches to nice names
+// This is the ONLY place where branch renaming should happen
+func (wsm *WorktreeStateManager) RenameWorktreeBranch(worktreeID, niceBranchName string, gitOperations GitOperations) error {
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+
+	worktree, exists := wsm.worktrees[worktreeID]
+	if !exists {
+		return fmt.Errorf("worktree %s not found", worktreeID)
+	}
+
+	// Check if branch has already been renamed
+	if worktree.HasBeenRenamed {
+		log.Printf("🔍 Branch for worktree %s already renamed to %q, skipping", worktreeID, worktree.Branch)
+		return nil
+	}
+
+	// Only rename catnip branches
+	originalBranch := worktree.Branch
+	if !strings.HasPrefix(originalBranch, "refs/catnip/") {
+		log.Printf("🔍 Branch %s is not a catnip branch, skipping rename", originalBranch)
+		return nil
+	}
+
+	log.Printf("🔄 Creating nice branch %s for %s", niceBranchName, originalBranch)
+
+	// Create the nice branch using git operations (this can be done without holding the lock)
+	currentCommit, err := gitOperations.GetCommitHash(worktree.Path, "HEAD")
+	if err != nil {
+		return fmt.Errorf("failed to get current commit: %v", err)
+	}
+
+	if err := gitOperations.CreateBranch(worktree.Path, niceBranchName, currentCommit); err != nil {
+		return fmt.Errorf("failed to create nice branch %q: %v", niceBranchName, err)
+	}
+
+	// Store the branch mapping in git config for external tools (PRs, etc)
+	configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(originalBranch, "/", "."))
+	if err := gitOperations.SetConfig(worktree.Path, configKey, niceBranchName); err != nil {
+		log.Printf("⚠️ Failed to store branch mapping in git config: %v", err)
+		// Don't fail the operation for this
+	}
+
+	// Update the worktree state:
+	// - Branch field shows the nice name for UI display
+	// - The actual git HEAD stays on the catnip ref
+	// - has_been_renamed prevents future rename attempts
+	log.Printf("🔄 Updating worktree state: Branch %s -> %s (git HEAD stays on %s)", worktree.Branch, niceBranchName, originalBranch)
+	worktree.Branch = niceBranchName // This is what the UI displays
+	worktree.HasBeenRenamed = true   // This prevents further renames
+
+	// Save state directly
+	if err := wsm.saveStateInternal(); err != nil {
+		return fmt.Errorf("failed to save worktree state: %v", err)
+	}
+
+	// Emit events manually since we bypassed UpdateWorktree
+	if wsm.eventsEmitter != nil {
+		updates := map[string]interface{}{
+			"branch":           niceBranchName,
+			"has_been_renamed": true,
+		}
+		// No need to filter here since we're explicitly setting the nice branch name
+		wsm.eventsEmitter.EmitWorktreeUpdated(worktreeID, updates)
+	}
+
+	log.Printf("✅ Successfully renamed branch display: %s -> %q for worktree %s (git HEAD remains on %s)",
+		originalBranch, niceBranchName, worktreeID, originalBranch)
+	return nil
+}
+
+// ShouldRenameBranch checks if a worktree branch should be renamed (centralized check)
+func (wsm *WorktreeStateManager) ShouldRenameBranch(worktreeID string) bool {
+	wsm.mu.RLock()
+	defer wsm.mu.RUnlock()
+
+	worktree, exists := wsm.worktrees[worktreeID]
+	if !exists {
+		return false
+	}
+
+	// Don't rename if already renamed
+	if worktree.HasBeenRenamed {
+		log.Printf("🔍 ShouldRenameBranch: %s already renamed (has_been_renamed=true)", worktreeID)
+		return false
+	}
+
+	// Check if this is a catnip branch that needs renaming
+	// After renaming, Branch field shows nice name, so we need to check git HEAD directly
+	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+		log.Printf("🔍 ShouldRenameBranch: %s is catnip branch %s, should rename", worktreeID, worktree.Branch)
+		return true
+	}
+
+	// If Branch field doesn't start with refs/catnip/, we still need to check git HEAD
+	// in case the worktree was already renamed but git HEAD is still on catnip ref
+	log.Printf("🔍 ShouldRenameBranch: %s Branch=%s (not catnip format), checking if already processed", worktreeID, worktree.Branch)
+	return false
 }

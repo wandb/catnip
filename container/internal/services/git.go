@@ -668,6 +668,16 @@ func (s *GitService) GetStatus() *models.GitStatus {
 	}
 }
 
+// UpdateWorktreeFields updates specific fields of a worktree
+func (s *GitService) UpdateWorktreeFields(worktreeID string, updates map[string]interface{}) error {
+	return s.stateManager.UpdateWorktree(worktreeID, updates)
+}
+
+// GetWorktree returns a worktree by ID
+func (s *GitService) GetWorktree(worktreeID string) (*models.Worktree, bool) {
+	return s.stateManager.GetWorktree(worktreeID)
+}
+
 // updateCurrentSymlink updates the /workspace/current symlink
 func (s *GitService) updateCurrentSymlink(targetPath string) error {
 	currentPath := filepath.Join(getWorkspaceDir(), "current")
@@ -1552,6 +1562,13 @@ func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConfli
 	}
 
 	return s.conflictResolver.CheckMergeConflicts(repo.Path, worktree.Path, worktree.Branch, worktree.SourceBranch, worktree.Name)
+}
+
+// GetStateManager returns the worktree state manager
+func (s *GitService) GetStateManager() *WorktreeStateManager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stateManager
 }
 
 // Stop stops the Git service

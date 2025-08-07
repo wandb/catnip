@@ -7,6 +7,8 @@ import { WorkspaceLeftSidebar } from "@/components/WorkspaceLeftSidebar";
 import { WorkspaceRightSidebar } from "@/components/WorkspaceRightSidebar";
 import { WorkspaceMainContent } from "@/components/WorkspaceMainContent";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { BackendErrorScreen } from "@/components/BackendErrorScreen";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 function WorkspacePage() {
   const { project, workspace } = useParams({
@@ -45,6 +47,7 @@ function WorkspacePage() {
     (state) => state.getRepositoriesList().length,
   );
   const initialLoading = useAppStore((state) => state.initialLoading);
+  const loadError = useAppStore((state) => state.loadError);
   // Subscribe to the actual worktrees map to get updates when individual worktrees change
   const worktrees = useAppStore((state) => state.worktrees);
 
@@ -62,13 +65,15 @@ function WorkspacePage() {
     return repositoriesList.find((r) => r.id === worktree.repo_id);
   }, [worktree, repositoriesCount]);
 
+  // Show error screen if backend is unavailable
+  if (loadError) {
+    return <BackendErrorScreen />;
+  }
+
   if (initialLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="text-muted-foreground">Loading workspace...</p>
-        </div>
+        <LoadingSpinner message="Loading workspace..." size="lg" />
       </div>
     );
   }
