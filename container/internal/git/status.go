@@ -118,12 +118,11 @@ func (s *StatusChecker) GetConflictedFiles(worktreePath string) ([]string, error
 
 // GetWorktreeStatus returns comprehensive status information
 func (s *StatusChecker) GetWorktreeStatus(worktreePath string) (*WorktreeStatus, error) {
-	// Get current branch
-	branchOutput, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "branch", "--show-current")
+	// Get display branch (handles nice name mapping for catnip branches)
+	branch, err := s.getDisplayBranch(worktreePath)
 	if err != nil {
 		return nil, err
 	}
-	branch := strings.TrimSpace(string(branchOutput))
 
 	// Get porcelain status
 	statusOutput, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "status", "--porcelain")
@@ -182,4 +181,35 @@ func (s *StatusChecker) GetWorktreeStatus(worktreePath string) (*WorktreeStatus,
 	}
 
 	return status, nil
+}
+
+// getDisplayBranch returns the display branch name, checking for nice name mapping first
+func (s *StatusChecker) getDisplayBranch(worktreePath string) (string, error) {
+	// First get the actual git branch/ref
+	var actualBranch string
+	if branchOutput, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "symbolic-ref", "HEAD"); err == nil {
+		actualBranch = strings.TrimSpace(string(branchOutput))
+	} else {
+		// Fallback to branch --show-current for detached HEAD or other cases
+		if branchOutput, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "branch", "--show-current"); err == nil {
+			actualBranch = strings.TrimSpace(string(branchOutput))
+		} else {
+			return "", err
+		}
+	}
+
+	// If it's a catnip branch, check if there's a nice name mapping
+	if strings.HasPrefix(actualBranch, "refs/catnip/") {
+		// Check git config for nice branch mapping
+		configKey := "catnip.branch-map." + strings.ReplaceAll(actualBranch, "/", ".")
+		if niceBranchOutput, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "config", configKey); err == nil && strings.TrimSpace(string(niceBranchOutput)) != "" {
+			// Return the nice branch name
+			return strings.TrimSpace(string(niceBranchOutput)), nil
+		}
+	}
+
+	// Clean up the branch name (remove refs/heads/ prefix if present)
+	actualBranch = strings.TrimPrefix(actualBranch, "refs/heads/")
+
+	return actualBranch, nil
 }

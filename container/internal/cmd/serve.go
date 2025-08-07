@@ -142,7 +142,7 @@ func startServer(cmd *cobra.Command) {
 	sessionService := services.NewSessionService()
 
 	// Initialize and start Claude monitor service
-	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService)
+	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
 
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService)
@@ -205,6 +205,7 @@ func startServer(cmd *cobra.Command) {
 	v1.Post("/git/checkout/:org/:repo", gitHandler.CheckoutRepository)
 	v1.Get("/git/status", gitHandler.GetStatus)
 	v1.Get("/git/worktrees", gitHandler.ListWorktrees)
+	v1.Patch("/git/worktrees/:id", gitHandler.UpdateWorktree)
 	v1.Delete("/git/worktrees/:id", gitHandler.DeleteWorktree)
 	v1.Post("/git/worktrees/cleanup", gitHandler.CleanupMergedWorktrees)
 	v1.Post("/git/worktrees/:id/sync", gitHandler.SyncWorktree)

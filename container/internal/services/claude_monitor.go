@@ -24,6 +24,7 @@ type ClaudeMonitorService struct {
 	gitService         *GitService
 	sessionService     *SessionService
 	claudeService      *ClaudeService
+	stateManager       *WorktreeStateManager                 // Centralized state management
 	checkpointManagers map[string]*WorktreeCheckpointManager // Map of worktree path to checkpoint manager
 	managersMutex      sync.RWMutex
 	titlesWatcher      *fsnotify.Watcher
@@ -48,10 +49,12 @@ type titleEvent struct {
 // WorktreeCheckpointManager manages checkpoints for a single worktree
 type WorktreeCheckpointManager struct {
 	workDir            string
+	worktreeID         string // Cached worktree ID to avoid expensive lookups
 	checkpointManager  *git.SessionCheckpointManager
 	gitService         *GitService
 	sessionService     *SessionService
 	claudeService      *ClaudeService
+	stateManager       *WorktreeStateManager
 	currentTitle       string
 	checkpointTimer    *time.Timer
 	timerMutex         sync.Mutex
@@ -73,7 +76,7 @@ type WorktreeTodoMonitor struct {
 }
 
 // NewClaudeMonitorService creates a new Claude monitor service
-func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService) *ClaudeMonitorService {
+func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService, stateManager *WorktreeStateManager) *ClaudeMonitorService {
 	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
@@ -84,6 +87,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 		gitService:         gitService,
 		sessionService:     sessionService,
 		claudeService:      claudeService,
+		stateManager:       stateManager,
 		checkpointManagers: make(map[string]*WorktreeCheckpointManager),
 		stopCh:             make(chan struct{}),
 		titlesLogPath:      titlesLogPath,
@@ -328,14 +332,31 @@ func (s *ClaudeMonitorService) NotifyTitleChange(workDir, newTitle string) {
 	}
 }
 
+// findWorktreeIDByPath finds the worktree ID for a given workDir path (expensive - use sparingly)
+func (s *ClaudeMonitorService) findWorktreeIDByPath(workDir string) string {
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	for id, worktree := range allWorktrees {
+		if worktree.Path == workDir {
+			return id
+		}
+	}
+	log.Printf("⚠️  Failed to find worktree ID for path %s", workDir)
+	return ""
+}
+
 // createCheckpointManager creates a checkpoint manager for a worktree
 func (s *ClaudeMonitorService) createCheckpointManager(workDir string) *WorktreeCheckpointManager {
+	// Find and cache the worktree ID once to avoid expensive lookups later
+	worktreeID := s.findWorktreeIDByPath(workDir)
+
 	return &WorktreeCheckpointManager{
 		workDir:           workDir,
+		worktreeID:        worktreeID,
 		checkpointManager: git.NewSessionCheckpointManager(workDir, NewGitServiceAdapter(s.gitService), NewSessionServiceAdapter(s.sessionService)),
 		gitService:        s.gitService,
 		sessionService:    s.sessionService,
 		claudeService:     s.claudeService,
+		stateManager:      s.stateManager,
 	}
 }
 
@@ -566,9 +587,18 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 		return
 	}
 
-	// Rename the branch to the new name
+	// Rename the branch to the new name using centralized state management
 	log.Printf("🎓 Renaming branch %q to %q", currentBranch, newBranch)
-	if err := m.renameBranch(currentBranch, newBranch); err != nil {
+
+	// Use cached worktree ID to avoid expensive lookup
+	worktreeID := m.findWorktreeIDByPath()
+	if worktreeID == "" {
+		log.Printf("⚠️  Failed to find worktree ID for path %s", m.workDir)
+		return
+	}
+
+	log.Printf("🔄 performBranchRename: calling RenameWorktreeBranch for %s -> %s", worktreeID, newBranch)
+	if err := m.stateManager.RenameWorktreeBranch(worktreeID, newBranch, m.gitService.operations); err != nil {
 		log.Printf("⚠️  Failed to rename branch: %v", err)
 		return
 	}
@@ -576,26 +606,12 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 	log.Printf("✅ Successfully renamed to branch %q", newBranch)
 }
 
-// renameBranch creates a new branch from the current branch and switches to it
-func (m *WorktreeCheckpointManager) renameBranch(oldBranchName, newBranchName string) error {
-	// Create and switch to new regular branch in one command - this works even with non-refs/heads branches
-	if _, err := m.gitService.operations.ExecuteGit(m.workDir, "checkout", "-b", newBranchName); err != nil {
-		return fmt.Errorf("failed to create and checkout new branch %q: %v", newBranchName, err)
+// findWorktreeIDByPath returns the cached worktree ID for this checkpoint manager
+func (m *WorktreeCheckpointManager) findWorktreeIDByPath() string {
+	if m.worktreeID == "" {
+		log.Printf("⚠️  No cached worktree ID for path %s", m.workDir)
 	}
-
-	// Remove the old branch ref (optional - could leave it as a backup)
-	if err := m.gitService.operations.DeleteBranch(m.workDir, oldBranchName, true); err != nil {
-		log.Printf("⚠️  Failed to delete old branch ref %q: %v", oldBranchName, err)
-		// Don't fail the whole operation for this
-	}
-
-	// Update the worktree branch name in the GitService so the UI reflects the change
-	if err := m.gitService.UpdateWorktreeBranchName(m.workDir, newBranchName); err != nil {
-		log.Printf("⚠️  Failed to update worktree branch name in service: %v", err)
-		// Don't fail the whole operation for this, but log the error
-	}
-
-	return nil
+	return m.worktreeID
 }
 
 // isValidGitBranchName validates basic git branch name rules
@@ -660,6 +676,31 @@ func (m *WorktreeCheckpointManager) isCurrentBranchCatnip() bool {
 		}
 	}
 
+	// First check the state to see if this worktree has already been renamed
+	if m.worktreeID != "" {
+		if worktree, exists := m.stateManager.GetWorktree(m.worktreeID); exists && worktree != nil {
+			// If branch is not in catnip format but has_been_renamed is false,
+			// it means it was renamed outside our system - update the flag
+			if !git.IsCatnipBranch(worktree.Branch) && !worktree.HasBeenRenamed {
+				log.Printf("🔍 Branch %q appears to be renamed already, updating has_been_renamed flag", worktree.Branch)
+				if err := m.stateManager.UpdateWorktree(m.worktreeID, map[string]interface{}{
+					"has_been_renamed": true,
+				}); err != nil {
+					log.Printf("⚠️ Failed to update worktree has_been_renamed flag: %v", err)
+				}
+				return false
+			}
+
+			if worktree.HasBeenRenamed {
+				log.Printf("🔍 Worktree %s already renamed, skipping further renames", m.worktreeID)
+				return false
+			}
+			// If not renamed, check if current branch is a catnip branch using state data
+			return git.IsCatnipBranch(worktree.Branch)
+		}
+	}
+
+	// Fallback: check current git branch if state lookup fails
 	return git.IsCatnipBranch(currentBranch)
 }
 
@@ -715,9 +756,17 @@ func (s *ClaudeMonitorService) TriggerBranchRename(workDir string, customBranchN
 		}
 		customBranchName = finalBranch
 
-		// Rename directly to the custom name
+		// Rename directly to the custom name using centralized state management
 		log.Printf("🎓 Renaming branch %q to custom name %q", currentBranch, customBranchName)
-		if err := manager.renameBranch(currentBranch, customBranchName); err != nil {
+
+		// Use cached worktree ID to avoid expensive lookup
+		worktreeID := manager.findWorktreeIDByPath()
+		if worktreeID == "" {
+			return fmt.Errorf("failed to find worktree ID for path %s", workDir)
+		}
+
+		log.Printf("🔄 TriggerBranchRename: calling RenameWorktreeBranch for %s -> %s", worktreeID, customBranchName)
+		if err := s.stateManager.RenameWorktreeBranch(worktreeID, customBranchName, s.gitService.operations); err != nil {
 			return fmt.Errorf("failed to rename branch: %v", err)
 		}
 
@@ -1112,6 +1161,23 @@ func (m *WorktreeTodoMonitor) checkTodoBasedBranchRenaming(todos []models.Todo) 
 
 	// Generate a branch name based on the first todo item's content
 	if len(todos) > 0 && todos[0].Content != "" {
+		// Check if a nice branch mapping already exists for this catnip branch
+		branchOutput, err := manager.gitService.operations.ExecuteGit(m.workDir, "symbolic-ref", "HEAD")
+		if err != nil {
+			log.Printf("⚠️  Failed to get current branch for todo-based renaming: %v", err)
+			return
+		}
+		currentBranch := strings.TrimSpace(string(branchOutput))
+
+		// Check if branch mapping already exists in git config
+		configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(currentBranch, "/", "."))
+		existingNiceBranch, err := manager.gitService.operations.GetConfig(m.workDir, configKey)
+		if err == nil && strings.TrimSpace(existingNiceBranch) != "" {
+			// Nice branch already exists, no need to rename
+			log.Printf("🔍 Nice branch %q already exists for %s, skipping todo-based renaming", strings.TrimSpace(existingNiceBranch), currentBranch)
+			return
+		}
+
 		// Only trigger if not already renaming
 		manager.timerMutex.Lock()
 		alreadyRenaming := manager.renamingInProgress
