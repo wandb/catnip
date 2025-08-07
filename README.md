@@ -38,43 +38,43 @@ catnip run
 
 ```mermaid
 graph TB
-    subgraph "Host System"
-        catnip["catnip<br/>(Go Binary)"]
+    subgraph host ["🖥️ Host System"]
+        catnip["<b>catnip</b><br/>Go Binary"]
     end
 
-    subgraph "wandb/catnip Container"
-        server["Catnip Server<br/>(Port 8080)"]
+    subgraph container ["🐳 wandb/catnip Container"]
+        server["<b>Catnip Server</b><br/>Port 8080"]
 
-        subgraph "Git Worktrees"
-            wt1["Worktree 1<br/>(main)"]
-            wt2["Worktree 2<br/>(feature-a)"]
-            wt3["Worktree 3<br/>(feature-b)"]
+        subgraph worktrees ["📁 Git Worktrees"]
+            wt1["<b>main</b><br/>worktree"]
+            wt2["<b>feature-a</b><br/>worktree"]
+            wt3["<b>feature-b</b><br/>worktree"]
         end
 
-        subgraph "Services"
-            svc1["Service:3000"]
-            svc2["Service:5000"]
-            svc3["Service:8000"]
+        subgraph services ["🚀 Services"]
+            svc1["<b>Port 3000</b><br/>Service"]
+            svc2["<b>Port 5000</b><br/>Service"]
+            svc3["<b>Port 8000</b><br/>Service"]
         end
     end
 
-    catnip -->|"Launches"| server
-    server -->|"Manages"| wt1
-    server -->|"Manages"| wt2
-    server -->|"Manages"| wt3
-    server -->|"Proxies"| svc1
-    server -->|"Proxies"| svc2
-    server -->|"Proxies"| svc3
+    catnip -.->|"🚀 Launches"| server
+    server -.->|"📋 Manages"| wt1
+    server -.->|"📋 Manages"| wt2
+    server -.->|"📋 Manages"| wt3
+    server -.->|"🔀 Proxies"| svc1
+    server -.->|"🔀 Proxies"| svc2
+    server -.->|"🔀 Proxies"| svc3
 
-    classDef host fill:#e1f5fe
-    classDef container fill:#f3e5f5
-    classDef worktree fill:#e8f5e8
-    classDef service fill:#fff3e0
+    classDef hostStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff
+    classDef serverStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff
+    classDef worktreeStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff
+    classDef serviceStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff
 
-    class catnip host
-    class server container
-    class wt1,wt2,wt3 worktree
-    class svc1,svc2,svc3 service
+    class catnip hostStyle
+    class server serverStyle
+    class wt1,wt2,wt3 worktreeStyle
+    class svc1,svc2,svc3 serviceStyle
 ```
 
 `catnip` is a golang binary with a vite SPA embedded within it. The `wandb/catnip` container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container.
@@ -145,11 +145,11 @@ Big time... Inception 🤯
 
 We welcome contributions! Catnip is designed to make agentic programming more powerful and accessible.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+1. 🍴 Fork the repository
+2. 🌿 Run catnip in dev mode `catnip run --dev`
+3. 💻 Make your changes
+4. ✅ Add tests if applicable
+5. 📤 Submit a pull request
 
 ## 📄 License
 
@@ -158,20 +158,10 @@ This project is licensed under the Apache 2.0 - see the [LICENSE](LICENSE) file 
 ---
 
 <div align="center">
-  **🚀 Ready to supercharge your AI coding workflow?**
-
-  <a href="https://github.com/wandb/catnip">
-    <img src="https://img.shields.io/badge/⭐_Star_Catnip-000000?style=for-the-badge&logo=github&logoColor=white" alt="Star on GitHub"/>
-  </a>
-
-  <a href="https://install.catnip.sh">
-    <img src="https://img.shields.io/badge/🐾_Get_Started-4CAF50?style=for-the-badge" alt="Get Started"/>
-  </a>
-
-<br/><br/>
 
 **Made with ❤️ by the [Weights & Biases](https://wandb.ai) team**
-
-_If you like Catnip, give it a ⭐ on GitHub!_
+<br/> <a href="https://github.com/wandb/catnip">
+<img src="https://img.shields.io/badge/⭐_Star_Catnip-000000?style=for-the-badge&logo=github&logoColor=white" alt="Star on GitHub"/>
+</a>
 
 </div>
