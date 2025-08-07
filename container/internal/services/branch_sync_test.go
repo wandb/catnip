@@ -225,7 +225,7 @@ func TestSyncMechanismConcept(t *testing.T) {
 
 	t.Run("CommitSyncToBothRefs", func(t *testing.T) {
 		// Test that when commits are made on custom ref, they sync to the nice branch
-		workDir := "/workspace/test"
+		workDir := testRepo // Use the actual test repo path, not a hardcoded path
 		customRef := "refs/catnip/muddy-cat"
 		niceBranch := "feature/awesome-feature"
 
