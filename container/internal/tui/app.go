@@ -1,16 +1,17 @@
 package tui
 
 import (
-	"context"
-	_ "embed"
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"runtime"
-	"strings"
-	"time"
+    "context"
+    _ "embed"
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+    "os"
+    "os/exec"
+    "runtime"
+    "strings"
+    "time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -127,24 +128,29 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	// Start SSE client immediately
 	sseClient.Start()
 
-    finalModel, err := a.program.Run()
+	finalModel, err := a.program.Run()
 
-	// Clean up SSE client if it was started
-	if a.sseClient != nil {
-		a.sseClient.Stop()
-	}
-
-    // Try to extract the final container name from the model
-    finalName := a.containerName
-    if finalModel != nil {
-        if m, ok := finalModel.(Model); ok {
-            if strings.TrimSpace(m.containerName) != "" {
-                finalName = m.containerName
-            }
-        }
+    // Clean up SSE client if it was started
+    if a.sseClient != nil {
+        a.sseClient.Stop()
     }
 
-    return finalName, err
+    // Best-effort terminal reset to avoid leaving the user's terminal in an odd state
+    // Reset SGR, re-enable line wrap, show cursor, and try to restore sane tty settings
+    _, _ = os.Stdout.WriteString("\x1b[0m\x1b[?7h\x1b[?25h")
+    _ = exec.Command("stty", "sane").Run()
+
+	// Try to extract the final container name from the model
+	finalName := a.containerName
+	if finalModel != nil {
+		if m, ok := finalModel.(Model); ok {
+			if strings.TrimSpace(m.containerName) != "" {
+				finalName = m.containerName
+			}
+		}
+	}
+
+	return finalName, err
 }
 
 // Init initializes the model and returns initial commands
