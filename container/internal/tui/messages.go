@@ -16,6 +16,7 @@ type logsMsg []string
 type portsMsg []string
 type errMsg error
 type healthStatusMsg bool
+type workspacesMsg []WorkspaceInfo
 
 // Shell-related messages
 type shellOutputMsg struct {
@@ -25,6 +26,9 @@ type shellOutputMsg struct {
 type shellErrorMsg struct {
 	sessionID string
 	err       error
+}
+type shellConnectedMsg struct {
+	sessionID string
 }
 
 // SSE event messages
@@ -46,3 +50,4 @@ type sseContainerStatusMsg struct {
 	status  string
 	message string
 }
+type sseWorktreeUpdatedMsg struct{}

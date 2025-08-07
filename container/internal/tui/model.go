@@ -23,6 +23,8 @@ const (
 	LogsView
 	// ShellView represents the shell terminal interface
 	ShellView
+	// WorkspaceView represents the workspace-specific view
+	WorkspaceView
 )
 
 // View interface that all views must implement
@@ -49,6 +51,17 @@ type PortInfo struct {
 	Title    string
 	Service  string
 	Protocol string
+}
+
+// WorkspaceInfo represents information about a workspace
+type WorkspaceInfo struct {
+	ID           string
+	Name         string
+	Path         string
+	Branch       string
+	IsActive     bool
+	ChangedFiles []string
+	Ports        []PortInfo
 }
 
 // Model represents the main application state
@@ -115,6 +128,19 @@ type Model struct {
 	showPortSelector  bool
 	selectedPortIndex int
 
+	// Workspace selector overlay
+	showWorkspaceSelector   bool
+	selectedWorkspaceIndex  int
+	currentWorkspace        *WorkspaceInfo
+	workspaces              []WorkspaceInfo
+	waitingToShowWorkspaces bool
+
+	// Workspace view state
+	workspaceClaudeTerminal         viewport.Model
+	workspaceRegularTerminal        viewport.Model
+	workspaceClaudeTerminalEmulator *TerminalEmulator
+	workspaceLastOutputLength       int
+
 	// SSE connection state
 	sseConnected bool
 	sseStarted   bool
@@ -155,6 +181,7 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 		logs:             []string{},
 		filteredLogs:     []string{},
 		ports:            []PortInfo{},
+		workspaces:       []WorkspaceInfo{},
 		lastUpdate:       time.Now(),
 		shellSessions:    make(map[string]*PTYClient),
 		views:            make(map[ViewType]View),
@@ -165,6 +192,7 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 	m.views[OverviewView] = NewOverviewView()
 	m.views[LogsView] = NewLogsView()
 	m.views[ShellView] = NewShellView()
+	m.views[WorkspaceView] = NewWorkspaceView()
 
 	return m
 }

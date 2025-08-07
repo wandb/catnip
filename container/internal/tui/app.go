@@ -98,6 +98,8 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	// Initialize viewports
 	logsViewport := viewport.New(80, 20)
 	shellViewport := viewport.New(80, 24)
+	workspaceClaudeTerminal := viewport.New(60, 18)
+	workspaceRegularTerminal := viewport.New(60, 6)
 
 	// Initialize SSE client
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
@@ -107,6 +109,8 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport
+	m.workspaceClaudeTerminal = workspaceClaudeTerminal
+	m.workspaceRegularTerminal = workspaceRegularTerminal
 	m.shellSpinner = spinner.New()
 	m.sseClient = sseClient
 	m.sseStarted = true // SSE will be started immediately
@@ -175,6 +179,12 @@ func (m Model) View() string {
 		result = m.overlayOnContent(result, overlay)
 	}
 
+	// Overlay workspace selector if active
+	if m.showWorkspaceSelector {
+		overlay := m.renderWorkspaceSelector()
+		result = m.overlayOnContent(result, overlay)
+	}
+
 	return result
 }
 
@@ -189,13 +199,15 @@ func (m Model) renderFooter() string {
 		}
 		return footerStyle.Render("Initializing container... Press Ctrl+Q to quit")
 	case OverviewView:
-		return footerStyle.Render("Ctrl+L: logs | Ctrl+T: terminal | Ctrl+B: browser | Ctrl+Q: quit")
+		return footerStyle.Render("Ctrl+L: logs | Ctrl+T: terminal | Ctrl+B: browser | Ctrl+W: workspaces | Ctrl+Q: quit")
 	case ShellView:
 		scrollKey := "Alt"
 		if runtime.GOOS == "darwin" {
 			scrollKey = "Option"
 		}
 		return footerStyle.Render(fmt.Sprintf("Ctrl+O: overview | Ctrl+L: logs | Ctrl+B: browser | Ctrl+Q: quit | %s+↑↓/PgUp/PgDn: scroll", scrollKey))
+	case WorkspaceView:
+		return footerStyle.Render("Esc: back | Ctrl+O: overview | Ctrl+L: logs | Ctrl+B: browser | Ctrl+Q: quit")
 	case LogsView:
 		if m.searchMode {
 			// Replace footer with search input
@@ -293,6 +305,60 @@ func (m Model) renderPortSelector() string {
 		Align(lipgloss.Center)
 
 	title := titleStyle.Render("🌐 Select Browser Target")
+
+	return boxStyle.Render(title + "\n\n" + menuContent)
+}
+
+// renderWorkspaceSelector renders the workspace selection overlay
+func (m Model) renderWorkspaceSelector() string {
+	// Build the menu content
+	var menuItems []string
+	for i, workspace := range m.workspaces {
+		prefix := "  "
+		if i == m.selectedWorkspaceIndex {
+			prefix = "▶ "
+		}
+
+		// Create status indicator
+		statusIndicator := "○"
+		if workspace.IsActive {
+			statusIndicator = "●"
+		}
+
+		// Format: status name (branch) - changed files count
+		changeCount := len(workspace.ChangedFiles)
+		changeText := ""
+		if changeCount > 0 {
+			changeText = fmt.Sprintf(" • %d changes", changeCount)
+		}
+
+		item := fmt.Sprintf("%s %s (%s)%s", statusIndicator, workspace.Name, workspace.Branch, changeText)
+		menuItems = append(menuItems, prefix+item)
+	}
+
+	// Add instructions
+	instructions := []string{
+		"",
+		"↑↓/jk: Navigate • Enter/1-9: Select • Esc: Cancel",
+	}
+
+	content := append(menuItems, instructions...)
+	menuContent := strings.Join(content, "\n")
+
+	// Style the menu box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("62")).
+		Padding(1, 2).
+		Background(lipgloss.Color("235")).
+		Foreground(lipgloss.Color("15"))
+
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("39")).
+		Align(lipgloss.Center)
+
+	title := titleStyle.Render("📁 Select Workspace")
 
 	return boxStyle.Render(title + "\n\n" + menuContent)
 }

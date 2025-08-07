@@ -77,10 +77,18 @@ func (p *PTYClient) readLoop() {
 			return
 		}
 
-		if messageType == websocket.BinaryMessage || messageType == websocket.TextMessage {
+		// Handle different message types properly
+		switch messageType {
+		case websocket.BinaryMessage:
+			// Binary messages are PTY output - pass to terminal
 			if p.onMessage != nil {
 				p.onMessage(message)
 			}
+		case websocket.TextMessage:
+			// Text messages are JSON control messages - process them separately
+			debugLog("PTYClient received JSON control message: %s", string(message))
+			// TODO: Handle JSON messages for state updates (read-only mode, etc.)
+			// For now, we just filter them out from terminal display
 		}
 	}
 }

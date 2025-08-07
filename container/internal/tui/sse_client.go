@@ -41,6 +41,9 @@ const (
 	ProcessStoppedEvent  = "process:stopped"
 	ContainerStatusEvent = "container:status"
 	HeartbeatEvent       = "heartbeat"
+	WorktreeCreatedEvent = "worktree:created"
+	WorktreeDeletedEvent = "worktree:deleted"
+	WorktreeUpdatedEvent = "worktree:updated"
 )
 
 // SSE event messages are defined in messages.go
@@ -247,6 +250,12 @@ func (c *SSEClient) processEvent(data string) {
 		// Heartbeat confirms connection is still alive
 		// No need to log every heartbeat to avoid spam
 		// debugLog("SSE heartbeat received")
+
+	case WorktreeCreatedEvent, WorktreeDeletedEvent, WorktreeUpdatedEvent:
+		// Send a message to trigger worktree refresh
+		if c.program != nil {
+			c.program.Send(sseWorktreeUpdatedMsg{})
+		}
 
 	default:
 		// Log other event types for now

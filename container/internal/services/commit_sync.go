@@ -579,14 +579,21 @@ func (css *CommitSyncService) syncToNiceBranch(commitInfo *CommitInfo) error {
 		return nil
 	}
 
-	// Check if the nice branch exists
-	if !css.operations.BranchExists(commitInfo.WorktreePath, niceBranch, false) {
-		log.Printf("⚠️ Nice branch %s doesn't exist, skipping sync", niceBranch)
+	// Check if the nice branch exists in the main repository (not the worktree)
+	repo, err := css.findRepositoryForWorktree(commitInfo.WorktreePath)
+	if err != nil {
+		log.Printf("⚠️ Failed to find repository for worktree %s: %v", commitInfo.WorktreePath, err)
+		return nil
+	}
+
+	if !css.operations.BranchExists(repo.Path, niceBranch, false) {
+		log.Printf("⚠️ Nice branch %s doesn't exist in main repo %s, skipping sync", niceBranch, repo.Path)
 		return nil
 	}
 
 	// Update the nice branch to point to the same commit as the custom ref
-	_, err = css.operations.ExecuteGit(commitInfo.WorktreePath, "branch", "-f", niceBranch, commitInfo.CommitHash)
+	// We need to do this in the main repository since worktrees on custom refs can't directly manipulate regular branches
+	_, err = css.operations.ExecuteGit(repo.Path, "branch", "-f", niceBranch, commitInfo.CommitHash)
 	if err != nil {
 		return fmt.Errorf("failed to update nice branch %s to commit %s: %v", niceBranch, commitInfo.CommitHash[:8], err)
 	}
@@ -594,8 +601,7 @@ func (css *CommitSyncService) syncToNiceBranch(commitInfo *CommitInfo) error {
 	log.Printf("🔄 Synced nice branch %s to commit %s from %s", niceBranch, commitInfo.CommitHash[:8], commitInfo.Branch)
 
 	// For local repositories, also push the nice branch to the main repository
-	repo, err := css.findRepositoryForWorktree(commitInfo.WorktreePath)
-	if err == nil && strings.HasPrefix(repo.ID, "local/") {
+	if strings.HasPrefix(repo.ID, "local/") {
 		// Push the nice branch to the catnip-live remote (which points to the main repo)
 		_, pushErr := css.operations.ExecuteGit(commitInfo.WorktreePath, "push", "catnip-live", fmt.Sprintf("%s:%s", niceBranch, niceBranch), "--force-with-lease")
 		if pushErr != nil {
@@ -771,13 +777,18 @@ func (css *CommitSyncService) hasUnsyncedNiceBranch(commitInfo *CommitInfo) bool
 		return false
 	}
 
-	// Check if the nice branch exists
-	if !css.operations.BranchExists(commitInfo.WorktreePath, niceBranch, false) {
+	// Check if the nice branch exists in the main repository (not the worktree)
+	repo, err := css.findRepositoryForWorktree(commitInfo.WorktreePath)
+	if err != nil {
 		return false
 	}
 
-	// Get commit hash of the nice branch
-	niceBranchHash, err := css.operations.GetCommitHash(commitInfo.WorktreePath, niceBranch)
+	if !css.operations.BranchExists(repo.Path, niceBranch, false) {
+		return false
+	}
+
+	// Get commit hash of the nice branch from the main repository
+	niceBranchHash, err := css.operations.GetCommitHash(repo.Path, niceBranch)
 	if err != nil {
 		return false
 	}

@@ -98,20 +98,70 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 	}
 	sections = append(sections, "")
 
-	// Ports
-	if len(m.ports) > 0 {
-		sections = append(sections, components.SubHeaderStyle.Render("🌐 Detected Services"))
+	// Workspaces
+	if len(m.workspaces) > 0 {
+		sections = append(sections, components.SubHeaderStyle.Render("📁 Workspaces"))
 
-		for i, portInfo := range m.ports {
-			if i < 9 { // Only show first 9 ports for number shortcuts
-				portKey := components.KeyHighlightStyle.Render(fmt.Sprintf("%d.", i+1))
-				sections = append(sections, fmt.Sprintf("  %s %s → http://localhost:8080/%s", portKey, portInfo.Title, portInfo.Port))
+		for i, workspace := range m.workspaces {
+			if i < 9 { // Only show first 9 workspaces for number shortcuts
+				workspaceKey := components.KeyHighlightStyle.Render(fmt.Sprintf("%d.", i+1))
+				
+				// Status indicator
+				statusIndicator := "○"
+				if workspace.IsActive {
+					statusIndicator = "●"
+				}
+				
+				// Create change count indicator
+				changeText := ""
+				if len(workspace.ChangedFiles) > 0 {
+					changeText = fmt.Sprintf(" (%d changes)", len(workspace.ChangedFiles))
+				}
+				
+				sections = append(sections, fmt.Sprintf("  %s %s %s (%s)%s", workspaceKey, statusIndicator, workspace.Name, workspace.Branch, changeText))
 			} else {
-				sections = append(sections, fmt.Sprintf("     %s → http://localhost:8080/%s", portInfo.Title, portInfo.Port))
+				statusIndicator := "○"
+				if workspace.IsActive {
+					statusIndicator = "●"
+				}
+				changeText := ""
+				if len(workspace.ChangedFiles) > 0 {
+					changeText = fmt.Sprintf(" (%d changes)", len(workspace.ChangedFiles))
+				}
+				sections = append(sections, fmt.Sprintf("     %s %s (%s)%s", statusIndicator, workspace.Name, workspace.Branch, changeText))
 			}
 		}
+		sections = append(sections, "")
+		sections = append(sections, fmt.Sprintf("  Press %s to select workspace", components.KeyHighlightStyle.Render("Ctrl+W")))
 	} else {
-		sections = append(sections, "🌐 No services detected")
+		sections = append(sections, components.SubHeaderStyle.Render("📁 Workspaces"))
+		sections = append(sections, fmt.Sprintf("  No workspaces available. Press %s to initialize.", components.KeyHighlightStyle.Render("Ctrl+W")))
+	}
+
+	sections = append(sections, "")
+
+	// Detected Services (condensed)
+	if len(m.ports) > 0 {
+		sections = append(sections, components.SubHeaderStyle.Render("🌐 Detected Services"))
+		
+		// Show up to 3 services in a compact format
+		serviceCount := 0
+		for _, portInfo := range m.ports {
+			if serviceCount >= 3 {
+				break
+			}
+			sections = append(sections, fmt.Sprintf("  %s → :%s", portInfo.Title, portInfo.Port))
+			serviceCount++
+		}
+		
+		if len(m.ports) > 3 {
+			sections = append(sections, fmt.Sprintf("  ... and %d more services", len(m.ports)-3))
+		}
+		
+		sections = append(sections, fmt.Sprintf("  Press %s to open service browser", components.KeyHighlightStyle.Render("Ctrl+B")))
+	} else {
+		sections = append(sections, components.SubHeaderStyle.Render("🌐 Detected Services"))
+		sections = append(sections, "  No services detected")
 	}
 
 	sections = append(sections, "")
