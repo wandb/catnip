@@ -22,6 +22,11 @@ type GitOperations interface {
 	GetConfig(repoPath, key string) (string, error)
 }
 
+// WorktreeRestorer interface for recreating worktrees during state restoration
+type WorktreeRestorer interface {
+	RecreateWorktree(worktree *models.Worktree, repo *models.Repository) error
+}
+
 // WorktreeStateChange represents a change to worktree state
 type WorktreeStateChange struct {
 	Type       string // "created", "updated", "deleted"
@@ -32,12 +37,13 @@ type WorktreeStateChange struct {
 
 // WorktreeStateManager manages all worktree state persistently
 type WorktreeStateManager struct {
-	mu             sync.RWMutex
-	repositories   map[string]*models.Repository
-	worktrees      map[string]*models.Worktree
-	stateDir       string
-	eventsEmitter  EventsEmitter
-	sessionService *SessionService
+	mu               sync.RWMutex
+	repositories     map[string]*models.Repository
+	worktrees        map[string]*models.Worktree
+	stateDir         string
+	eventsEmitter    EventsEmitter
+	sessionService   *SessionService
+	worktreeRestorer WorktreeRestorer
 
 	// Track field-level changes
 	previousState map[string]worktreeFieldState
@@ -95,6 +101,13 @@ func (wsm *WorktreeStateManager) SetSessionService(sessionService *SessionServic
 	go wsm.startClaudeActivitySync()
 }
 
+// SetWorktreeRestorer sets the worktree restorer for state restoration
+func (wsm *WorktreeStateManager) SetWorktreeRestorer(restorer WorktreeRestorer) {
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+	wsm.worktreeRestorer = restorer
+}
+
 // Stop stops the periodic syncing
 func (wsm *WorktreeStateManager) Stop() {
 	close(wsm.stopChan)
@@ -149,14 +162,37 @@ func (wsm *WorktreeStateManager) AddRepository(repo *models.Repository) error {
 	wsm.mu.Lock()
 	defer wsm.mu.Unlock()
 
+	// Ensure new repositories are marked as available by default
+	if !repo.Available {
+		repo.Available = true
+	}
+
 	wsm.repositories[repo.ID] = repo
 	return wsm.saveStateInternal()
+}
+
+// IsRepositoryAvailable checks if a repository is available for operations
+func (wsm *WorktreeStateManager) IsRepositoryAvailable(repoID string) bool {
+	wsm.mu.RLock()
+	defer wsm.mu.RUnlock()
+
+	repo, exists := wsm.repositories[repoID]
+	return exists && repo.Available
 }
 
 // AddWorktree adds a new worktree
 func (wsm *WorktreeStateManager) AddWorktree(worktree *models.Worktree) error {
 	wsm.mu.Lock()
 	defer wsm.mu.Unlock()
+
+	// Check if the associated repository is available
+	repo, repoExists := wsm.repositories[worktree.RepoID]
+	if !repoExists {
+		return fmt.Errorf("repository %s not found", worktree.RepoID)
+	}
+	if !repo.Available {
+		return fmt.Errorf("repository %s is not available", worktree.RepoID)
+	}
 
 	wsm.worktrees[worktree.ID] = worktree
 
@@ -497,6 +533,95 @@ func (wsm *WorktreeStateManager) loadState() error {
 			}
 		}
 	}
+
+	return nil
+}
+
+// RestoreState recreates worktrees from persisted state on boot
+func (wsm *WorktreeStateManager) RestoreState() error {
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+
+	if wsm.worktreeRestorer == nil {
+		log.Printf("⚠️ No worktree restorer set, skipping state restoration")
+		return nil
+	}
+
+	log.Printf("🔄 Starting state restoration...")
+
+	// First, check repository availability
+	for repoID, repo := range wsm.repositories {
+		// Use the actual repo Path from the repository struct
+		// This should already contain the correct path (either /volume/repos/... or /live/...)
+		repoPath := repo.Path
+
+		if _, err := os.Stat(repoPath); err != nil {
+			log.Printf("⚠️ Repository %s not available at %s, marking as unavailable", repoID, repoPath)
+			repo.Available = false
+		} else {
+			log.Printf("✅ Repository %s found at %s", repoID, repoPath)
+			repo.Available = true
+		}
+	}
+
+	// Track restoration stats
+	restoredCount := 0
+	skippedCount := 0
+	failedCount := 0
+
+	// Attempt to restore worktrees
+	for _, worktree := range wsm.worktrees {
+		log.Printf("🔍 Processing worktree %s (RepoID: %s)", worktree.Name, worktree.RepoID)
+
+		// Check if the associated repository is available
+		repo, repoExists := wsm.repositories[worktree.RepoID]
+		if !repoExists {
+			log.Printf("⚠️ Worktree %s references missing repository %s, skipping", worktree.Name, worktree.RepoID)
+			skippedCount++
+			continue
+		}
+
+		if !repo.Available {
+			log.Printf("⚠️ Worktree %s belongs to unavailable repository %s, skipping", worktree.Name, worktree.RepoID)
+			skippedCount++
+			continue
+		}
+
+		// Check if worktree directory still exists
+		if _, err := os.Stat(worktree.Path); err == nil {
+			log.Printf("✅ Worktree %s already exists at %s, no restoration needed", worktree.Name, worktree.Path)
+			restoredCount++
+			continue
+		}
+
+		log.Printf("🔄 Attempting to restore worktree %s to %s (repo path: %s)", worktree.Name, worktree.Path, repo.Path)
+
+		// Add debug check for worktree restorer
+		if wsm.worktreeRestorer == nil {
+			log.Printf("❌ ERROR: worktreeRestorer is nil when trying to restore %s", worktree.Name)
+			failedCount++
+			continue
+		}
+
+		// Attempt to recreate the worktree
+		log.Printf("🔧 Calling RecreateWorktree for %s", worktree.Name)
+		if err := wsm.worktreeRestorer.RecreateWorktree(worktree, repo); err != nil {
+			log.Printf("❌ Failed to restore worktree %s: %v", worktree.Name, err)
+			failedCount++
+			continue
+		}
+
+		log.Printf("✅ Successfully restored worktree %s", worktree.Name)
+		restoredCount++
+	}
+
+	// Save state to persist any availability changes
+	if err := wsm.saveStateInternal(); err != nil {
+		log.Printf("⚠️ Failed to save state after restoration: %v", err)
+	}
+
+	log.Printf("🎉 State restoration completed: %d restored, %d skipped, %d failed",
+		restoredCount, skippedCount, failedCount)
 
 	return nil
 }

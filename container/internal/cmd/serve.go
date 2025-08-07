@@ -155,6 +155,12 @@ func startServer(cmd *cobra.Command) {
 	// Wire up the claude monitor to git service
 	gitService.SetClaudeMonitor(claudeMonitor)
 
+	// Restore state from persistent storage before initializing repos
+	log.Printf("🔄 Restoring worktree state from persistent storage")
+	if err := gitService.RestoreState(); err != nil {
+		log.Printf("⚠️  Failed to restore state: %v", err)
+	}
+
 	// Now initialize local repositories with setup executor properly configured
 	gitService.InitializeLocalRepos()
 	if err := claudeMonitor.Start(); err != nil {

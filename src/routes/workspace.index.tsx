@@ -16,6 +16,7 @@ function WorkspaceRedirect() {
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
   );
+  const getRepositoryById = useAppStore((state) => state.getRepositoryById);
 
   useEffect(() => {
     if (hasRedirected.current || initialLoading || loadError) {
@@ -23,26 +24,37 @@ function WorkspaceRedirect() {
     }
 
     if (worktreesCount > 0) {
-      // Get the first worktree without creating a new array reference
-      const firstWorktree = useAppStore.getState().getWorktreesList()[0];
+      // Find the first available worktree
+      const worktrees = useAppStore.getState().getWorktreesList();
+      let firstAvailableWorktree = null;
 
-      // Extract project/workspace from the workspace name (e.g., "vibes/tiger")
-      const nameParts = firstWorktree.name.split("/");
-      if (nameParts.length >= 2) {
-        hasRedirected.current = true;
-        void navigate({
-          to: "/workspace/$project/$workspace",
-          params: {
-            project: nameParts[0],
-            workspace: nameParts[1],
-          },
-        });
-        return;
+      for (const worktree of worktrees) {
+        const repo = getRepositoryById(worktree.repo_id);
+        if (repo && repo.available) {
+          firstAvailableWorktree = worktree;
+          break;
+        }
+      }
+
+      if (firstAvailableWorktree) {
+        // Extract project/workspace from the workspace name (e.g., "vibes/tiger")
+        const nameParts = firstAvailableWorktree.name.split("/");
+        if (nameParts.length >= 2) {
+          hasRedirected.current = true;
+          void navigate({
+            to: "/workspace/$project/$workspace",
+            params: {
+              project: nameParts[0],
+              workspace: nameParts[1],
+            },
+          });
+          return;
+        }
       }
     }
 
-    // Don't redirect if no workspaces - show welcome screen instead
-  }, [initialLoading, loadError, worktreesCount, navigate]);
+    // Don't redirect if no available workspaces - show welcome screen instead
+  }, [initialLoading, loadError, worktreesCount, navigate, getRepositoryById]);
 
   // Show error screen if backend is unavailable
   if (loadError) {

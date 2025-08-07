@@ -47,6 +47,8 @@ type Repository struct {
 	Path string `json:"path" example:"/workspace/repos/anthropics_claude-code.git"`
 	// Default branch name for this repository
 	DefaultBranch string `json:"default_branch" example:"main"`
+	// Whether the repository is currently available on disk
+	Available bool `json:"available" example:"true"`
 	// When this repository was first cloned
 	CreatedAt time.Time `json:"created_at" example:"2024-01-15T10:30:00Z"`
 	// When this repository was last accessed

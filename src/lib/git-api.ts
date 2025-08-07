@@ -79,6 +79,7 @@ export interface LocalRepository {
   name: string;
   path: string;
   url: string;
+  available: boolean;
 }
 
 interface FileDiff {

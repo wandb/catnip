@@ -1691,6 +1691,11 @@ const docTemplate = `{
             "description": "Git repository information and metadata",
             "type": "object",
             "properties": {
+                "available": {
+                    "description": "Whether the repository is currently available on disk",
+                    "type": "boolean",
+                    "example": true
+                },
                 "created_at": {
                     "description": "When this repository was first cloned",
                     "type": "string",
