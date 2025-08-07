@@ -16,6 +16,7 @@ type logsMsg []string
 type portsMsg []string
 type errMsg error
 type healthStatusMsg bool
+type workspacesMsg []WorkspaceInfo
 
 // Shell-related messages
 type shellOutputMsg struct {

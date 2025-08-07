@@ -2,10 +2,13 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vanpelt/catnip/internal/models"
 )
 
 // Ticker commands
@@ -111,6 +114,23 @@ func (m *Model) fetchHealthStatus() tea.Cmd {
 		healthy := isAppReady("http://localhost:8080")
 		debugLog("Health check result: %v", healthy)
 		return healthStatusMsg(healthy)
+	}
+}
+
+func (m *Model) fetchWorkspaces() tea.Cmd {
+	return func() tea.Msg {
+		// If quit was requested, don't execute this command
+		if m.quitRequested {
+			debugLog("fetchWorkspaces: quit requested, skipping")
+			return nil
+		}
+
+		workspaces, err := fetchWorkspacesFromAPI()
+		if err != nil {
+			debugLog("fetchWorkspaces: error: %v", err)
+			return workspacesMsg{} // Return empty list on error
+		}
+		return workspacesMsg(workspaces)
 	}
 }
 
