@@ -175,7 +175,8 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			m.showWorkspaceSelector = true
 			m.selectedWorkspaceIndex = 0 // Default to first workspace
 		} else {
-			// Fetch workspaces from API
+			// Set flag to show selector when workspaces load and fetch workspaces from API
+			m.waitingToShowWorkspaces = true
 			return &m, m.fetchWorkspaces(), true
 		}
 		return &m, nil, true
@@ -751,9 +752,10 @@ func (m Model) handleWorkspaces(msg workspacesMsg) (tea.Model, tea.Cmd) {
 	m.workspaces = []WorkspaceInfo(msg)
 	debugLog("Updated workspaces: %d workspaces loaded", len(m.workspaces))
 
-	// If we were trying to show the workspace selector but had no workspaces,
-	// show it now if we have workspaces
-	if len(m.workspaces) > 0 && m.showWorkspaceSelector {
+	// If we were waiting to show workspaces and now have some, show the selector
+	if len(m.workspaces) > 0 && m.waitingToShowWorkspaces {
+		m.waitingToShowWorkspaces = false
+		m.showWorkspaceSelector = true
 		m.selectedWorkspaceIndex = 0
 	}
 

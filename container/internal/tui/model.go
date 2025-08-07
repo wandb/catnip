@@ -55,13 +55,13 @@ type PortInfo struct {
 
 // WorkspaceInfo represents information about a workspace
 type WorkspaceInfo struct {
-	ID          string
-	Name        string
-	Path        string
-	Branch      string
-	IsActive    bool
+	ID           string
+	Name         string
+	Path         string
+	Branch       string
+	IsActive     bool
 	ChangedFiles []string
-	Ports       []PortInfo
+	Ports        []PortInfo
 }
 
 // Model represents the main application state
@@ -129,13 +129,14 @@ type Model struct {
 	selectedPortIndex int
 
 	// Workspace selector overlay
-	showWorkspaceSelector    bool
-	selectedWorkspaceIndex   int
-	currentWorkspace         *WorkspaceInfo
-	workspaces               []WorkspaceInfo
-	
+	showWorkspaceSelector   bool
+	selectedWorkspaceIndex  int
+	currentWorkspace        *WorkspaceInfo
+	workspaces              []WorkspaceInfo
+	waitingToShowWorkspaces bool
+
 	// Workspace view state
-	workspaceClaudeTerminal viewport.Model
+	workspaceClaudeTerminal  viewport.Model
 	workspaceRegularTerminal viewport.Model
 
 	// SSE connection state
