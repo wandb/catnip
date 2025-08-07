@@ -641,21 +641,61 @@ export function WorkspaceMainContent({
           <div className="flex flex-col bg-muted/50 overflow-hidden h-full">
             <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm flex-shrink-0">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                   {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
-                  <span className="text-sm">
-                    <span className="font-medium">Terminal</span>
-                    <span className="text-muted-foreground">
-                      {" "}
-                      - /workspace/{worktree.name}
-                    </span>
+
+                  {/* Terminal Tabs */}
+                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                    {terminals.map((terminal) => (
+                      <div
+                        key={terminal.id}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs cursor-pointer transition-colors ${
+                          activeTerminal === terminal.id
+                            ? "bg-background text-foreground border border-border"
+                            : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                        }`}
+                        onClick={() => setActiveTerminal(terminal.id)}
+                      >
+                        <span className="truncate max-w-[80px]">
+                          {terminal.name}
+                        </span>
+                        {terminals.length > 1 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeTerminal(terminal.id);
+                            }}
+                            className="ml-1 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-colors"
+                            title={`Close ${terminal.name}`}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Add Terminal Button */}
+                    {terminals.length < 3 && (
+                      <button
+                        onClick={addTerminal}
+                        className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/50 transition-colors"
+                        title="Add new terminal (max 3)"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  <span className="text-xs text-muted-foreground ml-2">
+                    /workspace/{worktree.name}
                   </span>
                 </div>
+
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={toggleTerminalMinimized}
-                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground ml-2"
                   title={
                     isTerminalMinimized
                       ? "Expand terminal"
@@ -671,8 +711,20 @@ export function WorkspaceMainContent({
               </div>
             </div>
             {!isTerminalMinimized && (
-              <div className="flex-1 min-h-0 pb-2 bg-black">
-                <WorkspaceTerminal worktree={worktree} />
+              <div className="flex-1 min-h-0 pb-2 bg-black relative">
+                {terminals.map((terminal) => (
+                  <div
+                    key={terminal.id}
+                    className={`absolute inset-0 ${
+                      activeTerminal === terminal.id ? "block" : "hidden"
+                    }`}
+                  >
+                    <WorkspaceTerminal
+                      worktree={worktree}
+                      terminalId={terminal.id}
+                    />
+                  </div>
+                ))}
               </div>
             )}
           </div>
