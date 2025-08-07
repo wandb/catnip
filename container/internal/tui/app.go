@@ -83,8 +83,8 @@ func NewApp(containerService *services.ContainerService, containerName, workDir,
 	}
 }
 
-// Run starts the TUI application
-func (a *App) Run(ctx context.Context, workDir string, customPorts []string) error {
+// Run starts the TUI application and returns the final active container name
+func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (string, error) {
 	// Initialize search input
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Enter search pattern (regex supported)..."
@@ -127,14 +127,24 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	// Start SSE client immediately
 	sseClient.Start()
 
-	_, err := a.program.Run()
+    finalModel, err := a.program.Run()
 
 	// Clean up SSE client if it was started
 	if a.sseClient != nil {
 		a.sseClient.Stop()
 	}
 
-	return err
+    // Try to extract the final container name from the model
+    finalName := a.containerName
+    if finalModel != nil {
+        if m, ok := finalModel.(Model); ok {
+            if strings.TrimSpace(m.containerName) != "" {
+                finalName = m.containerName
+            }
+        }
+    }
+
+    return finalName, err
 }
 
 // Init initializes the model and returns initial commands

@@ -17,6 +17,73 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
+// isCustomImage returns true if the image was manually specified by the user or dev mode is enabled
+// In dev mode, the image is fixed (catnip-dev:dev) but is conceptually a custom build; treat it as custom
+func isCustomImage(image string, devMode bool, cliVersion string) bool {
+    if devMode {
+        return true
+    }
+    // Default image we compute is wandb/catnip:<clean(cliVersion)>
+    // If image matches that pattern and tag equals cleaned CLI version, it's not custom
+    defaultTag := strings.TrimPrefix(cliVersion, "v")
+    defaultTag = strings.TrimSuffix(defaultTag, "-dev")
+    expected := "wandb/catnip:" + defaultTag
+    return image != expected
+}
+
+// parseImageAndTag splits an image string into name and tag
+// Examples: "wandb/catnip:1.2.3" -> ("wandb/catnip", "1.2.3"), "catnip:latest" -> ("catnip", "latest")
+func parseImageAndTag(image string) (string, string) {
+    if idx := strings.LastIndex(image, ":"); idx != -1 && idx > strings.LastIndex(image, "/") {
+        return image[:idx], image[idx+1:]
+    }
+    return image, "latest"
+}
+
+// semverCompare compares two version tags using a permissive semver-ish comparison
+// Returns 1 if a > b, -1 if a < b, 0 if equal; if non-comparable, returns 2
+func semverCompare(a, b string) int {
+    normalize := func(s string) []int {
+        s = strings.TrimPrefix(s, "v")
+        // Drop any pre-release/build metadata for comparison
+        for i, ch := range s {
+            if ch == '-' || ch == '+' {
+                s = s[:i]
+                break
+            }
+        }
+        parts := strings.Split(s, ".")
+        result := make([]int, 3)
+        for i := 0; i < 3 && i < len(parts); i++ {
+            // best-effort parse
+            n := 0
+            for _, ch := range parts[i] {
+                if ch >= '0' && ch <= '9' {
+                    n = n*10 + int(ch-'0')
+                } else {
+                    break
+                }
+            }
+            result[i] = n
+        }
+        return result
+    }
+
+    av := normalize(a)
+    bv := normalize(b)
+    // If both look like numbers (any non-zero or any digits seen), compare
+    for i := 0; i < 3; i++ {
+        if av[i] > bv[i] {
+            return 1
+        }
+        if av[i] < bv[i] {
+            return -1
+        }
+    }
+    // Equal numerically; treat as equal
+    return 0
+}
+
 // InitializationStreamMsg represents a line of output from initialization
 type InitializationStreamMsg struct {
 	Line string
@@ -266,7 +333,7 @@ func streamReader(reader io.Reader, outputChan chan<- string) {
 }
 
 // StartContainerCmd starts the container after initialization
-func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool, rmFlag bool) tea.Cmd {
+func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool, rmFlag bool, cliVersion string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -276,8 +343,52 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 			ports = []string{"8080:8080"}
 		}
 
-		// Start the container
-		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag, 4.0, 4.0, []string{}); err != nil {
+        // If another Catnip container is already running (possibly under a different name), avoid port conflicts
+        if containerService.IsContainerRunning(ctx, name) {
+            // Current target container is running; proceed
+        } else {
+            if runningName, _, ok := containerService.FindRunningCatnipContainer(ctx); ok {
+                // If a catnip container is already running, connect to it instead of starting a new one
+                return ContainerStartedMsg{
+                    ContainerName:    runningName,
+                    ContainerService: containerService,
+                }
+            }
+        }
+
+        // Decide if we should force removal of an existing stopped container
+        rmEffective := rmFlag
+        if containerService.ContainerExists(ctx, name) && !containerService.IsContainerRunning(ctx, name) {
+            // If custom image was specified by the user, always force remove
+            if isCustomImage(image, devMode, cliVersion) {
+                rmEffective = true
+            } else {
+                // Compare desired image tag with the existing container's image tag
+                if existingImage, err := containerService.GetContainerImageForName(ctx, name); err == nil {
+                    _, desiredTag := parseImageAndTag(image)
+                    _, existingTag := parseImageAndTag(existingImage)
+
+                    // If tags differ and desired is newer (or non-equal), force remove
+                    if desiredTag != existingTag {
+                        // Try semantic compare; if not comparable, prefer desired
+                        switch semverCompare(desiredTag, existingTag) {
+                        case 1:
+                            rmEffective = true
+                        case 0:
+                            // equal - no change
+                        case -1:
+                            // desired older than existing; keep existing to start
+                        default:
+                            // unknown result, be conservative and remove
+                            rmEffective = true
+                        }
+                    }
+                }
+            }
+        }
+
+        // Start the container
+        if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmEffective, 4.0, 4.0, []string{}); err != nil {
 			// Parse the error to extract the base error and output
 			errStr := err.Error()
 			cmdStr := strings.Join(cmd, " ")
