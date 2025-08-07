@@ -44,14 +44,11 @@ func (b *BranchOperations) BranchExists(repoPath, branch string, opts BranchExis
 		return err == nil
 	}
 
-	// For local branches, use git branch --list which is more reliable
-	output, err := b.executor.ExecuteGitWithWorkingDir(repoPath, "branch", "--list", branch)
-	if err != nil {
-		return false
-	}
-
-	// Check if the output contains the branch name
-	return strings.Contains(string(output), branch)
+	// For local branches, always use show-ref with refs/heads/ prefix
+	// This is more reliable than git branch --list, especially when on custom refs
+	ref := fmt.Sprintf("refs/heads/%s", branch)
+	_, err := b.executor.ExecuteGitWithWorkingDir(repoPath, "show-ref", "--verify", "--quiet", ref)
+	return err == nil
 }
 
 // BranchExistsLocal checks if a local branch exists
