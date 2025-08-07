@@ -261,8 +261,8 @@ func startServer(cmd *cobra.Command) {
 
 	// Proxy routes for detected services (must be before dev middleware)
 	// Will validate port numbers in handler and call Next() if invalid
-	app.Get("/:port", proxyHandler.ProxyToPort)
-	app.Get("/:port/*", proxyHandler.ProxyToPort)
+	app.All("/:port", proxyHandler.ProxyToPort)
+	app.All("/:port/*", proxyHandler.ProxyToPort)
 
 	// Handle static files and SPA routing
 	if handlers.IsDevMode() {
