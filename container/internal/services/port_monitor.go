@@ -624,6 +624,84 @@ func (pm *PortMonitor) shouldTrackPort(workingDir string) bool {
 	return false
 }
 
+// checkKnownProcesses scans for known development servers that should be listening but aren't
+func (pm *PortMonitor) checkKnownProcesses() {
+	if !config.Runtime.PortMonitorEnabled {
+		return // Only works on Linux for now
+	}
+	
+	// Map of known development server processes and their expected ports
+	knownServers := map[string][]int{
+		"mintlify":    {3000},
+		"next-server": {3000, 8080},
+		"vite":        {3000, 5173},
+		"webpack-dev-server": {3000, 8080},
+		"serve":       {3000, 5000, 8080},
+		"http-server": {8080},
+		"node":        {3000, 8000, 8080}, // Generic Node.js processes
+	}
+	
+	// Find all running processes
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	
+	currentProcesses := make(map[int]*ProcessInfo)
+	
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		
+		// Check if directory name is numeric (PID)
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		
+		command := pm.getCommandFromPIDLinux(pid)
+		workingDir := pm.getWorkingDirFromPIDLinux(pid)
+		
+		// Check if this is a known development server
+		if expectedPorts, isKnownServer := knownServers[command]; isKnownServer {
+			// In native mode, only track processes from our workspace
+			if config.Runtime.IsNative() && !pm.shouldTrackPort(workingDir) {
+				continue
+			}
+			
+			for _, expectedPort := range expectedPorts {
+				processInfo := &ProcessInfo{
+					PID:          pid,
+					Command:      command,
+					WorkingDir:   workingDir,
+					ExpectedPort: expectedPort,
+					LastSeen:     time.Now(),
+				}
+				currentProcesses[pid] = processInfo
+				
+				// Check if this process should be listening on a port but isn't
+				pm.mutex.RLock()
+				_, isListening := pm.services[expectedPort]
+				pm.mutex.RUnlock()
+				
+				if !isListening {
+					// Check if we've already reported this issue recently
+					if lastProcess, wasReported := pm.lastProcessState[pid]; !wasReported || 
+						time.Since(lastProcess.LastSeen) > 30*time.Second {
+						log.Printf("⚠️  Process %s (PID %d) in %s appears to be a dev server but isn't listening on expected port %d", 
+							command, pid, workingDir, expectedPort)
+					}
+				}
+				break // Only check the first expected port for each process
+			}
+		}
+	}
+	
+	// Update the last process state
+	pm.lastProcessState = currentProcesses
+}
+
 // extractTitle attempts to extract the title from an HTML response
 func (pm *PortMonitor) extractTitle(service *ServiceInfo, url string) {
 	client := &http.Client{
