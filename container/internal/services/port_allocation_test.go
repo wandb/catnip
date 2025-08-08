@@ -138,7 +138,7 @@ func TestPortAllocationService_GetEnvironmentVariables(t *testing.T) {
 	assert.Contains(t, err.Error(), "no ports allocated for session")
 
 	// Allocate ports
-	ports, err := service.AllocatePortsForSession(sessionID)
+	_, err = service.AllocatePortsForSession(sessionID)
 	require.NoError(t, err)
 
 	// Get environment variables
@@ -159,7 +159,6 @@ func TestPortAllocationService_GetEnvironmentVariables(t *testing.T) {
 	require.NotEmpty(t, portVar)
 	require.NotEmpty(t, portzVar)
 
-	expectedPortVar := "PORT=" + string(rune(ports.PORT+'0'))
 	// Note: We can't easily test the exact string due to integer conversion,
 	// but we can verify the format
 	assert.Contains(t, portVar, "PORT=")
