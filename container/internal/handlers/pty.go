@@ -42,6 +42,7 @@ type ConnectionInfo struct {
 	RemoteAddr  string
 	ConnID      string
 	IsReadOnly  bool
+	IsFocused   bool
 }
 
 // Session represents a PTY session
@@ -555,6 +556,16 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					// Handle connection promotion request (swap read/write permissions)
 					log.Printf("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
 					h.promoteConnection(session, conn)
+					continue
+				case "focus":
+					// Handle focus state change
+					var focusMsg struct {
+						Type    string `json:"type"`
+						Focused bool   `json:"focused"`
+					}
+					if err := json.Unmarshal(data, &focusMsg); err == nil {
+						h.handleFocusChange(session, conn, focusMsg.Focused)
+					}
 					continue
 				}
 			}
