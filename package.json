@@ -17,7 +17,10 @@
     "format:changed": "{ git diff --cached --name-only --diff-filter=ACMR; git diff --name-only --diff-filter=ACMR; git ls-files --others --exclude-standard; } | grep -E '\\.(ts|tsx|js|jsx|json|css|md)$' | xargs -r prettier --write",
     "preview": "pnpm run build && vite preview",
     "deploy:prod": "pnpm run build && wrangler deploy --env production",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.0.22",
