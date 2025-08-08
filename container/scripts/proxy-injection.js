@@ -339,32 +339,7 @@
       return originalEval.call(this, code);
     };
 
-    // Approach 2: Patch Function constructor for dynamically created functions
-    var originalFunction = window.Function;
-    window.Function = function () {
-      var args = Array.prototype.slice.call(arguments);
-      var code = args[args.length - 1];
-
-      if (typeof code === "string" && code.includes("import(")) {
-        code = code.replace(
-          /import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
-          function (match, moduleSpecifier) {
-            if (
-              moduleSpecifier.startsWith("/") &&
-              !moduleSpecifier.startsWith(basePath)
-            ) {
-              return (
-                'import("' + basePath.slice(0, -1) + moduleSpecifier + '")'
-              );
-            }
-            return match;
-          },
-        );
-        args[args.length - 1] = code;
-      }
-
-      return originalFunction.apply(this, args);
-    };
+    // Approach 2: Function constructor patching removed to avoid webpack conflicts
 
     // Approach 3: Create a global import wrapper (for explicit calls)
     // This won't catch all import() usage but will catch code that explicitly calls window.import
