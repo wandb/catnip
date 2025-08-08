@@ -116,8 +116,8 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 				if pf, ok := payload["port"].(float64); ok {
 					cp := int(pf)
 					a.portForwarder.EnsureForward(cp)
-                    // Immediately announce mapping in case backend restarted
-                    a.portForwarder.ReannounceMappings()
+					// Immediately announce mapping in case backend restarted
+					a.portForwarder.ReannounceMappings()
 				}
 			}
 		case PortClosedEvent:

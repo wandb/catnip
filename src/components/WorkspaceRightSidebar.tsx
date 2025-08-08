@@ -559,14 +559,9 @@ function WorkspacePorts({
   setShowPortPreview: (port: number | null) => void;
   setShowDiffView: (showDiff: boolean) => void;
 }) {
-  // Get ports Map and use size as dependency for stability
-  const portsSize = useAppStore((state) => state.ports.size);
-
-  // Create stable ports array only when size changes
-  const allPorts = useMemo(() => {
-    const state = useAppStore.getState();
-    return Array.from(state.ports.values());
-  }, [portsSize]);
+  // Subscribe to ports Map (reference changes on update), then memoize to array
+  const portsMap = useAppStore((state) => state.ports);
+  const allPorts = useMemo(() => Array.from(portsMap.values()), [portsMap]);
 
   // Filter ports for this workspace
   const workspacePorts = useMemo(() => {
@@ -618,24 +613,30 @@ function WorkspacePorts({
             {workspacePorts.map((port) => (
               <div
                 key={port.port}
-                className={`flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer group ${
+                className={`flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer group w-full min-w-0 ${
                   showPortPreview === port.port ? "bg-muted" : ""
                 }`}
                 onClick={() => previewPort(port.port)}
                 title={`Preview port ${port.port} - ${port.title || port.service || "Unknown service"}`}
               >
                 <Globe className="h-3 w-3 text-blue-500 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">:{port.port}</span>
+                <div className="flex-1 min-w-0 overflow-hidden">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm font-medium flex-shrink-0">
+                      :{port.port}
+                    </span>
                     {port.service && (
-                      <Badge variant="outline" className="text-xs">
+                      <Badge
+                        variant="outline"
+                        className="text-xs max-w-[96px] truncate overflow-hidden"
+                        title={port.service}
+                      >
                         {port.service}
                       </Badge>
                     )}
                   </div>
                   {(port.title || port.hostPort) && (
-                    <p className="text-xs text-muted-foreground truncate">
+                    <p className="text-xs text-muted-foreground truncate whitespace-nowrap max-w-[170px]">
                       {port.title}
                       {port.hostPort
                         ? ` • forwarded to localhost:${port.hostPort}`
@@ -646,7 +647,7 @@ function WorkspacePorts({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 hover:opacity-100"
+                  className="h-6 w-6 p-0 flex-shrink-0 ml-auto"
                   onClick={(e) => {
                     e.stopPropagation();
                     openInNewWindow(port);

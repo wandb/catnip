@@ -147,21 +147,21 @@ func (m *PortForwardManager) StopAll() {
 // ReannounceMappings posts all current containerPort->hostPort mappings to backend.
 // Useful after backend restarts to repopulate in-memory state.
 func (m *PortForwardManager) ReannounceMappings() {
-    m.forwardsMu.Lock()
-    // create snapshot to avoid holding lock during network calls
-    snapshot := make(map[int]int, len(m.forwards))
-    for cport, f := range m.forwards {
-        snapshot[cport] = f.hostPort
-    }
-    m.forwardsMu.Unlock()
+	m.forwardsMu.Lock()
+	// create snapshot to avoid holding lock during network calls
+	snapshot := make(map[int]int, len(m.forwards))
+	for cport, f := range m.forwards {
+		snapshot[cport] = f.hostPort
+	}
+	m.forwardsMu.Unlock()
 
-    for cport, hport := range snapshot {
-        if err := m.postMapping(cport, hport); err != nil {
-            debugLog("PFM: reannounce postMapping failed cport=%d hport=%d err=%v", cport, hport, err)
-        } else {
-            debugLog("PFM: reannounce postMapping ok cport=%d hport=%d", cport, hport)
-        }
-    }
+	for cport, hport := range snapshot {
+		if err := m.postMapping(cport, hport); err != nil {
+			debugLog("PFM: reannounce postMapping failed cport=%d hport=%d err=%v", cport, hport, err)
+		} else {
+			debugLog("PFM: reannounce postMapping ok cport=%d hport=%d", cport, hport)
+		}
+	}
 }
 
 func (m *PortForwardManager) ensureSSH() (*ssh.Client, error) {

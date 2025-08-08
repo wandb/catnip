@@ -189,7 +189,6 @@ export const useAppStore = create<AppState>()(
 
       switch (event.type) {
         case "port:opened": {
-          console.log("store.handleEvent port:opened", event.payload);
           const newPorts = new Map(ports);
           newPorts.set(event.payload.port, {
             port: event.payload.port,
@@ -201,17 +200,9 @@ export const useAppStore = create<AppState>()(
             hostPort: newPorts.get(event.payload.port)?.hostPort, // preserve mapping if any
           });
           set({ ports: newPorts });
-          console.log(
-            "store.ports updated (opened)",
-            event.payload.port,
-            newPorts.get(event.payload.port),
-            "size=",
-            newPorts.size,
-          );
           break;
         }
         case "port:mapped": {
-          console.log("store.handleEvent port:mapped", event.payload);
           const newPorts = new Map(ports);
           const port = event.payload.port as number;
           const hostPort = event.payload.host_port as number;
@@ -226,13 +217,6 @@ export const useAppStore = create<AppState>()(
             newPorts.set(port, { ...existing, hostPort: undefined });
           }
           set({ ports: newPorts });
-          console.log(
-            "store.ports updated (mapped)",
-            port,
-            newPorts.get(port),
-            "size=",
-            newPorts.size,
-          );
           break;
         }
 
