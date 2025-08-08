@@ -28,10 +28,13 @@ func TestGitServiceWithInMemoryOperations(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
-	// Create service with in-memory git operations
+	// Create temporary state directory for isolated test state
+	stateDir := t.TempDir()
+
+	// Create service with in-memory git operations and isolated state
 	exec := executor.NewInMemoryExecutor()
 	operations := git.NewOperationsWithExecutor(exec)
-	service := NewGitServiceWithOperations(operations)
+	service := NewGitServiceWithStateDir(operations, stateDir)
 	require.NotNil(t, service)
 	require.NotNil(t, exec)
 
@@ -255,10 +258,13 @@ func TestGitServiceInMemoryAdvanced(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
-	// Create service with in-memory operations
+	// Create temporary state directory for isolated test state
+	stateDir := t.TempDir()
+
+	// Create service with in-memory operations and isolated state
 	exec := executor.NewInMemoryExecutor()
 	operations := git.NewOperationsWithExecutor(exec)
-	service := NewGitServiceWithOperations(operations)
+	service := NewGitServiceWithStateDir(operations, stateDir)
 
 	inMemoryExec, ok := exec.(*executor.InMemoryExecutor)
 	require.True(t, ok)
@@ -339,8 +345,11 @@ func TestGitServiceLocalRepositoryOperations(t *testing.T) {
 	localRepoPath := filepath.Join(tempDir, "repos", "test-project")
 	require.NoError(t, createRealTestRepository(localRepoPath))
 
-	// Create service with regular git operations (not in-memory) for real filesystem operations
-	service := NewGitService()
+	// Create temporary state directory for isolated test state
+	stateDir := t.TempDir()
+
+	// Create service with regular git operations (not in-memory) for real filesystem operations and isolated state
+	service := NewGitServiceWithStateDir(git.NewOperations(), stateDir)
 
 	// Manually add the local repository to the GitService state
 	// This simulates what detectLocalRepos() would do

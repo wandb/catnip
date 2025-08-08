@@ -30,7 +30,7 @@ func TestGitServiceFunctional(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
 	// Create service
-	service := NewGitService()
+	service := createTestGitService(t)
 	require.NotNil(t, service)
 
 	t.Run("RepositoryOperations", func(t *testing.T) {
@@ -199,7 +199,7 @@ func testStateManagement(t *testing.T, service *GitService) {
 		// State is automatically saved by the state manager
 
 		// Create new service - state will be loaded automatically
-		newService := NewGitService()
+		newService := createTestGitService(t)
 
 		// Note: loadState may not fully restore in-memory state without actual files,
 		// but we can test that it doesn't crash and maintains basic functionality
@@ -232,7 +232,7 @@ func TestGitServiceHelperFunctions(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
-	service := NewGitService()
+	service := createTestGitService(t)
 
 	t.Run("GenerateUniqueSessionName", func(t *testing.T) {
 		tempDir := t.TempDir()
@@ -303,7 +303,7 @@ func TestGitServiceGitHubOperationsFunctional(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
-	service := NewGitService()
+	service := createTestGitService(t)
 
 	// Add a test worktree for GitHub operations
 	mockWorktree := &models.Worktree{
@@ -369,7 +369,7 @@ func TestGitServiceConflictOperationsFunctional(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
-	service := NewGitService()
+	service := createTestGitService(t)
 
 	// Add test worktree for conflict operations
 	mockWorktree := &models.Worktree{
@@ -436,7 +436,7 @@ func TestGitServiceCleanupOperationsFunctional(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
-	service := NewGitService()
+	service := createTestGitService(t)
 
 	t.Run("CleanupMergedWorktrees", func(t *testing.T) {
 		// Should not error even with no worktrees
