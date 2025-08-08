@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1504,6 +1505,71 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 	}
 
 	log.Printf("🔄 Connection promotion completed in session %s", session.ID)
+}
+
+// processTerminalOutput scans terminal output for localhost:XXXX patterns,
+// registers discovered ports, and rewrites URLs to use the proxy
+func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte {
+	// Convert to string for pattern matching
+	output := string(data)
+
+	// Regex to match localhost:XXXX patterns (various formats)
+	// Matches: localhost:3000, http://localhost:3000, https://localhost:3000, etc.
+	localhostRegex := regexp.MustCompile(`(https?://)?localhost:(\d{4,5})(/[^\s\x1b]*)?`)
+
+	// Find all matches and register ports
+	matches := localhostRegex.FindAllStringSubmatch(output, -1)
+	for _, match := range matches {
+		if len(match) >= 3 {
+			portStr := match[2]
+			if port, err := strconv.Atoi(portStr); err == nil {
+				// Skip port 8080 (our own proxy port)
+				if port != 8080 && port >= 1024 && port <= 65535 {
+					// Register the port with the port monitor
+					h.portMonitor.RegisterPortFromTerminalOutput(port, session.WorkDir)
+				}
+			}
+		}
+	}
+
+	// Rewrite localhost:XXXX URLs to localhost:8080/XXXX
+	rewrittenOutput := localhostRegex.ReplaceAllStringFunc(output, func(match string) string {
+		// Parse the matched URL
+		submatch := localhostRegex.FindStringSubmatch(match)
+		if len(submatch) < 3 {
+			return match
+		}
+
+		scheme := submatch[1] // http:// or https:// (or empty)
+		port := submatch[2]   // port number
+		path := ""
+		if len(submatch) >= 4 {
+			path = submatch[3] // path part (or empty)
+		}
+
+		// Skip rewriting port 8080 (our proxy)
+		if port == "8080" {
+			return match
+		}
+
+		// Rewrite to proxy format: localhost:8080/PORT/path
+		var rewritten strings.Builder
+		if scheme != "" {
+			rewritten.WriteString(scheme)
+		} else {
+			rewritten.WriteString("http://")
+		}
+		rewritten.WriteString("localhost:8080/")
+		rewritten.WriteString(port)
+		if path != "" && path != "/" {
+			rewritten.WriteString(path)
+		}
+
+		return rewritten.String()
+	})
+
+	// Return the rewritten output as bytes
+	return []byte(rewrittenOutput)
 }
 
 // handleFocusChange handles focus state changes and auto-promotes focused connections
