@@ -27,7 +27,7 @@ type GitServiceInterface interface {
 }
 
 type SessionServiceInterface interface {
-	GetActiveSession(path string) (*services.SessionInfo, bool)
+	GetActiveSession(path string) (*services.ActiveSessionInfo, bool)
 	GetClaudeActivityState(path string) models.ClaudeActivityState
 }
 
@@ -88,12 +88,12 @@ type mockSessionService struct {
 	mock.Mock
 }
 
-func (m *mockSessionService) GetActiveSession(path string) (*services.SessionInfo, bool) {
+func (m *mockSessionService) GetActiveSession(path string) (*services.ActiveSessionInfo, bool) {
 	args := m.Called(path)
 	if args.Get(0) == nil {
 		return nil, false
 	}
-	return args.Get(0).(*services.SessionInfo), args.Bool(1)
+	return args.Get(0).(*services.ActiveSessionInfo), args.Bool(1)
 }
 
 func (m *mockSessionService) GetClaudeActivityState(path string) models.ClaudeActivityState {
@@ -269,9 +269,11 @@ func TestCheckoutRepository(t *testing.T) {
 
 	t.Run("successful checkout", func(t *testing.T) {
 		expectedRepo := &models.Repository{
-			ID:   "repo-123",
-			Name: "test-repo",
-			Org:  "test-org",
+			ID:            "test-org/test-repo",
+			URL:           "https://github.com/test-org/test-repo",
+			Path:          "/workspace/repos/test-org_test-repo.git",
+			DefaultBranch: "main",
+			Available:     true,
 		}
 		expectedWorktree := &models.Worktree{
 			ID:     "wt-123",
@@ -330,16 +332,16 @@ func TestGetStatus(t *testing.T) {
 	handler, mockGitService, _, _, app := setupGitHandlerTest()
 
 	expectedStatus := &models.GitStatus{
-		Repository: &models.Repository{
-			ID:   "repo-123",
-			Name: "test-repo",
-			Org:  "test-org",
+		Repositories: map[string]*models.Repository{
+			"test-org/test-repo": {
+				ID:            "test-org/test-repo",
+				URL:           "https://github.com/test-org/test-repo",
+				Path:          "/workspace/repos/test-org_test-repo.git",
+				DefaultBranch: "main",
+				Available:     true,
+			},
 		},
-		CurrentWorktree: &models.Worktree{
-			ID:     "wt-123",
-			Branch: "main",
-			Path:   "/workspace/test-repo",
-		},
+		WorktreeCount: 1,
 	}
 
 	mockGitService.On("GetStatus").Return(expectedStatus)
@@ -356,8 +358,9 @@ func TestGetStatus(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	json.Unmarshal(body, &result)
 
-	assert.Equal(t, expectedStatus.Repository.ID, result.Repository.ID)
-	assert.Equal(t, expectedStatus.CurrentWorktree.ID, result.CurrentWorktree.ID)
+	assert.Equal(t, expectedStatus.WorktreeCount, result.WorktreeCount)
+	assert.NotNil(t, result.Repositories)
+	assert.Contains(t, result.Repositories, "test-org/test-repo")
 
 	mockGitService.AssertExpectations(t)
 }
@@ -383,8 +386,8 @@ func TestListWorktrees(t *testing.T) {
 	mockGitService.On("IsWorktreeStatusCached", "wt-2").Return(false)
 
 	// Mock session service calls
-	mockSessionService.On("GetActiveSession", "/workspace/repo/main").Return((*services.SessionInfo)(nil), false)
-	mockSessionService.On("GetActiveSession", "/workspace/repo/feature").Return((*services.SessionInfo)(nil), false)
+	mockSessionService.On("GetActiveSession", "/workspace/repo/main").Return((*services.ActiveSessionInfo)(nil), false)
+	mockSessionService.On("GetActiveSession", "/workspace/repo/feature").Return((*services.ActiveSessionInfo)(nil), false)
 	mockSessionService.On("GetClaudeActivityState", "/workspace/repo/main").Return(models.ClaudeIdle)
 	mockSessionService.On("GetClaudeActivityState", "/workspace/repo/feature").Return(models.ClaudeActive)
 
