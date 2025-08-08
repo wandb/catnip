@@ -2451,6 +2451,43 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 		log.Printf("⚠️ Worktree may have uncommitted changes after restoration")
 	}
 
+	// Step 6: Recreate nice branch name for renamed worktrees
+	if worktree.HasBeenRenamed {
+		log.Printf("🔄 Worktree has been renamed, recreating nice branch name...")
+
+		// Get current branch (should be refs/catnip/workspacename)
+		currentBranchOutput, err := s.operations.ExecuteGit(worktree.Path, "rev-parse", "--symbolic-full-name", "HEAD")
+		if err != nil {
+			log.Printf("⚠️ Failed to get current branch for renamed worktree %s: %v", worktree.Name, err)
+		} else {
+			currentBranch := strings.TrimSpace(string(currentBranchOutput))
+			log.Printf("🔍 Current branch: %s", currentBranch)
+
+			// Look up the nice branch name from git config
+			configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(currentBranch, "/", "."))
+			niceBranchName, err := s.operations.GetConfig(worktree.Path, configKey)
+			if err == nil && strings.TrimSpace(niceBranchName) != "" {
+				niceBranchName = strings.TrimSpace(niceBranchName)
+				log.Printf("🔍 Found nice branch mapping: %s -> %s", currentBranch, niceBranchName)
+
+				// Get current commit hash
+				currentCommit, err := s.operations.GetCommitHash(worktree.Path, "HEAD")
+				if err != nil {
+					log.Printf("⚠️ Failed to get current commit for branch recreation: %v", err)
+				} else {
+					// Create the nice branch pointing to the same commit
+					if err := s.operations.CreateBranch(worktree.Path, niceBranchName, currentCommit); err != nil {
+						log.Printf("⚠️ Failed to recreate nice branch %q: %v", niceBranchName, err)
+					} else {
+						log.Printf("✅ Successfully recreated nice branch %q pointing to %s", niceBranchName, currentCommit[:8])
+					}
+				}
+			} else {
+				log.Printf("⚠️ No nice branch mapping found for %s in git config", currentBranch)
+			}
+		}
+	}
+
 	log.Printf("✅ Successfully restored worktree %s using manual restoration", worktree.Name)
 	return nil
 }
