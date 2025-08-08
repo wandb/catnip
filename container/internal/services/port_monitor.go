@@ -134,9 +134,23 @@ func (pm *PortMonitor) checkPortChanges() {
 	// Check for removed ports
 	for port := range pm.lastTcpState {
 		if _, exists := currentPorts[port]; !exists {
-			// Port removed
-			log.Printf("🔍 Port removed: %d", port)
-			delete(pm.services, port)
+			// Check if this is a terminal-detected port before removing it
+			if service, hasService := pm.services[port]; hasService && service.ServiceType == "terminal-detected" {
+				// For terminal-detected ports, only remove them if they've been unhealthy for more than 30 seconds
+				// This prevents temporary network issues or scanning delays from removing valid ports
+				if service.Health == "unhealthy" && time.Since(service.LastSeen) > 30*time.Second {
+					log.Printf("🔍 Terminal-detected port %d removed (unhealthy for >30s)", port)
+					delete(pm.services, port)
+				} else {
+					// Keep the port but try to update its health status
+					log.Printf("🔍 Terminal-detected port %d not found in TCP scan, re-checking health", port)
+					go pm.healthCheckService(service)
+				}
+			} else {
+				// Regular port removed
+				log.Printf("🔍 Port removed: %d", port)
+				delete(pm.services, port)
+			}
 		}
 	}
 
@@ -667,6 +681,9 @@ func (pm *PortMonitor) RegisterPortFromTerminalOutput(port int, workingDir strin
 	go pm.healthCheckService(service)
 
 	pm.services[port] = service
+
+	// Also add to lastTcpState to prevent it from being removed by checkPortChanges
+	pm.lastTcpState[port] = true
 }
 
 // extractTitle attempts to extract the title from an HTML response
