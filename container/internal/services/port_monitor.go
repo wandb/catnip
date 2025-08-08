@@ -32,19 +32,21 @@ type ServiceInfo struct {
 
 // PortMonitor monitors /proc/net/tcp for port changes and manages service registry
 type PortMonitor struct {
-	services     map[int]*ServiceInfo
-	mutex        sync.RWMutex
-	lastTcpState map[int]bool
-	stopChan     chan bool
-	stopped      bool
+	services         map[int]*ServiceInfo
+	mutex            sync.RWMutex
+	lastTcpState     map[int]bool
+	lastProcessState map[int]*ProcessInfo
+	stopChan         chan bool
+	stopped          bool
 }
 
 // NewPortMonitor creates a new port monitor instance
 func NewPortMonitor() *PortMonitor {
 	pm := &PortMonitor{
-		services:     make(map[int]*ServiceInfo),
-		lastTcpState: make(map[int]bool),
-		stopChan:     make(chan bool),
+		services:         make(map[int]*ServiceInfo),
+		lastTcpState:     make(map[int]bool),
+		lastProcessState: make(map[int]*ProcessInfo),
+		stopChan:         make(chan bool),
 	}
 
 	// Start monitoring immediately
@@ -158,11 +160,11 @@ type PortWithPID struct {
 
 // ProcessInfo represents a process that might be a development server
 type ProcessInfo struct {
-	PID         int
-	Command     string
-	WorkingDir  string
+	PID          int
+	Command      string
+	WorkingDir   string
 	ExpectedPort int
-	LastSeen    time.Time
+	LastSeen     time.Time
 }
 
 // parseProcNetTcp parses /proc/net/tcp and returns a map of listening ports with PID info
@@ -443,7 +445,7 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 
 	// Log the failure reason for better debugging
 	if lastError != nil {
-		log.Printf("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)", 
+		log.Printf("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)",
 			service.Port, lastError, service.Command, service.WorkingDir)
 	}
 
@@ -457,7 +459,7 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 func (pm *PortMonitor) checkTCPHealth(service *ServiceInfo) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", service.Port), 2*time.Second)
 	if err != nil {
-		log.Printf("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)", 
+		log.Printf("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)",
 			service.Port, err, service.Command, service.WorkingDir)
 		return false
 	}
@@ -648,47 +650,47 @@ func (pm *PortMonitor) checkKnownProcesses() {
 	if !config.Runtime.PortMonitorEnabled {
 		return // Only works on Linux for now
 	}
-	
+
 	// Map of known development server processes and their expected ports
 	knownServers := map[string][]int{
-		"mintlify":    {3000},
-		"next-server": {3000, 8080},
-		"vite":        {3000, 5173},
+		"mintlify":           {3000},
+		"next-server":        {3000, 8080},
+		"vite":               {3000, 5173},
 		"webpack-dev-server": {3000, 8080},
-		"serve":       {3000, 5000, 8080},
-		"http-server": {8080},
-		"node":        {3000, 8000, 8080}, // Generic Node.js processes
+		"serve":              {3000, 5000, 8080},
+		"http-server":        {8080},
+		"node":               {3000, 8000, 8080}, // Generic Node.js processes
 	}
-	
+
 	// Find all running processes
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return
 	}
-	
+
 	currentProcesses := make(map[int]*ProcessInfo)
-	
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		
+
 		// Check if directory name is numeric (PID)
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
 			continue
 		}
-		
+
 		command := pm.getCommandFromPIDLinux(pid)
 		workingDir := pm.getWorkingDirFromPIDLinux(pid)
-		
+
 		// Check if this is a known development server
 		if expectedPorts, isKnownServer := knownServers[command]; isKnownServer {
 			// In native mode, only track processes from our workspace
 			if config.Runtime.IsNative() && !pm.shouldTrackPort(workingDir) {
 				continue
 			}
-			
+
 			for _, expectedPort := range expectedPorts {
 				processInfo := &ProcessInfo{
 					PID:          pid,
@@ -698,17 +700,17 @@ func (pm *PortMonitor) checkKnownProcesses() {
 					LastSeen:     time.Now(),
 				}
 				currentProcesses[pid] = processInfo
-				
+
 				// Check if this process should be listening on a port but isn't
 				pm.mutex.RLock()
 				_, isListening := pm.services[expectedPort]
 				pm.mutex.RUnlock()
-				
+
 				if !isListening {
 					// Check if we've already reported this issue recently
-					if lastProcess, wasReported := pm.lastProcessState[pid]; !wasReported || 
+					if lastProcess, wasReported := pm.lastProcessState[pid]; !wasReported ||
 						time.Since(lastProcess.LastSeen) > 30*time.Second {
-						log.Printf("⚠️  Process %s (PID %d) in %s appears to be a dev server but isn't listening on expected port %d", 
+						log.Printf("⚠️  Process %s (PID %d) in %s appears to be a dev server but isn't listening on expected port %d",
 							command, pid, workingDir, expectedPort)
 					}
 				}
@@ -716,9 +718,38 @@ func (pm *PortMonitor) checkKnownProcesses() {
 			}
 		}
 	}
-	
+
 	// Update the last process state
 	pm.lastProcessState = currentProcesses
+}
+
+// RegisterPortFromTerminalOutput registers a port discovered from terminal output
+func (pm *PortMonitor) RegisterPortFromTerminalOutput(port int, workingDir string) {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
+	// Skip if port is already registered
+	if _, exists := pm.services[port]; exists {
+		return
+	}
+
+	log.Printf("🔍 Port %d discovered from terminal output in %s", port, workingDir)
+
+	// Create a service info for this port
+	service := &ServiceInfo{
+		Port:        port,
+		ServiceType: "terminal-detected",
+		Health:      "unknown",
+		LastSeen:    time.Now(),
+		PID:         0, // Will be resolved later if possible
+		Command:     "",
+		WorkingDir:  workingDir,
+	}
+
+	// Try to determine service type and health
+	go pm.healthCheckService(service)
+
+	pm.services[port] = service
 }
 
 // extractTitle attempts to extract the title from an HTML response
