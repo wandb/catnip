@@ -409,7 +409,10 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				h.handleTitleUpdate(session, title)
 			}
 
-			// Check for alternate screen buffer sequences
+			// Check for localhost:XXXX patterns in terminal output and rewrite them
+			outputData := h.processTerminalOutput(buf[:n], session)
+
+			// Check for alternate screen buffer sequences (use original data for this)
 			if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
 				// Entering alternate screen - mark position for TUI buffer filtering
 				session.AlternateScreenActive = true
@@ -422,7 +425,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				log.Printf("🖥️  Detected alternate screen buffer exit")
 			}
 
-			session.outputBuffer = append(session.outputBuffer, buf[:n]...)
+			session.outputBuffer = append(session.outputBuffer, outputData...)
 			// Update buffered dimensions to current terminal size
 			session.bufferedCols = session.cols
 			session.bufferedRows = session.rows
@@ -435,8 +438,8 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			default:
 			}
 
-			// Send to all connections
-			session.broadcastToConnections(websocket.BinaryMessage, buf[:n])
+			// Send to all connections (use the processed output with rewritten URLs)
+			session.broadcastToConnections(websocket.BinaryMessage, outputData)
 		}
 	}()
 
