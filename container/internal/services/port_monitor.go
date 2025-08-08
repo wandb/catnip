@@ -159,6 +159,14 @@ func (pm *PortMonitor) checkPortChanges() {
 	for port := range currentPorts {
 		lastTcpState[port] = true
 	}
+
+	// Preserve terminal-detected ports that are still active in services
+	for port, service := range pm.services {
+		if service.ServiceType == "terminal-detected" {
+			lastTcpState[port] = true
+		}
+	}
+
 	pm.lastTcpState = lastTcpState
 }
 
