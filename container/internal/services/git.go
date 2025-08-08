@@ -55,6 +55,12 @@ func (s *GitService) cleanupUnusedBranches() {
 	totalDeleted := 0
 
 	for _, repo := range reposMap {
+		// Check if repository path exists before trying to clean it up
+		if _, err := os.Stat(repo.Path); os.IsNotExist(err) {
+			// Skip non-existent repositories (likely in-memory test repositories)
+			continue
+		}
+
 		// List all branches in the bare repository
 		branches, err := s.operations.ListBranches(repo.Path, git.ListBranchesOptions{All: true})
 		if err != nil {
