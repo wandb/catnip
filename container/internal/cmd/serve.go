@@ -175,10 +175,10 @@ func startServer(cmd *cobra.Command) {
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService, claudeMonitor)
 	claudeHandler := handlers.NewClaudeHandler(claudeService)
 	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService)
-	portsHandler := handlers.NewPortsHandler(portMonitor)
-	proxyHandler := handlers.NewProxyHandler(portMonitor)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
 	defer eventsHandler.Stop()
+	portsHandler := handlers.NewPortsHandler(portMonitor).WithEvents(eventsHandler)
+	proxyHandler := handlers.NewProxyHandler(portMonitor)
 
 	// Connect events handler to GitService for worktree status events
 	gitService.SetEventsHandler(eventsHandler)
@@ -248,6 +248,8 @@ func startServer(cmd *cobra.Command) {
 	// Port monitoring routes
 	v1.Get("/ports", portsHandler.GetPorts)
 	v1.Get("/ports/:port", portsHandler.GetPortInfo)
+	v1.Post("/ports/mappings", portsHandler.SetPortMapping)
+	v1.Delete("/ports/mappings/:port", portsHandler.DeletePortMapping)
 
 	// Server info route
 	v1.Get("/info", func(c *fiber.Ctx) error {

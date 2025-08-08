@@ -777,6 +777,7 @@ definitions:
     - process:started
     - process:stopped
     - container:status
+    - port:mapped
     - heartbeat
     - worktree:status_updated
     - worktree:batch_updated
@@ -796,6 +797,7 @@ definitions:
     - ProcessStartedEvent
     - ProcessStoppedEvent
     - ContainerStatusEvent
+    - PortMappedEvent
     - HeartbeatEvent
     - WorktreeStatusUpdatedEvent
     - WorktreeBatchUpdatedEvent
@@ -1701,6 +1703,68 @@ paths:
               type: string
             type: object
       summary: Get port information
+      tags:
+      - ports
+  /v1/ports/mappings:
+    post:
+      consumes:
+      - application/json
+      description: Records a mapping from container port to host port and broadcasts
+        an SSE event
+      parameters:
+      - description: Mapping object with 'port' and 'host_port'
+        in: body
+        name: mapping
+        required: true
+        schema:
+          additionalProperties:
+            type: integer
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Mapping set
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Set host port mapping for a container port
+      tags:
+      - ports
+  /v1/ports/mappings/{port}:
+    delete:
+      consumes:
+      - application/json
+      description: Removes a mapping and broadcasts an SSE event with host_port=0
+      parameters:
+      - description: Container port
+        in: path
+        name: port
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Mapping deleted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid port
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete host port mapping for a container port
       tags:
       - ports
   /v1/pty:

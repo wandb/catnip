@@ -30,6 +30,7 @@ const (
 	ProcessStartedEvent        EventType = "process:started"
 	ProcessStoppedEvent        EventType = "process:stopped"
 	ContainerStatusEvent       EventType = "container:status"
+	PortMappedEvent            EventType = "port:mapped"
 	HeartbeatEvent             EventType = "heartbeat"
 	WorktreeStatusUpdatedEvent EventType = "worktree:status_updated"
 	WorktreeBatchUpdatedEvent  EventType = "worktree:batch_updated"
@@ -55,6 +56,12 @@ type PortPayload struct {
 	PID        *int    `json:"pid,omitempty"`
 	Command    *string `json:"command,omitempty"`
 	WorkingDir *string `json:"working_dir,omitempty"`
+}
+
+// PortMappedPayload describes a host mapping for a container port
+type PortMappedPayload struct {
+	Port     int `json:"port"`      // container port
+	HostPort int `json:"host_port"` // mapped host port
 }
 
 type GitPayload struct {
@@ -141,6 +148,9 @@ type EventsHandler struct {
 	stopChan           chan bool
 	lastPortCheck      time.Time
 	lastPortCheckMux   sync.RWMutex
+	// host port mappings for container ports
+	portMappings   map[int]int
+	portMappingMux sync.RWMutex
 }
 
 func NewEventsHandler(portMonitor *services.PortMonitor, gitService *services.GitService) *EventsHandler {
@@ -151,6 +161,7 @@ func NewEventsHandler(portMonitor *services.PortMonitor, gitService *services.Gi
 		clientConnectTimes: make(map[string]time.Time),
 		startTime:          time.Now(),
 		stopChan:           make(chan bool),
+		portMappings:       make(map[int]int),
 	}
 
 	// Start listening for port changes
@@ -281,6 +292,27 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 				return
 			}
 		}
+
+		// Send current host port mappings
+		h.portMappingMux.RLock()
+		for cport, hport := range h.portMappings {
+			msg := SSEMessage{
+				Event: AppEvent{
+					Type: PortMappedEvent,
+					Payload: PortMappedPayload{
+						Port:     cport,
+						HostPort: hport,
+					},
+				},
+				Timestamp: time.Now().UnixMilli(),
+				ID:        uuid.New().String(),
+			}
+			if !send(msg) {
+				h.portMappingMux.RUnlock()
+				return
+			}
+		}
+		h.portMappingMux.RUnlock()
 
 		// ---------------- main loop --------------------
 		tick := time.NewTicker(30 * time.Second)
@@ -491,6 +523,36 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 			h.removeClient(clientID)
 		}
 	}
+}
+
+// SetPortMapping records and broadcasts a host mapping for a container port
+func (h *EventsHandler) SetPortMapping(containerPort, hostPort int) {
+	h.portMappingMux.Lock()
+	h.portMappings[containerPort] = hostPort
+	h.portMappingMux.Unlock()
+
+	h.broadcastEvent(AppEvent{
+		Type: PortMappedEvent,
+		Payload: PortMappedPayload{
+			Port:     containerPort,
+			HostPort: hostPort,
+		},
+	})
+}
+
+// ClearPortMapping removes mapping and broadcasts update (hostPort=0 means cleared)
+func (h *EventsHandler) ClearPortMapping(containerPort int) {
+	h.portMappingMux.Lock()
+	delete(h.portMappings, containerPort)
+	h.portMappingMux.Unlock()
+
+	h.broadcastEvent(AppEvent{
+		Type: PortMappedEvent,
+		Payload: PortMappedPayload{
+			Port:     containerPort,
+			HostPort: 0,
+		},
+	})
 }
 
 // EmitGitDirty broadcasts a git dirty event to all connected clients
