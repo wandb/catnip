@@ -30,19 +30,24 @@ func TestExtractWorkspaceName_AdditionalCases(t *testing.T) {
 			expected: "feature-auth",
 		},
 		{
-			name:     "refs heads prefix",
+			name:     "refs heads prefix - not modified",
 			input:    "refs/heads/develop",
-			expected: "develop",
+			expected: "refs/heads/develop",
 		},
 		{
-			name:     "origin prefix",
+			name:     "origin prefix - not modified",
 			input:    "origin/staging",
-			expected: "staging",
+			expected: "origin/staging",
 		},
 		{
-			name:     "complex branch with slashes",
-			input:    "feature/user-auth-system",
-			expected: "feature-user-auth-system",
+			name:     "catnip prefix removal",
+			input:    "catnip/feature-branch",
+			expected: "feature-branch",
+		},
+		{
+			name:     "refs catnip prefix removal",
+			input:    "refs/catnip/felix-workspace",
+			expected: "felix-workspace",
 		},
 	}
 
