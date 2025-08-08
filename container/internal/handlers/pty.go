@@ -1532,41 +1532,44 @@ func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte
 		}
 	}
 
-	// Rewrite localhost:XXXX URLs to localhost:8080/XXXX
-	rewrittenOutput := localhostRegex.ReplaceAllStringFunc(output, func(match string) string {
-		// Parse the matched URL
-		submatch := localhostRegex.FindStringSubmatch(match)
-		if len(submatch) < 3 {
-			return match
-		}
+	// Only rewrite localhost URLs for normal bash terminals, not Claude terminals
+	rewrittenOutput := output
+	if session.Agent != "claude" {
+		rewrittenOutput = localhostRegex.ReplaceAllStringFunc(output, func(match string) string {
+			// Parse the matched URL
+			submatch := localhostRegex.FindStringSubmatch(match)
+			if len(submatch) < 3 {
+				return match
+			}
 
-		scheme := submatch[1] // http:// or https:// (or empty)
-		port := submatch[2]   // port number
-		path := ""
-		if len(submatch) >= 4 {
-			path = submatch[3] // path part (or empty)
-		}
+			scheme := submatch[1] // http:// or https:// (or empty)
+			port := submatch[2]   // port number
+			path := ""
+			if len(submatch) >= 4 {
+				path = submatch[3] // path part (or empty)
+			}
 
-		// Skip rewriting port 8080 (our proxy)
-		if port == "8080" {
-			return match
-		}
+			// Skip rewriting port 8080 (our proxy)
+			if port == "8080" {
+				return match
+			}
 
-		// Rewrite to proxy format: localhost:8080/PORT/path
-		var rewritten strings.Builder
-		if scheme != "" {
-			rewritten.WriteString(scheme)
-		} else {
-			rewritten.WriteString("http://")
-		}
-		rewritten.WriteString("localhost:8080/")
-		rewritten.WriteString(port)
-		if path != "" && path != "/" {
-			rewritten.WriteString(path)
-		}
+			// Rewrite to proxy format: localhost:8080/PORT/path
+			var rewritten strings.Builder
+			if scheme != "" {
+				rewritten.WriteString(scheme)
+			} else {
+				rewritten.WriteString("http://")
+			}
+			rewritten.WriteString("localhost:8080/")
+			rewritten.WriteString(port)
+			if path != "" && path != "/" {
+				rewritten.WriteString(path)
+			}
 
-		return rewritten.String()
-	})
+			return rewritten.String()
+		})
+	}
 
 	// Return the rewritten output as bytes
 	return []byte(rewrittenOutput)
