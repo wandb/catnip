@@ -16,6 +16,7 @@ dist-ssr
 .pnpm-store
 
 # Coverage
+coverage/
 coverage.html
 coverage.out
 
