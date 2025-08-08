@@ -387,7 +387,7 @@ func TestListWorktrees(t *testing.T) {
 	// Mock session service calls
 	mockSessionService.On("GetActiveSession", "/workspace/repo/main").Return((*services.ActiveSessionInfo)(nil), false)
 	mockSessionService.On("GetActiveSession", "/workspace/repo/feature").Return((*services.ActiveSessionInfo)(nil), false)
-	mockSessionService.On("GetClaudeActivityState", "/workspace/repo/main").Return(models.ClaudeIdle)
+	mockSessionService.On("GetClaudeActivityState", "/workspace/repo/main").Return(models.ClaudeInactive)
 	mockSessionService.On("GetClaudeActivityState", "/workspace/repo/feature").Return(models.ClaudeActive)
 
 	// Mock todos
@@ -436,7 +436,8 @@ func TestUpdateWorktree(t *testing.T) {
 			ID:     "wt-123",
 			Branch: "new-feature",
 			Path:   "/workspace/test-repo",
-			Status: "active",
+			RepoID: "test-org/test-repo",
+			Name:   "test-worktree",
 		}
 
 		mockGitService.On("UpdateWorktreeFields", "wt-123", updates).Return(nil)
@@ -458,7 +459,7 @@ func TestUpdateWorktree(t *testing.T) {
 
 		assert.Equal(t, "wt-123", result.ID)
 		assert.Equal(t, "new-feature", result.Branch)
-		assert.Equal(t, "active", result.Status)
+		assert.Equal(t, "/workspace/test-repo", result.Path)
 
 		mockGitService.AssertExpectations(t)
 	})
