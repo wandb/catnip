@@ -638,8 +638,15 @@ func (pm *PortMonitor) RegisterPortFromTerminalOutput(port int, workingDir strin
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
-	// Skip if port is already registered
-	if _, exists := pm.services[port]; exists {
+	// If port is already registered, update its working directory info
+	if existingService, exists := pm.services[port]; exists {
+		// Update working directory if we have more specific info from terminal output
+		if workingDir != "" && existingService.WorkingDir != workingDir {
+			log.Printf("🔍 Port %d already registered, updating working directory: %s -> %s",
+				port, existingService.WorkingDir, workingDir)
+			existingService.WorkingDir = workingDir
+			existingService.LastSeen = time.Now()
+		}
 		return
 	}
 
