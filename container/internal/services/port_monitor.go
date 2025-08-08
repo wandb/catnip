@@ -32,21 +32,19 @@ type ServiceInfo struct {
 
 // PortMonitor monitors /proc/net/tcp for port changes and manages service registry
 type PortMonitor struct {
-	services         map[int]*ServiceInfo
-	mutex            sync.RWMutex
-	lastTcpState     map[int]bool
-	lastProcessState map[int]*ProcessInfo
-	stopChan         chan bool
-	stopped          bool
+	services     map[int]*ServiceInfo
+	mutex        sync.RWMutex
+	lastTcpState map[int]bool
+	stopChan     chan bool
+	stopped      bool
 }
 
 // NewPortMonitor creates a new port monitor instance
 func NewPortMonitor() *PortMonitor {
 	pm := &PortMonitor{
-		services:         make(map[int]*ServiceInfo),
-		lastTcpState:     make(map[int]bool),
-		lastProcessState: make(map[int]*ProcessInfo),
-		stopChan:         make(chan bool),
+		services:     make(map[int]*ServiceInfo),
+		lastTcpState: make(map[int]bool),
+		stopChan:     make(chan bool),
 	}
 
 	// Start monitoring immediately
@@ -72,7 +70,6 @@ func (pm *PortMonitor) Start() {
 		select {
 		case <-ticker.C:
 			pm.checkPortChanges()
-			pm.checkKnownProcesses()
 		case <-pm.stopChan:
 			log.Printf("🛑 Stopped port monitoring")
 			pm.stopped = true
@@ -156,15 +153,6 @@ type PortWithPID struct {
 	Port  int
 	PID   int
 	Inode int
-}
-
-// ProcessInfo represents a process that might be a development server
-type ProcessInfo struct {
-	PID          int
-	Command      string
-	WorkingDir   string
-	ExpectedPort int
-	LastSeen     time.Time
 }
 
 // parseProcNetTcp parses /proc/net/tcp and returns a map of listening ports with PID info
