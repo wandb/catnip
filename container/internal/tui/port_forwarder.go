@@ -49,7 +49,8 @@ func NewPortForwardManager(backendBaseURL string) *PortForwardManager {
 	}
 	keyPath := filepath.Join(os.Getenv("HOME"), ".ssh", "catnip_remote")
 
-	return &PortForwardManager{
+    debugLog("PFM: init backend=%s", backendBaseURL)
+    return &PortForwardManager{
 		backendBaseURL: backendBaseURL,
 		sshUser:        user,
 		sshAddress:     "127.0.0.1:2222",
@@ -62,21 +63,25 @@ func NewPortForwardManager(backendBaseURL string) *PortForwardManager {
 // EnsureForward starts a forward for the given container port if not running.
 // Returns the selected hostPort, or 0 on failure.
 func (m *PortForwardManager) EnsureForward(containerPort int) int {
+    debugLog("PFM: EnsureForward containerPort=%d", containerPort)
 	m.forwardsMu.Lock()
 	if f, ok := m.forwards[containerPort]; ok {
+        debugLog("PFM: already forwarding containerPort=%d hostPort=%d", containerPort, f.hostPort)
 		m.forwardsMu.Unlock()
 		return f.hostPort
 	}
 	m.forwardsMu.Unlock()
 
 	// Choose a host port (prefer same number)
-	hostPort := m.findAvailableHostPort(containerPort)
+    hostPort := m.findAvailableHostPort(containerPort)
 	if hostPort == 0 {
+        debugLog("PFM: failed to find available host port for %d", containerPort)
 		return 0
 	}
 
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", hostPort))
+    ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", hostPort))
 	if err != nil {
+        debugLog("PFM: listen failed hostPort=%d err=%v", hostPort, err)
 		return 0
 	}
 
@@ -92,14 +97,20 @@ func (m *PortForwardManager) EnsureForward(containerPort int) int {
 	m.forwardsMu.Unlock()
 
 	// Notify backend mapping
-	_ = m.postMapping(containerPort, hostPort)
+    if err := m.postMapping(containerPort, hostPort); err != nil {
+        debugLog("PFM: postMapping failed cport=%d hport=%d err=%v", containerPort, hostPort, err)
+    } else {
+        debugLog("PFM: postMapping ok cport=%d hport=%d", containerPort, hostPort)
+    }
 
 	go m.acceptLoop(fwd)
+    debugLog("PFM: forwarding started cport=%d -> 127.0.0.1:%d", containerPort, hostPort)
 	return hostPort
 }
 
 // StopForward stops forwarding for a container port
 func (m *PortForwardManager) StopForward(containerPort int) {
+    debugLog("PFM: StopForward containerPort=%d", containerPort)
 	m.forwardsMu.Lock()
 	f, ok := m.forwards[containerPort]
 	if ok {
@@ -107,15 +118,20 @@ func (m *PortForwardManager) StopForward(containerPort int) {
 	}
 	m.forwardsMu.Unlock()
 
-	if ok {
+    if ok {
 		_ = f.listener.Close()
 		close(f.closed)
-		_ = m.deleteMapping(containerPort)
+        if err := m.deleteMapping(containerPort); err != nil {
+            debugLog("PFM: deleteMapping failed cport=%d err=%v", containerPort, err)
+        } else {
+            debugLog("PFM: deleteMapping ok cport=%d", containerPort)
+        }
 	}
 }
 
 // StopAll stops all active forwards
 func (m *PortForwardManager) StopAll() {
+    debugLog("PFM: StopAll")
 	m.forwardsMu.Lock()
 	ports := make([]int, 0, len(m.forwards))
 	for p := range m.forwards {
@@ -135,8 +151,10 @@ func (m *PortForwardManager) ensureSSH() (*ssh.Client, error) {
 		return m.client, nil
 	}
 
-	key, err := os.ReadFile(m.keyPath)
+    debugLog("PFM: ensureSSH user=%s addr=%s key=%s", m.sshUser, m.sshAddress, m.keyPath)
+    key, err := os.ReadFile(m.keyPath)
 	if err != nil {
+        debugLog("PFM: read key failed: %v", err)
 		return nil, err
 	}
 	var signer ssh.Signer
@@ -170,11 +188,13 @@ func (m *PortForwardManager) ensureSSH() (*ssh.Client, error) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // Local-only dev convenience (127.0.0.1:2222)
 		Timeout:         5 * time.Second,
 	}
-	client, err := ssh.Dial("tcp", m.sshAddress, cfg)
+    client, err := ssh.Dial("tcp", m.sshAddress, cfg)
 	if err != nil {
+        debugLog("PFM: ssh.Dial failed: %v", err)
 		return nil, err
 	}
 	m.client = client
+    debugLog("PFM: ssh connected")
 	return client, nil
 }
 
@@ -188,23 +208,27 @@ func (m *PortForwardManager) closeSSH() {
 }
 
 func (m *PortForwardManager) acceptLoop(f *activeForward) {
+    debugLog("PFM: acceptLoop start cport=%d hport=%d", f.containerPort, f.hostPort)
 	for {
 		conn, err := f.listener.Accept()
 		if err != nil {
 			select {
 			case <-f.closed:
+                debugLog("PFM: acceptLoop closed cport=%d", f.containerPort)
 				return
 			default:
 				// transient error
+                debugLog("PFM: accept error: %v", err)
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
 		}
 
 		go func(c net.Conn) {
-			sshClient, err := m.ensureSSH()
+            sshClient, err := m.ensureSSH()
 			if err != nil {
 				_ = c.Close()
+                debugLog("PFM: ensureSSH in conn failed: %v", err)
 				return
 			}
 			remote, err := sshClient.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", f.containerPort))
@@ -212,20 +236,31 @@ func (m *PortForwardManager) acceptLoop(f *activeForward) {
 				_ = c.Close()
 				// if ssh tunnel failed, reset client to force reconnect next time
 				m.closeSSH()
+                debugLog("PFM: sshClient.Dial to container failed: %v", err)
 				return
 			}
 
 			// bidirectional copy
-			go func() { _, _ = io.Copy(remote, c); _ = remote.Close() }()
-			go func() { _, _ = io.Copy(c, remote); _ = c.Close() }()
+            go func() {
+                _, _ = io.Copy(remote, c)
+                _ = remote.Close()
+                debugLog("PFM: upstream copy done cport=%d", f.containerPort)
+            }()
+            go func() {
+                _, _ = io.Copy(c, remote)
+                _ = c.Close()
+                debugLog("PFM: downstream copy done cport=%d", f.containerPort)
+            }()
 		}(conn)
 	}
 }
 
 func (m *PortForwardManager) findAvailableHostPort(preferred int) int {
+    debugLog("PFM: findAvailableHostPort preferred=%d", preferred)
 	// try preferred first if not standard reserved
 	if preferred > 0 && preferred != 8080 && preferred != 2222 {
 		if isFreePort(preferred) {
+            debugLog("PFM: using preferred host port %d", preferred)
 			return preferred
 		}
 	}
@@ -236,7 +271,8 @@ func (m *PortForwardManager) findAvailableHostPort(preferred int) int {
 			if p == 8080 || p == 2222 {
 				continue
 			}
-			if isFreePort(p) {
+            if isFreePort(p) {
+                debugLog("PFM: selected host port %d", p)
 				return p
 			}
 		}
@@ -245,7 +281,8 @@ func (m *PortForwardManager) findAvailableHostPort(preferred int) int {
 		if p == 8080 || p == 2222 {
 			continue
 		}
-		if isFreePort(p) {
+        if isFreePort(p) {
+            debugLog("PFM: selected host port %d", p)
 			return p
 		}
 	}
@@ -268,11 +305,12 @@ func (m *PortForwardManager) postMapping(containerPort, hostPort int) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := m.httpClient.Do(req)
+    resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+    debugLog("PFM: postMapping response status=%s", resp.Status)
 	return nil
 }
 
@@ -281,10 +319,11 @@ func (m *PortForwardManager) deleteMapping(containerPort int) error {
 	if err != nil {
 		return err
 	}
-	resp, err := m.httpClient.Do(req)
+    resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+    debugLog("PFM: deleteMapping response status=%s", resp.Status)
 	return nil
 }
