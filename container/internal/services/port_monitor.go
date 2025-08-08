@@ -405,12 +405,14 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 		Timeout: 2 * time.Second,
 	}
 
+	var lastError error
 	// Try both http and https
 	for _, scheme := range []string{"http", "https"} {
 		url := fmt.Sprintf("%s://localhost:%d", scheme, service.Port)
 
 		resp, err := client.Get(url)
 		if err != nil {
+			lastError = err
 			continue
 		}
 		resp.Body.Close()
@@ -430,6 +432,12 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 		return result
 	}
 
+	// Log the failure reason for better debugging
+	if lastError != nil {
+		log.Printf("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)", 
+			service.Port, lastError, service.Command, service.WorkingDir)
+	}
+
 	return HTTPHealthResult{
 		IsHTTP:    false,
 		IsHealthy: false,
@@ -440,6 +448,8 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 func (pm *PortMonitor) checkTCPHealth(service *ServiceInfo) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", service.Port), 2*time.Second)
 	if err != nil {
+		log.Printf("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)", 
+			service.Port, err, service.Command, service.WorkingDir)
 		return false
 	}
 	conn.Close()
