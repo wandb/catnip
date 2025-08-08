@@ -404,12 +404,14 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 		Timeout: 2 * time.Second,
 	}
 
+	var lastError error
 	// Try both http and https
 	for _, scheme := range []string{"http", "https"} {
 		url := fmt.Sprintf("%s://localhost:%d", scheme, service.Port)
 
 		resp, err := client.Get(url)
 		if err != nil {
+			lastError = err
 			continue
 		}
 		resp.Body.Close()
@@ -429,6 +431,12 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 		return result
 	}
 
+	// Log the failure reason for better debugging
+	if lastError != nil {
+		log.Printf("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)",
+			service.Port, lastError, service.Command, service.WorkingDir)
+	}
+
 	return HTTPHealthResult{
 		IsHTTP:    false,
 		IsHealthy: false,
@@ -439,6 +447,8 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 func (pm *PortMonitor) checkTCPHealth(service *ServiceInfo) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", service.Port), 2*time.Second)
 	if err != nil {
+		log.Printf("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)",
+			service.Port, err, service.Command, service.WorkingDir)
 		return false
 	}
 	conn.Close()
@@ -621,6 +631,35 @@ func (pm *PortMonitor) shouldTrackPort(workingDir string) bool {
 	}
 
 	return false
+}
+
+// RegisterPortFromTerminalOutput registers a port discovered from terminal output
+func (pm *PortMonitor) RegisterPortFromTerminalOutput(port int, workingDir string) {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
+	// Skip if port is already registered
+	if _, exists := pm.services[port]; exists {
+		return
+	}
+
+	log.Printf("🔍 Port %d discovered from terminal output in %s", port, workingDir)
+
+	// Create a service info for this port
+	service := &ServiceInfo{
+		Port:        port,
+		ServiceType: "terminal-detected",
+		Health:      "unknown",
+		LastSeen:    time.Now(),
+		PID:         0, // Will be resolved later if possible
+		Command:     "",
+		WorkingDir:  workingDir,
+	}
+
+	// Try to determine service type and health
+	go pm.healthCheckService(service)
+
+	pm.services[port] = service
 }
 
 // extractTitle attempts to extract the title from an HTML response
