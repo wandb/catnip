@@ -145,7 +145,7 @@ func startServer(cmd *cobra.Command) {
 	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
 
 	// Initialize handlers
-	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService)
+	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService, portMonitor)
 
 	// Wire up the setup executor to enable setup.sh execution in new worktrees
 	log.Printf("🔧 Setting up setupExecutor for gitService")

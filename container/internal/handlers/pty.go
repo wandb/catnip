@@ -131,13 +131,13 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 }
 
 // NewPTYHandler creates a new PTY handler
-func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService) *PTYHandler {
+func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService, portMonitor *services.PortMonitor) *PTYHandler {
 	return &PTYHandler{
 		sessions:       make(map[string]*Session),
 		gitService:     gitService,
 		sessionService: sessionService,
 		portService:    services.NewPortAllocationService(),
-		portMonitor:    services.NewPortMonitor(),
+		portMonitor:    portMonitor, // Use the provided portMonitor instead of creating new one
 		ptyService:     services.NewPTYService(),
 		claudeMonitor:  claudeMonitor,
 	}

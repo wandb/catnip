@@ -425,42 +425,8 @@ func (h *EventsHandler) monitorPorts() {
 			// Check for new ports
 			for portNum, serviceInfo := range currentPorts {
 				if _, exists := lastPorts[portNum]; !exists {
-					var service *string
-					var protocol *string
-					var title *string
-					var pid *int
-					var command *string
-					var workingDir *string
-					if serviceInfo.ServiceType != "" {
-						service = &serviceInfo.ServiceType
-					}
-					protocol = &serviceInfo.ServiceType // Use service type as protocol for now
-					if serviceInfo.Title != "" {
-						title = &serviceInfo.Title
-					}
-					if serviceInfo.PID != 0 {
-						pid = &serviceInfo.PID
-					}
-					if serviceInfo.Command != "" {
-						command = &serviceInfo.Command
-					}
-					if serviceInfo.WorkingDir != "" {
-						workingDir = &serviceInfo.WorkingDir
-					}
-
 					log.Printf("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
-					h.broadcastEvent(AppEvent{
-						Type: PortOpenedEvent,
-						Payload: PortPayload{
-							Port:       serviceInfo.Port,
-							Service:    service,
-							Protocol:   protocol,
-							Title:      title,
-							PID:        pid,
-							Command:    command,
-							WorkingDir: workingDir,
-						},
-					})
+					h.broadcastEvent(h.makePortOpened(serviceInfo).Event)
 				}
 			}
 

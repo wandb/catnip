@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"compress/gzip"
 	"fmt"
 	"io"
 	"log"
@@ -281,8 +282,21 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 		c.Response().Header.Set("Service-Worker-Allowed", fmt.Sprintf("/%d/", port))
 	}
 
-	// Read response body
-	body, err := io.ReadAll(resp.Body)
+	// Read response body and handle decompression if needed
+	var bodyReader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gzipReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			log.Printf("❌ Error creating gzip reader: %v", err)
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to decompress service response",
+			})
+		}
+		defer gzipReader.Close()
+		bodyReader = gzipReader
+	}
+
+	body, err := io.ReadAll(bodyReader)
 	if err != nil {
 		log.Printf("❌ Error reading proxy response: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -292,6 +306,9 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 
 	// Check if we should modify HTML content
 	if strings.Contains(contentType, "text/html") && c.Get("X-Disable-HTML-Modification") == "" {
+		// Remove compression headers since we're returning uncompressed modified content
+		c.Response().Header.Del("Content-Encoding")
+		c.Response().Header.Del("Content-Length")
 		modifiedBody := h.modifyHTMLContent(string(body), port)
 		return c.SendString(modifiedBody)
 	}
@@ -301,8 +318,19 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 		strings.Contains(strings.ToLower(contentType), "application/javascript") ||
 		strings.Contains(strings.ToLower(contentType), "text/javascript")) &&
 		c.Get("X-Disable-JS-Modification") == "" {
+		// Remove compression headers since we're returning uncompressed modified content
+		c.Response().Header.Del("Content-Encoding")
+		c.Response().Header.Del("Content-Length")
 		modifiedBody := h.modifyJavaScriptContent(string(body), port)
 		return c.SendString(modifiedBody)
+	}
+
+	// Check if this is CSS content that was compressed - we need to remove compression headers
+	if strings.Contains(strings.ToLower(contentType), "text/css") && resp.Header.Get("Content-Encoding") == "gzip" {
+		// Remove compression headers since we've already decompressed the content
+		c.Response().Header.Del("Content-Encoding")
+		c.Response().Header.Del("Content-Length")
+		return c.Send(body)
 	}
 
 	// Return response as-is

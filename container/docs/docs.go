@@ -1945,6 +1945,10 @@ const docTemplate = `{
                 "command": {
                     "type": "string"
                 },
+                "detection_source": {
+                    "description": "\"tcp-scan\", \"terminal-output\", etc.",
+                    "type": "string"
+                },
                 "health": {
                     "type": "string"
                 },
