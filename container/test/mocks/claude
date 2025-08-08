@@ -42,6 +42,38 @@ send_title_escape() {
     echo "🪧 New terminal title detected: $title" >> "$MOCK_LOG"
 }
 
+# Write a minimal TodoWrite JSONL entry under ~/.claude/projects for current workdir
+write_todos_jsonl() {
+    local title="$1"
+    local home_dir="${HOME:-/home/catnip}"
+    local workdir
+    workdir=$(pwd)
+    # Transform workdir to Claude projects dir name: replace / with - and ensure leading dash
+    local transformed
+    transformed=$(echo "$workdir" | sed 's#/#-#g')
+    case "$transformed" in
+        -*) : ;; # already has leading dash
+        *) transformed="-$transformed" ;;
+    esac
+    local project_dir="$home_dir/.claude/projects/$transformed"
+    mkdir -p "$project_dir" 2>/dev/null || true
+
+    # Choose or create a session file
+    local session_file
+    session_file="$project_dir/$(get_session_uuid).jsonl"
+
+    # Current RFC3339 timestamp
+    local now
+    now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Append a TodoWrite assistant message containing a single todo related to the title
+    cat >>"$session_file" <<EOF
+{"type":"assistant","timestamp":"$now","message":{"role":"assistant","content":[{"type":"tool_use","name":"TodoWrite","input":{"todos":[{"id":"1","content":"$title","status":"pending","priority":"medium"}]}}]}}
+EOF
+
+    echo "📝 Wrote TodoWrite to $session_file for title '$title'" >> "$MOCK_LOG"
+}
+
 # Get mock response for various prompts
 get_response_for_prompt() {
     local prompt="$1"
@@ -167,6 +199,8 @@ handle_test_command() {
             send_title_escape "$new_title"
             echo "🪧 Set terminal title to: $new_title"
             save_session_state "$(get_session_uuid)" "$new_title"
+            # Also write todos to drive UI updates in tests
+            write_todos_jsonl "$new_title"
             ;;
         *)
             return 1  # Not a test command
@@ -310,18 +344,53 @@ main() {
     
     # Determine mode based on parsed flags
     if [[ "$api_mode" == true ]]; then
-        # API mode - subprocess communication
-        echo "API mode detected, streaming mock response" >> "$MOCK_LOG" 2>/dev/null || true
-        
-        # Sleep briefly to simulate processing
-        sleep 1
-        
-        # Stream the JSON response format expected by subprocess
-        # Use a simple, clean JSON response
-        cat << 'EOF'
-{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello World function created successfully!"}]}}
-EOF
-        echo "Mock sent simple JSON response" >> "$MOCK_LOG" 2>/dev/null || true
+        # API mode - subprocess communication: read one JSON line from stdin
+        echo "API mode detected, reading stdin for prompt" >> "$MOCK_LOG" 2>/dev/null || true
+
+        # Read a single JSON line from stdin
+        local input_line
+        IFS= read -r input_line || true
+        echo "API input: $input_line" >> "$MOCK_LOG" 2>/dev/null || true
+
+        # Extract prompt content from JSON
+        local prompt=""
+        if [[ -n "$input_line" ]]; then
+            prompt=$(echo "$input_line" | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if 'message' in data and 'content' in data['message']:
+        print(data['message']['content'])
+except Exception:
+    pass
+" 2>/dev/null)
+        fi
+
+        # Helper to slugify a title into a branch-friendly string
+        slugify_title() {
+            echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9\- ]/ /g' | tr -s ' ' '-' | sed 's/^-\+//; s/\-\+$//' | cut -c1-60
+        }
+
+        # If this is a branch-name generation request, return a valid branch name
+        if [[ "$prompt" == *"Generate a git branch name"* || "$prompt" == *"Based on this coding session title:"* ]]; then
+            local title
+            title=$(echo "$prompt" | sed -n 's/.*Based on this coding session title: \"\(.*\)\".*/\1/p')
+            if [[ -z "$title" ]]; then
+                title="$prompt"
+            fi
+            local branch
+            branch="feature/$(slugify_title "$title")"
+            if [[ -z "$branch" || "$branch" == "feature/" ]]; then
+                branch="feature/mock-branch"
+            fi
+            printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"%s"}]}}\n' "$branch"
+            echo "Mock sent branch name: $branch" >> "$MOCK_LOG" 2>/dev/null || true
+            return
+        fi
+
+        # Default simple JSON response
+        printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello from mock Claude!"}]}}\n'
+        echo "Mock sent generic JSON response" >> "$MOCK_LOG" 2>/dev/null || true
         return
     elif [[ ! -t 0 ]]; then
         # JSON input mode (piped input)

@@ -22,12 +22,13 @@ trap cleanup SIGTERM SIGINT
 # Change to the mounted project directory
 cd /live/catnip/container
 
-# Download Go dependencies (will be fast due to pre-warmed cache)
-echo "📦 Installing Go dependencies..."
-go mod download
+# If running with Air, prepare config (optional; default is disabled)
+if [[ "${CATNIP_TEST_AIR}" == "1" ]]; then
+  # Download Go dependencies (will be fast due to pre-warmed cache)
+  echo "📦 Installing Go dependencies..."
+  go mod download
 
-# Create a test-specific .air.toml configuration
-cat > .air.test.toml << 'EOF'
+  cat > .air.test.toml << 'EOF'
 root = "."
 testdata_dir = "testdata"
 tmp_dir = "tmp"
@@ -75,6 +76,7 @@ tmp_dir = "tmp"
   clear_on_rebuild = false
   keep_scroll = true
 EOF
+fi
 
 # Create test live repository for preview branch testing
 echo "📂 Creating test live repository..."
@@ -142,18 +144,18 @@ cd /live/catnip/container
 export CATNIP_TEST_MODE=1
 export PORT=8181
 
-# Start Go server with Air hot reloading on test port
-echo "⚡ Starting Go test server with hot reloading on port 8181..."
-air -c .air.test.toml &
-GO_PID=$!
-
-echo "✅ Test environment ready!"
-echo "   🔧 Test Server: http://localhost:8181 (with Air hot reloading)"
-echo "   📚 API Docs:    http://localhost:8181/swagger/"
-echo ""
-echo "🔥 Hot Module Replacement (HMR) enabled:"
-echo "   • Backend: Air watching for Go file changes"
-echo "   • Make changes to container/ files to see live updates!"
-
-# Wait for the process
-wait
+# Start server
+if [[ "${CATNIP_TEST_AIR}" == "1" ]]; then
+  echo "⚡ Starting Go test server with Air on port 8181..."
+  air -c .air.test.toml &
+  GO_PID=$!
+  echo "✅ Test environment ready with Air"
+  echo "   🔧 Test Server: http://localhost:8181 (Air hot reloading)"
+  echo "   📚 API Docs:    http://localhost:8181/swagger/"
+  echo ""
+  echo "🔥 HMR enabled for backend via Air"
+  wait
+else
+  echo "🚀 Starting Catnip server (no Air) on port 8181..."
+  exec /opt/catnip/bin/catnip serve
+fi

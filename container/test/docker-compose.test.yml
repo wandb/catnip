@@ -16,6 +16,7 @@ services:
     environment:
       - CATNIP_TEST_MODE=1
       - PORT=8181
+      - CATNIP_TEST_AIR=${CATNIP_TEST_AIR:-0}
       # Speed up cache operations for faster tests
       - CATNIP_CACHE_DEBOUNCE_MS=50
       - CATNIP_CACHE_BATCH_MS=25

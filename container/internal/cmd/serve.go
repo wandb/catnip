@@ -249,6 +249,15 @@ func startServer(cmd *cobra.Command) {
 	v1.Get("/ports", portsHandler.GetPorts)
 	v1.Get("/ports/:port", portsHandler.GetPortInfo)
 
+	// Test-only helpers (enabled when CATNIP_TEST_MODE=1)
+	if os.Getenv("CATNIP_TEST_MODE") == "1" {
+		testHandler := handlers.NewTestHandler(gitService, claudeMonitor)
+		v1.Post("/test/worktrees/:id/title", testHandler.SimulateTitle)
+		v1.Post("/test/worktrees/:id/file", testHandler.SimulateFile)
+		v1.Post("/test/worktrees/:id/rename", testHandler.SimulateRename)
+		log.Printf("🧪 Test endpoints enabled")
+	}
+
 	// Server info route
 	v1.Get("/info", func(c *fiber.Ctx) error {
 		commit, date, builtBy := GetBuildInfo()
