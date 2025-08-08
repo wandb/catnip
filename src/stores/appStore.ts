@@ -16,6 +16,7 @@ interface Port {
   title?: string;
   workingDir?: string;
   timestamp: number;
+  hostPort?: number; // mapped host port if forwarded via CLI
 }
 
 interface Process {
@@ -196,7 +197,25 @@ export const useAppStore = create<AppState>()(
             title: event.payload.title,
             workingDir: event.payload.working_dir,
             timestamp: Date.now(),
+            hostPort: newPorts.get(event.payload.port)?.hostPort, // preserve mapping if any
           });
+          set({ ports: newPorts });
+          break;
+        }
+        case "port:mapped": {
+          const newPorts = new Map(ports);
+          const port = event.payload.port as number;
+          const hostPort = event.payload.host_port as number;
+          const existing = newPorts.get(port) || {
+            port,
+            timestamp: Date.now(),
+          };
+          if (hostPort && hostPort > 0) {
+            newPorts.set(port, { ...existing, hostPort });
+          } else {
+            // cleared
+            newPorts.set(port, { ...existing, hostPort: undefined });
+          }
           set({ ports: newPorts });
           break;
         }

@@ -1507,8 +1507,8 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 	log.Printf("🔄 Connection promotion completed in session %s", session.ID)
 }
 
-// processTerminalOutput scans terminal output for localhost:XXXX patterns,
-// registers discovered ports, and rewrites URLs to use the proxy
+// processTerminalOutput scans terminal output for localhost:XXXX patterns
+// and registers discovered ports.
 func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte {
 	// Convert to string for pattern matching
 	output := string(data)
@@ -1532,47 +1532,8 @@ func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte
 		}
 	}
 
-	// Only rewrite localhost URLs for normal bash terminals, not Claude terminals
-	rewrittenOutput := output
-	if session.Agent != "claude" {
-		rewrittenOutput = localhostRegex.ReplaceAllStringFunc(output, func(match string) string {
-			// Parse the matched URL
-			submatch := localhostRegex.FindStringSubmatch(match)
-			if len(submatch) < 3 {
-				return match
-			}
-
-			scheme := submatch[1] // http:// or https:// (or empty)
-			port := submatch[2]   // port number
-			path := ""
-			if len(submatch) >= 4 {
-				path = submatch[3] // path part (or empty)
-			}
-
-			// Skip rewriting port 8080 (our proxy)
-			if port == "8080" {
-				return match
-			}
-
-			// Rewrite to proxy format: localhost:8080/PORT/path
-			var rewritten strings.Builder
-			if scheme != "" {
-				rewritten.WriteString(scheme)
-			} else {
-				rewritten.WriteString("http://")
-			}
-			rewritten.WriteString("localhost:8080/")
-			rewritten.WriteString(port)
-			if path != "" && path != "/" {
-				rewritten.WriteString(path)
-			}
-
-			return rewritten.String()
-		})
-	}
-
-	// Return the rewritten output as bytes
-	return []byte(rewrittenOutput)
+	// No rewriting; UI/CLI forwarding will handle host access
+	return []byte(output)
 }
 
 // handleFocusChange handles focus state changes and auto-promotes focused connections

@@ -55,6 +55,7 @@ type App struct {
 	containerName    string
 	program          *tea.Program
 	sseClient        *SSEClient
+	portForwarder    *PortForwardManager
 
 	// Initialization parameters
 	containerImage string
@@ -102,6 +103,32 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 
 	// Initialize SSE client
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
+	// Initialize port forwarder (uses backend on 8080)
+	a.portForwarder = NewPortForwardManager("http://localhost:8080")
+	// Start forwarding when ports open (only if SSH enabled)
+	sseClient.onEvent = func(ev AppEvent) {
+		if !a.sshEnabled || a.portForwarder == nil {
+			return
+		}
+		switch ev.Type {
+		case PortOpenedEvent:
+			if payload, ok := ev.Payload.(map[string]interface{}); ok {
+				if pf, ok := payload["port"].(float64); ok {
+					cp := int(pf)
+					a.portForwarder.EnsureForward(cp)
+					// Immediately announce mapping in case backend restarted
+					a.portForwarder.ReannounceMappings()
+				}
+			}
+		case PortClosedEvent:
+			if payload, ok := ev.Payload.(map[string]interface{}); ok {
+				if pf, ok := payload["port"].(float64); ok {
+					cp := int(pf)
+					a.portForwarder.StopForward(cp)
+				}
+			}
+		}
+	}
 
 	// Create the model - always with initialization
 	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag)
@@ -133,6 +160,9 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	// Clean up SSE client if it was started
 	if a.sseClient != nil {
 		a.sseClient.Stop()
+	}
+	if a.portForwarder != nil {
+		a.portForwarder.StopAll()
 	}
 
 	// Best-effort terminal reset to avoid leaving the user's terminal in an odd state

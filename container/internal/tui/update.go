@@ -414,6 +414,8 @@ func (m Model) handleSSEPortOpened(msg ssePortOpenedMsg) (tea.Model, tea.Cmd) {
 		})
 		debugLog("SSE: Port opened: %d (title: %s)", msg.port, title)
 	}
+	// Attempt to start port forward automatically if SSH is enabled
+	// Forwarding is handled by App-level SSE hook
 	return m, nil
 }
 

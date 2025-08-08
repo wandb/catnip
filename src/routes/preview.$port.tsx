@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
+import { useAppStore } from "@/stores/appStore";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 
 export const Route = createFileRoute("/preview/$port")({
@@ -19,6 +20,8 @@ interface ServiceInfo {
 function PreviewComponent() {
   const { port: portParam } = Route.useParams();
   const port = parseInt(portParam, 10);
+  const activePorts = useAppStore((s) => s.getActivePorts());
+  const mapped = activePorts.find((p) => p.port === port)?.hostPort;
   const [service, setService] = useState<ServiceInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +133,7 @@ function PreviewComponent() {
     );
   }
 
-  // Removed: allow-same-origin for now...
+  // Prefer host forwarded URL if present
   return (
     <div className="h-[calc(100vh-4rem)] relative">
       {iframeLoading && (
@@ -143,7 +146,7 @@ function PreviewComponent() {
       )}
       <iframe
         ref={iframeRef}
-        src={`/${port}/`}
+        src={mapped ? `http://localhost:${mapped}/` : `/${port}/`}
         onLoad={handleIframeLoad}
         onError={handleIframeError}
         className="w-full border-0"
