@@ -42,6 +42,7 @@ type ConnectionInfo struct {
 	RemoteAddr  string
 	ConnID      string
 	IsReadOnly  bool
+	IsFocused   bool
 }
 
 // Session represents a PTY session
@@ -245,6 +246,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		RemoteAddr:  conn.RemoteAddr().String(),
 		ConnID:      connID,
 		IsReadOnly:  isReadOnly,
+		IsFocused:   false, // Will be updated when focus event is received
 	}
 	newConnectionCount := len(session.connections)
 	session.connMutex.Unlock()
@@ -555,6 +557,16 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					// Handle connection promotion request (swap read/write permissions)
 					log.Printf("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
 					h.promoteConnection(session, conn)
+					continue
+				case "focus":
+					// Handle focus state change
+					var focusMsg struct {
+						Type    string `json:"type"`
+						Focused bool   `json:"focused"`
+					}
+					if err := json.Unmarshal(data, &focusMsg); err == nil {
+						h.handleFocusChange(session, conn, focusMsg.Focused)
+					}
 					continue
 				}
 			}
@@ -1487,4 +1499,74 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 	}
 
 	log.Printf("🔄 Connection promotion completed in session %s", session.ID)
+}
+
+// handleFocusChange handles focus state changes and auto-promotes focused connections
+func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, focused bool) {
+	session.connMutex.Lock()
+	defer session.connMutex.Unlock()
+
+	connInfo, exists := session.connections[conn]
+	if !exists {
+		log.Printf("❌ Connection not found in session connections for focus change")
+		return
+	}
+
+	// Update focus state
+	connInfo.IsFocused = focused
+	connID := connInfo.ConnID
+
+	if focused {
+		log.Printf("🎯 Connection [%s] gained focus in session %s", connID, session.ID)
+
+		// Auto-promote focused connection if it's read-only
+		if connInfo.IsReadOnly {
+			// Find and demote the current write connection
+			var currentWriteConn *websocket.Conn
+			var currentWriteConnInfo *ConnectionInfo
+			for c, info := range session.connections {
+				if !info.IsReadOnly && c != conn {
+					currentWriteConn = c
+					currentWriteConnInfo = info
+					break
+				}
+			}
+
+			// Demote current write connection
+			if currentWriteConn != nil && currentWriteConnInfo != nil {
+				currentWriteConnInfo.IsReadOnly = true
+				log.Printf("🔒 Auto-demoted connection [%s] to read-only (focus lost)", currentWriteConnInfo.ConnID)
+
+				// Notify the demoted connection
+				readOnlyMsg := struct {
+					Type string `json:"type"`
+					Data bool   `json:"data"`
+				}{
+					Type: "read-only",
+					Data: true,
+				}
+				if data, err := json.Marshal(readOnlyMsg); err == nil {
+					_ = session.writeToConnection(currentWriteConn, websocket.TextMessage, data)
+				}
+			}
+
+			// Promote the focused connection
+			connInfo.IsReadOnly = false
+			log.Printf("✍️ Auto-promoted focused connection [%s] to write mode", connID)
+
+			// Notify the promoted connection
+			writeAccessMsg := struct {
+				Type string `json:"type"`
+				Data bool   `json:"data"`
+			}{
+				Type: "read-only",
+				Data: false,
+			}
+			if data, err := json.Marshal(writeAccessMsg); err == nil {
+				_ = session.writeToConnection(conn, websocket.TextMessage, data)
+			}
+		}
+	} else {
+		log.Printf("👁️ Connection [%s] lost focus in session %s", connID, session.ID)
+	}
 }
