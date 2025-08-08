@@ -156,6 +156,15 @@ type PortWithPID struct {
 	Inode int
 }
 
+// ProcessInfo represents a process that might be a development server
+type ProcessInfo struct {
+	PID         int
+	Command     string
+	WorkingDir  string
+	ExpectedPort int
+	LastSeen    time.Time
+}
+
 // parseProcNetTcp parses /proc/net/tcp and returns a map of listening ports with PID info
 func (pm *PortMonitor) parseProcNetTcp() (map[int]*PortWithPID, error) {
 	file, err := os.Open("/proc/net/tcp")
