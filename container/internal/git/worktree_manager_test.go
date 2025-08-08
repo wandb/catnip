@@ -47,6 +47,136 @@ func (m *MockOperations) HasConflicts(worktreePath string) bool {
 	return args.Bool(0)
 }
 
+func (m *MockOperations) AbortRebase(worktreePath string) error {
+	args := m.Called(worktreePath)
+	return args.Error(0)
+}
+
+func (m *MockOperations) ContinueRebase(worktreePath string) error {
+	args := m.Called(worktreePath)
+	return args.Error(0)
+}
+
+// Add other missing interface methods as no-ops for testing
+func (m *MockOperations) ExecuteGit(workingDir string, args ...string) ([]byte, error) {
+	callArgs := append([]interface{}{workingDir}, toInterfaceSlice(args)...)
+	callRes := m.Called(callArgs...)
+	return callRes.Get(0).([]byte), callRes.Error(1)
+}
+
+func (m *MockOperations) ExecuteCommand(command string, args ...string) ([]byte, error) {
+	callArgs := append([]interface{}{command}, toInterfaceSlice(args)...)
+	callRes := m.Called(callArgs...)
+	return callRes.Get(0).([]byte), callRes.Error(1)
+}
+
+// Helper function to convert string slice to interface slice
+func toInterfaceSlice(slice []string) []interface{} {
+	result := make([]interface{}, len(slice))
+	for i, v := range slice {
+		result[i] = v
+	}
+	return result
+}
+
+// Add minimal implementations for other interface methods
+func (m *MockOperations) BranchExists(repoPath, branch string, isRemote bool) bool {
+	args := m.Called(repoPath, branch, isRemote)
+	return args.Bool(0)
+}
+
+func (m *MockOperations) GetRemoteURL(repoPath string) (string, error) {
+	args := m.Called(repoPath)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockOperations) GetDefaultBranch(repoPath string) (string, error) {
+	args := m.Called(repoPath)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockOperations) GetLocalBranches(repoPath string) ([]string, error) {
+	args := m.Called(repoPath)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockOperations) GetRemoteBranches(repoPath, defaultBranch string) ([]string, error) {
+	args := m.Called(repoPath, defaultBranch)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockOperations) GetRemoteBranchesFromURL(remoteURL string) ([]string, error) {
+	args := m.Called(remoteURL)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockOperations) CreateBranch(repoPath, branch, fromRef string) error {
+	args := m.Called(repoPath, branch, fromRef)
+	return args.Error(0)
+}
+
+func (m *MockOperations) ListWorktrees(repoPath string) ([]WorktreeInfo, error) {
+	args := m.Called(repoPath)
+	return args.Get(0).([]WorktreeInfo), args.Error(1)
+}
+
+func (m *MockOperations) PruneWorktrees(repoPath string) error {
+	args := m.Called(repoPath)
+	return args.Error(0)
+}
+
+func (m *MockOperations) HasUncommittedChanges(worktreePath string) (bool, error) {
+	args := m.Called(worktreePath)
+	return args.Bool(0), args.Error(1)
+}
+
+func (m *MockOperations) GetConflictedFiles(worktreePath string) ([]string, error) {
+	args := m.Called(worktreePath)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockOperations) GetStatus(worktreePath string) (*WorktreeStatus, error) {
+	args := m.Called(worktreePath)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*WorktreeStatus), args.Error(1)
+}
+
+// Add stubs for all other interface methods to make the mock complete
+func (m *MockOperations) FetchBranch(repoPath string, strategy FetchStrategy) error   { return nil }
+func (m *MockOperations) FetchBranchFast(repoPath, branch string) error               { return nil }
+func (m *MockOperations) FetchBranchFull(repoPath, branch string) error               { return nil }
+func (m *MockOperations) PushBranch(worktreePath string, strategy PushStrategy) error { return nil }
+func (m *MockOperations) AddRemote(repoPath, name, url string) error                  { return nil }
+func (m *MockOperations) RemoveRemote(repoPath, name string) error                    { return nil }
+func (m *MockOperations) SetRemoteURL(repoPath, name, url string) error               { return nil }
+func (m *MockOperations) GetRemotes(repoPath string) (map[string]string, error)       { return nil, nil }
+func (m *MockOperations) Clone(url, path string, options CloneOptions) error          { return nil }
+func (m *MockOperations) Add(worktreePath string, paths ...string) error              { return nil }
+func (m *MockOperations) Commit(worktreePath, message string, options CommitOptions) error {
+	return nil
+}
+func (m *MockOperations) ResetMixed(worktreePath, ref string) error                  { return nil }
+func (m *MockOperations) CherryPick(worktreePath, commit string) error               { return nil }
+func (m *MockOperations) DiffNameOnly(worktreePath, filter string) ([]string, error) { return nil, nil }
+func (m *MockOperations) MergeTree(worktreePath, base, head string) (string, error)  { return "", nil }
+func (m *MockOperations) Stash(worktreePath string) error                            { return nil }
+func (m *MockOperations) StashPop(worktreePath string) error                         { return nil }
+func (m *MockOperations) CreateTag(repoPath, tag, ref string) error                  { return nil }
+func (m *MockOperations) DeleteTag(repoPath, tag string) error                       { return nil }
+func (m *MockOperations) ListTags(repoPath string) ([]string, error)                 { return nil, nil }
+func (m *MockOperations) GetConfig(repoPath, key string) (string, error)             { return "", nil }
+func (m *MockOperations) SetConfig(repoPath, key, value string) error                { return nil }
+func (m *MockOperations) SetGlobalConfig(key, value string) error                    { return nil }
+func (m *MockOperations) GetDisplayBranch(worktreePath string) (string, error)       { return "", nil }
+func (m *MockOperations) RevParse(repoPath, ref string) (string, error)              { return "", nil }
+func (m *MockOperations) RevList(repoPath string, options RevListOptions) ([]string, error) {
+	return nil, nil
+}
+func (m *MockOperations) ShowRef(repoPath, ref string, options ShowRefOptions) error { return nil }
+func (m *MockOperations) RenameBranch(repoPath, oldBranch, newBranch string) error   { return nil }
+
 func (m *MockOperations) GetCommitHash(worktreePath, ref string) (string, error) {
 	args := m.Called(worktreePath, ref)
 	return args.String(0), args.Error(1)
@@ -58,11 +188,6 @@ func (m *MockOperations) GetCommitCount(worktreePath, from, to string) (int, err
 }
 
 func (m *MockOperations) IsWorkingDirectoryDirty(worktreePath string) (bool, error) {
-	args := m.Called(worktreePath)
-	return args.Bool(0), args.Error(1)
-}
-
-func (m *MockOperations) HasConflicts(worktreePath string) (bool, error) {
 	args := m.Called(worktreePath)
 	return args.Bool(0), args.Error(1)
 }
@@ -389,28 +514,7 @@ func TestWorktreeManager_UpdateWorktreeStatus(t *testing.T) {
 	})
 }
 
-func TestExtractWorkspaceName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"feature-branch", "feature-branch"},
-		{"refs/heads/feature-branch", "feature-branch"},
-		{"origin/feature-branch", "feature-branch"},
-		{"remotes/origin/feature-branch", "feature-branch"},
-		{"main", "main"},
-		{"feature/sub-branch", "feature-sub-branch"},
-		{"fix/issue-123", "fix-issue-123"},
-		{"", ""},
-	}
-
-	for _, test := range tests {
-		t.Run(test.input, func(t *testing.T) {
-			result := ExtractWorkspaceName(test.input)
-			assert.Equal(t, test.expected, result)
-		})
-	}
-}
+// TestExtractWorkspaceName is already defined in utils_test.go, so we skip it here
 
 func TestCreateWorktreeRequest_struct(t *testing.T) {
 	repo := &models.Repository{
