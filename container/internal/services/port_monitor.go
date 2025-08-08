@@ -70,6 +70,7 @@ func (pm *PortMonitor) Start() {
 		select {
 		case <-ticker.C:
 			pm.checkPortChanges()
+			pm.checkKnownProcesses()
 		case <-pm.stopChan:
 			log.Printf("🛑 Stopped port monitoring")
 			pm.stopped = true
