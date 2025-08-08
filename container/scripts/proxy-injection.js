@@ -252,6 +252,67 @@
     window.WebSocket.CLOSING = originalWebSocket.CLOSING;
     window.WebSocket.CLOSED = originalWebSocket.CLOSED;
 
+    // Patch EventSource constructor
+    var originalEventSource = window.EventSource;
+    window.EventSource = function (url, eventSourceInitDict) {
+      console.log("🔍 EventSource intercepted, original URL:", url);
+
+      if (typeof url === "string") {
+        // Handle absolute URLs starting with /
+        if (url.startsWith("/") && !url.startsWith(basePath.slice(0, -1))) {
+          url = basePath.slice(0, -1) + url;
+          console.log("🔄 Rewritten EventSource URL:", url);
+        }
+        // Handle full URLs with localhost:PORT
+        else if (
+          url.startsWith("http://localhost:") ||
+          url.startsWith("https://localhost:")
+        ) {
+          try {
+            var eventUrl = new URL(url);
+            if (
+              eventUrl.hostname === "localhost" &&
+              eventUrl.port &&
+              eventUrl.port !== "8080"
+            ) {
+              var originalPort = eventUrl.port;
+              eventUrl.hostname = "localhost";
+              eventUrl.port = "8080";
+
+              // Check if the path already starts with the port (avoid double-prefixing)
+              var portPrefix = "/" + originalPort;
+              if (!eventUrl.pathname.startsWith(portPrefix)) {
+                eventUrl.pathname = portPrefix + eventUrl.pathname;
+              }
+
+              url = eventUrl.toString();
+              console.log("🔄 Rewritten EventSource localhost URL:", url);
+            }
+          } catch (e) {
+            console.warn("Failed to parse EventSource URL:", url, e);
+          }
+        }
+      }
+
+      if (eventSourceInitDict !== undefined) {
+        return new originalEventSource(url, eventSourceInitDict);
+      } else {
+        return new originalEventSource(url);
+      }
+    };
+
+    // Copy static properties and methods
+    Object.setPrototypeOf(window.EventSource, originalEventSource);
+    Object.defineProperty(window.EventSource, "prototype", {
+      value: originalEventSource.prototype,
+      writable: false,
+    });
+
+    // Copy static constants
+    window.EventSource.CONNECTING = originalEventSource.CONNECTING;
+    window.EventSource.OPEN = originalEventSource.OPEN;
+    window.EventSource.CLOSED = originalEventSource.CLOSED;
+
     // Patch dynamic import() - intercept import calls
     // Note: This approach has limitations but covers many common cases
 
