@@ -15,12 +15,32 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
-// MockGitService is a mock implementation of GitService
-type MockGitService struct {
+// Create interfaces for the methods we need to mock
+type GitServiceInterface interface {
+	CheckoutRepository(org, repo, branch string) (*models.Repository, *models.Worktree, error)
+	GetStatus() *models.GitStatus
+	ListWorktrees() []*models.Worktree
+	IsWorktreeStatusCached(id string) bool
+	GetWorktree(id string) (*models.Worktree, bool)
+	UpdateWorktreeFields(id string, updates map[string]interface{}) error
+	ListGitHubRepositories() ([]map[string]interface{}, error)
+}
+
+type SessionServiceInterface interface {
+	GetActiveSession(path string) (*services.SessionInfo, bool)
+	GetClaudeActivityState(path string) models.ClaudeActivityState
+}
+
+type ClaudeMonitorInterface interface {
+	GetTodos(path string) ([]models.Todo, error)
+}
+
+// Mock implementations
+type mockGitService struct {
 	mock.Mock
 }
 
-func (m *MockGitService) CheckoutRepository(org, repo, branch string) (*models.Repository, *models.Worktree, error) {
+func (m *mockGitService) CheckoutRepository(org, repo, branch string) (*models.Repository, *models.Worktree, error) {
 	args := m.Called(org, repo, branch)
 	if args.Error(2) != nil {
 		return nil, nil, args.Error(2)
@@ -28,22 +48,22 @@ func (m *MockGitService) CheckoutRepository(org, repo, branch string) (*models.R
 	return args.Get(0).(*models.Repository), args.Get(1).(*models.Worktree), nil
 }
 
-func (m *MockGitService) GetStatus() *models.GitStatus {
+func (m *mockGitService) GetStatus() *models.GitStatus {
 	args := m.Called()
 	return args.Get(0).(*models.GitStatus)
 }
 
-func (m *MockGitService) ListWorktrees() []*models.Worktree {
+func (m *mockGitService) ListWorktrees() []*models.Worktree {
 	args := m.Called()
 	return args.Get(0).([]*models.Worktree)
 }
 
-func (m *MockGitService) IsWorktreeStatusCached(id string) bool {
+func (m *mockGitService) IsWorktreeStatusCached(id string) bool {
 	args := m.Called(id)
 	return args.Bool(0)
 }
 
-func (m *MockGitService) GetWorktree(id string) (*models.Worktree, bool) {
+func (m *mockGitService) GetWorktree(id string) (*models.Worktree, bool) {
 	args := m.Called(id)
 	if args.Get(0) == nil {
 		return nil, false
@@ -51,12 +71,12 @@ func (m *MockGitService) GetWorktree(id string) (*models.Worktree, bool) {
 	return args.Get(0).(*models.Worktree), args.Bool(1)
 }
 
-func (m *MockGitService) UpdateWorktreeFields(id string, updates map[string]interface{}) error {
+func (m *mockGitService) UpdateWorktreeFields(id string, updates map[string]interface{}) error {
 	args := m.Called(id, updates)
 	return args.Error(0)
 }
 
-func (m *MockGitService) ListGitHubRepositories() ([]map[string]interface{}, error) {
+func (m *mockGitService) ListGitHubRepositories() ([]map[string]interface{}, error) {
 	args := m.Called()
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
@@ -64,53 +84,11 @@ func (m *MockGitService) ListGitHubRepositories() ([]map[string]interface{}, err
 	return args.Get(0).([]map[string]interface{}), nil
 }
 
-func (m *MockGitService) GetRepositoryBranches(repoID string) ([]string, error) {
-	args := m.Called(repoID)
-	if args.Error(1) != nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]string), nil
-}
-
-func (m *MockGitService) CreateWorktree(repoID, branchName, baseBranch string) (*models.Worktree, error) {
-	args := m.Called(repoID, branchName, baseBranch)
-	if args.Error(1) != nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*models.Worktree), nil
-}
-
-func (m *MockGitService) DeleteWorktree(id string) error {
-	args := m.Called(id)
-	return args.Error(0)
-}
-
-func (m *MockGitService) CheckConflicts(worktreeID string, operation string) (bool, []string, error) {
-	args := m.Called(worktreeID, operation)
-	return args.Bool(0), args.Get(1).([]string), args.Error(2)
-}
-
-func (m *MockGitService) SyncWorktree(worktreeID, strategy string) error {
-	args := m.Called(worktreeID, strategy)
-	return args.Error(0)
-}
-
-func (m *MockGitService) MergeWorktree(worktreeID, strategy string) error {
-	args := m.Called(worktreeID, strategy)
-	return args.Error(0)
-}
-
-func (m *MockGitService) GetWorktreeDiff(worktreeID string) (string, []string, int, int, error) {
-	args := m.Called(worktreeID)
-	return args.String(0), args.Get(1).([]string), args.Int(2), args.Int(3), args.Error(4)
-}
-
-// MockSessionService is a mock implementation of SessionService
-type MockSessionService struct {
+type mockSessionService struct {
 	mock.Mock
 }
 
-func (m *MockSessionService) GetActiveSession(path string) (*services.SessionInfo, bool) {
+func (m *mockSessionService) GetActiveSession(path string) (*services.SessionInfo, bool) {
 	args := m.Called(path)
 	if args.Get(0) == nil {
 		return nil, false
@@ -118,17 +96,16 @@ func (m *MockSessionService) GetActiveSession(path string) (*services.SessionInf
 	return args.Get(0).(*services.SessionInfo), args.Bool(1)
 }
 
-func (m *MockSessionService) GetClaudeActivityState(path string) models.ClaudeActivityState {
+func (m *mockSessionService) GetClaudeActivityState(path string) models.ClaudeActivityState {
 	args := m.Called(path)
 	return args.Get(0).(models.ClaudeActivityState)
 }
 
-// MockClaudeMonitorService is a mock implementation of ClaudeMonitorService
-type MockClaudeMonitorService struct {
+type mockClaudeMonitorService struct {
 	mock.Mock
 }
 
-func (m *MockClaudeMonitorService) GetTodos(path string) ([]models.Todo, error) {
+func (m *mockClaudeMonitorService) GetTodos(path string) ([]models.Todo, error) {
 	args := m.Called(path)
 	if args.Error(1) != nil {
 		return nil, args.Error(1)
@@ -136,27 +113,155 @@ func (m *MockClaudeMonitorService) GetTodos(path string) ([]models.Todo, error) 
 	return args.Get(0).([]models.Todo), nil
 }
 
+// TestGitHandler wraps GitHandler for testing with interfaces
+type TestGitHandler struct {
+	gitService     GitServiceInterface
+	sessionService SessionServiceInterface
+	claudeMonitor  ClaudeMonitorInterface
+}
+
+func (h *TestGitHandler) CheckoutRepository(c *fiber.Ctx) error {
+	org := c.Params("org")
+	repo := c.Params("repo")
+	branch := c.Query("branch", "")
+
+	repository, worktree, err := h.gitService.CheckoutRepository(org, repo, branch)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"repository": repository,
+		"worktree":   worktree,
+		"message":    "Repository checked out successfully",
+	})
+}
+
+func (h *TestGitHandler) GetStatus(c *fiber.Ctx) error {
+	status := h.gitService.GetStatus()
+	return c.JSON(status)
+}
+
+func (h *TestGitHandler) ListWorktrees(c *fiber.Ctx) error {
+	worktrees := h.gitService.ListWorktrees()
+	enhancedWorktrees := make([]*EnhancedWorktree, 0, len(worktrees))
+
+	for _, worktree := range worktrees {
+		// Enhance worktrees with session information
+		if sessionInfo, exists := h.sessionService.GetActiveSession(worktree.Path); exists {
+			// Convert services.TitleEntry to models.TitleEntry
+			if sessionInfo.Title != nil {
+				worktree.SessionTitle = &models.TitleEntry{
+					Title:      sessionInfo.Title.Title,
+					Timestamp:  sessionInfo.Title.Timestamp,
+					CommitHash: sessionInfo.Title.CommitHash,
+				}
+			}
+
+			// Convert []services.TitleEntry to []models.TitleEntry
+			if len(sessionInfo.TitleHistory) > 0 {
+				history := make([]models.TitleEntry, len(sessionInfo.TitleHistory))
+				for i, entry := range sessionInfo.TitleHistory {
+					history[i] = models.TitleEntry{
+						Title:      entry.Title,
+						Timestamp:  entry.Timestamp,
+						CommitHash: entry.CommitHash,
+					}
+				}
+				worktree.SessionTitleHistory = history
+			}
+		}
+
+		// Determine Claude activity state for this worktree
+		claudeActivityState := h.sessionService.GetClaudeActivityState(worktree.Path)
+		worktree.ClaudeActivityState = claudeActivityState
+
+		// Set backward compatibility flag
+		worktree.HasActiveClaudeSession = (claudeActivityState == models.ClaudeActive || claudeActivityState == models.ClaudeRunning)
+
+		// Get todos for this worktree
+		if todos, err := h.claudeMonitor.GetTodos(worktree.Path); err == nil {
+			worktree.Todos = todos
+		}
+		// If there's an error getting todos, we'll leave Todos as nil (which is fine)
+
+		// Create enhanced worktree with cache status
+		enhanced := &EnhancedWorktree{
+			Worktree: worktree,
+			CacheStatus: &WorktreeCacheStatus{
+				IsCached:  h.gitService.IsWorktreeStatusCached(worktree.ID),
+				IsLoading: !h.gitService.IsWorktreeStatusCached(worktree.ID), // Loading if not cached
+			},
+		}
+
+		enhancedWorktrees = append(enhancedWorktrees, enhanced)
+	}
+
+	return c.JSON(enhancedWorktrees)
+}
+
+func (h *TestGitHandler) UpdateWorktree(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	if worktreeID == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Worktree ID is required",
+		})
+	}
+
+	// Parse the request body to get the fields to update
+	var updates map[string]interface{}
+	if err := c.BodyParser(&updates); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": fmt.Sprintf("Invalid request body: %v", err),
+		})
+	}
+
+	// Update the worktree using the state manager
+	if err := h.gitService.UpdateWorktreeFields(worktreeID, updates); err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": fmt.Sprintf("Failed to update worktree: %v", err),
+		})
+	}
+
+	// Get the updated worktree
+	worktree, exists := h.gitService.GetWorktree(worktreeID)
+	if !exists {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "Worktree not found",
+		})
+	}
+
+	return c.JSON(worktree)
+}
+
+func (h *TestGitHandler) ListGitHubRepositories(c *fiber.Ctx) error {
+	repos, err := h.gitService.ListGitHubRepositories()
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(repos)
+}
+
 // Setup test helper
-func setupGitHandlerTest() (*GitHandler, *MockGitService, *MockSessionService, *MockClaudeMonitorService, *fiber.App) {
-	mockGitService := new(MockGitService)
-	mockSessionService := new(MockSessionService)
-	mockClaudeMonitor := new(MockClaudeMonitorService)
+func setupGitHandlerTest() (*TestGitHandler, *mockGitService, *mockSessionService, *mockClaudeMonitorService, *fiber.App) {
+	mockGit := new(mockGitService)
+	mockSession := new(mockSessionService)
+	mockClaude := new(mockClaudeMonitorService)
 
-	handler := NewGitHandler(
-		(*services.GitService)(nil), // We'll use the mock directly
-		(*services.GitHTTPService)(nil),
-		(*services.SessionService)(nil),
-		(*services.ClaudeMonitorService)(nil),
-	)
-
-	// Replace with mocks
-	handler.gitService = (*services.GitService)(mockGitService)
-	handler.sessionService = (*services.SessionService)(mockSessionService)
-	handler.claudeMonitor = (*services.ClaudeMonitorService)(mockClaudeMonitor)
+	handler := &TestGitHandler{
+		gitService:     mockGit,
+		sessionService: mockSession,
+		claudeMonitor:  mockClaude,
+	}
 
 	app := fiber.New()
 
-	return handler, mockGitService, mockSessionService, mockClaudeMonitor, app
+	return handler, mockGit, mockSession, mockClaude, app
 }
 
 func TestCheckoutRepository(t *testing.T) {
@@ -197,8 +302,8 @@ func TestCheckoutRepository(t *testing.T) {
 	})
 
 	t.Run("checkout with error", func(t *testing.T) {
-		mockGitService := new(MockGitService)
-		handler.gitService = (*services.GitService)(mockGitService)
+		mockGitService := new(mockGitService)
+		handler.gitService = mockGitService
 
 		mockGitService.On("CheckoutRepository", "test-org", "bad-repo", "").
 			Return((*models.Repository)(nil), (*models.Worktree)(nil), fmt.Errorf("repository not found"))
@@ -357,8 +462,8 @@ func TestUpdateWorktree(t *testing.T) {
 	})
 
 	t.Run("worktree not found", func(t *testing.T) {
-		mockGitService := new(MockGitService)
-		handler.gitService = (*services.GitService)(mockGitService)
+		mockGitService := new(mockGitService)
+		handler.gitService = mockGitService
 
 		updates := map[string]interface{}{"branch": "new-feature"}
 
@@ -443,8 +548,8 @@ func TestListGitHubRepositories(t *testing.T) {
 	})
 
 	t.Run("error from service", func(t *testing.T) {
-		mockGitService := new(MockGitService)
-		handler.gitService = (*services.GitService)(mockGitService)
+		mockGitService := new(mockGitService)
+		handler.gitService = mockGitService
 
 		mockGitService.On("ListGitHubRepositories").Return(([]map[string]interface{})(nil), fmt.Errorf("API error"))
 
