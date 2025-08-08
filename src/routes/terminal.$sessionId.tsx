@@ -50,6 +50,13 @@ function TerminalPage() {
     }
   }, []);
 
+  // Send focus state to backend
+  const sendFocusState = useCallback((focused: boolean) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "focus", focused }));
+    }
+  }, []);
+
   // Helper to generate a unique key for session storage
   const getPromptStorageKey = useCallback(
     async (sessionId: string, prompt: string) => {
