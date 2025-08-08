@@ -575,8 +575,12 @@ function WorkspacePorts({
     );
   }, [allPorts, worktree.path]);
 
-  const openInNewWindow = (port: number) => {
-    window.open(`/${port}/`, "_blank");
+  const openInNewWindow = (p: { port: number; hostPort?: number }) => {
+    if (p.hostPort) {
+      window.open(`http://localhost:${p.hostPort}/`, "_blank");
+    } else {
+      window.open(`/${p.port}/`, "_blank");
+    }
   };
 
   const previewPort = (port: number) => {
@@ -630,9 +634,12 @@ function WorkspacePorts({
                       </Badge>
                     )}
                   </div>
-                  {port.title && (
+                  {(port.title || port.hostPort) && (
                     <p className="text-xs text-muted-foreground truncate">
                       {port.title}
+                      {port.hostPort
+                        ? ` • forwarded to localhost:${port.hostPort}`
+                        : ""}
                     </p>
                   )}
                 </div>
@@ -642,7 +649,7 @@ function WorkspacePorts({
                   className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 hover:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
-                    openInNewWindow(port.port);
+                    openInNewWindow(port);
                   }}
                   title="Open in new window"
                 >
