@@ -577,6 +577,12 @@ func (css *CommitSyncService) cleanupOrphanedRemotes() {
 
 // cleanupOrphanedRemotesForRepo removes orphaned remotes for a specific repository
 func (css *CommitSyncService) cleanupOrphanedRemotesForRepo(bareRepoPath string) {
+	// Check if repository path exists before trying to clean it up
+	if _, err := os.Stat(bareRepoPath); os.IsNotExist(err) {
+		// Skip non-existent repositories (likely in-memory test repositories)
+		return
+	}
+
 	// Get all remotes using the operations interface
 	remotesMap, err := css.operations.GetRemotes(bareRepoPath)
 	if err != nil {
