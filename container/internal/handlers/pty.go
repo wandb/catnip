@@ -32,6 +32,7 @@ type PTYHandler struct {
 	gitService     *services.GitService
 	sessionService *services.SessionService
 	portService    *services.PortAllocationService
+	portMonitor    *services.PortMonitor
 	ptyService     *services.PTYService
 	claudeMonitor  *services.ClaudeMonitorService
 }
@@ -135,6 +136,7 @@ func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.Clau
 		gitService:     gitService,
 		sessionService: sessionService,
 		portService:    services.NewPortAllocationService(),
+		portMonitor:    services.NewPortMonitor(),
 		ptyService:     services.NewPTYService(),
 		claudeMonitor:  claudeMonitor,
 	}
