@@ -12,15 +12,14 @@ import (
 	"github.com/vanpelt/catnip/internal/models"
 )
 
+// The types are already defined in the same package
+
 // MockOperations is a mock implementation of Operations interface
 type MockOperations struct {
 	mock.Mock
 }
 
-func (m *MockOperations) Clone(url, path string, bare bool) error {
-	args := m.Called(url, path, bare)
-	return args.Error(0)
-}
+// Clone method is already defined below as stub
 
 func (m *MockOperations) CreateWorktree(repoPath, worktreePath, branch, sourceBranch string) error {
 	args := m.Called(repoPath, worktreePath, branch, sourceBranch)
