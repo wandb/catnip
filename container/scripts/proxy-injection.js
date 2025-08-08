@@ -403,12 +403,12 @@
    * - Dynamic DOM insertion monitoring
    * - History API patching (pushState/replaceState)
    * - Dynamic import() patching (covers eval, Function constructor, and explicit window.import calls)
+   * - WebSocket URL rewriting (ws://, wss://, relative paths, localhost:PORT)
+   * - EventSource URL rewriting (relative paths, localhost:PORT)
    *
    * 🚧 Things NOT Yet Handled:
    * - new Image().src = "/foo.jpg" → would need to patch the Image constructor
-   * - new EventSource("/stream") → would need to wrap EventSource
    * - CSS url(/assets/foo.png) — rewriting stylesheet contents is out-of-scope unless you proxy/transform CSS
-   * - WebSocket URLs like ws://example.com/...
    * - Form actions (<form action="/post">) if used
    * - import() calls in already-loaded modules (static analysis would catch these, but runtime patching has limits)
    */
