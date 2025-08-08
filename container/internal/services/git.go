@@ -801,10 +801,11 @@ func (s *GitService) detectLocalRepos() {
 		if s.shouldCreateInitialWorktree(repoID) {
 			log.Printf("🌱 Creating initial worktree for %s", repoID)
 
-			// Proactively prune any missing worktrees before attempting to create new ones
-			if pruneErr := s.operations.PruneWorktrees(repo.Path); pruneErr != nil {
-				log.Printf("⚠️  Failed to prune worktrees for %s: %v", repoID, pruneErr)
-			}
+			// Don't proactively prune during runtime - it can delete workspaces being restored
+			// Pruning should only happen on explicit user request or during shutdown
+			// if pruneErr := s.operations.PruneWorktrees(repo.Path); pruneErr != nil {
+			// 	log.Printf("⚠️  Failed to prune worktrees for %s: %v", repoID, pruneErr)
+			// }
 
 			if _, worktree, err := s.handleLocalRepoWorktree(repoID, repo.DefaultBranch); err != nil {
 				log.Printf("❌ Failed to create initial worktree for %s: %v", repoID, err)
@@ -2348,61 +2349,98 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 }
 
 // RecreateWorktree implements the WorktreeRestorer interface
+// This method manually restores worktrees by leveraging existing git metadata
+// instead of using `git worktree add` which fails due to registration conflicts
 func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Repository) error {
-	log.Printf("🚨🚨🚨 RECREATE WORKTREE METHOD CALLED FOR %s 🚨🚨🚨", worktree.Name)
-	log.Printf("🔄 Attempting to recreate worktree %s at %s (from repo %s)", worktree.Name, worktree.Path, repo.Path)
+	log.Printf("🔄 Manually restoring worktree %s at %s (from repo %s)", worktree.Name, worktree.Path, repo.Path)
 
-	// Ensure the parent directory exists
-	parentDir := filepath.Dir(worktree.Path)
-	log.Printf("🔧 Creating parent directory %s", parentDir)
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		log.Printf("❌ Failed to create parent directory %s: %v", parentDir, err)
-		return fmt.Errorf("failed to create parent directory %s: %v", parentDir, err)
+	// Step 1: Create the workspace directory
+	if err := os.MkdirAll(worktree.Path, 0755); err != nil {
+		log.Printf("❌ Failed to create workspace directory %s: %v", worktree.Path, err)
+		return fmt.Errorf("failed to create workspace directory %s: %v", worktree.Path, err)
+	}
+	log.Printf("✅ Created workspace directory: %s", worktree.Path)
+
+	// Step 2: Determine the correct worktree metadata path
+	// Extract workspace name from the worktree path
+	workspaceName := filepath.Base(worktree.Path)
+	// Handle different repo types:
+	// - Local repos (e.g., /live/catnip): metadata at /live/catnip/.git/worktrees/coal
+	// - Remote repos (e.g., /volume/repos/slide.git): metadata at /volume/repos/slide.git/worktrees/buddy
+	var worktreeMetadataPath string
+	if strings.HasSuffix(repo.Path, ".git") {
+		// Bare repository (remote repo) - worktrees directly under repo path
+		worktreeMetadataPath = filepath.Join(repo.Path, "worktrees", workspaceName)
+	} else {
+		// Regular repository (local repo) - worktrees under .git subdirectory
+		worktreeMetadataPath = filepath.Join(repo.Path, ".git", "worktrees", workspaceName)
 	}
 
-	// Create the worktree using git operations
-	// For renamed branches, we need to find the original catnip branch reference
-	branchRef := worktree.Branch
-	if worktree.HasBeenRenamed && !strings.HasPrefix(worktree.Branch, "refs/catnip/") {
-		// For renamed branches, extract just the workspace name (without repo prefix)
-		// from the worktree name (e.g., "vllmulator/simba" -> "simba")
-		parts := strings.Split(worktree.Name, "/")
-		workspaceName := parts[len(parts)-1]
-		branchRef = fmt.Sprintf("refs/catnip/%s", workspaceName)
-		log.Printf("🔍 Using catnip ref %s for recreating renamed worktree %s", branchRef, worktree.Name)
+	// Check if worktree metadata exists
+	if _, err := os.Stat(worktreeMetadataPath); os.IsNotExist(err) {
+		log.Printf("⚠️ Worktree metadata not found at %s - falling back to fresh worktree creation", worktreeMetadataPath)
+
+		// For renamed branches, we need to find the original catnip branch reference
+		branchRef := worktree.Branch
+		if worktree.HasBeenRenamed && !strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+			parts := strings.Split(worktree.Name, "/")
+			workspaceName := parts[len(parts)-1]
+			branchRef = fmt.Sprintf("refs/catnip/%s", workspaceName)
+			log.Printf("🔍 Using catnip ref %s for recreating renamed worktree %s", branchRef, worktree.Name)
+		}
+
+		// Use existing CreateWorktree logic
+		workspaceRoot := "/workspace"
+		log.Printf("🔧 Creating fresh worktree with: repo=%s, sourceBranch=%s, branchName=%s, workspaceDir=%s",
+			repo.Path, worktree.SourceBranch, branchRef, workspaceRoot)
+
+		_, err := s.gitWorktreeManager.CreateWorktree(git.CreateWorktreeRequest{
+			Repository:   repo,
+			SourceBranch: worktree.SourceBranch,
+			BranchName:   branchRef,
+			WorkspaceDir: workspaceRoot,
+			IsInitial:    false,
+		})
+
+		if err != nil {
+			log.Printf("❌ Fresh worktree creation failed for %s: %v", worktree.Name, err)
+			return fmt.Errorf("failed to create fresh worktree: %v", err)
+		}
+
+		log.Printf("✅ Successfully created fresh worktree %s", worktree.Name)
+		return nil
 	}
-	log.Printf("🔍 Using branch reference: %s", branchRef)
-	log.Printf("✅ Repository passed directly: %s at %s", repo.ID, repo.Path)
+	log.Printf("✅ Found worktree metadata at: %s", worktreeMetadataPath)
 
-	// Use the git worktree manager to create the worktree
-	// For restoration, we need to pass the workspace root, not the repo-specific directory
-	// The CreateWorktree method will append repoName/workspaceName to this path
-	workspaceRoot := "/workspace" // The CreateWorktree method will build the full path
-	log.Printf("🔧 Calling CreateWorktree with: repo=%s, sourceBranch=%s, branchName=%s, workspaceDir=%s",
-		repo.Path, worktree.SourceBranch, branchRef, workspaceRoot)
+	// Step 3: Create the .git file pointing to the worktree metadata
+	gitFilePath := filepath.Join(worktree.Path, ".git")
+	gitFileContent := fmt.Sprintf("gitdir: %s", worktreeMetadataPath)
+	if err := os.WriteFile(gitFilePath, []byte(gitFileContent), 0644); err != nil {
+		log.Printf("❌ Failed to create .git file at %s: %v", gitFilePath, err)
+		return fmt.Errorf("failed to create .git file: %v", err)
+	}
+	log.Printf("✅ Created .git file pointing to metadata: %s", gitFilePath)
 
-	// Add some validation before calling CreateWorktree
-	if s.gitWorktreeManager == nil {
-		log.Printf("❌ gitWorktreeManager is nil")
-		return fmt.Errorf("git worktree manager is not initialized")
+	// Step 4: Restore files from git index
+	log.Printf("🔄 Restoring files from git index...")
+	restoreCmd := []string{"restore", "."}
+	if _, err := s.operations.ExecuteGit(worktree.Path, restoreCmd...); err != nil {
+		log.Printf("❌ Failed to restore files in %s: %v", worktree.Path, err)
+		return fmt.Errorf("failed to restore files: %v", err)
+	}
+	log.Printf("✅ Restored files from git index")
+
+	// Step 5: Verify the restoration
+	statusCmd := []string{"status", "--porcelain"}
+	if output, err := s.operations.ExecuteGit(worktree.Path, statusCmd...); err != nil {
+		log.Printf("⚠️ Could not verify git status after restoration: %v", err)
+	} else if strings.TrimSpace(string(output)) == "" {
+		log.Printf("✅ Worktree restoration verified - working tree is clean")
+	} else {
+		log.Printf("⚠️ Worktree may have uncommitted changes after restoration")
 	}
 
-	log.Printf("🔧 About to call CreateWorktree...")
-	result, err := s.gitWorktreeManager.CreateWorktree(git.CreateWorktreeRequest{
-		Repository:   repo,
-		SourceBranch: worktree.SourceBranch,
-		BranchName:   branchRef,
-		WorkspaceDir: workspaceRoot,
-		IsInitial:    false,
-	})
-	log.Printf("🔧 CreateWorktree returned: result=%v, err=%v", result, err)
-
-	if err != nil {
-		log.Printf("❌ CreateWorktree failed for %s: %v", worktree.Name, err)
-		return fmt.Errorf("failed to create git worktree: %v", err)
-	}
-
-	log.Printf("✅ Successfully recreated worktree %s", worktree.Name)
+	log.Printf("✅ Successfully restored worktree %s using manual restoration", worktree.Name)
 	return nil
 }
 
