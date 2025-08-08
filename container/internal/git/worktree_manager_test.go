@@ -27,9 +27,24 @@ func (m *MockOperations) CreateWorktree(repoPath, worktreePath, branch, sourceBr
 	return args.Error(0)
 }
 
-func (m *MockOperations) DeleteWorktree(worktreePath string) error {
-	args := m.Called(worktreePath)
+func (m *MockOperations) RemoveWorktree(repoPath, worktreePath string, force bool) error {
+	args := m.Called(repoPath, worktreePath, force)
 	return args.Error(0)
+}
+
+func (m *MockOperations) DeleteBranch(repoPath, branch string, force bool) error {
+	args := m.Called(repoPath, branch, force)
+	return args.Error(0)
+}
+
+func (m *MockOperations) IsDirty(worktreePath string) bool {
+	args := m.Called(worktreePath)
+	return args.Bool(0)
+}
+
+func (m *MockOperations) HasConflicts(worktreePath string) bool {
+	args := m.Called(worktreePath)
+	return args.Bool(0)
 }
 
 func (m *MockOperations) GetCommitHash(worktreePath, ref string) (string, error) {
@@ -288,26 +303,36 @@ func TestWorktreeManager_DeleteWorktree(t *testing.T) {
 	manager := NewWorktreeManager(mockOps)
 
 	worktree := &models.Worktree{
-		ID:   "test-id",
-		Path: "/workspace/test-repo/feature-branch",
+		ID:           "test-id",
+		Path:         "/workspace/test-repo/feature-branch",
+		Branch:       "feature-branch",
+		SourceBranch: "main",
+	}
+
+	repo := &models.Repository{
+		ID:   "test-org/test-repo",
+		Path: "/repos/test-org_test-repo.git",
 	}
 
 	t.Run("successful deletion", func(t *testing.T) {
-		mockOps.On("DeleteWorktree", "/workspace/test-repo/feature-branch").Return(nil)
+		mockOps.On("RemoveWorktree", "/repos/test-org_test-repo.git", "/workspace/test-repo/feature-branch", true).Return(nil)
+		mockOps.On("DeleteBranch", "/repos/test-org_test-repo.git", "feature-branch", true).Return(nil)
+		mockOps.On("DeleteBranch", "/repos/test-org_test-repo.git", "catnip/feature-branch", true).Return(assert.AnError) // Preview branch doesn't exist
 
-		err := manager.DeleteWorktree(worktree)
+		err := manager.DeleteWorktree(worktree, repo)
 
 		assert.NoError(t, err)
 		mockOps.AssertExpectations(t)
 	})
 
-	t.Run("deletion fails", func(t *testing.T) {
-		mockOps.On("DeleteWorktree", "/workspace/test-repo/feature-branch").Return(assert.AnError)
+	t.Run("removal fails but continues", func(t *testing.T) {
+		mockOps.On("RemoveWorktree", "/repos/test-org_test-repo.git", "/workspace/test-repo/feature-branch", true).Return(assert.AnError)
+		mockOps.On("DeleteBranch", "/repos/test-org_test-repo.git", "feature-branch", true).Return(nil)
+		mockOps.On("DeleteBranch", "/repos/test-org_test-repo.git", "catnip/feature-branch", true).Return(assert.AnError)
 
-		err := manager.DeleteWorktree(worktree)
+		err := manager.DeleteWorktree(worktree, repo)
 
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to delete worktree")
+		assert.NoError(t, err) // Method doesn't fail even if some steps fail
 		mockOps.AssertExpectations(t)
 	})
 }
@@ -324,20 +349,18 @@ func TestWorktreeManager_UpdateWorktreeStatus(t *testing.T) {
 	}
 
 	t.Run("successful status update", func(t *testing.T) {
-		expectedStatus := &WorktreeStatus{
-			CurrentBranch: "feature-branch",
-			IsDirty:       true,
-			HasConflicts:  false,
-			CommitHash:    "new-commit-hash",
-			CommitCount:   7,
+		mockOps.On("IsDirty", "/workspace/test-repo/feature-branch").Return(true)
+		mockOps.On("HasConflicts", "/workspace/test-repo/feature-branch").Return(false)
+		mockOps.On("GetCurrentBranch", "/workspace/test-repo/feature-branch").Return("feature-branch", nil)
+		mockOps.On("GetCommitHash", "/workspace/test-repo/feature-branch", "HEAD").Return("new-commit-hash", nil)
+		mockOps.On("GetCommitCount", "/workspace/test-repo/feature-branch", "origin/main", "HEAD").Return(7, nil)
+
+		getSourceRef := func(w *models.Worktree) string {
+			return "origin/" + w.SourceBranch
 		}
 
-		mockOps.On("GetWorktreeStatus", "/workspace/test-repo/feature-branch").Return(expectedStatus, nil)
-		mockOps.On("GetCommitCount", "/workspace/test-repo/feature-branch", "main", "HEAD").Return(7, nil)
+		manager.UpdateWorktreeStatus(worktree, getSourceRef)
 
-		err := manager.UpdateWorktreeStatus(worktree)
-
-		assert.NoError(t, err)
 		assert.True(t, worktree.IsDirty)
 		assert.False(t, worktree.HasConflicts)
 		assert.Equal(t, "new-commit-hash", worktree.CommitHash)
@@ -347,13 +370,20 @@ func TestWorktreeManager_UpdateWorktreeStatus(t *testing.T) {
 		mockOps.AssertExpectations(t)
 	})
 
-	t.Run("status check fails", func(t *testing.T) {
-		mockOps.On("GetWorktreeStatus", "/workspace/test-repo/feature-branch").Return((*WorktreeStatus)(nil), assert.AnError)
+	t.Run("branch detection fails", func(t *testing.T) {
+		mockOps.On("IsDirty", "/workspace/test-repo/feature-branch").Return(false)
+		mockOps.On("HasConflicts", "/workspace/test-repo/feature-branch").Return(false)
+		mockOps.On("GetCurrentBranch", "/workspace/test-repo/feature-branch").Return("", assert.AnError)
 
-		err := manager.UpdateWorktreeStatus(worktree)
+		getSourceRef := func(w *models.Worktree) string {
+			return "origin/" + w.SourceBranch
+		}
 
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get worktree status")
+		manager.UpdateWorktreeStatus(worktree, getSourceRef)
+
+		assert.False(t, worktree.IsDirty)
+		assert.False(t, worktree.HasConflicts)
+		// Should still work despite branch detection failure
 
 		mockOps.AssertExpectations(t)
 	})
