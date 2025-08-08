@@ -415,8 +415,13 @@ func NewGitService() *GitService {
 
 // NewGitServiceWithOperations creates a new Git service instance with injectable git operations
 func NewGitServiceWithOperations(operations git.Operations) *GitService {
+	return NewGitServiceWithStateDir(operations, getGitStateDir())
+}
+
+// NewGitServiceWithStateDir creates a new Git service instance with custom state directory (for testing)
+func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitService {
 	// Create state manager first (it will be connected to events handler later)
-	stateManager := NewWorktreeStateManager(getGitStateDir(), nil)
+	stateManager := NewWorktreeStateManager(stateDir, nil)
 
 	s := &GitService{
 		stateManager:       stateManager,

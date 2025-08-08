@@ -52,9 +52,10 @@ func TestBranchSynchronizationConcept(t *testing.T) {
 	cmd.Dir = testRepo
 	require.NoError(t, cmd.Run())
 
-	// Create service with real git operations
+	// Create service with real git operations and isolated state
 	operations := git.NewOperations()
-	service := NewGitServiceWithOperations(operations)
+	stateDir := t.TempDir()
+	service := NewGitServiceWithStateDir(operations, stateDir)
 	require.NotNil(t, service)
 
 	t.Run("BranchMappingStorage", func(t *testing.T) {

@@ -27,7 +27,7 @@ func TestCommitSyncService(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
 	// Create git service
-	gitService := NewGitService()
+	gitService := createTestGitService(t)
 	require.NotNil(t, gitService)
 
 	// Create commit sync service
@@ -50,7 +50,7 @@ func TestCommitSyncService(t *testing.T) {
 
 func TestCommitSyncServiceLifecycle(t *testing.T) {
 	// Create git service
-	gitService := NewGitService()
+	gitService := createTestGitService(t)
 	require.NotNil(t, gitService)
 
 	// Create commit sync service
@@ -112,7 +112,7 @@ func NewMockCommitSyncService(gitService *GitService) *MockCommitSyncService {
 
 func TestCommitSyncServiceMethods(t *testing.T) {
 	// Create git service
-	gitService := NewGitService()
+	gitService := createTestGitService(t)
 	require.NotNil(t, gitService)
 
 	// Create mock commit sync service
