@@ -304,8 +304,7 @@ func TestCheckoutRepository(t *testing.T) {
 	})
 
 	t.Run("checkout with error", func(t *testing.T) {
-		mockGitService := new(mockGitService)
-		handler.gitService = mockGitService
+		handler, mockGitService, _, _, app := setupGitHandlerTest()
 
 		mockGitService.On("CheckoutRepository", "test-org", "bad-repo", "").
 			Return((*models.Repository)(nil), (*models.Worktree)(nil), fmt.Errorf("repository not found"))
@@ -465,8 +464,7 @@ func TestUpdateWorktree(t *testing.T) {
 	})
 
 	t.Run("worktree not found", func(t *testing.T) {
-		mockGitService := new(mockGitService)
-		handler.gitService = mockGitService
+		handler, mockGitService, _, _, app := setupGitHandlerTest()
 
 		updates := map[string]interface{}{"branch": "new-feature"}
 
@@ -551,8 +549,7 @@ func TestListGitHubRepositories(t *testing.T) {
 	})
 
 	t.Run("error from service", func(t *testing.T) {
-		mockGitService := new(mockGitService)
-		handler.gitService = mockGitService
+		handler, mockGitService, _, _, app := setupGitHandlerTest()
 
 		mockGitService.On("ListGitHubRepositories").Return(([]map[string]interface{})(nil), fmt.Errorf("API error"))
 
