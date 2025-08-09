@@ -858,6 +858,15 @@ func (h *PTYHandler) monitorSession(session *Session) {
 
 		// Use Claude activity-based cleanup logic for Claude sessions
 		if session.Agent == "claude" {
+			// Check Claude session log modification time instead of just connection status
+			claudeLogModTime := h.getClaudeSessionLogModTime(session.WorkDir)
+
+			// If Claude log was modified recently (within 5 minutes), keep session alive
+			if !claudeLogModTime.IsZero() && time.Since(claudeLogModTime) <= 5*time.Minute {
+				log.Printf("🤖 Claude session has recent activity (log modified %v ago), keeping PTY alive: %s", time.Since(claudeLogModTime), session.ID)
+				continue
+			}
+
 			claudeActivityState := h.sessionService.GetClaudeActivityState(session.WorkDir)
 
 			// Cleanup logic based on Claude activity state:
@@ -1322,6 +1331,58 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 			return
 		}
 	}
+}
+
+// getClaudeSessionLogModTime returns the modification time of the most recently modified Claude session log
+func (h *PTYHandler) getClaudeSessionLogModTime(workDir string) time.Time {
+	homeDir := config.Runtime.HomeDir
+
+	// Transform workDir path to Claude projects directory format
+	transformedPath := strings.ReplaceAll(workDir, "/", "-")
+	transformedPath = strings.TrimPrefix(transformedPath, "-")
+	transformedPath = "-" + transformedPath // Add back the leading dash
+
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+
+	// Check if .claude/projects directory exists
+	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
+		return time.Time{}
+	}
+
+	files, err := os.ReadDir(claudeProjectsDir)
+	if err != nil {
+		return time.Time{}
+	}
+
+	var newestTime time.Time
+
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
+			continue
+		}
+
+		// Extract session ID from filename (remove .jsonl extension)
+		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
+
+		// Validate that it looks like a UUID
+		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+			continue
+		}
+
+		// Get file modification time
+		filePath := filepath.Join(claudeProjectsDir, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+
+		// Track the newest modification time
+		if fileInfo.ModTime().After(newestTime) {
+			newestTime = fileInfo.ModTime()
+		}
+	}
+
+	return newestTime
 }
 
 // findNewestClaudeSession finds the newest JSONL file in .claude/projects directory
