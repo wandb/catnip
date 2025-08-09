@@ -210,7 +210,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("development mode requires a git repository")
 			}
 			if !containerService.ImageExists(ctx, containerImage) || refresh {
-				fmt.Printf("Running 'just build-dev' in container directory...\n")
+				logger.Infof("Running 'just build-dev' in container directory...")
 				if err := runBuildDevDirect(gitRoot); err != nil {
 					return fmt.Errorf("build failed: %w", err)
 				}
