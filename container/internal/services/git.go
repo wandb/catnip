@@ -64,7 +64,7 @@ func (s *GitService) cleanupUnusedBranches() {
 		// List all branches in the bare repository
 		branches, err := s.operations.ListBranches(repo.Path, git.ListBranchesOptions{All: true})
 		if err != nil {
-			log.Printf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
+			logger.Warnf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
 			continue
 		}
 		deletedInRepo := 0
@@ -126,25 +126,25 @@ func (s *GitService) cleanupUnusedBranches() {
 			if err := s.operations.DeleteBranch(repo.Path, branchName, true); err == nil {
 				deletedInRepo++
 				totalDeleted++
-				log.Printf("🗑️  Deleted unused branch: %s in %s", branchName, repo.ID)
+				logger.Debugf("🗑️  Deleted unused branch: %s in %s", branchName, repo.ID)
 			}
 		}
 
 		if deletedInRepo > 0 {
-			log.Printf("✅ Cleaned up %d unused branches in %s", deletedInRepo, repo.ID)
+			logger.Infof("✅ Cleaned up %d unused branches in %s", deletedInRepo, repo.ID)
 		}
 	}
 
 	if totalDeleted > 0 {
-		log.Printf("🧹 Cleanup complete: removed %d unused catnip branches", totalDeleted)
+		logger.Infof("🧹 Cleanup complete: removed %d unused catnip branches", totalDeleted)
 	} else {
-		log.Printf("✅ No unused catnip branches found")
+		logger.Debug("✅ No unused catnip branches found")
 	}
 }
 
 // cleanupCatnipRefs provides comprehensive cleanup of refs/catnip/ namespace
 func (s *GitService) cleanupCatnipRefs() {
-	log.Printf("🧹 Starting cleanup of catnip refs namespace...")
+	logger.Debug("🧹 Starting cleanup of catnip refs namespace...")
 
 	s.mu.RLock()
 	reposMap := s.stateManager.GetAllRepositories()
@@ -156,7 +156,7 @@ func (s *GitService) cleanupCatnipRefs() {
 		// Use git for-each-ref to list all refs/catnip/ references
 		output, err := s.operations.ExecuteGit(repo.Path, "for-each-ref", "--format=%(refname)", "refs/catnip/")
 		if err != nil {
-			log.Printf("⚠️  Failed to list catnip refs for %s: %v", repo.ID, err)
+			logger.Warnf("⚠️  Failed to list catnip refs for %s: %v", repo.ID, err)
 			continue
 		}
 
@@ -192,31 +192,31 @@ func (s *GitService) cleanupCatnipRefs() {
 			if _, err := s.operations.ExecuteGit(repo.Path, "update-ref", "-d", ref); err == nil {
 				deletedInRepo++
 				totalDeleted++
-				log.Printf("🗑️  Deleted catnip ref: %s in %s", ref, repo.ID)
+				logger.Debugf("🗑️  Deleted catnip ref: %s in %s", ref, repo.ID)
 			} else {
-				log.Printf("⚠️  Failed to delete catnip ref %s: %v", ref, err)
+				logger.Warnf("⚠️  Failed to delete catnip ref %s: %v", ref, err)
 			}
 		}
 
 		if deletedInRepo > 0 {
-			log.Printf("✅ Cleaned up %d catnip refs in %s", deletedInRepo, repo.ID)
+			logger.Infof("✅ Cleaned up %d catnip refs in %s", deletedInRepo, repo.ID)
 			// Run garbage collection to clean up unreachable objects
 			if err := s.operations.GarbageCollect(repo.Path); err != nil {
-				log.Printf("⚠️ Failed to run garbage collection for %s: %v", repo.ID, err)
+				logger.Warnf("⚠️ Failed to run garbage collection for %s: %v", repo.ID, err)
 			}
 		}
 	}
 
 	if totalDeleted > 0 {
-		log.Printf("🧹 Catnip refs cleanup complete: removed %d refs", totalDeleted)
+		logger.Infof("🧹 Catnip refs cleanup complete: removed %d refs", totalDeleted)
 	} else {
-		log.Printf("✅ No orphaned catnip refs found")
+		logger.Debug("✅ No orphaned catnip refs found")
 	}
 }
 
 // CleanupAllCatnipRefs provides a comprehensive cleanup that handles both legacy catnip/ branches and new refs/catnip/ refs
 func (s *GitService) CleanupAllCatnipRefs() {
-	log.Printf("🧹 Starting comprehensive catnip cleanup...")
+	logger.Debug("🧹 Starting comprehensive catnip cleanup...")
 
 	// Clean up legacy catnip/ branches first
 	s.cleanupUnusedBranches()
@@ -224,7 +224,7 @@ func (s *GitService) CleanupAllCatnipRefs() {
 	// Then clean up new refs/catnip/ namespace
 	s.cleanupCatnipRefs()
 
-	log.Printf("✅ Comprehensive catnip cleanup complete")
+	logger.Debug("✅ Comprehensive catnip cleanup complete")
 }
 
 // SetupExecutor interface for executing setup.sh scripts in worktrees
@@ -301,7 +301,7 @@ func (s *GitService) TriggerClaudeActivitySync() {
 // InitializeLocalRepos detects and loads any local repositories in /live
 // This should be called after SetSetupExecutor to ensure setup.sh execution works
 func (s *GitService) InitializeLocalRepos() {
-	log.Printf("🔍 Initializing local repositories with setup executor configured")
+	logger.Debug("🔍 Initializing local repositories with setup executor configured")
 	s.detectLocalRepos()
 }
 
@@ -371,7 +371,7 @@ func (s *GitService) pushBranch(worktree *models.Worktree, repo *models.Reposito
 
 	// Handle push failure with sync retry (if requested)
 	if err != nil && strategy.SyncOnFail && git.IsPushRejected(err, err.Error()) {
-		log.Printf("🔄 Push rejected due to upstream changes, syncing and retrying")
+		logger.Debug("🔄 Push rejected due to upstream changes, syncing and retrying")
 
 		// Sync with upstream
 		if syncErr := s.syncBranchWithUpstream(worktree); syncErr != nil {
@@ -455,7 +455,7 @@ func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitS
 	if config.Runtime.IsContainerized() {
 		s.configureGitCredentials()
 	} else {
-		log.Printf("ℹ️ Running in native mode - respecting existing git configuration")
+		logger.Info("ℹ️ Running in native mode - respecting existing git configuration")
 	}
 
 	// State is already loaded by the state manager
@@ -466,12 +466,12 @@ func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitS
 	if os.Getenv("CATNIP_DEV") != "true" {
 		s.cleanupUnusedBranches()
 	} else {
-		log.Printf("🔧 Skipping branch cleanup in dev mode")
+		logger.Debug("🔧 Skipping branch cleanup in dev mode")
 	}
 
 	// Start CommitSync service for automatic checkpointing
 	if err := s.commitSync.Start(); err != nil {
-		log.Printf("⚠️ Failed to start CommitSync service: %v", err)
+		logger.Warnf("⚠️ Failed to start CommitSync service: %v", err)
 	}
 
 	// Set up GitService as the WorktreeRestorer for state restoration
