@@ -426,10 +426,13 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				log.Printf("🖥️  Detected alternate screen buffer exit")
 			}
 
-			session.outputBuffer = append(session.outputBuffer, outputData...)
-			// Update buffered dimensions to current terminal size
-			session.bufferedCols = session.cols
-			session.bufferedRows = session.rows
+			// Don't buffer output for Claude agent sessions - they have their own session management
+			if session.Agent != "claude" {
+				session.outputBuffer = append(session.outputBuffer, outputData...)
+				// Update buffered dimensions to current terminal size
+				session.bufferedCols = session.cols
+				session.bufferedRows = session.rows
+			}
 			session.bufferMutex.Unlock()
 
 			// Check if connection is still valid before writing
@@ -1038,8 +1041,11 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	session.Cmd = cmd
 
 	// Clear the output buffer on shell restart - no history between restarts
+	// (only for non-Claude sessions since Claude sessions don't buffer)
 	session.bufferMutex.Lock()
-	session.outputBuffer = make([]byte, 0)
+	if session.Agent != "claude" {
+		session.outputBuffer = make([]byte, 0)
+	}
 	// Reset alternate screen buffer detection state
 	session.AlternateScreenActive = false
 	session.LastNonTUIBufferSize = 0
