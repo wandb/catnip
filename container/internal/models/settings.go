@@ -3,7 +3,6 @@ package models
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // Settings manages persistence of Claude and GitHub configuration files
@@ -37,10 +37,10 @@ func NewSettings() *Settings {
 
 // Start begins the settings synchronization process
 func (s *Settings) Start() {
-	log.Println("🔧 Starting settings persistence manager")
+	logger.Info("🔧 Starting settings persistence manager")
 
 	// ONLY restore settings from volume on boot - never during runtime
-	log.Println("📥 Boot-time restore: copying settings from volume to home directory")
+	logger.Info("📥 Boot-time restore: copying settings from volume to home directory")
 	s.restoreFromVolumeOnBoot()
 
 	// Restore IDE directory if it exists
