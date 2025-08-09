@@ -261,9 +261,11 @@ export function WorkspaceLeftSidebar() {
                                     setUnavailableRepoAlert({
                                       open: true,
                                       repoName: projectName,
+                                      repoId: repo.id,
+                                      worktrees: worktrees,
                                     });
                                   }}
-                                  className="mr-5 text-yellow-500 hover:bg-accent"
+                                  className="mr-5 text-yellow-500 hover:bg-accent cursor-pointer"
                                 >
                                   <AlertTriangle className="h-4 w-4" />
                                 </SidebarMenuAction>
@@ -283,6 +285,9 @@ export function WorkspaceLeftSidebar() {
                                   </code>{" "}
                                   from the git repo on your host to make it
                                   available.
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  Click to open options
                                 </div>
                               </TooltipContent>
                             </Tooltip>
