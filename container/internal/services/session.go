@@ -206,16 +206,22 @@ func (s *SessionService) GetClaudeActivityState(workDir string) models.ClaudeAct
 		return models.ClaudeInactive // No PTY session and no Claude activity
 	}
 
-	// Check if Claude activity is recent (within 2 minutes)
+	// Check if Claude activity is recent
 	timeSinceActivity := time.Since(lastActivityTime)
 
-	if timeSinceActivity <= 2*time.Minute {
-		return models.ClaudeActive // Recent Claude activity
+	// If there's a PTY session (user likely viewing/interacting), be more generous with "active" status
+	if hasPTYSession {
+		// Within 5 minutes with PTY = active (user is likely still engaged)
+		if timeSinceActivity <= 5*time.Minute {
+			return models.ClaudeActive // Recent Claude activity with active PTY session
+		}
+		// PTY exists but older activity = running
+		return models.ClaudeRunning // PTY exists but no recent Claude activity
 	}
 
-	// Claude session exists but no recent activity
-	if hasPTYSession {
-		return models.ClaudeRunning // PTY exists but no recent Claude activity
+	// No PTY session, use shorter threshold
+	if timeSinceActivity <= 2*time.Minute {
+		return models.ClaudeActive // Recent Claude activity (but no active session)
 	}
 
 	return models.ClaudeInactive // Old activity and no PTY session
