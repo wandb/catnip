@@ -262,14 +262,14 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 	// If no-tui mode, tail logs directly
 	if noTUI {
-		fmt.Printf("Tailing logs for container '%s' (press Ctrl+C to stop)...\n", name)
+		logger.Infof("Tailing logs for container '%s' (press Ctrl+C to stop)...", name)
 		return tailContainerLogs(ctx, containerService, name)
 	}
 
 	// Check if we have a TTY, if not, fallback to no-tui mode
 	if !isTTY() {
-		fmt.Printf("No TTY detected, falling back to log tailing mode...\n")
-		fmt.Printf("Tailing logs for container '%s' (press Ctrl+C to stop)...\n", name)
+		logger.Info("No TTY detected, falling back to log tailing mode...")
+		logger.Infof("Tailing logs for container '%s' (press Ctrl+C to stop)...", name)
 		return tailContainerLogs(ctx, containerService, name)
 	}
 
@@ -282,7 +282,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	finalContainerName, err := tuiApp.Run(ctx, workDirForTUI, ports)
 	if err != nil {
 		// Clean up container on TUI error
-		fmt.Printf("Stopping container '%s'...\n", finalContainerName)
+		logger.Infof("Stopping container '%s'...", finalContainerName)
 		_ = containerService.StopContainer(ctx, finalContainerName)
 		return fmt.Errorf("TUI error: %w", err)
 	}
