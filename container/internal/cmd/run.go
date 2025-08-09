@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui"
 	"golang.org/x/crypto/ssh"
@@ -97,6 +98,10 @@ func cleanVersionForProduction(version string) string {
 }
 
 func runContainer(cmd *cobra.Command, args []string) error {
+	// Configure logging based on dev mode and environment
+	logLevel := logger.GetLogLevelFromEnv(dev)
+	logger.Configure(logLevel, dev)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -105,7 +110,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	// Check if SSH command is available
 	if !disableSSH {
 		if _, err := exec.LookPath("ssh"); err != nil {
-			fmt.Println("Warning: SSH command not found. Disabling SSH support.")
+			logger.Debug("SSH command not found. Disabling SSH support.")
 			disableSSH = true
 		}
 	}
