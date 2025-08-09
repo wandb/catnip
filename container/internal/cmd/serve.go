@@ -327,7 +327,6 @@ func startServer(cmd *cobra.Command) {
 	}
 
 	logger.Infof("🚀 Catnip server starting on port %s", port)
-	logger.WithField("port", port).Fatal().Msg("Server failed to start")
 	if err := app.Listen(":" + port); err != nil {
 		logger.WithField("error", err).Fatal().Msg("Server failed to start")
 	}
