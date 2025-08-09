@@ -118,7 +118,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	// Handle SSH setup if not disabled
 	if !disableSSH {
 		if err := setupSSH(); err != nil {
-			fmt.Printf("Warning: Failed to setup SSH keys (%v). Disabling SSH support.\n", err)
+			logger.Debugf("Failed to setup SSH keys (%v). Disabling SSH support.", err)
 			disableSSH = true
 		} else {
 			// Add SSH port to ports if not already present
