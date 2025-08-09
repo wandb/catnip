@@ -234,7 +234,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 			}
 		} else {
 			if !containerService.ImageExists(ctx, containerImage) || refresh {
-				logger.Infof("Running 'docker pull %s'...", containerImage)
+				fmt.Printf("Running 'docker pull %s'...\n", containerImage)
 				if err := runDockerPullDirect(ctx, containerService, containerImage); err != nil {
 					return fmt.Errorf("pull failed: %w", err)
 				}
@@ -242,7 +242,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		}
 
 		// Start the container
-		logger.Infof("Starting container '%s'...", name)
+		fmt.Printf("Starting container '%s'...\n", name)
 		workDirForContainer := workDir
 		if isGitRepo {
 			workDirForContainer = gitRoot
@@ -250,26 +250,26 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB, processedEnvVars); err != nil {
 			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
-		logger.Info("Container started successfully!")
+		fmt.Printf("Container started successfully!\n")
 	}
 
 	// If detached mode, just exit
 	if detach {
-		logger.Infof("Container '%s' is running in detached mode.", name)
-		logger.Infof("Use 'catnip attach %s' to connect to it later.", name)
+		fmt.Printf("Container '%s' is running in detached mode.\n", name)
+		fmt.Printf("Use 'catnip attach %s' to connect to it later.\n", name)
 		return nil
 	}
 
 	// If no-tui mode, tail logs directly
 	if noTUI {
-		logger.Infof("Tailing logs for container '%s' (press Ctrl+C to stop)...", name)
+		fmt.Printf("Tailing logs for container '%s' (press Ctrl+C to stop)...\n", name)
 		return tailContainerLogs(ctx, containerService, name)
 	}
 
 	// Check if we have a TTY, if not, fallback to no-tui mode
 	if !isTTY() {
-		logger.Info("No TTY detected, falling back to log tailing mode...")
-		logger.Infof("Tailing logs for container '%s' (press Ctrl+C to stop)...", name)
+		fmt.Printf("No TTY detected, falling back to log tailing mode...\n")
+		fmt.Printf("Tailing logs for container '%s' (press Ctrl+C to stop)...\n", name)
 		return tailContainerLogs(ctx, containerService, name)
 	}
 
