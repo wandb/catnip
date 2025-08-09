@@ -76,13 +76,13 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 
 	for _, dir := range []string{volumeClaudeDir, volumeGitHubDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Printf("❌ Failed to create volume directory %s: %v", dir, err)
+			logger.Errorf("❌ Failed to create volume directory %s: %v", dir, err)
 			continue
 		}
 
 		// Fix permissions (make it writable by catnip user)
 		if err := os.Chown(dir, 1000, 1000); err != nil {
-			log.Printf("⚠️  Failed to chown volume directory %s: %v", dir, err)
+			logger.Warnf("⚠️  Failed to chown volume directory %s: %v", dir, err)
 		}
 	}
 
