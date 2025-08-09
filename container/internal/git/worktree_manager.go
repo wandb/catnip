@@ -2,13 +2,13 @@ package git
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
