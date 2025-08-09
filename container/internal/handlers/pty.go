@@ -232,20 +232,20 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	session.connMutex.Lock()
 
 	remoteAddr := conn.RemoteAddr().String()
-	logger.Infof("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
+	logger.Debugf("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
 
 	// Clean up any stale connections from the same client before determining read-only status
 	h.cleanupStaleConnections(session, remoteAddr)
 
 	connectionCount := len(session.connections)
-	logger.Infof("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
+	logger.Debugf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
 
 	// First connection gets write access, subsequent ones are read-only
 	isReadOnly := connectionCount > 0
 	if isReadOnly {
-		logger.Infof("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
+		logger.Debugf("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
 	} else {
-		logger.Infof("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
+		logger.Debugf("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
 	}
 
 	session.connections[conn] = &ConnectionInfo{
@@ -259,7 +259,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	session.connMutex.Unlock()
 
 	if isReadOnly {
-		logger.Infof("🔗 Added READ-ONLY connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
+		logger.Debugf("🔗 Added READ-ONLY connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
 
 		// Notify client that it's read-only
 		readOnlyMsg := struct {
@@ -350,9 +350,9 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		session.connMutex.Unlock()
 
 		if wasWriteConnection {
-			logger.Infof("🔌 WRITE connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
+			logger.Debugf("🔌 WRITE connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
 		} else {
-			logger.Infof("🔌 read-only connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
+			logger.Debugf("🔌 read-only connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
 		}
 
 		// Safe close with error handling
