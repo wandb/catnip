@@ -299,7 +299,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 
 	body, err := io.ReadAll(bodyReader)
 	if err != nil {
-		log.Printf("❌ Error reading proxy response: %v", err)
+		logger.Errorf("❌ Error reading proxy response: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to read service response",
 		})
@@ -380,7 +380,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 	// Get the proxy injection script from embedded assets
 	proxyScript, err := assets.GetProxyInjectionScript()
 	if err != nil {
-		log.Printf("❌ Failed to load proxy injection script: %v, falling back to basic injection", err)
+		logger.Warnf("❌ Failed to load proxy injection script: %v, falling back to basic injection", err)
 		// Fallback to minimal script injection
 		jsCode := fmt.Sprintf(`<script>console.log("Catnip proxy active for %s");</script>`, basePath)
 		content += jsCode
@@ -578,7 +578,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 					quote := submatches[1]
 					originalURL := submatches[2]
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting localhost URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting localhost URL: %s -> %s", originalURL, rewrittenURL)
 					return quote + rewrittenURL + quote
 				}
 				return match
@@ -594,7 +594,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 					quote := submatches[1]
 					originalURL := submatches[2]
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting WebSocket localhost URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting WebSocket localhost URL: %s -> %s", originalURL, rewrittenURL)
 					return quote + rewrittenURL + quote
 				}
 				return match
@@ -611,7 +611,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 					originalURL := submatches[2]
 					closingBacktick := submatches[3]
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting template literal WebSocket URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting template literal WebSocket URL: %s -> %s", originalURL, rewrittenURL)
 					return backtick + rewrittenURL + closingBacktick
 				}
 				return match
