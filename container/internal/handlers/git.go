@@ -2,11 +2,12 @@ package handlers
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -116,11 +117,11 @@ func (h *GitHandler) CheckoutRepository(c *fiber.Ctx) error {
 	repo := c.Params("repo")
 	branch := c.Query("branch", "")
 
-	log.Printf("📦 Checkout request: %s/%s (branch: %s)", org, repo, branch)
+	logger.Infof("📦 Checkout request: %s/%s (branch: %s)", org, repo, branch)
 
 	repository, worktree, err := h.gitService.CheckoutRepository(org, repo, branch)
 	if err != nil {
-		log.Printf("❌ Checkout failed: %v", err)
+		logger.Errorf("❌ Checkout failed: %v", err)
 		return c.Status(500).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -221,6 +222,50 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(enhancedWorktrees)
+}
+
+// UpdateWorktree updates specific fields of a worktree
+// @Summary Update worktree fields
+// @Description Updates specific fields of a worktree (for testing purposes)
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Worktree ID"
+// @Param updates body object true "Fields to update"
+// @Success 200 {object} models.Worktree
+// @Router /v1/git/worktrees/{id} [patch]
+func (h *GitHandler) UpdateWorktree(c *fiber.Ctx) error {
+	worktreeID := c.Params("id")
+	if worktreeID == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Worktree ID is required",
+		})
+	}
+
+	// Parse the request body to get the fields to update
+	var updates map[string]interface{}
+	if err := c.BodyParser(&updates); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": fmt.Sprintf("Invalid request body: %v", err),
+		})
+	}
+
+	// Update the worktree using the state manager
+	if err := h.gitService.UpdateWorktreeFields(worktreeID, updates); err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": fmt.Sprintf("Failed to update worktree: %v", err),
+		})
+	}
+
+	// Get the updated worktree
+	worktree, exists := h.gitService.GetWorktree(worktreeID)
+	if !exists {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "Worktree not found",
+		})
+	}
+
+	return c.JSON(worktree)
 }
 
 // ListGitHubRepositories returns user's GitHub repositories
@@ -499,7 +544,7 @@ func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
 
 	conflictErr, err := h.gitService.CheckMergeConflicts(worktreeID)
 	if err != nil {
-		log.Printf("❌ CheckMergeConflicts failed for worktree %s: %v", worktreeID, err)
+		logger.Errorf("❌ CheckMergeConflicts failed for worktree %s: %v", worktreeID, err)
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -707,7 +752,7 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 
 		// Update the worktree branch name in the GitService so the UI reflects the change
 		if err := h.gitService.UpdateWorktreeBranchName(workDir, req.BranchName); err != nil {
-			log.Printf("⚠️  Failed to update worktree branch name in service: %v", err)
+			logger.Warnf("⚠️  Failed to update worktree branch name in service: %v", err)
 			// Don't fail the whole operation for this, but log the error
 		}
 
@@ -716,7 +761,7 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 			if _, err := h.gitService.ExecuteGit(workDir, "update-ref", "-d", currentBranch); err != nil {
 				// Log but don't fail - the new branch was created successfully
 				// This is just cleanup of the old catnip ref
-				log.Printf("⚠️  Failed to delete old catnip ref %q: %v", currentBranch, err)
+				logger.Warnf("⚠️  Failed to delete old catnip ref %q: %v", currentBranch, err)
 			}
 		}
 	} else {
@@ -783,4 +828,69 @@ func (h *GitHandler) RefreshWorktreeStatus(c *fiber.Ctx) error {
 		"message": "Worktree status refreshed successfully",
 		"id":      worktreeID,
 	})
+}
+
+// CreateTemplateRequest defines the request body for creating from template
+type CreateTemplateRequest struct {
+	TemplateID  string `json:"template_id" binding:"required"`
+	ProjectName string `json:"project_name" binding:"required"`
+}
+
+// CreateFromTemplate creates a new workspace from a project template
+// @Summary Create workspace from template
+// @Description Creates a new Git repository and workspace from a predefined project template
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param request body CreateTemplateRequest true "Template creation request"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string "Invalid request or template not found"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /v1/git/template [post]
+func (h *GitHandler) CreateFromTemplate(c *fiber.Ctx) error {
+	var req CreateTemplateRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body: " + err.Error(),
+		})
+	}
+
+	// Validate template ID
+	if req.TemplateID == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "template_id is required",
+		})
+	}
+
+	// Validate project name
+	if req.ProjectName == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "project_name is required",
+		})
+	}
+
+	// Create project from template
+	repo, worktree, err := h.gitService.CreateFromTemplate(req.TemplateID, req.ProjectName)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	// Return success response with repository information
+	response := fiber.Map{
+		"success": true,
+		"repo_id": repo.ID,
+		"path":    repo.Path,
+		"message": fmt.Sprintf("Successfully created project %s from template %s", req.ProjectName, req.TemplateID),
+	}
+
+	// Include worktree info if one was created
+	if worktree != nil {
+		response["worktree"] = worktree.ID
+		response["worktree_path"] = worktree.Path
+		response["worktree_name"] = worktree.Name
+	}
+
+	return c.JSON(response)
 }

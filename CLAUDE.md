@@ -5,7 +5,7 @@
 Catnip is an agentic coding environment with three main components:
 
 - **Frontend**: React/Vite SPA using ShadCN UI, Tailwind CSS, and TanStack Router
-- **Container**: Go server providing PTY sessions and APIs for sandboxed development
+- **Container**: Unified Go binary (`catnip`) providing both CLI tools and server APIs for sandboxed development
 - **Worker**: Hono-based Cloudflare Worker (production only)
 
 ## Tech Stack & Conventions
@@ -23,7 +23,7 @@ Catnip is an agentic coding environment with three main components:
 - Build tool: `just` (run `just build` in container/ directory)
 - Documentation: OpenAPI/Swagger (auto-generated on build - ensure API endpoints and models are well commented)
 - Architecture: JSONRPC where possible
-- Terminal UI: Bubbletea-based CLI tool (`catctrl`)
+- Terminal UI: Bubbletea-based CLI tool (`catnip`)
 
 ## Directory Structure
 
@@ -34,7 +34,7 @@ catnip/
 │   ├── routes/            # TanStack Router pages
 │   └── lib/               # Utilities and shared code
 ├── container/             # Go application running in Docker
-│   ├── cmd/               # CLI and server entry points
+│   ├── cmd/               # Unified binary entry point
 │   ├── internal/          # Internal Go packages
 │   └── setup/             # Container setup scripts
 ├── worker/                # Cloudflare Worker (Hono-based)
@@ -50,6 +50,10 @@ catnip/
 - Use ShadCN theme variables whenever possible
 - For Go changes, run `just build` in container/ directory to ensure compilation
 - Don't restart the container, our dev server uses air to restart the main binary automatically and restarting the container causes state to be lost
+
+### Common Issues & Best Practices
+
+- **TooltipPrimitive**: Always use `TooltipPrimitive.Provider`, `TooltipPrimitive.Root`, etc. - never use `TooltipPrimitive` directly as a JSX component. This is a recurring issue when working with Radix UI tooltips.
 
 ### Container Commands
 

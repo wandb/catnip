@@ -47,6 +47,8 @@ type Repository struct {
 	Path string `json:"path" example:"/workspace/repos/anthropics_claude-code.git"`
 	// Default branch name for this repository
 	DefaultBranch string `json:"default_branch" example:"main"`
+	// Whether the repository is currently available on disk
+	Available bool `json:"available" example:"true"`
 	// When this repository was first cloned
 	CreatedAt time.Time `json:"created_at" example:"2024-01-15T10:30:00Z"`
 	// When this repository was last accessed
@@ -70,6 +72,8 @@ type Worktree struct {
 	Branch string `json:"branch" example:"feature/api-docs"`
 	// Branch this worktree was originally created from
 	SourceBranch string `json:"source_branch" example:"main"`
+	// Whether this worktree's branch has been renamed from its original catnip ref
+	HasBeenRenamed bool `json:"has_been_renamed" example:"true"`
 	// Commit hash where this worktree diverged from source branch (updated after merges)
 	CommitHash string `json:"commit_hash" example:"abc123def456"`
 	// Number of commits ahead of the divergence point (CommitHash)

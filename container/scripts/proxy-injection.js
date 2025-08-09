@@ -252,6 +252,67 @@
     window.WebSocket.CLOSING = originalWebSocket.CLOSING;
     window.WebSocket.CLOSED = originalWebSocket.CLOSED;
 
+    // Patch EventSource constructor
+    var originalEventSource = window.EventSource;
+    window.EventSource = function (url, eventSourceInitDict) {
+      console.log("🔍 EventSource intercepted, original URL:", url);
+
+      if (typeof url === "string") {
+        // Handle absolute URLs starting with /
+        if (url.startsWith("/") && !url.startsWith(basePath.slice(0, -1))) {
+          url = basePath.slice(0, -1) + url;
+          console.log("🔄 Rewritten EventSource URL:", url);
+        }
+        // Handle full URLs with localhost:PORT
+        else if (
+          url.startsWith("http://localhost:") ||
+          url.startsWith("https://localhost:")
+        ) {
+          try {
+            var eventUrl = new URL(url);
+            if (
+              eventUrl.hostname === "localhost" &&
+              eventUrl.port &&
+              eventUrl.port !== "8080"
+            ) {
+              var originalPort = eventUrl.port;
+              eventUrl.hostname = "localhost";
+              eventUrl.port = "8080";
+
+              // Check if the path already starts with the port (avoid double-prefixing)
+              var portPrefix = "/" + originalPort;
+              if (!eventUrl.pathname.startsWith(portPrefix)) {
+                eventUrl.pathname = portPrefix + eventUrl.pathname;
+              }
+
+              url = eventUrl.toString();
+              console.log("🔄 Rewritten EventSource localhost URL:", url);
+            }
+          } catch (e) {
+            console.warn("Failed to parse EventSource URL:", url, e);
+          }
+        }
+      }
+
+      if (eventSourceInitDict !== undefined) {
+        return new originalEventSource(url, eventSourceInitDict);
+      } else {
+        return new originalEventSource(url);
+      }
+    };
+
+    // Copy static properties and methods
+    Object.setPrototypeOf(window.EventSource, originalEventSource);
+    Object.defineProperty(window.EventSource, "prototype", {
+      value: originalEventSource.prototype,
+      writable: false,
+    });
+
+    // Copy static constants
+    window.EventSource.CONNECTING = originalEventSource.CONNECTING;
+    window.EventSource.OPEN = originalEventSource.OPEN;
+    window.EventSource.CLOSED = originalEventSource.CLOSED;
+
     // Patch dynamic import() - intercept import calls
     // Note: This approach has limitations but covers many common cases
 
@@ -278,32 +339,7 @@
       return originalEval.call(this, code);
     };
 
-    // Approach 2: Patch Function constructor for dynamically created functions
-    var originalFunction = window.Function;
-    window.Function = function () {
-      var args = Array.prototype.slice.call(arguments);
-      var code = args[args.length - 1];
-
-      if (typeof code === "string" && code.includes("import(")) {
-        code = code.replace(
-          /import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
-          function (match, moduleSpecifier) {
-            if (
-              moduleSpecifier.startsWith("/") &&
-              !moduleSpecifier.startsWith(basePath)
-            ) {
-              return (
-                'import("' + basePath.slice(0, -1) + moduleSpecifier + '")'
-              );
-            }
-            return match;
-          },
-        );
-        args[args.length - 1] = code;
-      }
-
-      return originalFunction.apply(this, args);
-    };
+    // Approach 2: Function constructor patching removed to avoid webpack conflicts
 
     // Approach 3: Create a global import wrapper (for explicit calls)
     // This won't catch all import() usage but will catch code that explicitly calls window.import
@@ -342,12 +378,12 @@
    * - Dynamic DOM insertion monitoring
    * - History API patching (pushState/replaceState)
    * - Dynamic import() patching (covers eval, Function constructor, and explicit window.import calls)
+   * - WebSocket URL rewriting (ws://, wss://, relative paths, localhost:PORT)
+   * - EventSource URL rewriting (relative paths, localhost:PORT)
    *
    * 🚧 Things NOT Yet Handled:
    * - new Image().src = "/foo.jpg" → would need to patch the Image constructor
-   * - new EventSource("/stream") → would need to wrap EventSource
    * - CSS url(/assets/foo.png) — rewriting stylesheet contents is out-of-scope unless you proxy/transform CSS
-   * - WebSocket URLs like ws://example.com/...
    * - Form actions (<form action="/post">) if used
    * - import() calls in already-loaded modules (static analysis would catch these, but runtime patching has limits)
    */

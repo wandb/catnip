@@ -3,13 +3,14 @@ package services
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -79,7 +80,7 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 	// Use repo name to avoid conflicts between different repositories
 	tempDir := fmt.Sprintf("/tmp/git-http-%s", repoName)
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		log.Printf("❌ Failed to create temp directory: %v", err)
+		logger.Errorf("❌ Failed to create temp directory: %v", err)
 		return c.Status(500).SendString("Internal server error")
 	}
 
@@ -90,7 +91,7 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 
 	// Create symlink to bare repository
 	if err := os.Symlink(bareRepoPath, symlinkPath); err != nil {
-		log.Printf("❌ Failed to create symlink: %v", err)
+		logger.Errorf("❌ Failed to create symlink: %v", err)
 		return c.Status(500).SendString("Internal server error")
 	}
 
@@ -113,8 +114,7 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 		fmt.Sprintf("SERVER_NAME=%s", c.Hostname()),
 		"SERVER_PORT=8080",
 		fmt.Sprintf("REMOTE_ADDR=%s", c.IP()),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
 	)
 
 	// Add HTTP headers as environment variables
@@ -138,7 +138,7 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		log.Printf("❌ Git http-backend error: %v, stderr: %s", err, stderr.String())
+		logger.Errorf("❌ Git http-backend error: %v, stderr: %s", err, stderr.String())
 		return c.Status(500).SendString("Git operation failed")
 	}
 

@@ -18,6 +18,8 @@ interface PortPreviewProps {
   onClose: () => void;
 }
 
+import { useAppStore } from "@/stores/appStore";
+
 export function PortPreview({ port, onClose }: PortPreviewProps) {
   const [service, setService] = useState<ServiceInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,8 +97,14 @@ export function PortPreview({ port, onClose }: PortPreviewProps) {
   };
 
   // Open port in new window
+  const portsMap = useAppStore((s) => s.ports);
+  const hostPort = portsMap.get(port)?.hostPort;
   const openInNewWindow = () => {
-    window.open(`/${port}/`, "_blank");
+    if (hostPort) {
+      window.open(`http://localhost:${hostPort}/`, "_blank");
+    } else {
+      window.open(`/${port}/`, "_blank");
+    }
   };
 
   if (loading) {
@@ -227,7 +235,7 @@ export function PortPreview({ port, onClose }: PortPreviewProps) {
         )}
         <iframe
           ref={iframeRef}
-          src={`/${port}/`}
+          src={hostPort ? `http://localhost:${hostPort}/` : `/${port}/`}
           onLoad={handleIframeLoad}
           onError={handleIframeError}
           className="w-full h-full border-0"

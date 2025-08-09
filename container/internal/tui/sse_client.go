@@ -17,6 +17,7 @@ type SSEClient struct {
 	program   *tea.Program
 	stopChan  chan struct{}
 	connected bool
+	onEvent   func(AppEvent)
 }
 
 // SSEMessage represents Server-Sent Events message types matching the server
@@ -40,6 +41,7 @@ const (
 	ProcessStartedEvent  = "process:started"
 	ProcessStoppedEvent  = "process:stopped"
 	ContainerStatusEvent = "container:status"
+	PortMappedEvent      = "port:mapped"
 	HeartbeatEvent       = "heartbeat"
 )
 
@@ -188,6 +190,12 @@ func (c *SSEClient) processEvent(data string) {
 
 	debugLog("TUI SSE: Received event: %s", msg.Event.Type)
 
+	// Notify external event hook if configured
+	if c.onEvent != nil {
+		// Non-blocking, avoid deadlocks
+		go c.onEvent(msg.Event)
+	}
+
 	// Convert payload to appropriate type based on event type
 	switch msg.Event.Type {
 	case PortOpenedEvent:
@@ -228,6 +236,11 @@ func (c *SSEClient) processEvent(data string) {
 		}
 
 	case ContainerStatusEvent:
+	case PortMappedEvent:
+		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
+			// We do not need to surface mappings in TUI for now; ignore
+			_ = payload
+		}
 		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
 			status, _ := payload["status"].(string)
 			message := ""

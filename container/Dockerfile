@@ -17,6 +17,9 @@ COPY . .
 # Build frontend
 RUN pnpm build
 
+# Build proxy injection script
+RUN cd container/scripts && pnpm install --frozen-lockfile && pnpm run build
+
 # Stage 2: Build the Go binary
 FROM golang:1.24 AS builder
 
@@ -37,9 +40,12 @@ COPY container/ .
 # Copy built frontend assets for embedding (relative to embedded.go)
 COPY --from=frontend-builder /frontend/dist ./internal/assets/dist
 
+# Copy built proxy injection script
+COPY --from=frontend-builder /frontend/container/internal/assets/scripts ./internal/assets/scripts
+
 # Install swag and generate swagger documentation, then build the binary
-RUN swag init -g cmd/server/main.go -o docs --parseDependency --parseInternal && \
-    CGO_ENABLED=0 GOOS=linux go build -a -o catnip cmd/server/main.go
+RUN swag init -g internal/cmd/serve.go -o docs --parseDependency --parseInternal && \
+    CGO_ENABLED=0 GOOS=linux go build -a -o catnip cmd/cli/main.go
 
 # Stage 3: Final image
 FROM ubuntu:24.04
@@ -179,6 +185,13 @@ RUN cp /root/.vimrc /home/catnip/.vimrc && \
 ENV CATNIP_ROOT="/opt/catnip"
 ENV WORKSPACE="/workspace"
 ENV PATH="${CATNIP_ROOT}/bin:${PATH}"
+
+# Set default paths for container environments
+ENV CATNIP_WORKSPACE_DIR="/workspace"
+ENV CATNIP_VOLUME_DIR="/volume"
+ENV CATNIP_LIVE_DIR="/live"
+ENV CATNIP_HOME_DIR="/home/catnip"
+ENV CATNIP_TEMP_DIR="/tmp"
 
 # Enable title interception by default
 ENV CATNIP_TITLE_INTERCEPT="1"
@@ -361,4 +374,4 @@ WORKDIR /workspace
 # Default command
 EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["catnip"]
+CMD ["catnip", "serve"]

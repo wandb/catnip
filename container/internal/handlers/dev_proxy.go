@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // IsDevMode checks if we're running in development mode
@@ -22,7 +24,7 @@ func ViteServerURL() string {
 		if port == "" {
 			port = "5173"
 		}
-		viteServer = "http://localhost:" + port
+		viteServer = "http://127.0.0.1:" + port
 	}
 	return viteServer
 }
@@ -61,7 +63,8 @@ func ProxyToVite(c *fiber.Ctx) error {
 	// Make the request
 	resp, err := client.Do(req)
 	if err != nil {
-		return c.Status(500).SendString("Failed to proxy to Vite server")
+		logger.Errorf("❌ Failed to proxy to Vite server %s: %v", targetURL, err)
+		return c.Status(500).SendString(fmt.Sprintf("Failed to proxy to Vite server: %v", err))
 	}
 	defer resp.Body.Close()
 

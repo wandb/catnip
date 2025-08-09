@@ -16,6 +16,7 @@ dist-ssr
 .pnpm-store
 
 # Coverage
+coverage/
 coverage.html
 coverage.out
 
@@ -35,6 +36,9 @@ coverage.out
 .dev.vars*
 # worker is generating js?
 worker/*.js
+
+# crush
+.crush/
 
 # secrets
 *.pem

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 
 	"github.com/vanpelt/catnip/internal/git"
 )
@@ -29,11 +31,46 @@ type ContainerService struct {
 	runtime ContainerRuntime
 }
 
+// GetRuntime returns the current container runtime
+func (cs *ContainerService) GetRuntime() ContainerRuntime {
+	return cs.runtime
+}
+
 func NewContainerService() (*ContainerService, error) {
-	runtime, err := detectContainerRuntime()
-	if err != nil {
-		return nil, err
+	return NewContainerServiceWithRuntime("")
+}
+
+func NewContainerServiceWithRuntime(preferredRuntime string) (*ContainerService, error) {
+	var runtime ContainerRuntime
+	var err error
+
+	if preferredRuntime != "" {
+		// Use the specified runtime if provided
+		switch preferredRuntime {
+		case "docker":
+			if !commandExists("docker") {
+				return nil, fmt.Errorf("docker runtime requested but docker command not found")
+			}
+			runtime = RuntimeDocker
+		case "container", "apple":
+			if !commandExists("container") {
+				return nil, fmt.Errorf("container runtime requested but container command not found")
+			}
+			runtime = RuntimeApple
+		case "native":
+			return nil, fmt.Errorf("native runtime is not supported for container operations. Use 'catnip serve' for native mode")
+		default:
+			return nil, fmt.Errorf("unknown runtime: %s (valid options: docker, container)", preferredRuntime)
+		}
+	} else {
+		// Auto-detect runtime
+		runtime, err = detectContainerRuntime()
+		if err != nil {
+			return nil, err
+		}
 	}
+
+	// Using runtime for container operations
 
 	return &ContainerService{
 		runtime: runtime,
@@ -41,14 +78,23 @@ func NewContainerService() (*ContainerService, error) {
 }
 
 func detectContainerRuntime() (ContainerRuntime, error) {
+	// Check for Apple Container SDK first (preferred)
+	if commandExists("container") {
+		return RuntimeApple, nil
+	}
+
+	// Check for Docker as fallback
 	if commandExists("docker") {
 		return RuntimeDocker, nil
 	}
 
-	return "", fmt.Errorf("no container runtime found. Please install Docker:\n\n" +
-		"macOS: brew install --cask docker\n" +
-		"Linux: https://docs.docker.com/engine/install/\n" +
-		"Windows: https://docs.docker.com/desktop/install/windows-install/")
+	return "", fmt.Errorf("no container runtime found. Please install Docker or Apple Container SDK:\n\n" +
+		"Docker:\n" +
+		"  macOS: brew install --cask docker\n" +
+		"  Linux: https://docs.docker.com/engine/install/\n" +
+		"  Windows: https://docs.docker.com/desktop/install/windows-install/\n\n" +
+		"Apple Container SDK:\n" +
+		"  macOS: https://github.com/apple/container")
 }
 
 func commandExists(cmd string) bool {
@@ -56,18 +102,75 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool) ([]string, error) {
+func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool, rmFlag bool, cpus float64, memoryGB float64, envVars []string) ([]string, error) {
+	// Check if container already exists
+	if cs.ContainerExists(ctx, name) {
+		if cs.IsContainerRunning(ctx, name) {
+			// Container is already running, return success
+			return []string{"container", "already", "running"}, nil
+		}
+
+		// Container exists but is stopped
+		if rmFlag {
+			// If --rm flag was specified, remove the existing container first
+			if err := cs.RemoveContainer(ctx, name); err != nil {
+				return nil, fmt.Errorf("failed to remove existing container: %w", err)
+			}
+			// Continue to create new container below
+		} else {
+			// Try to start the existing container
+			if err := cs.StartContainer(ctx, name); err != nil {
+				// If starting fails, remove and recreate as fallback
+				_ = cs.StopContainer(ctx, name)   // Stop if partially running
+				_ = cs.RemoveContainer(ctx, name) // Remove the container
+				// Continue to create new container below
+			} else {
+				// Successfully started existing container
+				return []string{"container", "start", name}, nil
+			}
+		}
+	}
+
+	// Create new container
 	args := []string{
 		"run",
-		"--rm",
 		"--name", name,
 		"-d",
 	}
 
+	// Only add --rm flag if explicitly requested
+	if rmFlag {
+		args = append(args, "--rm")
+	}
+
+	// Add resource limits if specified
+	if cpus > 0 {
+		switch cs.runtime {
+		case RuntimeDocker:
+			args = append(args, "--cpus", fmt.Sprintf("%.1f", cpus))
+		case RuntimeApple:
+			args = append(args, "--cpus", fmt.Sprintf("%.0f", cpus))
+		}
+	}
+	if memoryGB > 0 {
+		// Convert GB to bytes for Docker, but use GB format for Apple Container
+		switch cs.runtime {
+		case RuntimeDocker:
+			memoryBytes := int64(memoryGB * 1024 * 1024 * 1024)
+			args = append(args, "--memory", fmt.Sprintf("%d", memoryBytes))
+		case RuntimeApple:
+			args = append(args, "--memory", fmt.Sprintf("%.0fG", memoryGB))
+		}
+	}
+
 	// Add quality of life volume mounts and environment variables
-	// TODO: Apple Container SDK doesn't support named volumes, so state volume mount
-	// would need to be something like ~/.config/catnip/state when using containers
-	args = append(args, "-v", "catnip-state:/volume")
+	// Both runtimes now use ~/.catnip/volume for state persistence
+	stateVolumePath := expandPath("~/.catnip/volume")
+	// Ensure the directory exists
+	if err := os.MkdirAll(stateVolumePath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create state volume directory: %w", err)
+	}
+	args = append(args, "-v", fmt.Sprintf("%s:/volume", stateVolumePath))
 
 	// Mount Claude IDE config if it exists
 	claudeIDEPath := expandPath("~/.claude/ide")
@@ -76,10 +179,23 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	}
 
 	// Environment variables
-	args = append(args, "-e", "CLAUDE_CODE_IDE_HOST_OVERRIDE=host.docker.internal")
+	switch cs.runtime {
+	case RuntimeDocker:
+		args = append(args, "-e", "CLAUDE_CODE_IDE_HOST_OVERRIDE=host.docker.internal")
+		args = append(args, "-e", "CATNIP_RUNTIME=docker")
+	case RuntimeApple:
+		// Apple containers might use a different host override
+		args = append(args, "-e", "CLAUDE_CODE_IDE_HOST_OVERRIDE=host.containers.internal")
+		args = append(args, "-e", "CATNIP_RUNTIME=container")
+	}
 	args = append(args, "-e", "CATNIP_SESSION=catnip")
 	if user := os.Getenv("USER"); user != "" {
 		args = append(args, "-e", fmt.Sprintf("CATNIP_USERNAME=%s", user))
+	}
+
+	// Add user-specified environment variables
+	for _, envVar := range envVars {
+		args = append(args, "-e", envVar)
 	}
 
 	// Mount SSH public key if SSH is enabled
@@ -87,22 +203,56 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 		args = append(args, "-e", "CATNIP_SSH_ENABLED=true")
 		publicKeyPath := expandPath("~/.ssh/catnip_remote.pub")
 		if _, err := os.Stat(publicKeyPath); err == nil {
-			args = append(args, "-v", fmt.Sprintf("%s:/home/catnip/.ssh/catnip_remote.pub:ro", publicKeyPath))
-		}
-	}
+			switch cs.runtime {
+			case RuntimeDocker:
+				args = append(args, "-v", fmt.Sprintf("%s:/home/catnip/.ssh/catnip_remote.pub:ro", publicKeyPath))
+			case RuntimeApple:
+				// Apple Container doesn't support file mounts, only directory mounts
+				// Create a temporary directory and copy the SSH key there
+				sshDir := expandPath("~/.catnip/ssh")
+				if err := os.MkdirAll(sshDir, 0700); err != nil {
+					return nil, fmt.Errorf("failed to create SSH directory: %w", err)
+				}
 
-	// Dev mode specific mounts
-	if isDevMode {
-		args = append(args, "-v", "catnip-dev-node-modules:/live/catnip/node_modules")
+				// Copy the public key to the catnip ssh directory
+				sshKeyDest := filepath.Join(sshDir, "catnip_remote.pub")
+				if err := copyFile(publicKeyPath, sshKeyDest); err != nil {
+					return nil, fmt.Errorf("failed to copy SSH key: %w", err)
+				}
+
+				// Mount the entire ssh directory
+				args = append(args, "-v", fmt.Sprintf("%s:/home/catnip/.ssh", sshDir))
+			}
+		}
 	}
 
 	// Check if we're in a git repository and determine mount strategy
 	gitRoot, isGitRepo := git.FindGitRoot(workDir)
 	if isGitRepo {
-		// Use git repository basename for mount path
-		basename := filepath.Base(gitRoot)
-		mountPath := fmt.Sprintf("/live/%s", basename)
-		args = append(args, "-v", fmt.Sprintf("%s:%s", gitRoot, mountPath))
+		if isDevMode {
+			// In dev mode, always mount to /live/catnip for consistency with dev-entrypoint
+			args = append(args, "-v", fmt.Sprintf("%s:/live/catnip", gitRoot))
+		} else {
+			// In normal mode, use the basename of the repo path
+			repoName := filepath.Base(gitRoot)
+			args = append(args, "-v", fmt.Sprintf("%s:/live/%s", gitRoot, repoName))
+		}
+	}
+
+	// Dev mode specific mounts (AFTER git repo mount so they override)
+	if isDevMode {
+		switch cs.runtime {
+		case RuntimeDocker:
+			// Docker supports named volumes
+			args = append(args, "-v", "catnip-dev-node-modules:/live/catnip/node_modules")
+		case RuntimeApple:
+			// Apple Container SDK doesn't support named volumes, use host path
+			nodeModulesPath := expandPath("~/.catnip/node_modules")
+			if err := os.MkdirAll(nodeModulesPath, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create node_modules directory: %w", err)
+			}
+			args = append(args, "-v", fmt.Sprintf("%s:/live/catnip/node_modules", nodeModulesPath))
+		}
 	}
 	// If not a git repo, don't mount any directory
 	var hasVite = false
@@ -133,14 +283,26 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 
 // ImageExists checks if a container image exists locally
 func (cs *ContainerService) ImageExists(ctx context.Context, image string) bool {
-	cmd := exec.CommandContext(ctx, string(cs.runtime), "image", "inspect", image)
+	var cmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "image", "inspect", image)
+	case RuntimeApple:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "image", "inspect", image)
+	}
 	_, err := cmd.Output()
 	return err == nil
 }
 
 // PullImage pulls a container image and returns a command to stream the output
 func (cs *ContainerService) PullImage(ctx context.Context, image string) (*exec.Cmd, error) {
-	cmd := exec.CommandContext(ctx, string(cs.runtime), "pull", image)
+	var cmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "pull", image)
+	case RuntimeApple:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "image", "pull", image)
+	}
 	return cmd, nil
 }
 
@@ -153,30 +315,260 @@ func (cs *ContainerService) BuildDevImage(ctx context.Context, gitRoot string) (
 }
 
 func (cs *ContainerService) GetContainerLogs(ctx context.Context, containerName string, follow bool) (*exec.Cmd, error) {
-	args := []string{"logs"}
-	if follow {
-		args = append(args, "-f")
+	var args []string
+	switch cs.runtime {
+	case RuntimeDocker:
+		args = []string{"logs"}
+		if follow {
+			args = append(args, "-f")
+		}
+		args = append(args, containerName)
+	case RuntimeApple:
+		args = []string{"logs"}
+		if follow {
+			args = append(args, "-f")
+		}
+		args = append(args, containerName)
 	}
-	args = append(args, containerName)
 
 	cmd := exec.CommandContext(ctx, string(cs.runtime), args...)
 	return cmd, nil
 }
 
 func (cs *ContainerService) StopContainer(ctx context.Context, containerName string) error {
-	cmd := exec.CommandContext(ctx, string(cs.runtime), "stop", containerName)
+	var cmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "stop", containerName)
+	case RuntimeApple:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "stop", containerName)
+	}
 	_, err := cmd.CombinedOutput()
 	return err
 }
 
-func (cs *ContainerService) IsContainerRunning(ctx context.Context, containerName string) bool {
-	cmd := exec.CommandContext(ctx, string(cs.runtime), "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
+func (cs *ContainerService) RemoveContainer(ctx context.Context, containerName string) error {
+	var cmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "rm", containerName)
+	case RuntimeApple:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "rm", containerName)
+	}
+	_, err := cmd.CombinedOutput()
+	return err
+}
+
+func (cs *ContainerService) StartContainer(ctx context.Context, containerName string) error {
+	var cmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "start", containerName)
+	case RuntimeApple:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "start", containerName)
+	}
+	_, err := cmd.CombinedOutput()
+	return err
+}
+
+// GetContainerImageForName returns the image (including tag) that a container was created with
+func (cs *ContainerService) GetContainerImageForName(ctx context.Context, containerName string) (string, error) {
+	switch cs.runtime {
+	case RuntimeDocker:
+		// docker inspect -f '{{.Config.Image}}' <name>
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "inspect", "-f", "{{.Config.Image}}", containerName)
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to inspect container image: %w", err)
+		}
+		return strings.TrimSpace(string(output)), nil
+	case RuntimeApple:
+		// `container list --all` prints a table; IMAGE is the second column
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "list", "--all")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to list containers: %w", err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "ID") { // header
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			id := fields[0]
+			if id == containerName {
+				return fields[1], nil
+			}
+		}
+		return "", fmt.Errorf("container %s not found in list output", containerName)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", cs.runtime)
+	}
+}
+
+func (cs *ContainerService) ContainerExists(ctx context.Context, containerName string) bool {
+	var cmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "ps", "-a", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
+	case RuntimeApple:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "list", "--all")
+	}
 	output, err := cmd.Output()
 	if err != nil {
 		return false
 	}
 
-	return strings.TrimSpace(string(output)) == containerName
+	switch cs.runtime {
+	case RuntimeDocker:
+		out := strings.TrimSpace(string(output))
+		if out == "" {
+			return false
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if strings.TrimSpace(line) == containerName {
+				return true
+			}
+		}
+		return false
+	case RuntimeApple:
+		// Parse Apple Container table output (including stopped containers)
+		// Format: ID      IMAGE                         OS     ARCH   STATE    ADDR
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			// Skip header line
+			if strings.HasPrefix(line, "ID") {
+				continue
+			}
+			// Parse table columns (space-separated)
+			fields := strings.Fields(line)
+			if len(fields) >= 1 {
+				id := fields[0]
+				if id == containerName {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	return false
+}
+
+func (cs *ContainerService) IsContainerRunning(ctx context.Context, containerName string) bool {
+	var cmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "ps", "--filter", fmt.Sprintf("name=%s", containerName), "--format", "{{.Names}}")
+	case RuntimeApple:
+		cmd = exec.CommandContext(ctx, string(cs.runtime), "list")
+	}
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	switch cs.runtime {
+	case RuntimeDocker:
+		out := strings.TrimSpace(string(output))
+		if out == "" {
+			return false
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if strings.TrimSpace(line) == containerName {
+				return true
+			}
+		}
+		return false
+	case RuntimeApple:
+		// Parse Apple Container table output
+		// Format: ID      IMAGE                         OS     ARCH   STATE    ADDR
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			// Skip header line
+			if strings.HasPrefix(line, "ID") {
+				continue
+			}
+			// Parse table columns (space-separated)
+			fields := strings.Fields(line)
+			if len(fields) >= 5 {
+				id := fields[0]
+				state := fields[4]
+				if id == containerName && state == "running" {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	return false
+}
+
+// FindRunningCatnipContainer scans running containers and returns the first Catnip container found
+// It returns the container name and image, and ok=true if found
+func (cs *ContainerService) FindRunningCatnipContainer(ctx context.Context) (string, string, bool) {
+	switch cs.runtime {
+	case RuntimeDocker:
+		// List running containers with names and images
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "ps", "--format", "{{.Names}}||{{.Image}}")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", "", false
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			parts := strings.SplitN(line, "||", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			name := strings.TrimSpace(parts[0])
+			image := strings.TrimSpace(parts[1])
+			// Heuristic: consider any image containing "catnip" as a Catnip container
+			if strings.Contains(image, "catnip") {
+				return name, image, true
+			}
+		}
+		return "", "", false
+	case RuntimeApple:
+		// container list shows running containers; columns: ID IMAGE OS ARCH STATE ADDR
+		cmd := exec.CommandContext(ctx, string(cs.runtime), "list")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", "", false
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(line, "ID") || strings.TrimSpace(line) == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 5 {
+				continue
+			}
+			name := fields[0]
+			image := fields[1]
+			state := fields[4]
+			if state == "running" && strings.Contains(image, "catnip") {
+				return name, image, true
+			}
+		}
+		return "", "", false
+	default:
+		return "", "", false
+	}
 }
 
 func (cs *ContainerService) GetContainerPorts(ctx context.Context, containerName string) ([]string, error) {
@@ -243,18 +635,36 @@ func (cs *ContainerService) GetContainerInfo(ctx context.Context, containerName 
 	}
 
 	// Get container stats with timeout
-	statsCmd := exec.CommandContext(ctx, string(cs.runtime), "stats", "--no-stream", "--format", "table {{.CPUPerc}}\t{{.MemUsage}}", containerName)
-	if statsOutput, err := statsCmd.Output(); err == nil {
-		info["stats"] = string(statsOutput)
-	} else {
-		// Only log failures to keep logs clean
-		containerDebugLog("Failed to get container stats for %s: %v", containerName, err)
+	var statsCmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		statsCmd = exec.CommandContext(ctx, string(cs.runtime), "stats", "--no-stream", "--format", "table {{.CPUPerc}}\t{{.MemUsage}}", containerName)
+	case RuntimeApple:
+		// Apple Container doesn't have stats command like Docker, skip stats for now
+		statsCmd = nil
+	}
+	if statsCmd != nil {
+		if statsOutput, err := statsCmd.Output(); err == nil {
+			info["stats"] = string(statsOutput)
+		} else {
+			// Only log failures to keep logs clean
+			containerDebugLog("Failed to get container stats for %s: %v", containerName, err)
+		}
 	}
 
 	// Get container port mappings with timeout
-	portsCmd := exec.CommandContext(ctx, string(cs.runtime), "port", containerName)
-	if portsOutput, err := portsCmd.Output(); err == nil {
-		info["ports"] = string(portsOutput)
+	var portsCmd *exec.Cmd
+	switch cs.runtime {
+	case RuntimeDocker:
+		portsCmd = exec.CommandContext(ctx, string(cs.runtime), "port", containerName)
+	case RuntimeApple:
+		// Apple Container doesn't have port command like Docker, skip port info for now
+		portsCmd = nil
+	}
+	if portsCmd != nil {
+		if portsOutput, err := portsCmd.Output(); err == nil {
+			info["ports"] = string(portsOutput)
+		}
 	}
 
 	return info, nil
@@ -272,23 +682,18 @@ func KillProcessGroup(pid int) error {
 	return syscall.Kill(-pid, syscall.SIGTERM)
 }
 
-var containerLogger *log.Logger
 var containerDebugEnabled bool
 
 func init() {
 	containerDebugEnabled = os.Getenv("DEBUG") == "true"
 	if containerDebugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			log.Fatalln("Failed to open debug log file:", err)
-		}
-		containerLogger = log.New(logFile, "[CONTAINER] ", log.LstdFlags|log.Lmicroseconds)
+		logger.Debug("=== CONTAINER DEBUG LOG STARTED ===")
 	}
 }
 
 func containerDebugLog(format string, args ...interface{}) {
-	if containerDebugEnabled && containerLogger != nil {
-		containerLogger.Printf(format+"\n", args...)
+	if containerDebugEnabled {
+		logger.Debugf(format, args...)
 	}
 }
 
@@ -370,4 +775,32 @@ func expandPath(path string) string {
 		}
 	}
 	return path
+}
+
+// copyFile copies a file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return err
+	}
+
+	// Copy file permissions
+	sourceInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+
+	return os.Chmod(dst, sourceInfo.Mode())
 }

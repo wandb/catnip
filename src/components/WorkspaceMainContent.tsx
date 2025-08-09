@@ -18,8 +18,13 @@ import {
 } from "@/components/ui/resizable";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { useWorktreeDiff } from "@/hooks/useWorktreeDiff";
-import { Eye, ChevronDown, ChevronUp } from "lucide-react";
+import { Eye, ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
+
+interface TerminalTab {
+  id: string;
+  name: string;
+}
 
 interface WorkspaceMainContentProps {
   worktree: Worktree;
@@ -28,6 +33,8 @@ interface WorkspaceMainContentProps {
   setShowDiffView: (showDiff: boolean) => void;
   showPortPreview: number | null;
   setShowPortPreview: (port: number | null) => void;
+  selectedFile?: string;
+  setSelectedFile?: (file: string | undefined) => void;
 }
 
 function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
@@ -91,6 +98,9 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     }
   }, []);
 
+  // Track if this is the very first connection to the worktree
+  const isFirstConnection = useRef(true);
+
   // Reset state when worktree changes
   useEffect(() => {
     isSetup.current = false;
@@ -98,6 +108,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     terminalReady.current = false;
     bufferingRef.current = false;
     lastConnectionAttempt.current = 0;
+    isFirstConnection.current = true; // Reset first connection flag when worktree changes
     setError(null);
 
     // Close existing WebSocket if any
@@ -147,6 +158,8 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     lastConnectionAttempt.current = now;
 
     isSetup.current = true;
+
+    // Always clear terminal on new connections to ensure clean state
     instance.clear();
 
     // Set up WebSocket connection for Claude agent in the workspace directory
@@ -206,7 +219,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
             // Process any remaining buffered data first
             if (buffer.length > 0) {
-              // Clear terminal before replaying buffer to prevent corruption
+              // Always clear terminal before replaying buffer to prevent corruption
               instance.clear();
               for (const chunk of buffer) {
                 instance.write(chunk);
@@ -461,12 +474,49 @@ export function WorkspaceMainContent({
   setShowDiffView,
   showPortPreview,
   setShowPortPreview,
+  selectedFile,
+  setSelectedFile,
 }: WorkspaceMainContentProps) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
   const [isTerminalMinimized, setIsTerminalMinimized] = useState(false);
   const [previousTerminalSize, setPreviousTerminalSize] = useState(30);
   const [terminalSize, setTerminalSize] = useState(30);
+
+  // Terminal tabs state
+  const [terminals, setTerminals] = useState<TerminalTab[]>([
+    { id: "default", name: "Terminal 1" },
+  ]);
+  const [activeTerminal, setActiveTerminal] = useState("default");
+
+  // Terminal management functions
+  const addTerminal = useCallback(() => {
+    if (terminals.length >= 3) return;
+
+    const newId = `terminal-${terminals.length + 1}`;
+    const newTerminal = {
+      id: newId,
+      name: `Terminal ${terminals.length + 1}`,
+    };
+
+    setTerminals((prev) => [...prev, newTerminal]);
+    setActiveTerminal(newId);
+  }, [terminals.length]);
+
+  const removeTerminal = useCallback(
+    (terminalId: string) => {
+      if (terminals.length <= 1) return; // Always keep at least one terminal
+
+      setTerminals((prev) => prev.filter((t) => t.id !== terminalId));
+
+      // If removing active terminal, switch to first remaining terminal
+      if (activeTerminal === terminalId) {
+        const remaining = terminals.filter((t) => t.id !== terminalId);
+        setActiveTerminal(remaining[0]?.id || "default");
+      }
+    },
+    [terminals, activeTerminal],
+  );
 
   // Get diff stats to check if we have changes
   const { diffStats } = useWorktreeDiff(
@@ -523,7 +573,11 @@ export function WorkspaceMainContent({
               <div className="h-full">
                 <WorkspaceDiffViewer
                   worktree={worktree}
-                  onClose={() => setShowDiffView(false)}
+                  selectedFile={selectedFile}
+                  onClose={() => {
+                    setShowDiffView(false);
+                    setSelectedFile?.(undefined);
+                  }}
                 />
               </div>
             ) : (
@@ -587,21 +641,61 @@ export function WorkspaceMainContent({
           <div className="flex flex-col bg-muted/50 overflow-hidden h-full">
             <div className="px-4 py-2 border-b bg-background/50 backdrop-blur-sm flex-shrink-0">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                   {isCollapsed && <SidebarTrigger className="h-4 w-4" />}
-                  <span className="text-sm">
-                    <span className="font-medium">Terminal</span>
-                    <span className="text-muted-foreground">
-                      {" "}
-                      - /workspace/{worktree.name}
-                    </span>
+
+                  {/* Terminal Tabs */}
+                  <div className="flex items-center gap-1 flex-1 min-w-0">
+                    {terminals.map((terminal) => (
+                      <div
+                        key={terminal.id}
+                        className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs cursor-pointer transition-colors ${
+                          activeTerminal === terminal.id
+                            ? "bg-background text-foreground border border-border"
+                            : "text-muted-foreground hover:text-foreground hover:bg-background/50"
+                        }`}
+                        onClick={() => setActiveTerminal(terminal.id)}
+                      >
+                        <span className="truncate max-w-[80px]">
+                          {terminal.name}
+                        </span>
+                        {terminals.length > 1 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeTerminal(terminal.id);
+                            }}
+                            className="ml-1 p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-colors"
+                            title={`Close ${terminal.name}`}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Add Terminal Button */}
+                    {terminals.length < 3 && (
+                      <button
+                        onClick={addTerminal}
+                        className="flex items-center justify-center w-6 h-6 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/50 transition-colors"
+                        title="Add new terminal (max 3)"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  <span className="text-xs text-muted-foreground ml-2">
+                    /workspace/{worktree.name}
                   </span>
                 </div>
+
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={toggleTerminalMinimized}
-                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground ml-2"
                   title={
                     isTerminalMinimized
                       ? "Expand terminal"
@@ -617,8 +711,20 @@ export function WorkspaceMainContent({
               </div>
             </div>
             {!isTerminalMinimized && (
-              <div className="flex-1 min-h-0 pb-2 bg-black">
-                <WorkspaceTerminal worktree={worktree} />
+              <div className="flex-1 min-h-0 pb-2 bg-black relative">
+                {terminals.map((terminal) => (
+                  <div
+                    key={terminal.id}
+                    className={`absolute inset-0 ${
+                      activeTerminal === terminal.id ? "block" : "hidden"
+                    }`}
+                  >
+                    <WorkspaceTerminal
+                      worktree={worktree}
+                      terminalId={terminal.id}
+                    />
+                  </div>
+                ))}
               </div>
             )}
           </div>

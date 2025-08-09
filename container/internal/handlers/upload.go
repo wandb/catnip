@@ -3,12 +3,12 @@ package handlers
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // UploadHandler handles file upload operations
@@ -45,7 +45,7 @@ func (h *UploadHandler) UploadFile(c *fiber.Ctx) error {
 	// Ensure uploads directory exists
 	uploadsDir := "/tmp/uploads"
 	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
-		log.Printf("❌ Failed to create uploads directory: %v", err)
+		logger.Errorf("❌ Failed to create uploads directory: %v", err)
 		return c.Status(500).JSON(UploadResponse{
 			Success: false,
 			Message: "Failed to create uploads directory",
@@ -55,7 +55,7 @@ func (h *UploadHandler) UploadFile(c *fiber.Ctx) error {
 	// Get uploaded file
 	file, err := c.FormFile("file")
 	if err != nil {
-		log.Printf("❌ Failed to get uploaded file: %v", err)
+		logger.Errorf("❌ Failed to get uploaded file: %v", err)
 		return c.Status(400).JSON(UploadResponse{
 			Success: false,
 			Message: "No file provided or invalid file",
@@ -69,7 +69,7 @@ func (h *UploadHandler) UploadFile(c *fiber.Ctx) error {
 	// Open uploaded file
 	src, err := file.Open()
 	if err != nil {
-		log.Printf("❌ Failed to open uploaded file: %v", err)
+		logger.Errorf("❌ Failed to open uploaded file: %v", err)
 		return c.Status(500).JSON(UploadResponse{
 			Success: false,
 			Message: "Failed to open uploaded file",
@@ -80,7 +80,7 @@ func (h *UploadHandler) UploadFile(c *fiber.Ctx) error {
 	// Create destination file
 	dst, err := os.Create(finalPath)
 	if err != nil {
-		log.Printf("❌ Failed to create destination file: %v", err)
+		logger.Errorf("❌ Failed to create destination file: %v", err)
 		return c.Status(500).JSON(UploadResponse{
 			Success: false,
 			Message: "Failed to create destination file",
@@ -90,14 +90,14 @@ func (h *UploadHandler) UploadFile(c *fiber.Ctx) error {
 
 	// Copy file contents
 	if _, err := io.Copy(dst, src); err != nil {
-		log.Printf("❌ Failed to copy file: %v", err)
+		logger.Errorf("❌ Failed to copy file: %v", err)
 		return c.Status(500).JSON(UploadResponse{
 			Success: false,
 			Message: "Failed to copy file",
 		})
 	}
 
-	log.Printf("✅ File uploaded successfully: %s", finalPath)
+	logger.Infof("✅ File uploaded successfully: %s", finalPath)
 	return c.JSON(UploadResponse{
 		Success:  true,
 		FilePath: finalPath,

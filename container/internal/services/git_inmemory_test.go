@@ -20,18 +20,21 @@ import (
 func TestGitServiceWithInMemoryOperations(t *testing.T) {
 	// Create temporary workspace
 	tempDir := t.TempDir()
-	oldWorkspace := os.Getenv("WORKSPACE_DIR")
-	require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
-	defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
 
 	// Create required directories
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
-	// Create service with in-memory git operations
+	// Create temporary state directory for isolated test state
+	stateDir := t.TempDir()
+
+	// Create service with in-memory git operations and isolated state
 	exec := executor.NewInMemoryExecutor()
 	operations := git.NewOperationsWithExecutor(exec)
-	service := NewGitServiceWithOperations(operations)
+	service := NewGitServiceWithStateDir(operations, stateDir)
 	require.NotNil(t, service)
 	require.NotNil(t, exec)
 
@@ -239,10 +242,29 @@ func testWorktreeOperationsWithInMemory(t *testing.T, service *GitService, exec 
 
 // TestGitServiceInMemoryAdvanced demonstrates advanced testing scenarios with in-memory operations
 func TestGitServiceInMemoryAdvanced(t *testing.T) {
-	// Create service with in-memory operations
+	// Create temporary workspace
+	tempDir := t.TempDir()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() {
+		if oldWorkspace == "" {
+			_ = os.Unsetenv("CATNIP_WORKSPACE_DIR")
+		} else {
+			_ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace)
+		}
+	}()
+
+	// Create required directories
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
+
+	// Create temporary state directory for isolated test state
+	stateDir := t.TempDir()
+
+	// Create service with in-memory operations and isolated state
 	exec := executor.NewInMemoryExecutor()
 	operations := git.NewOperationsWithExecutor(exec)
-	service := NewGitServiceWithOperations(operations)
+	service := NewGitServiceWithStateDir(operations, stateDir)
 
 	inMemoryExec, ok := exec.(*executor.InMemoryExecutor)
 	require.True(t, ok)
@@ -323,8 +345,11 @@ func TestGitServiceLocalRepositoryOperations(t *testing.T) {
 	localRepoPath := filepath.Join(tempDir, "repos", "test-project")
 	require.NoError(t, createRealTestRepository(localRepoPath))
 
-	// Create service with regular git operations (not in-memory) for real filesystem operations
-	service := NewGitService()
+	// Create temporary state directory for isolated test state
+	stateDir := t.TempDir()
+
+	// Create service with regular git operations (not in-memory) for real filesystem operations and isolated state
+	service := NewGitServiceWithStateDir(git.NewOperations(), stateDir)
 
 	// Manually add the local repository to the GitService state
 	// This simulates what detectLocalRepos() would do

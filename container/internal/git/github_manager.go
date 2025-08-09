@@ -3,11 +3,12 @@ package git
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os/exec"
 	"strconv"
 	"strings"
 
+	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -76,11 +77,11 @@ func (g *GitHubManager) CreatePullRequest(req CreatePullRequestRequest) (*models
 	var tempCommitHash string
 	if !strings.HasPrefix(req.Repository.ID, "local/") {
 		if hasChanges, err := g.operations.HasUncommittedChanges(req.Worktree.Path); err != nil {
-			log.Printf("⚠️ Failed to check uncommitted changes for %s: %v", req.Worktree.Name, err)
+			logger.Warnf("⚠️ Failed to check uncommitted changes for %s: %v", req.Worktree.Name, err)
 		} else if hasChanges {
-			log.Printf("📝 Worktree %s has uncommitted changes, creating temporary commit for PR", req.Worktree.Name)
+			logger.Debugf("📝 Worktree %s has uncommitted changes, creating temporary commit for PR", req.Worktree.Name)
 			if hash, err := req.CreateTempCommit(req.Worktree.Path); err != nil {
-				log.Printf("⚠️ Failed to create temporary commit for PR: %v", err)
+				logger.Warnf("⚠️ Failed to create temporary commit for PR: %v", err)
 			} else {
 				tempCommitHash = hash
 			}
@@ -111,7 +112,7 @@ func (g *GitHubManager) CreatePullRequest(req CreatePullRequestRequest) (*models
 			return nil, fmt.Errorf("cannot create PR: remote URL is not a GitHub repository: %s", remoteURL)
 		}
 
-		log.Printf("🔄 Using GitHub repo %s for local repository %s", ownerRepo, req.Repository.ID)
+		logger.Debugf("🔄 Using GitHub repo %s for local repository %s", ownerRepo, req.Repository.ID)
 	} else {
 		// For non-local repos, validate format
 		parts := strings.Split(req.Repository.ID, "/")
@@ -147,7 +148,7 @@ func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository
 
 	// Try to find existing PR
 	if err := g.checkExistingPR(worktree, ownerRepo, prInfo); err != nil {
-		log.Printf("ℹ️ Could not check for existing PR: %v", err)
+		logger.Warnf("ℹ️ Could not check for existing PR: %v", err)
 	}
 
 	return prInfo, nil
@@ -155,7 +156,7 @@ func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository
 
 // updatePullRequestWithGH updates an existing PR using GitHub CLI
 func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string, forcePush bool) (*models.PullRequestResponse, error) {
-	log.Printf("🔄 Updating PR for branch %s in %s", worktree.Branch, ownerRepo)
+	logger.Debugf("🔄 Updating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
 	// Handle custom refs (e.g., refs/catnip/ninja) by using the simple branch name
 	branchToPush := worktree.Branch
@@ -186,13 +187,13 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 		return nil, fmt.Errorf("failed to update PR: %v\nOutput: %s", err, string(output))
 	}
 
-	log.Printf("✅ Updated PR for branch %s", worktree.Branch)
+	logger.Infof("✅ Updated PR for branch %s", worktree.Branch)
 
 	// Get the PR details
 	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "number,url,title,body")
 	output, err = cmd.Output()
 	if err != nil {
-		log.Printf("⚠️ Could not get PR details: %v", err)
+		logger.Warnf("⚠️ Could not get PR details: %v", err)
 		return &models.PullRequestResponse{
 			Number: 0,
 			URL:    "",
@@ -208,7 +209,7 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 		Body   string `json:"body"`
 	}
 	if err := json.Unmarshal(output, &result); err != nil {
-		log.Printf("⚠️ Could not parse PR details: %v", err)
+		logger.Warnf("⚠️ Could not parse PR details: %v", err)
 		return &models.PullRequestResponse{
 			Number: 0,
 			URL:    "",
@@ -229,40 +230,55 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 
 // createPullRequestWithGH creates a new PR using GitHub CLI
 func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, ownerRepo, title, body string, forcePush bool) (*models.PullRequestResponse, error) {
-	log.Printf("🚀 Creating PR for branch %s in %s", worktree.Branch, ownerRepo)
+	logger.Debugf("🚀 Creating PR for branch %s in %s", worktree.Branch, ownerRepo)
 
-	// Handle custom refs (e.g., refs/catnip/ninja) by creating a regular branch
+	// Handle custom refs (e.g., refs/catnip/ninja) by using the nice branch for pushing
 	branchToPush := worktree.Branch
 	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
-		// Extract the simple branch name from the custom ref
-		simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+		// Check if there's a nice branch mapped to this custom ref
+		configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(worktree.Branch, "/", "."))
+		niceBranchOutput, err := g.operations.GetConfig(worktree.Path, configKey)
+		if err == nil && strings.TrimSpace(niceBranchOutput) != "" {
+			// Use the mapped nice branch
+			branchToPush = strings.TrimSpace(niceBranchOutput)
+			logger.Debugf("🔍 Using nice branch %s for PR (worktree remains on %s)", branchToPush, worktree.Branch)
 
-		// Create a regular branch from the current HEAD
-		// We need to use checkout -b instead of branch when HEAD points to a custom ref
-		log.Printf("🔄 Creating regular branch %s from custom ref %s", simpleBranchName, worktree.Branch)
-
-		// First check if the branch already exists
-		if g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
-			log.Printf("ℹ️ Branch %s already exists, checking it out", simpleBranchName)
-			// Checkout the existing branch
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", simpleBranchName)
-			if err != nil {
-				return nil, fmt.Errorf("failed to checkout existing branch %s: %v", simpleBranchName, err)
+			// Ensure the nice branch is up to date with the custom ref
+			currentCommit, _ := g.operations.GetCommitHash(worktree.Path, "HEAD")
+			if currentCommit != "" {
+				_, err = g.operations.ExecuteGit(worktree.Path, "branch", "-f", branchToPush, currentCommit)
+				if err != nil {
+					logger.Warnf("⚠️ Failed to update nice branch to current commit: %v", err)
+				}
 			}
 		} else {
-			// Create and checkout the new branch in one step
-			_, err := g.operations.ExecuteGit(worktree.Path, "checkout", "-b", simpleBranchName)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create branch from custom ref: %v", err)
-			}
-			log.Printf("✅ Created and checked out branch %s", simpleBranchName)
-		}
+			// Fallback: Extract the simple branch name from the custom ref and create a branch
+			simpleBranchName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+			logger.Debugf("🔄 Creating fallback branch %s from custom ref %s", simpleBranchName, worktree.Branch)
 
-		branchToPush = simpleBranchName
+			// Create the branch WITHOUT switching to it (worktree stays on custom ref)
+			currentCommit, _ := g.operations.GetCommitHash(worktree.Path, "HEAD")
+			if currentCommit != "" {
+				if !g.operations.BranchExists(worktree.Path, simpleBranchName, false) {
+					err := g.operations.CreateBranch(worktree.Path, simpleBranchName, currentCommit)
+					if err != nil {
+						return nil, fmt.Errorf("failed to create branch from custom ref: %v", err)
+					}
+					logger.Debugf("✅ Created branch %s (worktree remains on %s)", simpleBranchName, worktree.Branch)
+				} else {
+					// Update existing branch to current commit
+					_, err = g.operations.ExecuteGit(worktree.Path, "branch", "-f", simpleBranchName, currentCommit)
+					if err != nil {
+						logger.Warnf("⚠️ Failed to update branch to current commit: %v", err)
+					}
+				}
+			}
+			branchToPush = simpleBranchName
+		}
 	}
 
 	// Push the branch
-	log.Printf("🔍 PR Creation: About to push branch %s with ConvertHTTPS=true, Force=%v", branchToPush, forcePush)
+	logger.Debugf("🔍 PR Creation: About to push branch %s with ConvertHTTPS=true, Force=%v", branchToPush, forcePush)
 	if err := g.operations.PushBranch(worktree.Path, PushStrategy{
 		Branch:       branchToPush,
 		Remote:       "origin",
@@ -270,13 +286,13 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 		ConvertHTTPS: true,
 		Force:        forcePush,
 	}); err != nil {
-		log.Printf("❌ PR Creation: Push failed: %v", err)
+		logger.Errorf("❌ PR Creation: Push failed: %v", err)
 		return nil, fmt.Errorf("failed to push branch before PR creation: %v", err)
 	}
-	log.Printf("✅ PR Creation: Push successful for branch %s", branchToPush)
+	logger.Debugf("✅ PR Creation: Push successful for branch %s", branchToPush)
 
 	// Create the PR
-	log.Printf("🔍 PR Creation: About to create PR with gh pr create --repo %s", ownerRepo)
+	logger.Debugf("🔍 PR Creation: About to create PR with gh pr create --repo %s", ownerRepo)
 	cmd := g.execCommand("gh", "pr", "create",
 		"--repo", ownerRepo,
 		"--base", worktree.SourceBranch,
@@ -293,7 +309,7 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 		return nil, fmt.Errorf("failed to create PR: %v\nOutput: %s", err, string(output))
 	}
 
-	log.Printf("✅ Created PR for branch %s", branchToPush)
+	logger.Infof("✅ Created PR for branch %s", branchToPush)
 
 	// Extract URL from output (gh pr create returns the URL)
 	url := strings.TrimSpace(string(output))
@@ -352,7 +368,7 @@ func (g *GitHubManager) checkExistingPR(worktree *models.Worktree, ownerRepo str
 	prInfo.Title = existingPR.Title
 	prInfo.Body = existingPR.Body
 
-	log.Printf("✅ Found existing PR #%d for branch %s", existingPR.Number, worktree.Branch)
+	logger.Debugf("✅ Found existing PR #%d for branch %s", existingPR.Number, worktree.Branch)
 	return nil
 }
 
@@ -364,12 +380,17 @@ func (g *GitHubManager) IsAuthenticated() bool {
 
 // ConfigureGitCredentials sets up Git to use gh CLI for GitHub authentication
 func (g *GitHubManager) ConfigureGitCredentials() error {
+	if config.Runtime.IsNative() {
+		logger.Debugf("ℹ️ Running in native mode - skipping git credential configuration")
+		return nil
+	}
+
 	if !g.IsAuthenticated() {
-		log.Printf("ℹ️ GitHub CLI not authenticated, Git operations will only work with public repositories")
+		logger.Warnf("ℹ️ GitHub CLI not authenticated, Git operations will only work with public repositories")
 		return fmt.Errorf("GitHub CLI not authenticated")
 	}
 
-	log.Printf("🔐 Configuring Git to use GitHub CLI for authentication")
+	logger.Debugf("🔐 Configuring Git to use GitHub CLI for authentication")
 
 	// Configure Git to use gh as credential helper for GitHub
 	return g.operations.SetGlobalConfig("credential.https://github.com.helper", "!gh auth git-credential")

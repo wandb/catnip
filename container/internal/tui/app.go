@@ -3,13 +3,16 @@ package tui
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -26,24 +29,18 @@ var embeddedLogo string
 //go:embed logo-small.ascii
 var embeddedSmallLogo string
 
-var debugLogger *log.Logger
 var debugEnabled bool
 
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catctrl-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			log.Fatalln("Failed to open debug log file:", err)
-		}
-		debugLogger = log.New(logFile, "", log.LstdFlags|log.Lmicroseconds)
-		debugLogger.Println("=== TUI DEBUG LOG STARTED ===")
+		logger.Debug("=== TUI DEBUG LOG STARTED ===")
 	}
 }
 
 func debugLog(format string, args ...interface{}) {
-	if debugEnabled && debugLogger != nil {
-		debugLogger.Printf(format+"\n", args...)
+	if debugEnabled {
+		logger.Debugf(format, args...)
 	}
 }
 
@@ -53,6 +50,7 @@ type App struct {
 	containerName    string
 	program          *tea.Program
 	sseClient        *SSEClient
+	portForwarder    *PortForwardManager
 
 	// Initialization parameters
 	containerImage string
@@ -60,10 +58,15 @@ type App struct {
 	refreshFlag    bool
 	sshEnabled     bool
 	version        string
+	runtime        string
+	rmFlag         bool
 }
 
 // NewApp creates a new application instance
-func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string) *App {
+func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool) *App {
+	// Get runtime information from container service
+	runtime := string(containerService.GetRuntime())
+
 	return &App{
 		containerService: containerService,
 		containerName:    containerName,
@@ -72,11 +75,13 @@ func NewApp(containerService *services.ContainerService, containerName, workDir,
 		refreshFlag:      refreshFlag,
 		sshEnabled:       sshEnabled,
 		version:          version,
+		runtime:          runtime,
+		rmFlag:           rmFlag,
 	}
 }
 
-// Run starts the TUI application
-func (a *App) Run(ctx context.Context, workDir string, customPorts []string) error {
+// Run starts the TUI application and returns the final active container name
+func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (string, error) {
 	// Initialize search input
 	searchInput := textinput.New()
 	searchInput.Placeholder = "Enter search pattern (regex supported)..."
@@ -93,9 +98,35 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 
 	// Initialize SSE client
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
+	// Initialize port forwarder (uses backend on 8080)
+	a.portForwarder = NewPortForwardManager("http://localhost:8080")
+	// Start forwarding when ports open (only if SSH enabled)
+	sseClient.onEvent = func(ev AppEvent) {
+		if !a.sshEnabled || a.portForwarder == nil {
+			return
+		}
+		switch ev.Type {
+		case PortOpenedEvent:
+			if payload, ok := ev.Payload.(map[string]interface{}); ok {
+				if pf, ok := payload["port"].(float64); ok {
+					cp := int(pf)
+					a.portForwarder.EnsureForward(cp)
+					// Immediately announce mapping in case backend restarted
+					a.portForwarder.ReannounceMappings()
+				}
+			}
+		case PortClosedEvent:
+			if payload, ok := ev.Payload.(map[string]interface{}); ok {
+				if pf, ok := payload["port"].(float64); ok {
+					cp := int(pf)
+					a.portForwarder.StopForward(cp)
+				}
+			}
+		}
+	}
 
 	// Create the model - always with initialization
-	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version)
+	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag)
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport
@@ -119,14 +150,32 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) err
 	// Start SSE client immediately
 	sseClient.Start()
 
-	_, err := a.program.Run()
+	finalModel, err := a.program.Run()
 
 	// Clean up SSE client if it was started
 	if a.sseClient != nil {
 		a.sseClient.Stop()
 	}
+	if a.portForwarder != nil {
+		a.portForwarder.StopAll()
+	}
 
-	return err
+	// Best-effort terminal reset to avoid leaving the user's terminal in an odd state
+	// Reset SGR, re-enable line wrap, show cursor, and try to restore sane tty settings
+	_, _ = os.Stdout.WriteString("\x1b[0m\x1b[?7h\x1b[?25h")
+	_ = exec.Command("stty", "sane").Run()
+
+	// Try to extract the final container name from the model
+	finalName := a.containerName
+	if finalModel != nil {
+		if m, ok := finalModel.(Model); ok {
+			if strings.TrimSpace(m.containerName) != "" {
+				finalName = m.containerName
+			}
+		}
+	}
+
+	return finalName, err
 }
 
 // Init initializes the model and returns initial commands
@@ -145,7 +194,11 @@ func (m Model) View() string {
 
 	// Header
 	headerStyle := components.HeaderStyle.Width(m.width-2).Padding(0, 1)
-	header := headerStyle.Render(fmt.Sprintf("🐱 Catnip - %s", m.version))
+	headerText := fmt.Sprintf("🐱 Catnip - %s (%s)", m.version, m.runtime)
+	if m.upgradeAvailable {
+		headerText += " • ⚠️ Upgrade Available"
+	}
+	header := headerStyle.Render(headerText)
 
 	// Footer
 	footer := m.renderFooter()
@@ -296,4 +349,46 @@ func (m Model) overlayOnContent(content, overlay string) string {
 	)
 
 	return centeredOverlay
+}
+
+// ContainerVersionInfo represents the response from /v1/info endpoint
+type ContainerVersionInfo struct {
+	Version string `json:"version"`
+	Build   struct {
+		Commit  string `json:"commit"`
+		Date    string `json:"date"`
+		BuiltBy string `json:"builtBy"`
+	} `json:"build"`
+}
+
+// fetchContainerVersion fetches the version information from the running container
+func fetchContainerVersion() (*ContainerVersionInfo, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:8080/v1/info")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch container version: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("container version endpoint returned status %d", resp.StatusCode)
+	}
+
+	var versionInfo ContainerVersionInfo
+	if err := json.NewDecoder(resp.Body).Decode(&versionInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode container version response: %w", err)
+	}
+
+	return &versionInfo, nil
+}
+
+// compareVersions compares two version strings and returns true if they differ
+// This is a simple string comparison - for more complex versioning, a proper semver library could be used
+func compareVersions(cliVersion, containerVersion string) bool {
+	// Remove "v" prefix if present and normalize
+	cliVersion = strings.TrimPrefix(cliVersion, "v")
+	containerVersion = strings.TrimPrefix(containerVersion, "v")
+
+	// Simple string comparison - different versions indicate an upgrade is available
+	return cliVersion != containerVersion
 }

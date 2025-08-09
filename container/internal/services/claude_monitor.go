@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +13,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/fsnotify/fsnotify"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -23,6 +24,7 @@ type ClaudeMonitorService struct {
 	gitService         *GitService
 	sessionService     *SessionService
 	claudeService      *ClaudeService
+	stateManager       *WorktreeStateManager                 // Centralized state management
 	checkpointManagers map[string]*WorktreeCheckpointManager // Map of worktree path to checkpoint manager
 	managersMutex      sync.RWMutex
 	titlesWatcher      *fsnotify.Watcher
@@ -47,10 +49,12 @@ type titleEvent struct {
 // WorktreeCheckpointManager manages checkpoints for a single worktree
 type WorktreeCheckpointManager struct {
 	workDir            string
+	worktreeID         string // Cached worktree ID to avoid expensive lookups
 	checkpointManager  *git.SessionCheckpointManager
 	gitService         *GitService
 	sessionService     *SessionService
 	claudeService      *ClaudeService
+	stateManager       *WorktreeStateManager
 	currentTitle       string
 	checkpointTimer    *time.Timer
 	timerMutex         sync.Mutex
@@ -72,17 +76,18 @@ type WorktreeTodoMonitor struct {
 }
 
 // NewClaudeMonitorService creates a new Claude monitor service
-func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService) *ClaudeMonitorService {
-	// Get log path from environment or use default
+func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService, stateManager *WorktreeStateManager) *ClaudeMonitorService {
+	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
-		titlesLogPath = "/home/catnip/.catnip/title_events.log"
+		titlesLogPath = filepath.Join(config.Runtime.VolumeDir, "title_events.log")
 	}
 
 	return &ClaudeMonitorService{
 		gitService:         gitService,
 		sessionService:     sessionService,
 		claudeService:      claudeService,
+		stateManager:       stateManager,
 		checkpointManagers: make(map[string]*WorktreeCheckpointManager),
 		stopCh:             make(chan struct{}),
 		titlesLogPath:      titlesLogPath,
@@ -94,7 +99,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 
 // Start begins monitoring all worktrees
 func (s *ClaudeMonitorService) Start() error {
-	log.Printf("🚀 Starting Claude monitor service")
+	logger.Info("🚀 Starting Claude monitor service")
 
 	// Create file watcher for titles log
 	watcher, err := fsnotify.NewWatcher()
@@ -114,7 +119,7 @@ func (s *ClaudeMonitorService) Start() error {
 
 // Stop stops all monitoring
 func (s *ClaudeMonitorService) Stop() {
-	log.Printf("🛑 Stopping Claude monitor service")
+	logger.Info("🛑 Stopping Claude monitor service")
 	close(s.stopCh)
 
 	if s.titlesWatcher != nil {
@@ -140,7 +145,7 @@ func (s *ClaudeMonitorService) Stop() {
 
 // monitorTitlesLog monitors the titles log file for changes
 func (s *ClaudeMonitorService) monitorTitlesLog() {
-	log.Printf("👀 Starting to monitor titles log: %s", s.titlesLogPath)
+	logger.Debugf("👀 Starting to monitor titles log: %s", s.titlesLogPath)
 
 	// Initial read of existing log entries
 	s.readTitlesLog()
@@ -148,7 +153,7 @@ func (s *ClaudeMonitorService) monitorTitlesLog() {
 	// Watch for changes to the log file
 	dir := filepath.Dir(s.titlesLogPath)
 	if err := s.titlesWatcher.Add(dir); err != nil {
-		log.Printf("⚠️  Failed to watch titles log directory: %v", err)
+		logger.Warnf("⚠️  Failed to watch titles log directory: %v", err)
 		return
 	}
 
@@ -165,7 +170,7 @@ func (s *ClaudeMonitorService) monitorTitlesLog() {
 			if !ok {
 				return
 			}
-			log.Printf("⚠️  Titles watcher error: %v", err)
+			logger.Warnf("⚠️  Titles watcher error: %v", err)
 		case <-s.stopCh:
 			return
 		}
@@ -177,7 +182,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 	file, err := os.Open(s.titlesLogPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			log.Printf("⚠️  Failed to open titles log: %v", err)
+			logger.Warnf("⚠️  Failed to open titles log: %v", err)
 		}
 		return
 	}
@@ -186,7 +191,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 	// Seek to last read position
 	if s.lastLogPosition > 0 {
 		if _, err := file.Seek(s.lastLogPosition, 0); err != nil {
-			log.Printf("⚠️  Failed to seek in titles log: %v", err)
+			logger.Warnf("⚠️  Failed to seek in titles log: %v", err)
 			return
 		}
 	}
@@ -201,7 +206,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 		// Parse log entry: timestamp|pid|cwd|title
 		parts := strings.Split(line, "|")
 		if len(parts) != 4 {
-			log.Printf("⚠️  Invalid log entry format: %s", line)
+			logger.Warnf("⚠️  Invalid log entry format: %s", line)
 			continue
 		}
 
@@ -210,7 +215,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 		cwd := parts[2]
 		title := parts[3]
 
-		log.Printf("🪧 Title change detected at %s: %q in %s", timestamp, title, cwd)
+		logger.Debugf("🪧 Title change detected at %s: %q in %s", timestamp, title, cwd)
 
 		// Check if this is a worktree directory
 		if s.isWorktreeDirectory(cwd) {
@@ -279,13 +284,18 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 	}
 	s.recentTitlesMutex.Unlock()
 
+	// Update activity time for title changes
+	s.activityMutex.Lock()
+	s.lastActivityTimes[workDir] = time.Now()
+	s.activityMutex.Unlock()
+
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
 	if !exists {
 		// Create new checkpoint manager for this worktree
 		manager = s.createCheckpointManager(workDir)
 		s.checkpointManagers[workDir] = manager
-		log.Printf("📝 Created checkpoint manager for worktree: %s", workDir)
+		logger.Debugf("📝 Created checkpoint manager for worktree: %s", workDir)
 	}
 	s.managersMutex.Unlock()
 
@@ -300,7 +310,7 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 		worktrees := s.gitService.stateManager.GetAllWorktrees()
 		for worktreeID, worktree := range worktrees {
 			if worktree.Path == workDir {
-				log.Printf("🔍 Starting todo monitor for worktree %s after title change", workDir)
+				logger.Debugf("🔍 Starting todo monitor for worktree %s after title change", workDir)
 				s.startWorktreeTodoMonitor(worktreeID, workDir)
 				break
 			}
@@ -322,14 +332,31 @@ func (s *ClaudeMonitorService) NotifyTitleChange(workDir, newTitle string) {
 	}
 }
 
+// findWorktreeIDByPath finds the worktree ID for a given workDir path (expensive - use sparingly)
+func (s *ClaudeMonitorService) findWorktreeIDByPath(workDir string) string {
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	for id, worktree := range allWorktrees {
+		if worktree.Path == workDir {
+			return id
+		}
+	}
+	logger.Warnf("⚠️  Failed to find worktree ID for path %s", workDir)
+	return ""
+}
+
 // createCheckpointManager creates a checkpoint manager for a worktree
 func (s *ClaudeMonitorService) createCheckpointManager(workDir string) *WorktreeCheckpointManager {
+	// Find and cache the worktree ID once to avoid expensive lookups later
+	worktreeID := s.findWorktreeIDByPath(workDir)
+
 	return &WorktreeCheckpointManager{
 		workDir:           workDir,
+		worktreeID:        worktreeID,
 		checkpointManager: git.NewSessionCheckpointManager(workDir, NewGitServiceAdapter(s.gitService), NewSessionServiceAdapter(s.sessionService)),
 		gitService:        s.gitService,
 		sessionService:    s.sessionService,
 		claudeService:     s.claudeService,
+		stateManager:      s.stateManager,
 	}
 }
 
@@ -343,13 +370,13 @@ func (m *WorktreeCheckpointManager) HandleTitleChange(newTitle string) {
 
 	// If we have a different title, commit the previous work
 	if previousTitle != "" && previousTitle != newTitle {
-		log.Printf("🪧 Title change detected in %s: %q -> %q", m.workDir, previousTitle, newTitle)
+		logger.Debugf("🪧 Title change detected in %s: %q -> %q", m.workDir, previousTitle, newTitle)
 		m.commitPreviousWork(previousTitle)
 	}
 
 	// Update session service with the new title (no commit hash yet)
 	if err := m.sessionService.UpdateSessionTitle(m.workDir, newTitle, ""); err != nil {
-		log.Printf("⚠️  Failed to update session title: %v", err)
+		logger.Warnf("⚠️  Failed to update session title: %v", err)
 	}
 
 	// Update the current title
@@ -384,12 +411,12 @@ func (m *WorktreeCheckpointManager) startCheckpointTimer() {
 		if m.currentTitle != "" {
 			// Check if there are any uncommitted changes using git operations
 			if hasChanges, err := m.gitService.operations.HasUncommittedChanges(m.workDir); err != nil {
-				log.Printf("⚠️  Failed to check for uncommitted changes: %v", err)
+				logger.Warnf("⚠️  Failed to check for uncommitted changes: %v", err)
 			} else if hasChanges {
 				if err := m.checkpointManager.CreateCheckpoint(m.currentTitle); err != nil {
-					log.Printf("⚠️  Failed to create checkpoint: %v", err)
+					logger.Warnf("⚠️  Failed to create checkpoint: %v", err)
 				} else {
-					log.Printf("✅ Created checkpoint for %s: %q", m.workDir, m.currentTitle)
+					logger.Infof("✅ Created checkpoint for %s: %q", m.workDir, m.currentTitle)
 				}
 			}
 			// Skip logging when no changes - this is normal
@@ -422,22 +449,22 @@ func (m *WorktreeCheckpointManager) commitPreviousWork(title string) {
 
 	commitHash, err := m.gitService.GitAddCommitGetHash(m.workDir, title)
 	if err != nil {
-		log.Printf("⚠️  Failed to commit previous work: %v", err)
+		logger.Warnf("⚠️  Failed to commit previous work: %v", err)
 		return
 	}
 
 	if commitHash != "" {
-		log.Printf("✅ Committed previous work in %s: %q (hash: %s)", m.workDir, title, commitHash)
+		logger.Infof("✅ Committed previous work in %s: %q (hash: %s)", m.workDir, title, commitHash)
 		m.checkpointManager.UpdateLastCommitTime()
 
 		// Update the previous title's commit hash
 		if err := m.sessionService.UpdatePreviousTitleCommitHash(m.workDir, commitHash); err != nil {
-			log.Printf("⚠️  Failed to update previous title commit hash: %v", err)
+			logger.Warnf("⚠️  Failed to update previous title commit hash: %v", err)
 		}
 
 		// Refresh worktree status to update commit count in frontend
 		if err := m.gitService.RefreshWorktreeStatus(m.workDir); err != nil {
-			log.Printf("⚠️  Failed to refresh worktree status after commit: %v", err)
+			logger.Warnf("⚠️  Failed to refresh worktree status after commit: %v", err)
 		}
 	}
 }
@@ -460,7 +487,7 @@ func (m *WorktreeCheckpointManager) checkAndRenameBranch(title string) {
 	// Get current branch name (full ref) - handle detached HEAD state
 	output, err := m.gitService.operations.ExecuteGit(m.workDir, "rev-parse", "--symbolic-full-name", "HEAD")
 	if err != nil {
-		log.Printf("⚠️  Failed to get current branch name: %v", err)
+		logger.Warnf("⚠️  Failed to get current branch name: %v", err)
 		return
 	}
 	currentBranch := strings.TrimSpace(string(output))
@@ -513,15 +540,15 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 	response, err := m.claudeService.CreateCompletion(ctx, req)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			log.Printf("⏰ Claude request timed out after 60 seconds for title: %q", title)
+			logger.Warnf("⏰ Claude request timed out after 60 seconds for title: %q", title)
 		} else {
-			log.Printf("⚠️  Failed to get branch name suggestion from Claude: %v", err)
+			logger.Warnf("⚠️  Failed to get branch name suggestion from Claude: %v", err)
 		}
 		return
 	}
 
 	if response == nil || response.Response == "" {
-		log.Printf("⚠️  Claude returned empty response for branch name")
+		logger.Warnf("⚠️  Claude returned empty response for branch name")
 		return
 	}
 
@@ -529,67 +556,62 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 
 	// Basic validation - just check for valid git branch name
 	if !m.isValidGitBranchName(newBranch) {
-		log.Printf("⚠️  Claude suggested invalid branch name: %q", newBranch)
+		logger.Warnf("⚠️  Claude suggested invalid branch name: %q", newBranch)
 		return
 	}
 
 	// Check if the new branch name already exists and append numbers if needed
-	log.Printf("🔍 Checking if branch %q exists in %s", newBranch, m.workDir)
+	logger.Debugf("🔍 Checking if branch %q exists in %s", newBranch, m.workDir)
 	finalBranch := newBranch
 	counter := 1
 	for m.gitService.branchExists(m.workDir, finalBranch, false) ||
 		m.gitService.branchExists(m.workDir, "refs/heads/"+finalBranch, false) {
-		log.Printf("🔍 Branch %q exists, trying next...", finalBranch)
+		logger.Debugf("🔍 Branch %q exists, trying next...", finalBranch)
 		finalBranch = fmt.Sprintf("%s-%d", newBranch, counter)
 		counter++
 		if counter > 100 { // Safety limit to prevent infinite loops
-			log.Printf("⚠️  Too many similar branches exist for %q, skipping graduation", newBranch)
+			logger.Warnf("⚠️  Too many similar branches exist for %q, skipping graduation", newBranch)
 			return
 		}
 	}
 
 	if finalBranch != newBranch {
-		log.Printf("📝 Branch %q already exists, using %q instead", newBranch, finalBranch)
+		logger.Debugf("📝 Branch %q already exists, using %q instead", newBranch, finalBranch)
 	}
 	newBranch = finalBranch
 
 	// Double-check that the final branch name doesn't exist
 	if m.gitService.branchExists(m.workDir, newBranch, false) ||
 		m.gitService.branchExists(m.workDir, "refs/heads/"+newBranch, false) {
-		log.Printf("❌ ERROR: Branch %q still exists after collision detection!", newBranch)
+		logger.Errorf("❌ ERROR: Branch %q still exists after collision detection!", newBranch)
 		return
 	}
 
-	// Rename the branch to the new name
-	log.Printf("🎓 Renaming branch %q to %q", currentBranch, newBranch)
-	if err := m.renameBranch(currentBranch, newBranch); err != nil {
-		log.Printf("⚠️  Failed to rename branch: %v", err)
+	// Rename the branch to the new name using centralized state management
+	logger.Debugf("🎓 Renaming branch %q to %q", currentBranch, newBranch)
+
+	// Use cached worktree ID to avoid expensive lookup
+	worktreeID := m.findWorktreeIDByPath()
+	if worktreeID == "" {
+		logger.Warnf("⚠️  Failed to find worktree ID for path %s", m.workDir)
 		return
 	}
 
-	log.Printf("✅ Successfully renamed to branch %q", newBranch)
+	logger.Debugf("🔄 performBranchRename: calling RenameWorktreeBranch for %s -> %s", worktreeID, newBranch)
+	if err := m.stateManager.RenameWorktreeBranch(worktreeID, newBranch, m.gitService.operations); err != nil {
+		logger.Warnf("⚠️  Failed to rename branch: %v", err)
+		return
+	}
+
+	logger.Infof("✅ Successfully renamed to branch %q", newBranch)
 }
 
-// renameBranch creates a new branch from the current branch and switches to it
-func (m *WorktreeCheckpointManager) renameBranch(oldBranchName, newBranchName string) error {
-	// Create and switch to new regular branch in one command - this works even with non-refs/heads branches
-	if _, err := m.gitService.operations.ExecuteGit(m.workDir, "checkout", "-b", newBranchName); err != nil {
-		return fmt.Errorf("failed to create and checkout new branch %q: %v", newBranchName, err)
+// findWorktreeIDByPath returns the cached worktree ID for this checkpoint manager
+func (m *WorktreeCheckpointManager) findWorktreeIDByPath() string {
+	if m.worktreeID == "" {
+		logger.Warnf("⚠️  No cached worktree ID for path %s", m.workDir)
 	}
-
-	// Remove the old branch ref (optional - could leave it as a backup)
-	if err := m.gitService.operations.DeleteBranch(m.workDir, oldBranchName, true); err != nil {
-		log.Printf("⚠️  Failed to delete old branch ref %q: %v", oldBranchName, err)
-		// Don't fail the whole operation for this
-	}
-
-	// Update the worktree branch name in the GitService so the UI reflects the change
-	if err := m.gitService.UpdateWorktreeBranchName(m.workDir, newBranchName); err != nil {
-		log.Printf("⚠️  Failed to update worktree branch name in service: %v", err)
-		// Don't fail the whole operation for this, but log the error
-	}
-
-	return nil
+	return m.worktreeID
 }
 
 // isValidGitBranchName validates basic git branch name rules
@@ -654,6 +676,31 @@ func (m *WorktreeCheckpointManager) isCurrentBranchCatnip() bool {
 		}
 	}
 
+	// First check the state to see if this worktree has already been renamed
+	if m.worktreeID != "" {
+		if worktree, exists := m.stateManager.GetWorktree(m.worktreeID); exists && worktree != nil {
+			// If branch is not in catnip format but has_been_renamed is false,
+			// it means it was renamed outside our system - update the flag
+			if !git.IsCatnipBranch(worktree.Branch) && !worktree.HasBeenRenamed {
+				logger.Debugf("🔍 Branch %q appears to be renamed already, updating has_been_renamed flag", worktree.Branch)
+				if err := m.stateManager.UpdateWorktree(m.worktreeID, map[string]interface{}{
+					"has_been_renamed": true,
+				}); err != nil {
+					logger.Warnf("⚠️ Failed to update worktree has_been_renamed flag: %v", err)
+				}
+				return false
+			}
+
+			if worktree.HasBeenRenamed {
+				logger.Debugf("🔍 Worktree %s already renamed, skipping further renames", m.worktreeID)
+				return false
+			}
+			// If not renamed, check if current branch is a catnip branch using state data
+			return git.IsCatnipBranch(worktree.Branch)
+		}
+	}
+
+	// Fallback: check current git branch if state lookup fails
 	return git.IsCatnipBranch(currentBranch)
 }
 
@@ -705,17 +752,25 @@ func (s *ClaudeMonitorService) TriggerBranchRename(workDir string, customBranchN
 		}
 
 		if finalBranch != customBranchName {
-			log.Printf("📝 Branch %q already exists, using %q instead", customBranchName, finalBranch)
+			logger.Debugf("📝 Branch %q already exists, using %q instead", customBranchName, finalBranch)
 		}
 		customBranchName = finalBranch
 
-		// Rename directly to the custom name
-		log.Printf("🎓 Renaming branch %q to custom name %q", currentBranch, customBranchName)
-		if err := manager.renameBranch(currentBranch, customBranchName); err != nil {
+		// Rename directly to the custom name using centralized state management
+		logger.Debugf("🎓 Renaming branch %q to custom name %q", currentBranch, customBranchName)
+
+		// Use cached worktree ID to avoid expensive lookup
+		worktreeID := manager.findWorktreeIDByPath()
+		if worktreeID == "" {
+			return fmt.Errorf("failed to find worktree ID for path %s", workDir)
+		}
+
+		logger.Debugf("🔄 TriggerBranchRename: calling RenameWorktreeBranch for %s -> %s", worktreeID, customBranchName)
+		if err := s.stateManager.RenameWorktreeBranch(worktreeID, customBranchName, s.gitService.operations); err != nil {
 			return fmt.Errorf("failed to rename branch: %v", err)
 		}
 
-		log.Printf("✅ Successfully renamed to custom branch %q", customBranchName)
+		logger.Infof("✅ Successfully renamed to custom branch %q", customBranchName)
 		return nil
 	}
 
@@ -735,7 +790,7 @@ func (s *ClaudeMonitorService) TriggerBranchRename(workDir string, customBranchN
 
 // startTodoMonitoring starts monitoring todos for all existing worktrees
 func (s *ClaudeMonitorService) startTodoMonitoring() {
-	log.Printf("🔍 Starting Todo monitoring for all worktrees")
+	logger.Debugf("🔍 Starting Todo monitoring for all worktrees")
 
 	// Get all existing worktrees
 	worktrees := s.gitService.stateManager.GetAllWorktrees()
@@ -750,27 +805,29 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 	s.todoMonitorsMutex.Lock()
 	defer s.todoMonitorsMutex.Unlock()
 
-	log.Printf("🔍 Attempting to start Todo monitor for worktree %s at path %s", worktreeID, worktreePath)
+	logger.Debugf("🔍 Attempting to start Todo monitor for worktree %s at path %s", worktreeID, worktreePath)
 
 	// Check if monitor already exists
 	if _, exists := s.todoMonitors[worktreePath]; exists {
-		log.Printf("📊 Todo monitor already exists for %s", worktreePath)
+		logger.Debugf("📊 Todo monitor already exists for %s", worktreePath)
 		return
 	}
 
 	// Convert worktree path to project directory
+	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
 	projectDirName = strings.TrimPrefix(projectDirName, "-")
 	projectDirName = "-" + projectDirName
-	log.Printf("🔍 Looking for project directory: %s", projectDirName)
+	logger.Debugf("🔍 Looking for project directory: %s", projectDirName)
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
-		log.Printf("⚠️  No Claude project directory found for %s (expected: %s)", worktreePath, projectDirName)
+		logger.Warnf("⚠️  No Claude project directory found for %s (expected: %s)", worktreePath, projectDirName)
 		return
 	}
 
-	log.Printf("📁 Found project directory: %s", projectDir)
+	logger.Debugf("📁 Found project directory: %s", projectDir)
 
 	monitor := &WorktreeTodoMonitor{
 		workDir:       worktreePath,
@@ -784,13 +841,13 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 	s.todoMonitors[worktreePath] = monitor
 	go monitor.Start(worktreeID)
 
-	log.Printf("📊 Started Todo monitor for worktree: %s", worktreePath)
+	logger.Debugf("📊 Started Todo monitor for worktree: %s", worktreePath)
 }
 
 // findProjectDirectory finds the Claude project directory for a given project name
 func (s *ClaudeMonitorService) findProjectDirectory(projectDirName string) string {
-	homeDir := "/home/catnip/.claude/projects"
-	projectPath := filepath.Join(homeDir, projectDirName)
+	claudeProjectsDir := filepath.Join(config.Runtime.HomeDir, ".claude", "projects")
+	projectPath := filepath.Join(claudeProjectsDir, projectDirName)
 
 	if stat, err := os.Stat(projectPath); err == nil && stat.IsDir() {
 		return projectPath
@@ -841,14 +898,14 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	// Read todos from the end of the file
 	todos, err := m.readTodosFromEnd(latestFile)
 	if err != nil {
-		log.Printf("⚠️  Failed to read todos from %s: %v", latestFile, err)
+		logger.Warnf("⚠️  Failed to read todos from %s: %v", latestFile, err)
 		return
 	}
 
 	// Convert todos to JSON for comparison
 	todosJSON, err := json.Marshal(todos)
 	if err != nil {
-		log.Printf("⚠️  Failed to marshal todos: %v", err)
+		logger.Warnf("⚠️  Failed to marshal todos: %v", err)
 		return
 	}
 	todosJSONStr := string(todosJSON)
@@ -860,7 +917,12 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	}
 
 	// Todos have changed!
-	log.Printf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
+	logger.Debugf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
+
+	// Update activity time to prevent session cleanup
+	m.claudeMonitor.activityMutex.Lock()
+	m.claudeMonitor.lastActivityTimes[m.workDir] = time.Now()
+	m.claudeMonitor.activityMutex.Unlock()
 
 	// Update state
 	m.lastModTime = modTime
@@ -876,7 +938,7 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	}
 
 	if err := m.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
-		log.Printf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
+		logger.Warnf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
 	}
 }
 
@@ -1082,7 +1144,7 @@ func (m *WorktreeTodoMonitor) checkTodoBasedBranchRenaming(todos []models.Todo) 
 	// Get or create a checkpoint manager for this worktree
 	claudeMonitor := m.getClaudeMonitorService()
 	if claudeMonitor == nil {
-		log.Printf("⚠️  Claude monitor service not available for todo-based branch renaming")
+		logger.Warnf("⚠️  Claude monitor service not available for todo-based branch renaming")
 		return
 	}
 
@@ -1093,18 +1155,35 @@ func (m *WorktreeTodoMonitor) checkTodoBasedBranchRenaming(todos []models.Todo) 
 		// Create new checkpoint manager for this worktree
 		manager = claudeMonitor.createCheckpointManager(m.workDir)
 		claudeMonitor.checkpointManagers[m.workDir] = manager
-		log.Printf("📝 Created checkpoint manager for todo-based branch renaming: %s", m.workDir)
+		logger.Debugf("📝 Created checkpoint manager for todo-based branch renaming: %s", m.workDir)
 	}
 	claudeMonitor.managersMutex.Unlock()
 
 	// Generate a branch name based on the first todo item's content
 	if len(todos) > 0 && todos[0].Content != "" {
+		// Check if a nice branch mapping already exists for this catnip branch
+		branchOutput, err := manager.gitService.operations.ExecuteGit(m.workDir, "symbolic-ref", "HEAD")
+		if err != nil {
+			logger.Warnf("⚠️  Failed to get current branch for todo-based renaming: %v", err)
+			return
+		}
+		currentBranch := strings.TrimSpace(string(branchOutput))
+
+		// Check if branch mapping already exists in git config
+		configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(currentBranch, "/", "."))
+		existingNiceBranch, err := manager.gitService.operations.GetConfig(m.workDir, configKey)
+		if err == nil && strings.TrimSpace(existingNiceBranch) != "" {
+			// Nice branch already exists, no need to rename
+			logger.Debugf("🔍 Nice branch %q already exists for %s, skipping todo-based renaming", strings.TrimSpace(existingNiceBranch), currentBranch)
+			return
+		}
+
 		// Only trigger if not already renaming
 		manager.timerMutex.Lock()
 		alreadyRenaming := manager.renamingInProgress
 		if !alreadyRenaming {
 			manager.renamingInProgress = true // Set flag to prevent multiple simultaneous attempts
-			log.Printf("🎯 Todo-based branch renaming triggered for %s with todo: %q", m.workDir, todos[0].Content)
+			logger.Debugf("🎯 Todo-based branch renaming triggered for %s with todo: %q", m.workDir, todos[0].Content)
 		}
 		manager.timerMutex.Unlock()
 
@@ -1181,6 +1260,6 @@ func (s *ClaudeMonitorService) OnWorktreeCreated(worktreeID, worktreePath string
 
 // RefreshTodoMonitoring manually refreshes todo monitoring for all worktrees
 func (s *ClaudeMonitorService) RefreshTodoMonitoring() {
-	log.Printf("🔄 Manually refreshing Todo monitoring for all worktrees")
+	logger.Debugf("🔄 Manually refreshing Todo monitoring for all worktrees")
 	s.startTodoMonitoring()
 }

@@ -91,6 +91,9 @@ type Operations interface {
 	SetConfig(repoPath, key, value string) error
 	SetGlobalConfig(key, value string) error
 
+	// Branch display name (checks for nice name mapping first)
+	GetDisplayBranch(worktreePath string) (string, error)
+
 	// Rev operations
 	RevParse(repoPath, ref string) (string, error)
 	RevList(repoPath string, options RevListOptions) ([]string, error)

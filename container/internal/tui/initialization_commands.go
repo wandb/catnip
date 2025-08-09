@@ -17,6 +17,73 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
+// isCustomImage returns true if the image was manually specified by the user or dev mode is enabled
+// In dev mode, the image is fixed (catnip-dev:dev) but is conceptually a custom build; treat it as custom
+func isCustomImage(image string, devMode bool, cliVersion string) bool {
+	if devMode {
+		return true
+	}
+	// Default image we compute is wandb/catnip:<clean(cliVersion)>
+	// If image matches that pattern and tag equals cleaned CLI version, it's not custom
+	defaultTag := strings.TrimPrefix(cliVersion, "v")
+	defaultTag = strings.TrimSuffix(defaultTag, "-dev")
+	expected := "wandb/catnip:" + defaultTag
+	return image != expected
+}
+
+// parseImageAndTag splits an image string into name and tag
+// Examples: "wandb/catnip:1.2.3" -> ("wandb/catnip", "1.2.3"), "catnip:latest" -> ("catnip", "latest")
+func parseImageAndTag(image string) (string, string) {
+	if idx := strings.LastIndex(image, ":"); idx != -1 && idx > strings.LastIndex(image, "/") {
+		return image[:idx], image[idx+1:]
+	}
+	return image, "latest"
+}
+
+// semverCompare compares two version tags using a permissive semver-ish comparison
+// Returns 1 if a > b, -1 if a < b, 0 if equal; if non-comparable, returns 2
+func semverCompare(a, b string) int {
+	normalize := func(s string) []int {
+		s = strings.TrimPrefix(s, "v")
+		// Drop any pre-release/build metadata for comparison
+		for i, ch := range s {
+			if ch == '-' || ch == '+' {
+				s = s[:i]
+				break
+			}
+		}
+		parts := strings.Split(s, ".")
+		result := make([]int, 3)
+		for i := 0; i < 3 && i < len(parts); i++ {
+			// best-effort parse
+			n := 0
+			for _, ch := range parts[i] {
+				if ch >= '0' && ch <= '9' {
+					n = n*10 + int(ch-'0')
+				} else {
+					break
+				}
+			}
+			result[i] = n
+		}
+		return result
+	}
+
+	av := normalize(a)
+	bv := normalize(b)
+	// If both look like numbers (any non-zero or any digits seen), compare
+	for i := 0; i < 3; i++ {
+		if av[i] > bv[i] {
+			return 1
+		}
+		if av[i] < bv[i] {
+			return -1
+		}
+	}
+	// Equal numerically; treat as equal
+	return 0
+}
+
 // InitializationStreamMsg represents a line of output from initialization
 type InitializationStreamMsg struct {
 	Line string
@@ -217,6 +284,7 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 				"FORCE_COLOR=1",
 				"CLICOLOR_FORCE=1")
 
+			// Use PTY streaming for all commands to ensure proper terminal handling
 			ptmx, err := pty.Start(cmd)
 			if err != nil {
 				outputChan <- []byte(fmt.Sprintf("Error: Failed to start command: %v", err))
@@ -239,11 +307,17 @@ func ExecuteStreamingBuildCmd(cmd *exec.Cmd) tea.Cmd {
 			}
 
 			if err := cmd.Wait(); err != nil {
-				outputChan <- []byte(fmt.Sprintf("Build failed with error: %v", err))
+				// When command fails, try to capture any remaining output
+				// The PTY should have captured most output, but show error details
+				outputChan <- []byte(fmt.Sprintf("Command failed with error: %v", err))
+				// Ensure we emit a terminal reset to avoid leaving the user's terminal in a weird state
+				outputChan <- []byte("\x1b[0m\x1b[?7h\x1b[?25h")
 				return
 			}
 
-			outputChan <- []byte("✅ Build completed successfully!\n")
+			outputChan <- []byte("✅ Command completed successfully!\n")
+			// Emit a terminal reset sequence to leave terminal in a good state
+			outputChan <- []byte("\x1b[0m\x1b[?7h\x1b[?25h")
 			doneChan <- true
 		}()
 
@@ -263,7 +337,7 @@ func streamReader(reader io.Reader, outputChan chan<- string) {
 }
 
 // StartContainerCmd starts the container after initialization
-func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool) tea.Cmd {
+func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool, rmFlag bool, cliVersion string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
@@ -273,11 +347,102 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 			ports = []string{"8080:8080"}
 		}
 
+		// If another Catnip container is already running (possibly under a different name), avoid port conflicts
+		if containerService.IsContainerRunning(ctx, name) {
+			// Current target container is running; proceed
+		} else {
+			if runningName, _, ok := containerService.FindRunningCatnipContainer(ctx); ok {
+				// If a catnip container is already running, connect to it instead of starting a new one
+				return ContainerStartedMsg{
+					ContainerName:    runningName,
+					ContainerService: containerService,
+				}
+			}
+		}
+
+		// Decide if we should force removal of an existing stopped container
+		rmEffective := rmFlag
+		if containerService.ContainerExists(ctx, name) && !containerService.IsContainerRunning(ctx, name) {
+			// If custom image was specified by the user, always force remove
+			if isCustomImage(image, devMode, cliVersion) {
+				rmEffective = true
+			} else {
+				// Compare desired image tag with the existing container's image tag
+				if existingImage, err := containerService.GetContainerImageForName(ctx, name); err == nil {
+					_, desiredTag := parseImageAndTag(image)
+					_, existingTag := parseImageAndTag(existingImage)
+
+					// If tags differ and desired is newer (or non-equal), force remove
+					if desiredTag != existingTag {
+						// Try semantic compare; if not comparable, prefer desired
+						switch semverCompare(desiredTag, existingTag) {
+						case 1:
+							rmEffective = true
+						case 0:
+							// equal - no change
+						case -1:
+							// desired older than existing; keep existing to start
+						default:
+							// unknown result, be conservative and remove
+							rmEffective = true
+						}
+					}
+				}
+			}
+		}
+
 		// Start the container
-		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled); err != nil {
+		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmEffective, 4.0, 4.0, []string{}); err != nil {
 			// Parse the error to extract the base error and output
 			errStr := err.Error()
 			cmdStr := strings.Join(cmd, " ")
+
+			// Enhanced error handling with specific cases
+			errorMsg := detectSpecificErrors(errStr, cmdStr, image, containerService)
+			if errorMsg != "" {
+				return ContainerStartFailedMsg{Error: errorMsg}
+			}
+
+			// Handle "container already exists" error gracefully
+			if strings.Contains(errStr, "already exists") || strings.Contains(errStr, "exists:") {
+				// Check if the existing container is running
+				if containerService.IsContainerRunning(ctx, name) {
+					// Container is already running, skip to success
+					return ContainerStartedMsg{
+						ContainerName:    name,
+						ContainerService: containerService,
+					}
+				}
+
+				// Container exists but isn't running, try to start it
+				if err := containerService.StartContainer(ctx, name); err != nil {
+					// Starting the existing container failed, remove and recreate
+					_ = containerService.StopContainer(ctx, name)   // Stop if partially running
+					_ = containerService.RemoveContainer(ctx, name) // Remove the container
+
+					// Give it a moment to clean up
+					time.Sleep(500 * time.Millisecond)
+
+					// Try to create a new container
+					if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag, 4.0, 4.0, []string{}); err != nil {
+						// Still failed after cleanup, report the error
+						errStr = err.Error()
+						cmdStr = strings.Join(cmd, " ")
+					} else {
+						// Success after cleanup
+						return ContainerStartedMsg{
+							ContainerName:    name,
+							ContainerService: containerService,
+						}
+					}
+				} else {
+					// Successfully started existing container
+					return ContainerStartedMsg{
+						ContainerName:    name,
+						ContainerService: containerService,
+					}
+				}
+			}
 
 			// Check if the error already contains "Output:" section
 			if strings.Contains(errStr, "\nOutput:") {
@@ -288,7 +453,7 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 				if len(parts) > 1 {
 					output = parts[1]
 				}
-				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s\nOutput:%s", baseErr, cmdStr, output)}
+				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s\nOutput: %s", baseErr, cmdStr, output)}
 			} else {
 				// Simple error without output
 				return ContainerStartFailedMsg{Error: fmt.Sprintf("%s\nCommand: %s", errStr, cmdStr)}
@@ -441,6 +606,9 @@ func ExecuteStreamingContainerLogsCmd(cmd *exec.Cmd, containerName string, conta
 					_ = cmd.Process.Kill()
 				}
 			}
+
+			// Ensure terminal reset sequences are emitted at the end of streaming
+			outputChan <- "\x1b[0m\x1b[?7h\x1b[?25h"
 		}()
 
 		// Return a message that will trigger the streaming reader with health monitoring
@@ -465,6 +633,39 @@ type ContainerLogsOutputMsg struct {
 // ContainerHealthyMsg indicates the container is healthy and ready
 type ContainerHealthyMsg struct {
 	ContainerName string
+}
+
+// VersionCheckMsg indicates the result of a version check
+type VersionCheckMsg struct {
+	UpgradeAvailable bool
+	ContainerVersion string
+	CLIVersion       string
+}
+
+// CheckContainerVersionCmd checks if the container version differs from CLI version
+func CheckContainerVersionCmd(cliVersion string) tea.Cmd {
+	return func() tea.Msg {
+		containerVersionInfo, err := fetchContainerVersion()
+		if err != nil {
+			// If we can't fetch the version, don't show upgrade warning
+			debugLog("CheckContainerVersionCmd: failed to fetch container version: %v", err)
+			return VersionCheckMsg{
+				UpgradeAvailable: false,
+				ContainerVersion: "unknown",
+				CLIVersion:       cliVersion,
+			}
+		}
+
+		upgradeAvailable := compareVersions(cliVersion, containerVersionInfo.Version)
+		debugLog("CheckContainerVersionCmd: CLI=%s, Container=%s, UpgradeAvailable=%t",
+			cliVersion, containerVersionInfo.Version, upgradeAvailable)
+
+		return VersionCheckMsg{
+			UpgradeAvailable: upgradeAvailable,
+			ContainerVersion: containerVersionInfo.Version,
+			CLIVersion:       cliVersion,
+		}
+	}
 }
 
 // StreamingContainerLogsReader reads from container logs channels and sends output messages
@@ -509,4 +710,96 @@ func StreamingContainerLogsReader(outputChan <-chan string, doneChan <-chan bool
 		// Continue reading (but don't send empty lines)
 		return ContainerLogsOutputMsg{Line: "", OutputChan: outputChan, DoneChan: doneChan}
 	}
+}
+
+// detectSpecificErrors analyzes container start errors and provides specific guidance
+func detectSpecificErrors(errStr, cmdStr, image string, containerService *services.ContainerService) string {
+	errLower := strings.ToLower(errStr)
+
+	// Check for Docker not running
+	if strings.Contains(errLower, "cannot connect to the docker daemon") ||
+		strings.Contains(errLower, "docker daemon is not running") ||
+		strings.Contains(errLower, "connection refused") ||
+		(containerService.GetRuntime() == services.RuntimeDocker &&
+			(strings.Contains(errLower, "no such file or directory") ||
+				strings.Contains(errLower, "command not found"))) {
+
+		return fmt.Sprintf(`Docker is not running or not accessible.
+
+🔧 To fix this:
+• Start Docker Desktop (macOS/Windows)
+• Or start the Docker daemon (Linux): sudo systemctl start docker
+• Make sure your user is in the docker group (Linux): sudo usermod -aG docker $USER
+
+Command: %s
+Output: %s`, cmdStr, extractOutput(errStr))
+	}
+
+	// Check for missing or inaccessible image
+	if strings.Contains(errLower, "unable to find image") ||
+		strings.Contains(errLower, "pull access denied") ||
+		strings.Contains(errLower, "repository does not exist") ||
+		strings.Contains(errLower, "no such image") ||
+		strings.Contains(errLower, "manifest unknown") ||
+		strings.Contains(errLower, "401 unauthorized") {
+
+		runtime := string(containerService.GetRuntime())
+		return fmt.Sprintf(`Container image '%s' is not available locally and could not be pulled.
+
+🔧 To fix this:
+• Try manually pulling the image: %s pull %s
+• Check if the image name and tag are correct
+• If it's a private image, make sure you're authenticated
+
+Command: %s
+Output: %s`, image, runtime, image, cmdStr, extractOutput(errStr))
+	}
+
+	// Check for port already in use
+	if strings.Contains(errLower, "port is already allocated") ||
+		strings.Contains(errLower, "bind: address already in use") {
+
+		return fmt.Sprintf(`Port conflict - another service is using the required ports.
+
+🔧 To fix this:
+• Stop other containers using the same ports
+• Use different ports with the --port flag
+• Check what's using the ports: lsof -i :8080
+
+Command: %s
+Output: %s`, cmdStr, extractOutput(errStr))
+	}
+
+	// Check for insufficient resources
+	if strings.Contains(errLower, "insufficient memory") ||
+		strings.Contains(errLower, "not enough memory") ||
+		strings.Contains(errLower, "no space left on device") {
+
+		return fmt.Sprintf(`Insufficient system resources to start the container.
+
+🔧 To fix this:
+• Free up disk space or memory
+• Reduce resource limits with --cpus and --memory flags
+• Clean up unused Docker images: docker system prune
+
+Command: %s
+Output: %s`, cmdStr, extractOutput(errStr))
+	}
+
+	return "" // No specific error detected, use generic handling
+}
+
+// extractOutput extracts the "Output:" section from an error string, preserving useful details
+func extractOutput(errStr string) string {
+	if strings.Contains(errStr, "\nOutput:") {
+		parts := strings.Split(errStr, "\nOutput:")
+		if len(parts) > 1 {
+			// Don't use TrimSpace here as it might remove important newlines
+			output := strings.TrimPrefix(parts[1], " ")
+			return output
+		}
+		// If no output section, return the full error
+		return strings.TrimSpace(parts[0])
+	}
+	return strings.TrimSpace(errStr)
 }

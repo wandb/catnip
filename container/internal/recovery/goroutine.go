@@ -1,8 +1,9 @@
 package recovery
 
 import (
-	"log"
 	"runtime/debug"
+
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // SafeGo runs a function in a goroutine with automatic panic recovery
@@ -11,8 +12,8 @@ func SafeGo(name string, fn func()) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("🚨 PANIC recovered in goroutine '%s': %v", name, r)
-				log.Printf("Stack trace:\n%s", debug.Stack())
+				logger.Errorf("🚨 PANIC recovered in goroutine '%s': %v", name, r)
+				logger.Errorf("Stack trace:\n%s", debug.Stack())
 			}
 		}()
 		fn()
@@ -27,8 +28,8 @@ func SafeGoWithCleanup(name string, fn func(), cleanup func()) {
 				cleanup()
 			}
 			if r := recover(); r != nil {
-				log.Printf("🚨 PANIC recovered in goroutine '%s': %v", name, r)
-				log.Printf("Stack trace:\n%s", debug.Stack())
+				logger.Errorf("🚨 PANIC recovered in goroutine '%s': %v", name, r)
+				logger.Errorf("Stack trace:\n%s", debug.Stack())
 			}
 		}()
 		fn()
@@ -40,10 +41,10 @@ func SafeGoContext(name string, fn func()) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("🚨 PANIC recovered in %s: %v", name, r)
+				logger.Errorf("🚨 PANIC recovered in %s: %v", name, r)
 				// Don't print full stack trace for WebSocket handlers to reduce noise
-				if log.Default().Writer() != nil {
-					log.Printf("Stack trace available in debug mode")
+				if logger.Logger.GetLevel() <= 0 {
+					logger.Debugf("Stack trace available in debug mode")
 				}
 			}
 		}()

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:cf": "pnpm run build && wrangler dev 2>&1 | tee /tmp/wrangler.log",
-    "dev:cf:catctrl": "./container/bin/catctrl logs pnpm run build && ./container/bin/catctrl logs wrangler dev",
+    "dev:cf:catnip": "./container/bin/catnip logs pnpm run build && ./container/bin/catnip logs wrangler dev",
     "dev:cf:vite": "CLOUDFLARE_DEV=true vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
@@ -17,7 +17,10 @@
     "format:changed": "{ git diff --cached --name-only --diff-filter=ACMR; git diff --name-only --diff-filter=ACMR; git ls-files --others --exclude-standard; } | grep -E '\\.(ts|tsx|js|jsx|json|css|md)$' | xargs -r prettier --write",
     "preview": "pnpm run build && vite preview",
     "deploy:prod": "pnpm run build && wrangler deploy --env production",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.0.22",
@@ -38,6 +41,7 @@
     "@radix-ui/react-separator": "^1.1.7",
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-switch": "^1.2.5",
+    "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tailwindcss/typography": "^0.5.16",
     "@tailwindcss/vite": "^4.1.11",
@@ -76,16 +80,22 @@
     "@eslint/js": "^9.32.0",
     "@inquirer/prompts": "^7.8.0",
     "@tanstack/router-plugin": "^1.130.12",
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.1.0",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
     "eslint": "^9.32.0",
     "eslint-plugin-react-dom": "^1.52.3",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "eslint-plugin-react-x": "^1.52.3",
     "globals": "^16.3.0",
+    "happy-dom": "^18.0.1",
     "prettier": "^3.6.2",
     "tslib": "^2.8.1",
     "tsx": "^4.20.3",
@@ -93,6 +103,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^7.0.6",
+    "vitest": "^3.2.4",
     "wrangler": "^4.27.0"
   }
 }

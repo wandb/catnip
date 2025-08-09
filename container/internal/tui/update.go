@@ -67,6 +67,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleShellOutput(msg)
 	case shellErrorMsg:
 		return m.handleShellError(msg)
+	case VersionCheckMsg:
+		return m.handleVersionCheck(msg)
 	}
 
 	// Let current view handle any remaining messages
@@ -341,6 +343,17 @@ func (m Model) handleHealthStatus(msg healthStatusMsg) (tea.Model, tea.Cmd) {
 		debugLog("Started SSE client after health check passed")
 	}
 
+	// Auto-open browser when app becomes healthy for the first time
+	if m.appHealthy && !wasHealthy && !m.browserOpened {
+		m.browserOpened = true
+		overviewView := m.views[OverviewView].(*OverviewViewImpl)
+		if err := overviewView.openBrowser("http://localhost:8080"); err != nil {
+			debugLog("Failed to open browser: %v", err)
+		} else {
+			debugLog("Automatically opened browser at http://localhost:8080")
+		}
+	}
+
 	return m, nil
 }
 
@@ -351,9 +364,22 @@ func (m Model) handleError(msg errMsg) (tea.Model, tea.Cmd) {
 
 // SSE event handlers
 func (m Model) handleSSEConnected(msg sseConnectedMsg) (tea.Model, tea.Cmd) {
+	wasHealthy := m.appHealthy
 	m.sseConnected = true
 	m.appHealthy = true // SSE connection indicates app is healthy
 	debugLog("SSE connected")
+
+	// Auto-open browser when SSE connects and app becomes healthy for the first time
+	if m.appHealthy && !wasHealthy && !m.browserOpened {
+		m.browserOpened = true
+		overviewView := m.views[OverviewView].(*OverviewViewImpl)
+		if err := overviewView.openBrowser("http://localhost:8080"); err != nil {
+			debugLog("Failed to open browser: %v", err)
+		} else {
+			debugLog("Automatically opened browser at http://localhost:8080")
+		}
+	}
+
 	return m, nil
 }
 
@@ -388,6 +414,8 @@ func (m Model) handleSSEPortOpened(msg ssePortOpenedMsg) (tea.Model, tea.Cmd) {
 		})
 		debugLog("SSE: Port opened: %d (title: %s)", msg.port, title)
 	}
+	// Attempt to start port forward automatically if SSH is enabled
+	// Forwarding is handled by App-level SSE hook
 	return m, nil
 }
 
@@ -558,4 +586,15 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 	}
 
 	return &m, nil, true
+}
+
+// Version check handler
+func (m Model) handleVersionCheck(msg VersionCheckMsg) (tea.Model, tea.Cmd) {
+	m.upgradeAvailable = msg.UpgradeAvailable
+	if msg.UpgradeAvailable {
+		debugLog("Version mismatch detected: CLI=%s, Container=%s", msg.CLIVersion, msg.ContainerVersion)
+	} else {
+		debugLog("Versions match: CLI=%s, Container=%s", msg.CLIVersion, msg.ContainerVersion)
+	}
+	return m, nil
 }

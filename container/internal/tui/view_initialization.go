@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -23,6 +25,7 @@ type InitializationViewImpl struct {
 	completed        bool
 	failed           bool
 	currentAction    string
+	lastCommand      string // Store last command for copying
 }
 
 // NewInitializationView creates a new initialization view
@@ -64,14 +67,14 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		v.completed = true
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
 
 	case InitializationCompleteWithOutputMsg:
 		v.completed = true
 		v.output = append(v.output, msg.Output...)
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
+		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
 
 	case InitializationFailedMsg:
 		v.failed = true
@@ -93,7 +96,7 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 
 		if msg.StartContainer {
 			// Need to start container
-			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled)
+			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
 		}
 
 		// Trigger the appropriate streaming command based on the action
@@ -170,6 +173,8 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		return m, StreamingTTYReader(msg.OutputChan, msg.DoneChan)
 
 	case ContainerStartedMsg:
+		// Update active container name in the model in case we attached to an existing container
+		m.containerName = msg.ContainerName
 		v.status = "Container started, checking health..."
 		// Start monitoring container health instead of switching to overview
 		return m, MonitorContainerHealthCmd(msg.ContainerService, msg.ContainerName)
@@ -215,10 +220,44 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 	case ContainerHealthyMsg:
 		v.completed = true
 		v.status = "Container is healthy and ready!"
-		// Switch to overview after a brief delay to show the success message
-		return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
-			return SwitchViewMsg{ViewType: OverviewView}
-		})
+		// Trigger version check and switch to overview after a brief delay
+		return m, tea.Batch(
+			CheckContainerVersionCmd(m.version),
+			tea.Tick(time.Second, func(time.Time) tea.Msg {
+				return SwitchViewMsg{ViewType: OverviewView}
+			}),
+		)
+
+	case CopyToClipboardMsg:
+		if msg.Success {
+			// Update status temporarily to show copy success
+			v.status = "Command copied to clipboard!"
+			// Reset status after a brief delay
+			return m, tea.Tick(time.Second*2, func(time.Time) tea.Msg {
+				return ResetStatusMsg{}
+			})
+		} else {
+			// Show error briefly
+			v.status = fmt.Sprintf("Copy failed: %s", msg.Error)
+			return m, tea.Tick(time.Second*3, func(time.Time) tea.Msg {
+				return ResetStatusMsg{}
+			})
+		}
+
+	case ResetStatusMsg:
+		// Reset status back to original
+		if v.failed {
+			errorLines := strings.Split(v.status, "\n")
+			if len(errorLines) > 0 && !strings.Contains(errorLines[0], "Copy") {
+				// Status is already the error, don't change it
+			} else {
+				v.status = "Failed to start container"
+			}
+		} else if v.completed {
+			v.status = "Container is healthy and ready!"
+		} else {
+			v.status = "Initializing..."
+		}
 
 	case SwitchViewMsg:
 		if msg.ViewType != InitializationView {
@@ -314,6 +353,10 @@ func (v *InitializationViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, te
 		m.quitRequested = true // Set global quit flag
 		debugLog("InitializationView: quit requested, setting flags")
 		return m, tea.Quit
+	case "c":
+		if v.lastCommand != "" {
+			return m, CopyToClipboardCmd(v.lastCommand)
+		}
 	}
 	return m, nil
 }
@@ -322,18 +365,21 @@ func (v *InitializationViewImpl) HandleKey(m *Model, msg tea.KeyMsg) (*Model, te
 func (v *InitializationViewImpl) formatErrorOutput(errorMsg string) []string {
 	lines := strings.Split(errorMsg, "\n")
 	var formatted []string
+	inOutputSection := false
 
 	for _, line := range lines {
 		if strings.HasPrefix(line, "Command:") {
-			// Format command in a nice box
+			// Format command in a nice box with copy-friendly display
 			formatted = append(formatted, "")
-			formatted = append(formatted, "\033[36m╭─ Command\033[0m")
+			formatted = append(formatted, "\033[36m╭─ Command (press 'c' to copy)\033[0m")
 
 			// Extract command part after "Command: "
 			cmdPart := strings.TrimSpace(strings.TrimPrefix(line, "Command:"))
 			if cmdPart != "" {
+				// Store the original command for copying
+				v.lastCommand = cmdPart
+
 				// Word wrap long commands with line continuation characters
-				// Use viewport width, but ensure minimum of 60 chars
 				maxWidth := v.viewport.Width - 6 // Account for border and padding
 				if maxWidth < 60 {
 					maxWidth = 60
@@ -352,22 +398,33 @@ func (v *InitializationViewImpl) formatErrorOutput(errorMsg string) []string {
 			formatted = append(formatted, "\033[36m╰─\033[0m")
 			formatted = append(formatted, "")
 		} else if strings.HasPrefix(line, "Output:") {
-			// Format output section
+			// Format output section header
 			formatted = append(formatted, "\033[33m╭─ Output\033[0m")
-		} else if line != "" {
-			// Regular line, but check if it's after Output: section
-			if len(formatted) > 0 && strings.Contains(strings.Join(formatted[maxInt(0, len(formatted)-5):], ""), "Output") {
+			inOutputSection = true
+
+			// Check if there's content on the same line after "Output: "
+			if len(line) > 8 { // "Output: " is 8 characters
+				content := strings.TrimPrefix(line, "Output: ")
+				if strings.TrimSpace(content) != "" {
+					formatted = append(formatted, fmt.Sprintf("\033[33m│\033[0m %s", content))
+				}
+			}
+		} else if strings.TrimSpace(line) != "" {
+			if inOutputSection {
 				// This is output content, format it with proper indentation
 				formatted = append(formatted, fmt.Sprintf("\033[33m│\033[0m %s", line))
 			} else {
 				// Regular error line
 				formatted = append(formatted, line)
 			}
+		} else if inOutputSection && strings.TrimSpace(line) == "" {
+			// Empty line in output section, preserve it
+			formatted = append(formatted, "\033[33m│\033[0m")
 		}
 	}
 
 	// Close output box if it was opened
-	if len(formatted) > 0 && strings.Contains(strings.Join(formatted, ""), "╭─ Output") {
+	if inOutputSection {
 		formatted = append(formatted, "\033[33m╰─\033[0m")
 	}
 
@@ -425,14 +482,6 @@ func (v *InitializationViewImpl) wrapCommand(cmd string, maxWidth int) []string 
 	}
 
 	return lines
-}
-
-// maxInt returns the maximum of two integers
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // HandleResize processes window resize messages
@@ -507,4 +556,49 @@ type ContainerStartedMsg struct {
 }
 type ContainerStartFailedMsg struct {
 	Error string
+}
+
+// CopyToClipboardMsg indicates the result of a clipboard copy operation
+type CopyToClipboardMsg struct {
+	Success bool
+	Error   string
+}
+
+// ResetStatusMsg resets the status message after temporary notifications
+type ResetStatusMsg struct{}
+
+// CopyToClipboardCmd copies text to the system clipboard
+func CopyToClipboardCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("pbcopy")
+		case "linux":
+			// Try xclip first, then xsel as fallback
+			if _, err := exec.LookPath("xclip"); err == nil {
+				cmd = exec.Command("xclip", "-selection", "clipboard")
+			} else if _, err := exec.LookPath("xsel"); err == nil {
+				cmd = exec.Command("xsel", "--clipboard", "--input")
+			} else {
+				return CopyToClipboardMsg{Success: false, Error: "No clipboard utility found (need xclip or xsel)"}
+			}
+		case "windows":
+			cmd = exec.Command("clip")
+		default:
+			return CopyToClipboardMsg{Success: false, Error: "Unsupported operating system"}
+		}
+
+		if cmd == nil {
+			return CopyToClipboardMsg{Success: false, Error: "Failed to create clipboard command"}
+		}
+
+		cmd.Stdin = strings.NewReader(text)
+		if err := cmd.Run(); err != nil {
+			return CopyToClipboardMsg{Success: false, Error: fmt.Sprintf("Failed to copy to clipboard: %v", err)}
+		}
+
+		return CopyToClipboardMsg{Success: true}
+	}
 }

@@ -1,10 +1,103 @@
 # Catnip Development Container Management
 
-# Build the catnip container for the current platform  
-build-container:
-    @echo "🏗️  Building catnip container for current platform..."
-    docker build -f container/Dockerfile -t catnip:latest -t ghcr.io/wandb/catnip:latest .
-    @echo "✅ Build complete! Run with: docker run -it catnip:latest"
+# Container Build System:
+# - Set BUILDER=container to use Apple Container SDK instead of Docker
+# - Use 'build-container' for flexible building (Docker by default, Apple Container SDK with BUILDER=container)
+# - Use 'build-apple' as a convenience alias for Apple Container SDK
+# - Use 'container-start/stop/status' to manage Apple Container system
+
+# Build the catnip container for the current platform - supports both Docker and Apple Container SDK
+# Usage: just build-container [TAG] [CPUS] [MEMORY] [ARGS...]
+# Examples:
+#   just build-container                           # Use defaults (includes ghcr.io tag)
+#   just build-container catnip:dev               # Custom tag (local only)
+#   just build-container catnip:dev 8 8192MB     # Custom resources
+#   BUILDER=container just build-container        # Use Apple Container SDK
+build-container TAG="catnip:latest" CPUS="4" MEMORY="4096MB" *ARGS="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Determine if we should add remote registry tags
+    # Only add ghcr.io tag for production builds (catnip:latest)
+    if [ "{{TAG}}" = "catnip:latest" ]; then
+        REMOTE_TAG="-t ghcr.io/wandb/catnip:latest"
+        echo "🏷️  Including remote registry tag: ghcr.io/wandb/catnip:latest"
+    else
+        REMOTE_TAG=""
+        echo "📍 Local build only, no remote registry tags"
+    fi
+    
+    if [ "${BUILDER:-}" = "container" ]; then
+        echo "🍎 Building with Apple Container SDK..."
+        echo "   Tag: {{TAG}}"
+        echo "   CPUs: {{CPUS}}"
+        echo "   Memory: {{MEMORY}}"
+        echo "   Args: {{ARGS}}"
+        container build -f container/Dockerfile -t "{{TAG}}" $REMOTE_TAG --cpus {{CPUS}} --memory {{MEMORY}} {{ARGS}} .
+    else
+        echo "🐳 Building with Docker..."
+        echo "   Tag: {{TAG}}"
+        echo "   Args: {{ARGS}}"
+        docker build -f container/Dockerfile -t "{{TAG}}" $REMOTE_TAG {{ARGS}} .
+    fi
+    echo "✅ Build complete! Run with: docker run -it {{TAG}}"
+
+# Build using Apple Container SDK (convenience alias)
+build-apple TAG="catnip:latest" CPUS="4" MEMORY="4096MB" *ARGS="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export BUILDER=container
+    just build-container "{{TAG}}" "{{CPUS}}" "{{MEMORY}}" {{ARGS}}
+
+# Build for local development (no remote registry tags)
+build-local TAG="catnip:dev" CPUS="4" MEMORY="4096MB" *ARGS="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🏠 Building for local development only..."
+    export BUILDER=container
+    just build-container "{{TAG}}" "{{CPUS}}" "{{MEMORY}}" {{ARGS}}
+
+# Build with Docker and transfer to Apple Container SDK
+build-docker-to-apple TAG="catnip:base" *ARGS="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🐳→🍎 Building with Docker and transferring to Apple Container SDK..."
+    
+    # Build with Docker
+    echo "🐳 Building with Docker..."
+    docker build -f container/Dockerfile -t "{{TAG}}" {{ARGS}} .
+    
+    # Save to tar
+    echo "💾 Saving Docker image to tar..."
+    docker save "{{TAG}}" -o "/tmp/{{TAG}}.tar"
+    
+    # Load into Apple Container SDK
+    echo "🍎 Loading into Apple Container SDK..."
+    container images load --input "/tmp/{{TAG}}.tar"
+    
+    # Clean up
+    rm "/tmp/{{TAG}}.tar"
+    echo "✅ Image {{TAG}} now available in Apple Container SDK!"
+
+# Start the Apple Container system service
+container-start:
+    @echo "🍎 Starting Apple Container system service..."
+    container system start
+
+# Stop the Apple Container system service
+container-stop:
+    @echo "🍎 Stopping Apple Container system service..."
+    container system stop
+
+# Check Apple Container system status
+container-status:
+    @echo "🍎 Apple Container system status:"
+    container system status
+
+# List local container images
+container-images:
+    @echo "📦 Local container images:"
+    container images list
 
 # Update language versions to latest stable and rebuild
 update-versions:
@@ -55,11 +148,30 @@ test-dev: build-dev
         catnip-dev:dev &
     @echo "✅ Development servers started in background"
 
-# Build development container with Air support
-build-dev: build-container
-    @echo "🏗️  Building catnip development container..."
-    docker build -f container/Dockerfile.dev -t catnip-dev:dev --build-arg BUILDKIT_INLINE_CACHE=1 .
-    @echo "✅ Development build complete!"
+# Build development container with Air support  
+build-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🏗️  Building catnip development container..."
+    
+    if [ "${BUILDER:-}" = "container" ]; then
+        # Check if catnip:base exists in Apple Container SDK
+        if ! container images list | grep -q "^catnip.*base"; then
+            echo "❌ catnip:base not found in Apple Container SDK"
+            echo "💡 Run: just build-docker-to-apple catnip:base"
+            echo "   This will build catnip:base with Docker and transfer it to Apple Container SDK"
+            exit 1
+        fi
+        echo "✅ Found catnip:base in Apple Container SDK"
+        echo "🍎 Building dev container with Apple Container SDK..."
+        container build -f container/Dockerfile.dev -t catnip-dev:dev --build-arg BUILDKIT_INLINE_CACHE=1 .
+    else
+        echo "🐳 Building base catnip image with Docker..."
+        just build-container catnip:base
+        echo "🐳 Building dev container with Docker..."
+        docker build -f container/Dockerfile.dev -t catnip-dev:dev --build-arg BUILDKIT_INLINE_CACHE=1 .
+    fi
+    echo "✅ Development build complete!"
 
 # Clean development node_modules volume
 clean-dev-volumes:
@@ -69,9 +181,28 @@ clean-dev-volumes:
 
 # Force rebuild development container (clears cache layers)
 rebuild-dev: clean-containers clean-dev-volumes
-    @echo "🔄 Force rebuilding development container..."
-    docker build --no-cache -f container/Dockerfile.dev -t catnip-dev:dev .
-    @echo "✅ Development container rebuilt!"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "🔄 Force rebuilding development container..."
+    
+    if [ "${BUILDER:-}" = "container" ]; then
+        # Check if catnip:base exists in Apple Container SDK
+        if ! container images list | grep -q "^catnip.*base"; then
+            echo "❌ catnip:base not found in Apple Container SDK"
+            echo "💡 Run: just build-docker-to-apple catnip:base"
+            echo "   This will build catnip:base with Docker and transfer it to Apple Container SDK"
+            exit 1
+        fi
+        echo "✅ Found catnip:base in Apple Container SDK"
+        echo "🍎 Force rebuilding dev container with Apple Container SDK..."
+        container build --no-cache -f container/Dockerfile.dev -t catnip-dev:dev .
+    else
+        echo "🐳 Force rebuilding base catnip image with Docker..."
+        just build-container catnip:base 4 4096MB --no-cache
+        echo "🐳 Force rebuilding dev container with Docker..."
+        docker build --no-cache -f container/Dockerfile.dev -t catnip-dev:dev .
+    fi
+    echo "✅ Development container rebuilt!"
 
 # Run the container with a custom command
 run-cmd CMD:
@@ -122,8 +253,14 @@ info:
     @echo "Available commands:"
     @echo ""
     @echo "Container Management:"
-    @echo "  just build-container   - Build production container"
+    @echo "  just build-container   - Build production container (Docker by default)"
+    @echo "  just build-apple       - Build with Apple Container SDK"
+    @echo "  just build-local       - Build for local dev only (no remote registry)"
     @echo "  just run               - Run container interactively"
+    @echo "  just container-start   - Start Apple Container system service"
+    @echo "  just container-stop    - Stop Apple Container system service" 
+    @echo "  just container-status  - Check Apple Container system status"
+    @echo "  just container-images  - List local container images"
     @echo ""
     @echo "Development:"
     @echo "  just dev               - Local dev mode (frontend + backend with port allocation)"

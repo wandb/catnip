@@ -301,6 +301,10 @@ definitions:
   github_com_vanpelt_catnip_internal_models.Repository:
     description: Git repository information and metadata
     properties:
+      available:
+        description: Whether the repository is currently available on disk
+        example: true
+        type: boolean
       created_at:
         description: When this repository was first cloned
         example: "2024-01-15T10:30:00Z"
@@ -424,6 +428,11 @@ definitions:
         description: Whether there's an active Claude session for this worktree (deprecated
           - use ClaudeActivityState)
         type: boolean
+      has_been_renamed:
+        description: Whether this worktree's branch has been renamed from its original
+          catnip ref
+        example: true
+        type: boolean
       has_conflicts:
         description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
         example: false
@@ -487,6 +496,9 @@ definitions:
   github_com_vanpelt_catnip_internal_services.ServiceInfo:
     properties:
       command:
+        type: string
+      detection_source:
+        description: '"tcp-scan", "terminal-output", etc.'
         type: string
       health:
         type: string
@@ -635,6 +647,16 @@ definitions:
       title:
         type: string
     type: object
+  internal_handlers.CreateTemplateRequest:
+    properties:
+      project_name:
+        type: string
+      template_id:
+        type: string
+    required:
+    - project_name
+    - template_id
+    type: object
   internal_handlers.DeleteSessionResponse:
     description: Response confirming session deletion
     properties:
@@ -680,6 +702,11 @@ definitions:
       has_active_claude_session:
         description: Whether there's an active Claude session for this worktree (deprecated
           - use ClaudeActivityState)
+        type: boolean
+      has_been_renamed:
+        description: Whether this worktree's branch has been renamed from its original
+          catnip ref
+        example: true
         type: boolean
       has_conflicts:
         description: Whether the worktree is in a conflicted state (rebase/merge conflicts)
@@ -750,6 +777,7 @@ definitions:
     - process:started
     - process:stopped
     - container:status
+    - port:mapped
     - heartbeat
     - worktree:status_updated
     - worktree:batch_updated
@@ -769,6 +797,7 @@ definitions:
     - ProcessStartedEvent
     - ProcessStoppedEvent
     - ContainerStatusEvent
+    - PortMappedEvent
     - HeartbeatEvent
     - WorktreeStatusUpdatedEvent
     - WorktreeBatchUpdatedEvent
@@ -1237,6 +1266,43 @@ paths:
       summary: Get Git status
       tags:
       - git
+  /v1/git/template:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new Git repository and workspace from a predefined project
+        template
+      parameters:
+      - description: Template creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateTemplateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request or template not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create workspace from template
+      tags:
+      - git
   /v1/git/worktrees:
     get:
       description: Returns a list of all worktrees for the current repository with
@@ -1270,6 +1336,32 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.WorktreeOperationResponse'
       summary: Delete worktree
+      tags:
+      - git
+    patch:
+      consumes:
+      - application/json
+      description: Updates specific fields of a worktree (for testing purposes)
+      parameters:
+      - description: Worktree ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: updates
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Worktree'
+      summary: Update worktree fields
       tags:
       - git
   /v1/git/worktrees/{id}/diff:
@@ -1611,6 +1703,68 @@ paths:
               type: string
             type: object
       summary: Get port information
+      tags:
+      - ports
+  /v1/ports/mappings:
+    post:
+      consumes:
+      - application/json
+      description: Records a mapping from container port to host port and broadcasts
+        an SSE event
+      parameters:
+      - description: Mapping object with 'port' and 'host_port'
+        in: body
+        name: mapping
+        required: true
+        schema:
+          additionalProperties:
+            type: integer
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Mapping set
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Set host port mapping for a container port
+      tags:
+      - ports
+  /v1/ports/mappings/{port}:
+    delete:
+      consumes:
+      - application/json
+      description: Removes a mapping and broadcasts an SSE event with host_port=0
+      parameters:
+      - description: Container port
+        in: path
+        name: port
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Mapping deleted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid port
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete host port mapping for a container port
       tags:
       - ports
   /v1/pty:

@@ -10,9 +10,13 @@ import type { Worktree } from "@/lib/git-api";
 
 interface WorkspaceTerminalProps {
   worktree: Worktree;
+  terminalId?: string;
 }
 
-export function WorkspaceTerminal({ worktree }: WorkspaceTerminalProps) {
+export function WorkspaceTerminal({
+  worktree,
+  terminalId = "default",
+}: WorkspaceTerminalProps) {
   const { instance, ref } = useXTerm();
   const { setIsConnected } = useWebSocketContext();
   const wsRef = useRef<WebSocket | null>(null);
@@ -48,6 +52,13 @@ export function WorkspaceTerminal({ worktree }: WorkspaceTerminalProps) {
     }
   }, []);
 
+  // Send focus state to backend
+  const sendFocusState = useCallback((focused: boolean) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "focus", focused }));
+    }
+  }, []);
+
   const fontSize = useCallback((element: Element) => {
     if (element.clientWidth < 400) {
       return 6;
@@ -65,6 +76,34 @@ export function WorkspaceTerminal({ worktree }: WorkspaceTerminalProps) {
     }
     wsRef.current.send(JSON.stringify({ type: "ready" }));
   }, []);
+
+  // Handle tab focus/blur events
+  useEffect(() => {
+    const handleFocus = () => {
+      sendFocusState(true);
+    };
+
+    const handleBlur = () => {
+      sendFocusState(false);
+    };
+
+    const handleVisibilityChange = () => {
+      sendFocusState(!document.hidden);
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Send initial focus state
+    sendFocusState(document.hasFocus() && !document.hidden);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [sendFocusState]);
 
   // Reset state when worktree changes
   useEffect(() => {
@@ -115,7 +154,12 @@ export function WorkspaceTerminal({ worktree }: WorkspaceTerminalProps) {
     // Set up WebSocket connection for bash terminal in the workspace directory
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const urlParams = new URLSearchParams();
-    urlParams.set("session", worktree.name);
+    // Create unique session name using terminalId
+    const sessionName =
+      terminalId === "default"
+        ? worktree.name
+        : `${worktree.name}:${terminalId}`;
+    urlParams.set("session", sessionName);
     // Don't set agent parameter - this should be a regular bash terminal
 
     const socketUrl = `${protocol}//${window.location.host}/v1/pty?${urlParams.toString()}`;
@@ -332,7 +376,14 @@ export function WorkspaceTerminal({ worktree }: WorkspaceTerminalProps) {
       }
       clearTimeout(initialFitTimeout);
     };
-  }, [instance, worktree.id, worktree.name, setDims, sendReadySignal]);
+  }, [
+    instance,
+    worktree.id,
+    worktree.name,
+    terminalId,
+    setDims,
+    sendReadySignal,
+  ]);
 
   // Handle read-only data input separately to avoid re-rendering the entire terminal
   useEffect(() => {

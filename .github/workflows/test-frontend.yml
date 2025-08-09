@@ -9,6 +9,7 @@ on:
       - "pnpm-lock.yaml"
       - "tsconfig*.json"
       - "vite.config.ts"
+      - "vitest.config.ts"
       - ".github/workflows/test-frontend.yml"
 
 jobs:
@@ -39,3 +40,15 @@ jobs:
 
       - name: Run TypeScript compiler
         run: pnpm typecheck
+
+      - name: Run tests with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/coverage-final.json
+          flags: frontend
+          name: codecov-frontend
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}

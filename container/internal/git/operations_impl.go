@@ -2,13 +2,14 @@ package git
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // OperationsImpl implements the Operations interface using gogit where possible
@@ -108,12 +109,34 @@ func (o *OperationsImpl) GetRemoteBranchesFromURL(remoteURL string) ([]string, e
 }
 
 func (o *OperationsImpl) CreateBranch(repoPath, branch, fromRef string) error {
-	args := []string{"branch", branch}
+	// Determine the commit to create the branch from
+	var commitHash string
+	var err error
+
 	if fromRef != "" {
-		args = append(args, fromRef)
+		// If fromRef is already a commit hash, use it directly
+		// If it's a reference, resolve it to a commit hash
+		commitHash, err = o.GetCommitHash(repoPath, fromRef)
+		if err != nil {
+			return fmt.Errorf("failed to resolve fromRef %q to commit hash: %v", fromRef, err)
+		}
+	} else {
+		// Resolve HEAD to a commit hash
+		commitHash, err = o.GetCommitHash(repoPath, "HEAD")
+		if err != nil {
+			return fmt.Errorf("failed to resolve HEAD to commit hash: %v", err)
+		}
 	}
-	_, err := o.ExecuteGit(repoPath, args...)
-	return err
+
+	// Use update-ref to create the branch reference directly
+	// This bypasses git branch's safety checks about HEAD being under refs/heads
+	branchRef := "refs/heads/" + branch
+	_, err = o.ExecuteGit(repoPath, "update-ref", branchRef, commitHash)
+	if err != nil {
+		return fmt.Errorf("failed to create branch %q: %v", branch, err)
+	}
+
+	return nil
 }
 
 func (o *OperationsImpl) DeleteBranch(repoPath, branch string, force bool) error {
@@ -185,14 +208,12 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
 		if err != nil {
-			// If it fails due to missing worktree, try to prune and retry once
+			// If it fails due to missing worktree, log but don't auto-prune
+			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				log.Printf("⚠️  Pruning missing worktrees and retrying...")
-				if pruneErr := o.PruneWorktrees(repoPath); pruneErr != nil {
-					log.Printf("⚠️  Failed to prune worktrees: %v", pruneErr)
-				}
-				// Retry the command once after pruning
-				_, err = o.ExecuteGit(repoPath, args...)
+				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
+				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				// Don't retry - let the error propagate so the caller can handle it
 			}
 			if err != nil {
 				return err
@@ -226,14 +247,12 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
 		if err != nil {
-			// If it fails due to missing worktree, try to prune and retry once
+			// If it fails due to missing worktree, log but don't auto-prune
+			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				log.Printf("⚠️  Pruning missing worktrees and retrying...")
-				if pruneErr := o.PruneWorktrees(repoPath); pruneErr != nil {
-					log.Printf("⚠️  Failed to prune worktrees: %v", pruneErr)
-				}
-				// Retry the command once after pruning
-				_, err = o.ExecuteGit(repoPath, args...)
+				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
+				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				// Don't retry - let the error propagate so the caller can handle it
 			}
 		}
 		return err
@@ -556,11 +575,42 @@ func (o *OperationsImpl) SetConfig(repoPath, key, value string) error {
 func (o *OperationsImpl) SetGlobalConfig(key, value string) error {
 	// Execute without working directory for global config
 	cmd := exec.Command("git", "config", "--global", key, value)
+	// Set HOME for git config location, preserve existing USER
 	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
 	)
 	return cmd.Run()
+}
+
+// GetDisplayBranch returns the display branch name, checking for nice name mapping first
+func (o *OperationsImpl) GetDisplayBranch(worktreePath string) (string, error) {
+	// First get the actual git branch/ref
+	var actualBranch string
+	if branchOutput, err := o.ExecuteGit(worktreePath, "symbolic-ref", "HEAD"); err == nil {
+		actualBranch = strings.TrimSpace(string(branchOutput))
+	} else {
+		// Fallback to branch --show-current for detached HEAD or other cases
+		if branchOutput, err := o.ExecuteGit(worktreePath, "branch", "--show-current"); err == nil {
+			actualBranch = strings.TrimSpace(string(branchOutput))
+		} else {
+			return "", err
+		}
+	}
+
+	// If it's a catnip branch, check if there's a nice name mapping
+	if strings.HasPrefix(actualBranch, "refs/catnip/") {
+		// Check git config for nice branch mapping
+		configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(actualBranch, "/", "."))
+		if niceBranch, err := o.GetConfig(worktreePath, configKey); err == nil && strings.TrimSpace(niceBranch) != "" {
+			// Return the nice branch name
+			return strings.TrimSpace(niceBranch), nil
+		}
+	}
+
+	// Clean up the branch name (remove refs/heads/ prefix if present)
+	actualBranch = strings.TrimPrefix(actualBranch, "refs/heads/")
+
+	return actualBranch, nil
 }
 
 // Rev operations

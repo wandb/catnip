@@ -65,6 +65,14 @@ export interface HeartbeatEvent {
   };
 }
 
+export interface PortMappedEvent {
+  type: "port:mapped";
+  payload: {
+    port: number;
+    host_port: number; // 0 means cleared
+  };
+}
+
 export interface WorktreeStatusUpdatedEvent {
   type: "worktree:status_updated";
   payload: {
@@ -176,6 +184,7 @@ export type AppEvent =
   | ProcessStartedEvent
   | ProcessStoppedEvent
   | ContainerStatusEvent
+  | PortMappedEvent
   | HeartbeatEvent
   | WorktreeStatusUpdatedEvent
   | WorktreeBatchUpdatedEvent

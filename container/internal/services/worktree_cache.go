@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -102,7 +102,9 @@ func (c *WorktreeStatusCache) EnhanceWorktreeWithCache(worktree *models.Worktree
 	if cached.CommitsBehind != nil {
 		worktree.CommitsBehind = *cached.CommitsBehind
 	}
-	if cached.Branch != "" {
+	// Only update branch field if worktree hasn't been renamed
+	// If renamed, Branch field shows nice name for UI, don't overwrite with actual git ref
+	if cached.Branch != "" && !worktree.HasBeenRenamed {
 		worktree.Branch = cached.Branch
 	}
 }
@@ -175,7 +177,7 @@ func (c *WorktreeStatusCache) startWatchingWorktree(worktreeID, worktreePath str
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Printf("⚠️ Failed to create watcher for %s: %v", worktreePath, err)
+		logger.Warnf("⚠️ Failed to create watcher for %s: %v", worktreePath, err)
 		return
 	}
 
@@ -190,7 +192,7 @@ func (c *WorktreeStatusCache) startWatchingWorktree(worktreeID, worktreePath str
 	for _, path := range watchPaths {
 		if _, err := os.Stat(path); err == nil {
 			if err := watcher.Add(path); err != nil {
-				log.Printf("⚠️ Failed to watch %s: %v", path, err)
+				logger.Warnf("⚠️ Failed to watch %s: %v", path, err)
 			}
 		}
 	}
@@ -210,7 +212,7 @@ func (c *WorktreeStatusCache) startWatchingWorktree(worktreeID, worktreePath str
 
 				// Filter relevant events
 				if c.isRelevantFileEvent(event) {
-					log.Printf("🔍 Git change detected in %s: %s", worktreePath, event.Name)
+					logger.Debugf("🔍 Git change detected in %s: %s", worktreePath, event.Name)
 
 					// Debounce rapid file changes (configurable via CATNIP_CACHE_DEBOUNCE_MS)
 					time.AfterFunc(getDebounceInterval(), func() {
@@ -225,7 +227,7 @@ func (c *WorktreeStatusCache) startWatchingWorktree(worktreeID, worktreePath str
 				if !ok {
 					return
 				}
-				log.Printf("⚠️ Watcher error for %s: %v", worktreePath, err)
+				logger.Warnf("⚠️ Watcher error for %s: %v", worktreePath, err)
 
 			case <-c.ctx.Done():
 				return
@@ -359,7 +361,7 @@ func (c *WorktreeStatusCache) processBatchUpdates(worktreeIDs map[string]bool) {
 			}
 			if len(stateUpdates) > 0 {
 				if err := c.stateManager.BatchUpdateWorktrees(stateUpdates); err != nil {
-					log.Printf("⚠️ Failed to batch update worktrees in state: %v", err)
+					logger.Warnf("⚠️ Failed to batch update worktrees in state: %v", err)
 				}
 			}
 		}
@@ -430,10 +432,8 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 		cached.CommitHash = commitHash
 	}
 
-	// Get current branch (detect actual state)
-	if branchOutput, err := c.operations.ExecuteGit(worktreePath, "symbolic-ref", "HEAD"); err == nil {
-		branch := strings.TrimSpace(string(branchOutput))
-		branch = strings.TrimPrefix(branch, "refs/heads/")
+	// Get display branch (handles nice name mapping for catnip branches)
+	if branch, err := c.operations.GetDisplayBranch(worktreePath); err == nil {
 		cached.Branch = branch
 	}
 
@@ -477,7 +477,7 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 	// Update state manager with individual status
 	if c.stateManager != nil {
 		if err := c.stateManager.UpdateWorktreeStatus(worktreeID, cached); err != nil {
-			log.Printf("⚠️ Failed to update worktree status in state: %v", err)
+			logger.Warnf("⚠️ Failed to update worktree status in state: %v", err)
 		}
 	}
 
@@ -495,7 +495,7 @@ func (c *WorktreeStatusCache) refreshAllStatuses() {
 
 	// Only log if there are many worktrees
 	if len(worktreeIDs) > 5 {
-		log.Printf("🔄 Starting periodic refresh of %d worktree statuses", len(worktreeIDs))
+		logger.Debugf("🔄 Starting periodic refresh of %d worktree statuses", len(worktreeIDs))
 	}
 
 	pendingUpdates := make(map[string]bool)

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"os"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -30,6 +30,7 @@ const (
 	ProcessStartedEvent        EventType = "process:started"
 	ProcessStoppedEvent        EventType = "process:stopped"
 	ContainerStatusEvent       EventType = "container:status"
+	PortMappedEvent            EventType = "port:mapped"
 	HeartbeatEvent             EventType = "heartbeat"
 	WorktreeStatusUpdatedEvent EventType = "worktree:status_updated"
 	WorktreeBatchUpdatedEvent  EventType = "worktree:batch_updated"
@@ -55,6 +56,12 @@ type PortPayload struct {
 	PID        *int    `json:"pid,omitempty"`
 	Command    *string `json:"command,omitempty"`
 	WorkingDir *string `json:"working_dir,omitempty"`
+}
+
+// PortMappedPayload describes a host mapping for a container port
+type PortMappedPayload struct {
+	Port     int `json:"port"`      // container port
+	HostPort int `json:"host_port"` // mapped host port
 }
 
 type GitPayload struct {
@@ -141,6 +148,9 @@ type EventsHandler struct {
 	stopChan           chan bool
 	lastPortCheck      time.Time
 	lastPortCheckMux   sync.RWMutex
+	// host port mappings for container ports
+	portMappings   map[int]int
+	portMappingMux sync.RWMutex
 }
 
 func NewEventsHandler(portMonitor *services.PortMonitor, gitService *services.GitService) *EventsHandler {
@@ -151,6 +161,7 @@ func NewEventsHandler(portMonitor *services.PortMonitor, gitService *services.Gi
 		clientConnectTimes: make(map[string]time.Time),
 		startTime:          time.Now(),
 		stopChan:           make(chan bool),
+		portMappings:       make(map[int]int),
 	}
 
 	// Start listening for port changes
@@ -244,7 +255,7 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 	ch := make(chan SSEMessage, 100)
 
 	h.addClient(clientID, ch)
-	log.Printf("SSE client connected: %s (%s) from %s", clientID, clientType, c.IP())
+	logger.Infof("SSE client connected: %s (%s) from %s", clientID, clientType, c.IP())
 
 	//--------------------------------------------------------------------
 	// 4.  Stream writer
@@ -282,6 +293,27 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 			}
 		}
 
+		// Send current host port mappings
+		h.portMappingMux.RLock()
+		for cport, hport := range h.portMappings {
+			msg := SSEMessage{
+				Event: AppEvent{
+					Type: PortMappedEvent,
+					Payload: PortMappedPayload{
+						Port:     cport,
+						HostPort: hport,
+					},
+				},
+				Timestamp: time.Now().UnixMilli(),
+				ID:        uuid.New().String(),
+			}
+			if !send(msg) {
+				h.portMappingMux.RUnlock()
+				return
+			}
+		}
+		h.portMappingMux.RUnlock()
+
 		// ---------------- main loop --------------------
 		tick := time.NewTicker(30 * time.Second)
 		defer tick.Stop()
@@ -290,7 +322,7 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 			select {
 			case msg, ok := <-ch:
 				if !ok {
-					log.Printf("Event client %s is closed somehow!", clientID)
+					logger.Warnf("Event client %s is closed somehow!", clientID)
 				}
 				if !ok || !send(msg) {
 					return
@@ -311,14 +343,14 @@ func (h *EventsHandler) addClient(id string, ch chan SSEMessage) {
 	h.clientsMux.Lock()
 	h.clients[id] = ch
 	h.clientConnectTimes[id] = time.Now()
-	log.Printf("Added event client %s", id)
+	logger.Debugf("Added event client %s", id)
 	h.clientsMux.Unlock()
 }
 
 func (h *EventsHandler) removeClient(id string) {
 	h.clientsMux.Lock()
 	if ch, ok := h.clients[id]; ok {
-		log.Printf("Removing eventclient %s", id)
+		logger.Debugf("Removing eventclient %s", id)
 		close(ch)
 		delete(h.clients, id)
 	}
@@ -425,49 +457,15 @@ func (h *EventsHandler) monitorPorts() {
 			// Check for new ports
 			for portNum, serviceInfo := range currentPorts {
 				if _, exists := lastPorts[portNum]; !exists {
-					var service *string
-					var protocol *string
-					var title *string
-					var pid *int
-					var command *string
-					var workingDir *string
-					if serviceInfo.ServiceType != "" {
-						service = &serviceInfo.ServiceType
-					}
-					protocol = &serviceInfo.ServiceType // Use service type as protocol for now
-					if serviceInfo.Title != "" {
-						title = &serviceInfo.Title
-					}
-					if serviceInfo.PID != 0 {
-						pid = &serviceInfo.PID
-					}
-					if serviceInfo.Command != "" {
-						command = &serviceInfo.Command
-					}
-					if serviceInfo.WorkingDir != "" {
-						workingDir = &serviceInfo.WorkingDir
-					}
-
-					log.Printf("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
-					h.broadcastEvent(AppEvent{
-						Type: PortOpenedEvent,
-						Payload: PortPayload{
-							Port:       serviceInfo.Port,
-							Service:    service,
-							Protocol:   protocol,
-							Title:      title,
-							PID:        pid,
-							Command:    command,
-							WorkingDir: workingDir,
-						},
-					})
+					logger.Debugf("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
+					h.broadcastEvent(h.makePortOpened(serviceInfo).Event)
 				}
 			}
 
 			// Check for closed ports
 			for portNum := range lastPorts {
 				if _, exists := currentPorts[portNum]; !exists {
-					log.Printf("Port closed: %d", portNum)
+					logger.Debugf("Port closed: %d", portNum)
 					h.broadcastEvent(AppEvent{
 						Type: PortClosedEvent,
 						Payload: PortPayload{
@@ -487,7 +485,7 @@ func (h *EventsHandler) monitorPorts() {
 func (h *EventsHandler) broadcastEvent(event AppEvent) {
 	// Validate event before broadcasting
 	if event.Type == "" {
-		log.Printf("Warning: Attempting to broadcast event with empty type")
+		logger.Warnf("Attempting to broadcast event with empty type")
 		return
 	}
 
@@ -510,7 +508,7 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 
 			if exists && time.Since(connectTime) < gracePeriod {
 				// Client is in grace period, don't remove yet
-				log.Printf("Client %s in grace period, not removing (connected %v ago)", clientID, time.Since(connectTime))
+				logger.Debugf("Client %s in grace period, not removing (connected %v ago)", clientID, time.Since(connectTime))
 			} else {
 				// Client channel is full or closed, mark for removal
 				clientsToRemove = append(clientsToRemove, clientID)
@@ -525,6 +523,36 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 			h.removeClient(clientID)
 		}
 	}
+}
+
+// SetPortMapping records and broadcasts a host mapping for a container port
+func (h *EventsHandler) SetPortMapping(containerPort, hostPort int) {
+	h.portMappingMux.Lock()
+	h.portMappings[containerPort] = hostPort
+	h.portMappingMux.Unlock()
+
+	h.broadcastEvent(AppEvent{
+		Type: PortMappedEvent,
+		Payload: PortMappedPayload{
+			Port:     containerPort,
+			HostPort: hostPort,
+		},
+	})
+}
+
+// ClearPortMapping removes mapping and broadcasts update (hostPort=0 means cleared)
+func (h *EventsHandler) ClearPortMapping(containerPort int) {
+	h.portMappingMux.Lock()
+	delete(h.portMappings, containerPort)
+	h.portMappingMux.Unlock()
+
+	h.broadcastEvent(AppEvent{
+		Type: PortMappedEvent,
+		Payload: PortMappedPayload{
+			Port:     containerPort,
+			HostPort: 0,
+		},
+	})
 }
 
 // EmitGitDirty broadcasts a git dirty event to all connected clients
@@ -687,7 +715,7 @@ func (h *EventsHandler) EmitSessionTitleUpdated(workspaceDir, worktreeID string,
 // Stop stops the events handler and cleans up resources
 func (h *EventsHandler) Stop() {
 	close(h.stopChan)
-	log.Printf("Stopping events handler...")
+	logger.Info("Stopping events handler...")
 	h.clientsMux.Lock()
 	defer h.clientsMux.Unlock()
 

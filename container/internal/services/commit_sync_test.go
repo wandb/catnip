@@ -18,16 +18,16 @@ func TestCommitSyncService(t *testing.T) {
 
 	// Create test workspace
 	tempDir := t.TempDir()
-	oldWorkspace := os.Getenv("WORKSPACE_DIR")
-	require.NoError(t, os.Setenv("WORKSPACE_DIR", tempDir))
-	defer func() { _ = os.Setenv("WORKSPACE_DIR", oldWorkspace) }()
+	oldWorkspace := os.Getenv("CATNIP_WORKSPACE_DIR")
+	require.NoError(t, os.Setenv("CATNIP_WORKSPACE_DIR", tempDir))
+	defer func() { _ = os.Setenv("CATNIP_WORKSPACE_DIR", oldWorkspace) }()
 
 	// Create required directories
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "repos"), 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "worktrees"), 0755))
 
 	// Create git service
-	gitService := NewGitService()
+	gitService := createTestGitService(t)
 	require.NotNil(t, gitService)
 
 	// Create commit sync service
@@ -50,7 +50,7 @@ func TestCommitSyncService(t *testing.T) {
 
 func TestCommitSyncServiceLifecycle(t *testing.T) {
 	// Create git service
-	gitService := NewGitService()
+	gitService := createTestGitService(t)
 	require.NotNil(t, gitService)
 
 	// Create commit sync service
@@ -112,7 +112,7 @@ func NewMockCommitSyncService(gitService *GitService) *MockCommitSyncService {
 
 func TestCommitSyncServiceMethods(t *testing.T) {
 	// Create git service
-	gitService := NewGitService()
+	gitService := createTestGitService(t)
 	require.NotNil(t, gitService)
 
 	// Create mock commit sync service

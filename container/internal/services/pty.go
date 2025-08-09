@@ -2,13 +2,15 @@ package services
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // PTYService manages PTY sessions and setup script execution
@@ -41,17 +43,17 @@ func (s *PTYService) ExecuteSetupScript(worktreePath string) {
 
 	// Check if setup.sh exists and is executable
 	if _, err := os.Stat(setupScriptPath); os.IsNotExist(err) {
-		log.Printf("📄 No setup.sh found in %s, skipping setup", worktreePath)
+		logger.Debugf("📄 No setup.sh found in %s, skipping setup", worktreePath)
 		return
 	}
 
-	log.Printf("🔧 Found setup.sh in %s, executing in terminal", worktreePath)
+	logger.Debugf("🔧 Found setup.sh in %s, executing in terminal", worktreePath)
 
 	// Extract workspace name from worktree path for session ID
-	// Format: /workspace/repo/branch -> repo/branch
-	parts := strings.Split(strings.TrimPrefix(worktreePath, "/workspace/"), "/")
+	// Format: workspace/repo/branch -> repo/branch
+	parts := strings.Split(strings.TrimPrefix(worktreePath, config.Runtime.WorkspaceDir+"/"), "/")
 	if len(parts) < 2 {
-		log.Printf("⚠️ Cannot determine session ID from worktree path: %s", worktreePath)
+		logger.Warnf("⚠️ Cannot determine session ID from worktree path: %s", worktreePath)
 		return
 	}
 	sessionID := strings.Join(parts, "/")
@@ -61,11 +63,11 @@ func (s *PTYService) ExecuteSetupScript(worktreePath string) {
 	// Create or get existing session for this worktree
 	session := s.getOrCreateSetupSession(compositeSessionID, worktreePath)
 	if session == nil {
-		log.Printf("❌ Failed to create/get session for setup.sh execution: %s", compositeSessionID)
+		logger.Errorf("❌ Failed to create/get session for setup.sh execution: %s", compositeSessionID)
 		return
 	}
 
-	log.Printf("✅ Started setup.sh execution in PTY session %s for worktree %s", compositeSessionID, worktreePath)
+	logger.Debugf("✅ Started setup.sh execution in PTY session %s for worktree %s", compositeSessionID, worktreePath)
 }
 
 // getOrCreateSetupSession creates or retrieves a setup session for the given session ID
@@ -95,16 +97,16 @@ func (s *PTYService) getOrCreateSetupSession(sessionID, workDir string) *SetupSe
 	// Create setup log file
 	logFile, err := os.Create(setupLogPath)
 	if err != nil {
-		log.Printf("❌ Failed to create setup log file %s: %v", setupLogPath, err)
+		logger.Errorf("❌ Failed to create setup log file %s: %v", setupLogPath, err)
 		return nil
 	}
 
 	// Create command to run setup script and capture output to file
 	cmd := exec.Command("bash", "-c", "chmod +x setup.sh && echo '🔧 Running setup.sh...' && ./setup.sh && echo '\n✅ Setup completed'")
+	// Set environment for setup script execution
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("SESSION_ID=%s", sessionID),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
 		"TERM=xterm-direct",
 		"COLORTERM=truecolor",
 	)
@@ -119,22 +121,22 @@ func (s *PTYService) getOrCreateSetupSession(sessionID, workDir string) *SetupSe
 	go func() {
 		defer logFile.Close()
 
-		log.Printf("🔧 Starting setup script execution for session: %s", sessionID)
+		logger.Debugf("🔧 Starting setup script execution for session: %s", sessionID)
 		if err := cmd.Run(); err != nil {
-			log.Printf("❌ Setup script failed for session %s: %v", sessionID, err)
+			logger.Errorf("❌ Setup script failed for session %s: %v", sessionID, err)
 			// Write error to log file
 			if _, writeErr := fmt.Fprintf(logFile, "\n❌ Setup script failed: %v\n", err); writeErr != nil {
-				log.Printf("⚠️ Failed to write error to setup log: %v", writeErr)
+				logger.Warnf("⚠️ Failed to write error to setup log: %v", writeErr)
 			}
 		} else {
-			log.Printf("✅ Setup script completed successfully for session: %s", sessionID)
+			logger.Debugf("✅ Setup script completed successfully for session: %s", sessionID)
 		}
 	}()
 
 	// Store session
 	s.sessions[sessionID] = session
 
-	log.Printf("✅ Created setup session: %s in directory: %s", sessionID, workDir)
+	logger.Debugf("✅ Created setup session: %s in directory: %s", sessionID, workDir)
 	return session
 }
 
@@ -157,7 +159,7 @@ func (s *PTYService) GetSetupSessionBuffer(sessionID string) ([]byte, bool) {
 	s.sessionMutex.RUnlock()
 
 	if !exists {
-		log.Printf("⚠️ Setup session not found: %s", sessionID)
+		logger.Warnf("⚠️ Setup session not found: %s", sessionID)
 		return nil, false
 	}
 
@@ -168,11 +170,11 @@ func (s *PTYService) GetSetupSessionBuffer(sessionID string) ([]byte, bool) {
 	setupLogPath := fmt.Sprintf("/tmp/%s.log", safeSessionID)
 	content, err := os.ReadFile(setupLogPath)
 	if err != nil {
-		log.Printf("⚠️ Failed to read setup log file %s: %v", setupLogPath, err)
+		logger.Warnf("⚠️ Failed to read setup log file %s: %v", setupLogPath, err)
 		return nil, false
 	}
 
-	log.Printf("✅ Read %d bytes from setup log file: %s", len(content), setupLogPath)
+	logger.Debugf("✅ Read %d bytes from setup log file: %s", len(content), setupLogPath)
 	return content, true
 }
 
@@ -189,7 +191,7 @@ func (s *PTYService) CleanupSession(sessionID string) {
 			_ = session.Cmd.Process.Kill()
 		}
 		delete(s.sessions, sessionID)
-		log.Printf("🧹 Cleaned up setup session: %s", sessionID)
+		logger.Debugf("🧹 Cleaned up setup session: %s", sessionID)
 	}
 }
 

@@ -2,6 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppStore } from "@/stores/appStore";
+import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
+import { BackendErrorScreen } from "@/components/BackendErrorScreen";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 function WorkspaceRedirect() {
   const navigate = useNavigate();
@@ -9,50 +12,64 @@ function WorkspaceRedirect() {
 
   // Use stable selectors to avoid infinite loops
   const initialLoading = useAppStore((state) => state.initialLoading);
+  const loadError = useAppStore((state) => state.loadError);
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
   );
+  const getRepositoryById = useAppStore((state) => state.getRepositoryById);
 
   useEffect(() => {
-    if (hasRedirected.current || initialLoading) {
+    if (hasRedirected.current || initialLoading || loadError) {
       return; // Prevent multiple redirects or wait for data to load
     }
 
     if (worktreesCount > 0) {
-      // Get the first worktree without creating a new array reference
-      const firstWorktree = useAppStore.getState().getWorktreesList()[0];
+      // Find the first available worktree
+      const worktrees = useAppStore.getState().getWorktreesList();
+      let firstAvailableWorktree = null;
 
-      // Extract project/workspace from the workspace name (e.g., "vibes/tiger")
-      const nameParts = firstWorktree.name.split("/");
-      if (nameParts.length >= 2) {
-        hasRedirected.current = true;
-        void navigate({
-          to: "/workspace/$project/$workspace",
-          params: {
-            project: nameParts[0],
-            workspace: nameParts[1],
-          },
-        });
-        return;
+      for (const worktree of worktrees) {
+        const repo = getRepositoryById(worktree.repo_id);
+        if (repo && repo.available) {
+          firstAvailableWorktree = worktree;
+          break;
+        }
+      }
+
+      if (firstAvailableWorktree) {
+        // Extract project/workspace from the workspace name (e.g., "vibes/tiger")
+        const nameParts = firstAvailableWorktree.name.split("/");
+        if (nameParts.length >= 2) {
+          hasRedirected.current = true;
+          void navigate({
+            to: "/workspace/$project/$workspace",
+            params: {
+              project: nameParts[0],
+              workspace: nameParts[1],
+            },
+          });
+          return;
+        }
       }
     }
 
-    // If no workspaces, redirect to terminal
-    hasRedirected.current = true;
-    void navigate({ to: "/terminal" });
-  }, [initialLoading, worktreesCount, navigate]);
+    // Don't redirect if no available workspaces - show welcome screen instead
+  }, [initialLoading, loadError, worktreesCount, navigate, getRepositoryById]);
 
+  // Show error screen if backend is unavailable
+  if (loadError) {
+    return <BackendErrorScreen />;
+  }
+
+  // Show welcome screen if no workspaces
+  if (!initialLoading && worktreesCount === 0) {
+    return <WorkspaceWelcome />;
+  }
+
+  // Show loading while checking for workspaces
   return (
     <div className="flex h-screen items-center justify-center">
-      <div className="text-center space-y-4">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-        <p className="text-muted-foreground">Finding workspace...</p>
-        {!initialLoading && worktreesCount === 0 && (
-          <p className="text-sm text-muted-foreground">
-            No workspaces found, redirecting to terminal...
-          </p>
-        )}
-      </div>
+      <LoadingSpinner message="Finding workspace..." size="lg" />
     </div>
   );
 }

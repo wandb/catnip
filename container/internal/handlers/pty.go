@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/vanpelt/catnip/internal/logger"
 	"syscall"
 	"time"
 	"unsafe"
@@ -18,6 +21,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
@@ -30,6 +34,7 @@ type PTYHandler struct {
 	gitService     *services.GitService
 	sessionService *services.SessionService
 	portService    *services.PortAllocationService
+	portMonitor    *services.PortMonitor
 	ptyService     *services.PTYService
 	claudeMonitor  *services.ClaudeMonitorService
 }
@@ -40,6 +45,7 @@ type ConnectionInfo struct {
 	RemoteAddr  string
 	ConnID      string
 	IsReadOnly  bool
+	IsFocused   bool
 }
 
 // Session represents a PTY session
@@ -126,12 +132,13 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 }
 
 // NewPTYHandler creates a new PTY handler
-func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService) *PTYHandler {
+func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService, portMonitor *services.PortMonitor) *PTYHandler {
 	return &PTYHandler{
 		sessions:       make(map[string]*Session),
 		gitService:     gitService,
 		sessionService: sessionService,
 		portService:    services.NewPortAllocationService(),
+		portMonitor:    portMonitor, // Use the provided portMonitor instead of creating new one
 		ptyService:     services.NewPTYService(),
 		claudeMonitor:  claudeMonitor,
 	}
@@ -156,6 +163,9 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 		agent := c.Query("agent", "")
 		reset := c.Query("reset", "false") == "true"
 
+		// Debug logging to understand what session ID we're actually receiving
+		logger.Debugf("🔍 WebSocket PTY request - Raw session param: %q, Default session: %q, Final sessionID: %q", c.Query("session"), defaultSession, sessionID)
+
 		// Create composite session key: path + agent
 		compositeSessionID := sessionID
 		if agent != "" {
@@ -174,18 +184,18 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	connID := fmt.Sprintf("%p", conn)
 
 	if agent != "" {
-		log.Printf("📡 New PTY connection [%s] for session: %s with agent: %s (reset: %t)", connID, sessionID, agent, reset)
+		logger.Infof("📡 New PTY connection [%s] for session: %s with agent: %s (reset: %t)", connID, sessionID, agent, reset)
 	} else {
-		log.Printf("📡 New PTY connection [%s] for session: %s (reset: %t)", connID, sessionID, reset)
+		logger.Infof("📡 New PTY connection [%s] for session: %s (reset: %t)", connID, sessionID, reset)
 	}
 
 	// Handle reset logic for Claude agent
 	if reset && agent == "claude" {
-		log.Printf("🔄 Reset requested for Claude session: %s", sessionID)
+		logger.Infof("🔄 Reset requested for Claude session: %s", sessionID)
 		// Shutdown any existing PTY session for this sessionID
 		h.sessionMutex.Lock()
 		if existingSession, exists := h.sessions[sessionID]; exists {
-			log.Printf("🛑 Shutting down existing session: %s", sessionID)
+			logger.Infof("🛑 Shutting down existing session: %s", sessionID)
 			h.cleanupSession(existingSession)
 			delete(h.sessions, sessionID)
 		}
@@ -195,7 +205,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	// Get or create session
 	session := h.getOrCreateSession(sessionID, agent, reset)
 	if session == nil {
-		log.Printf("❌ Failed to create session: %s", sessionID)
+		logger.Infof("❌ Failed to create session: %s", sessionID)
 
 		// Send error message to client before closing
 		errorMsg := struct {
@@ -222,20 +232,20 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	session.connMutex.Lock()
 
 	remoteAddr := conn.RemoteAddr().String()
-	log.Printf("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
+	logger.Debugf("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
 
 	// Clean up any stale connections from the same client before determining read-only status
 	h.cleanupStaleConnections(session, remoteAddr)
 
 	connectionCount := len(session.connections)
-	log.Printf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
+	logger.Debugf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
 
 	// First connection gets write access, subsequent ones are read-only
 	isReadOnly := connectionCount > 0
 	if isReadOnly {
-		log.Printf("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
+		logger.Debugf("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
 	} else {
-		log.Printf("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
+		logger.Debugf("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
 	}
 
 	session.connections[conn] = &ConnectionInfo{
@@ -243,12 +253,13 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		RemoteAddr:  conn.RemoteAddr().String(),
 		ConnID:      connID,
 		IsReadOnly:  isReadOnly,
+		IsFocused:   false, // Will be updated when focus event is received
 	}
 	newConnectionCount := len(session.connections)
 	session.connMutex.Unlock()
 
 	if isReadOnly {
-		log.Printf("🔗 Added READ-ONLY connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
+		logger.Debugf("🔗 Added READ-ONLY connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
 
 		// Notify client that it's read-only
 		readOnlyMsg := struct {
@@ -262,7 +273,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			_ = session.writeToConnection(conn, websocket.TextMessage, data)
 		}
 	} else {
-		log.Printf("🔗 Added WRITE connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
+		logger.Infof("🔗 Added WRITE connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
 
 		// Notify client that it has write access
 		writeAccessMsg := struct {
@@ -287,7 +298,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	defer func() {
 		// Recover from any panics in this connection handler
 		if r := recover(); r != nil {
-			log.Printf("❌ Recovered from panic in PTY connection handler: %v", r)
+			logger.Infof("❌ Recovered from panic in PTY connection handler: %v", r)
 		}
 
 		close(done) // Signal goroutines to stop
@@ -298,12 +309,12 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		wasWriteConnection := exists && !connInfo.IsReadOnly
 
 		if exists {
-			log.Printf("🔌❌ Removing connection [%s] from session %s (was write: %v)", connInfo.ConnID, session.ID, !connInfo.IsReadOnly)
+			logger.Debugf("🔌❌ Removing connection [%s] from session %s (was write: %v)", connInfo.ConnID, session.ID, !connInfo.IsReadOnly)
 		}
 
 		delete(session.connections, conn)
 		connectionCount := len(session.connections)
-		log.Printf("🔍 Connection count for session %s: %d (after removal)", session.ID, connectionCount)
+		logger.Debugf("🔍 Connection count for session %s: %d (after removal)", session.ID, connectionCount)
 
 		// If the write connection disconnected, promote the oldest read-only connection
 		if wasWriteConnection && connectionCount > 0 {
@@ -320,7 +331,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			if oldestConn != nil {
 				session.connections[oldestConn].IsReadOnly = false
 				promotedConnID := session.connections[oldestConn].ConnID
-				log.Printf("🔄 Promoted connection [%s] to WRITE access in session %s", promotedConnID, sessionID)
+				logger.Debugf("🔄 Promoted connection [%s] to WRITE access in session %s", promotedConnID, sessionID)
 
 				// Notify the promoted connection about write access
 				writeAccessMsg := struct {
@@ -339,14 +350,14 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		session.connMutex.Unlock()
 
 		if wasWriteConnection {
-			log.Printf("🔌 WRITE connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
+			logger.Debugf("🔌 WRITE connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
 		} else {
-			log.Printf("🔌 read-only connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
+			logger.Debugf("🔌 read-only connection [%s] closed for session %s (remaining: %d)", connID, sessionID, connectionCount)
 		}
 
 		// Safe close with error handling
 		if err := conn.Close(); err != nil {
-			log.Printf("❌ Error closing websocket connection: %v", err)
+			logger.Infof("❌ Error closing websocket connection: %v", err)
 		}
 	}()
 
@@ -354,7 +365,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("❌ Recovered from panic in PTY read goroutine: %v", r)
+				logger.Infof("❌ Recovered from panic in PTY read goroutine: %v", r)
 			}
 		}()
 
@@ -372,20 +383,20 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
 					// For setup sessions, don't recreate - they're meant to exit after showing the log
 					if session.Agent == "setup" {
-						log.Printf("✅ Setup session completed normally, not recreating: %s", session.ID)
+						logger.Infof("✅ Setup session completed normally, not recreating: %s", session.ID)
 						return
 					}
 
 					// Rate limit recreation to prevent CPU pegging
 					now := time.Now()
 					if now.Sub(session.LastRecreation) < time.Second {
-						log.Printf("⏸️ Rate limiting PTY recreation for session %s (last recreation: %v ago)", session.ID, now.Sub(session.LastRecreation))
+						logger.Infof("⏸️ Rate limiting PTY recreation for session %s (last recreation: %v ago)", session.ID, now.Sub(session.LastRecreation))
 						time.Sleep(time.Second)
 						continue
 					}
 					session.LastRecreation = now
 
-					log.Printf("🔄 PTY closed (shell exited: %v), creating new session...", err)
+					logger.Infof("🔄 PTY closed (shell exited: %v), creating new session...", err)
 
 					// Create new PTY (this will clear the buffer)
 					h.recreateSession(session)
@@ -393,7 +404,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					// Continue reading from new PTY
 					continue
 				}
-				log.Printf("❌ PTY read error: %v", err)
+				logger.Infof("❌ PTY read error: %v", err)
 				return
 			}
 
@@ -403,23 +414,29 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				h.handleTitleUpdate(session, title)
 			}
 
-			// Check for alternate screen buffer sequences
+			// Check for localhost:XXXX patterns in terminal output and rewrite them
+			outputData := h.processTerminalOutput(buf[:n], session)
+
+			// Check for alternate screen buffer sequences (use original data for this)
 			if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
 				// Entering alternate screen - mark position for TUI buffer filtering
 				session.AlternateScreenActive = true
 				session.LastNonTUIBufferSize = len(session.outputBuffer)
-				log.Printf("🖥️  Detected alternate screen buffer entry at position %d", session.LastNonTUIBufferSize)
+				logger.Infof("🖥️  Detected alternate screen buffer entry at position %d", session.LastNonTUIBufferSize)
 			}
 			if bytes.Contains(buf[:n], []byte("\x1b[?1049l")) {
 				// Exiting alternate screen
 				session.AlternateScreenActive = false
-				log.Printf("🖥️  Detected alternate screen buffer exit")
+				logger.Infof("🖥️  Detected alternate screen buffer exit")
 			}
 
-			session.outputBuffer = append(session.outputBuffer, buf[:n]...)
-			// Update buffered dimensions to current terminal size
-			session.bufferedCols = session.cols
-			session.bufferedRows = session.rows
+			// Don't buffer output for Claude agent sessions - they have their own session management
+			if session.Agent != "claude" {
+				session.outputBuffer = append(session.outputBuffer, outputData...)
+				// Update buffered dimensions to current terminal size
+				session.bufferedCols = session.cols
+				session.bufferedRows = session.rows
+			}
 			session.bufferMutex.Unlock()
 
 			// Check if connection is still valid before writing
@@ -429,8 +446,8 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			default:
 			}
 
-			// Send to all connections
-			session.broadcastToConnections(websocket.BinaryMessage, buf[:n])
+			// Send to all connections (use the processed output with rewritten URLs)
+			session.broadcastToConnections(websocket.BinaryMessage, outputData)
 		}
 	}()
 
@@ -438,7 +455,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
-			log.Printf("❌ WebSocket read error: %v", err)
+			logger.Infof("❌ WebSocket read error: %v", err)
 			break
 		}
 
@@ -449,11 +466,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			if err := json.Unmarshal(data, &controlMsg); err == nil && controlMsg.Type != "" {
 				switch controlMsg.Type {
 				case "reset":
-					log.Printf("🔄 Reset command received for session: %s", sessionID)
+					logger.Infof("🔄 Reset command received for session: %s", sessionID)
 					h.recreateSession(session)
 					continue
 				case "ready":
-					log.Printf("🎯 Client ready signal received")
+					logger.Infof("🎯 Client ready signal received")
 
 					// Get buffer info
 					session.bufferMutex.RLock()
@@ -464,7 +481,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 					if hasBuffer && bufferCols > 0 && bufferRows > 0 {
 						// First, resize PTY to match buffered dimensions
-						log.Printf("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
+						logger.Infof("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
 						_ = h.resizePTY(session.PTY, bufferCols, bufferRows)
 
 						// Tell client what size to use for replay
@@ -490,31 +507,31 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 							// Only replay content up to where alternate screen was entered
 							bufferToReplay = make([]byte, session.LastNonTUIBufferSize)
 							copy(bufferToReplay, session.outputBuffer[:session.LastNonTUIBufferSize])
-							log.Printf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
+							logger.Debugf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
 						} else {
 							// Replay entire buffer for non-TUI sessions
 							bufferToReplay = make([]byte, len(session.outputBuffer))
 							copy(bufferToReplay, session.outputBuffer)
-							log.Printf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
+							logger.Debugf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
 						}
 						session.bufferMutex.RUnlock()
 
 						if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferToReplay); err != nil {
-							log.Printf("❌ Failed to replay buffer: %v", err)
+							logger.Infof("❌ Failed to replay buffer: %v", err)
 						}
 
 						// If we filtered TUI content, send a refresh signal to trigger TUI repaint
 						if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
 							go func() {
 								time.Sleep(100 * time.Millisecond)
-								log.Printf("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
+								logger.Infof("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
 								if _, err := session.PTY.Write([]byte("\x0c")); err != nil {
-									log.Printf("❌ Failed to send refresh signal: %v", err)
+									logger.Infof("❌ Failed to send refresh signal: %v", err)
 								}
 							}()
 						}
 					} else {
-						log.Printf("📋 No buffer to replay or dimensions not captured")
+						logger.Infof("📋 No buffer to replay or dimensions not captured")
 					}
 					// Always send buffer complete signal
 					completeMsg := struct {
@@ -530,9 +547,9 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				case "prompt":
 					// Handle prompt injection for Claude TUI
 					if controlMsg.Data != "" {
-						log.Printf("📝 Injecting prompt into PTY: %q (submit: %v)", controlMsg.Data, controlMsg.Submit)
+						logger.Infof("📝 Injecting prompt into PTY: %q (submit: %v)", controlMsg.Data, controlMsg.Submit)
 						if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
-							log.Printf("❌ Failed to write prompt to PTY: %v", err)
+							logger.Infof("❌ Failed to write prompt to PTY: %v", err)
 						}
 
 						// If submit is true, send a carriage return after a small delay
@@ -541,9 +558,9 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 							go func() {
 								// Small delay to let the TUI process the prompt text
 								time.Sleep(100 * time.Millisecond)
-								log.Printf("↩️ Sending carriage return (\\r) to execute prompt")
+								logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
 								if _, err := session.PTY.Write([]byte("\r")); err != nil {
-									log.Printf("❌ Failed to write carriage return to PTY: %v", err)
+									logger.Infof("❌ Failed to write carriage return to PTY: %v", err)
 								}
 							}()
 						}
@@ -551,8 +568,18 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					continue
 				case "promote":
 					// Handle connection promotion request (swap read/write permissions)
-					log.Printf("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
+					logger.Infof("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
 					h.promoteConnection(session, conn)
+					continue
+				case "focus":
+					// Handle focus state change
+					var focusMsg struct {
+						Type    string `json:"type"`
+						Focused bool   `json:"focused"`
+					}
+					if err := json.Unmarshal(data, &focusMsg); err == nil {
+						h.handleFocusChange(session, conn, focusMsg.Focused)
+					}
 					continue
 				}
 			}
@@ -563,7 +590,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				session.cols = resizeMsg.Cols
 				session.rows = resizeMsg.Rows
 				_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
-				log.Printf("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
+				logger.Infof("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
 				continue
 			}
 		}
@@ -574,18 +601,18 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		session.connMutex.RUnlock()
 
 		if !exists {
-			log.Printf("⚠️ Connection [%s] no longer exists in session", connID)
+			logger.Infof("⚠️ Connection [%s] no longer exists in session", connID)
 			break
 		}
 
 		if connInfo.IsReadOnly {
-			log.Printf("🚫 Ignoring input from read-only connection [%s] in session %s", connID, sessionID)
+			logger.Infof("🚫 Ignoring input from read-only connection [%s] in session %s", connID, sessionID)
 			continue
 		}
 
 		// Write data to PTY (only from write-enabled connections)
 		if _, err := session.PTY.Write(data); err != nil {
-			log.Printf("❌ PTY write error: %v", err)
+			logger.Infof("❌ PTY write error: %v", err)
 			break
 		}
 
@@ -605,12 +632,12 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	if exists {
 		// Check if agent has changed
 		if session.Agent != agent {
-			log.Printf("🔄 Agent changed from %s to %s for session %s, recreating...", session.Agent, agent, sessionID)
+			logger.Infof("🔄 Agent changed from %s to %s for session %s, recreating...", session.Agent, agent, sessionID)
 			// Update the agent and recreate
 			session.Agent = agent
 			h.recreateSession(session)
 		} else {
-			log.Printf("🔄 Reusing existing session %s with agent: %s", sessionID, session.Agent)
+			logger.Infof("🔄 Reusing existing session %s with agent: %s", sessionID, session.Agent)
 		}
 		return session
 	}
@@ -636,19 +663,19 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Validate session ID and get workspace directory
 	// Only allow "default" or existing worktree directories
 	if baseSessionID == "default" {
-		// Check if /workspace/current symlink exists
-		currentSymlinkPath := filepath.Join("/workspace", "current")
+		// Check if current symlink exists in workspace directory
+		currentSymlinkPath := filepath.Join(config.Runtime.WorkspaceDir, "current")
 		if target, err := os.Readlink(currentSymlinkPath); err == nil {
 			// Symlink exists, check if target is valid
 			if info, err := os.Stat(target); err == nil && info.IsDir() {
 				workDir = target
-				log.Printf("📁 Using current workspace symlink for default session: %s", workDir)
+				logger.Infof("📁 Using current workspace symlink for default session: %s", workDir)
 			} else {
-				log.Printf("❌ /workspace/current symlink target is invalid: %s", target)
+				logger.Infof("❌ Current workspace symlink target is invalid: %s", target)
 				return nil
 			}
 		} else {
-			log.Printf("❌ Default session requested but /workspace/current symlink does not exist")
+			logger.Infof("❌ Default session requested but current symlink does not exist at %s", currentSymlinkPath)
 			return nil
 		}
 	} else if strings.Contains(baseSessionID, "/") {
@@ -658,40 +685,43 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			repo := parts[0]
 			branch := parts[1]
 
-			// Check for worktree at /workspace/repo/branch (our standard pattern)
-			branchWorktreePath := filepath.Join("/workspace", repo, branch)
+			// Check for worktree at workspace/repo/branch (our standard pattern)
+			branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repo, branch)
 			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
 				// Additional validation: check if it's actually a git worktree
 				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
 					workDir = branchWorktreePath
-					log.Printf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
+					logger.Infof("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
 				} else {
-					log.Printf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
+					logger.Infof("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
+					logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
 					return nil
 				}
 			} else {
-				log.Printf("❌ Worktree directory does not exist: %s", branchWorktreePath)
+				logger.Infof("❌ Worktree directory does not exist: %s", branchWorktreePath)
+				logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
 				return nil
 			}
 		} else {
-			log.Printf("❌ Invalid session format: %s", baseSessionID)
+			logger.Infof("❌ Invalid session format: %s", baseSessionID)
 			return nil
 		}
 	} else {
 		// Single name session - check if directory exists
-		sessionWorkDir := filepath.Join("/workspace", baseSessionID)
+		sessionWorkDir := filepath.Join(config.Runtime.WorkspaceDir, baseSessionID)
 		if info, err := os.Stat(sessionWorkDir); err == nil && info.IsDir() {
 			workDir = sessionWorkDir
-			log.Printf("📁 Using existing workspace directory: %s", workDir)
+			logger.Infof("📁 Using existing workspace directory: %s", workDir)
 		} else {
-			log.Printf("❌ Workspace directory does not exist: %s", sessionWorkDir)
+			logger.Infof("❌ Workspace directory does not exist: %s", sessionWorkDir)
+			logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
 			return nil
 		}
 	}
 
 	// workDir should be set at this point or we would have returned nil
 	if workDir == "" {
-		log.Printf("❌ Failed to determine valid workspace directory for session: %s", baseSessionID)
+		logger.Infof("❌ Failed to determine valid workspace directory for session: %s", baseSessionID)
 		return nil
 	}
 
@@ -702,17 +732,17 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		if existingState, err := h.sessionService.FindSessionByDirectory(workDir); err == nil && existingState != nil {
 			// For existing sessions, use --continue instead of --resume
 			useContinue = true
-			log.Printf("🔄 Found existing Claude session in %s, will use --continue", workDir)
+			logger.Infof("🔄 Found existing Claude session in %s, will use --continue", workDir)
 		}
 	}
 
 	// Allocate ports for this session
 	ports, err := h.portService.AllocatePortsForSession(sessionID)
 	if err != nil {
-		log.Printf("❌ Failed to allocate ports for session %s: %v", sessionID, err)
+		logger.Infof("❌ Failed to allocate ports for session %s: %v", sessionID, err)
 		return nil
 	}
-	log.Printf("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
+	logger.Infof("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
 
 	// Create command based on agent parameter
 	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID, useContinue, ports)
@@ -722,7 +752,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Start PTY for all session types including setup
 	ptmx, err = pty.Start(cmd)
 	if err != nil {
-		log.Printf("❌ Failed to start PTY: %v", err)
+		logger.Infof("❌ Failed to start PTY: %v", err)
 		return nil
 	}
 	// Set initial size
@@ -754,18 +784,18 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	}
 
 	h.sessions[sessionID] = session
-	log.Printf("✅ Created new PTY session: %s in %s", sessionID, workDir)
+	logger.Infof("✅ Created new PTY session: %s in %s", sessionID, workDir)
 
 	// Track active session for this workspace
 	if agent == "claude" {
 		// Start or resume session tracking - we'll update with actual Claude session UUID later
 		if activeSession, err := h.sessionService.StartOrResumeActiveSession(workDir, ""); err != nil {
-			log.Printf("⚠️  Failed to start/resume session tracking for %s: %v", workDir, err)
+			logger.Infof("⚠️  Failed to start/resume session tracking for %s: %v", workDir, err)
 		} else {
 			// Inherit the current title from the active session if it exists
 			if activeSession.Title != nil && activeSession.Title.Title != "" {
 				session.Title = activeSession.Title.Title
-				log.Printf("🔄 Inherited existing title from active session: %q", session.Title)
+				logger.Infof("🔄 Inherited existing title from active session: %q", session.Title)
 			}
 		}
 	}
@@ -788,7 +818,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 				// Small delay to allow Claude process to fully start
 				time.Sleep(1 * time.Second)
 				h.gitService.TriggerClaudeActivitySync()
-				log.Printf("🔄 Triggered immediate Claude activity state sync for %s", session.WorkDir)
+				logger.Infof("🔄 Triggered immediate Claude activity state sync for %s", session.WorkDir)
 			}()
 		}
 	}
@@ -835,6 +865,15 @@ func (h *PTYHandler) monitorSession(session *Session) {
 
 		// Use Claude activity-based cleanup logic for Claude sessions
 		if session.Agent == "claude" {
+			// Check Claude session log modification time instead of just connection status
+			claudeLogModTime := h.getClaudeSessionLogModTime(session.WorkDir)
+
+			// If Claude log was modified recently (within 5 minutes), keep session alive
+			if !claudeLogModTime.IsZero() && time.Since(claudeLogModTime) <= 5*time.Minute {
+				logger.Infof("🤖 Claude session has recent activity (log modified %v ago), keeping PTY alive: %s", time.Since(claudeLogModTime), session.ID)
+				continue
+			}
+
 			claudeActivityState := h.sessionService.GetClaudeActivityState(session.WorkDir)
 
 			// Cleanup logic based on Claude activity state:
@@ -845,7 +884,7 @@ func (h *PTYHandler) monitorSession(session *Session) {
 			// 3. ClaudeActive: Recent activity - keep alive regardless of WebSocket connections
 			switch claudeActivityState {
 			case models.ClaudeInactive:
-				log.Printf("🧹 Claude session inactive, cleaning up PTY session: %s", session.ID)
+				logger.Infof("🧹 Claude session inactive, cleaning up PTY session: %s", session.ID)
 				h.cleanupSession(session)
 				return
 			case models.ClaudeRunning:
@@ -856,7 +895,7 @@ func (h *PTYHandler) monitorSession(session *Session) {
 
 				// Only cleanup if no connections AND it's been inactive for a very long time
 				if connectionCount == 0 && time.Since(session.LastAccess) > 10*time.Minute {
-					log.Printf("🧹 Claude session running with no connections for >10min, cleaning up PTY session: %s", session.ID)
+					logger.Infof("🧹 Claude session running with no connections for >10min, cleaning up PTY session: %s", session.ID)
 					h.cleanupSession(session)
 					return
 				}
@@ -874,7 +913,7 @@ func (h *PTYHandler) monitorSession(session *Session) {
 }
 
 func (h *PTYHandler) monitorCheckpoints(session *Session) {
-	log.Printf("🔍 Starting checkpoint monitoring for session %s", session.ID)
+	logger.Infof("🔍 Starting checkpoint monitoring for session %s", session.ID)
 	// Monitor session for checkpoint opportunities
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -887,7 +926,7 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 			if shouldCreate {
 				err := session.checkpointManager.CreateCheckpoint(session.Title)
 				if err != nil {
-					log.Printf("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
+					logger.Infof("⚠️  Failed to create checkpoint for session %s: %v", session.ID, err)
 				}
 			}
 		}
@@ -898,7 +937,7 @@ func (h *PTYHandler) monitorCheckpoints(session *Session) {
 		session.connMutex.RUnlock()
 
 		if connectionCount == 0 {
-			log.Printf("🔍 No connections for session %s, stopping checkpoint monitoring", session.ID)
+			logger.Infof("🔍 No connections for session %s, stopping checkpoint monitoring", session.ID)
 			return
 		}
 	}
@@ -910,7 +949,7 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 	// Get port environment variables
 	portEnvVars, err := h.portService.GetEnvironmentVariables(sessionID)
 	if err != nil {
-		log.Printf("⚠️  Failed to get port environment variables for session %s: %v", sessionID, err)
+		logger.Infof("⚠️  Failed to get port environment variables for session %s: %v", sessionID, err)
 		portEnvVars = []string{} // fallback to empty
 	}
 
@@ -920,19 +959,18 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		args := []string{"--dangerously-skip-permissions"}
 		if useContinue {
 			args = append(args, "--continue")
-			log.Printf("🔄 Starting Claude Code with --continue for session: %s", sessionID)
+			logger.Infof("🔄 Starting Claude Code with --continue for session: %s", sessionID)
 		} else if resumeSessionID != "" {
 			args = append(args, "--resume", resumeSessionID)
-			log.Printf("🔄 Starting Claude Code with resume for session: %s (resuming: %s)", sessionID, resumeSessionID)
+			logger.Infof("🔄 Starting Claude Code with resume for session: %s (resuming: %s)", sessionID, resumeSessionID)
 		} else {
-			log.Printf("🤖 Starting new Claude Code session: %s", sessionID)
+			logger.Infof("🤖 Starting new Claude Code session: %s", sessionID)
 		}
 
 		cmd = exec.Command("claude", args...)
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
-			"HOME=/home/catnip",
-			"USER=catnip",
+			"HOME="+config.Runtime.HomeDir,
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
@@ -950,20 +988,19 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
-		log.Printf("🔧 Setup session - will cat setup log file: %s", setupLogPath)
+		logger.Infof("🔧 Setup session - will cat setup log file: %s", setupLogPath)
 	default:
 		// Default bash shell
 		cmd = exec.Command("bash", "--login")
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
-			"HOME=/home/catnip",
-			"USER=catnip",
+			"HOME="+config.Runtime.HomeDir,
 			"TERM=xterm-direct",
 			"COLORTERM=truecolor",
 		)
 		// Add port environment variables
 		cmd.Env = append(cmd.Env, portEnvVars...)
-		log.Printf("🐚 Starting bash shell for session: %s", sessionID)
+		logger.Infof("🐚 Starting bash shell for session: %s", sessionID)
 	}
 	if cmd != nil {
 		cmd.Dir = workDir
@@ -972,7 +1009,7 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 }
 
 func (h *PTYHandler) recreateSession(session *Session) {
-	log.Printf("🔄 Recreating PTY for session: %s", session.ID)
+	logger.Infof("🔄 Recreating PTY for session: %s", session.ID)
 
 	// Close old PTY
 	if session.PTY != nil {
@@ -996,11 +1033,11 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	// Get ports for this session (should already be allocated)
 	ports, exists := h.portService.GetPortsForSession(session.ID)
 	if !exists {
-		log.Printf("⚠️  No ports found for session %s during recreation, reallocating", session.ID)
+		logger.Infof("⚠️  No ports found for session %s during recreation, reallocating", session.ID)
 		var err error
 		ports, err = h.portService.AllocatePortsForSession(session.ID)
 		if err != nil {
-			log.Printf("❌ Failed to allocate ports for session %s during recreation: %v", session.ID, err)
+			logger.Infof("❌ Failed to allocate ports for session %s during recreation: %v", session.ID, err)
 			return
 		}
 	}
@@ -1011,7 +1048,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	// Start new PTY
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		log.Printf("❌ Failed to recreate PTY: %v", err)
+		logger.Infof("❌ Failed to recreate PTY: %v", err)
 		return
 	}
 
@@ -1020,8 +1057,11 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	session.Cmd = cmd
 
 	// Clear the output buffer on shell restart - no history between restarts
+	// (only for non-Claude sessions since Claude sessions don't buffer)
 	session.bufferMutex.Lock()
-	session.outputBuffer = make([]byte, 0)
+	if session.Agent != "claude" {
+		session.outputBuffer = make([]byte, 0)
+	}
 	// Reset alternate screen buffer detection state
 	session.AlternateScreenActive = false
 	session.LastNonTUIBufferSize = 0
@@ -1032,7 +1072,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		if activeSession, exists := h.sessionService.GetActiveSession(session.WorkDir); exists {
 			if activeSession.Title != nil && activeSession.Title.Title != "" {
 				session.Title = activeSession.Title.Title
-				log.Printf("🔄 Preserved existing title after PTY recreation: %q", session.Title)
+				logger.Infof("🔄 Preserved existing title after PTY recreation: %q", session.Title)
 			}
 		}
 	}
@@ -1040,27 +1080,27 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	// Resize to match previous size
 	_ = h.resizePTY(ptmx, session.cols, session.rows)
 
-	log.Printf("✅ PTY recreated successfully for session: %s", session.ID)
+	logger.Infof("✅ PTY recreated successfully for session: %s", session.ID)
 }
 
 func (h *PTYHandler) cleanupSession(session *Session) {
 	h.sessionMutex.Lock()
 	defer h.sessionMutex.Unlock()
 
-	log.Printf("🧹 Cleaning up idle session: %s", session.ID)
+	logger.Infof("🧹 Cleaning up idle session: %s", session.ID)
 
 	// Perform final git add to catch any uncommitted changes before cleanup
 	if h.gitService != nil {
-		log.Printf("🔄 Performing final git add for any uncommitted changes in: %s", session.WorkDir)
+		logger.Infof("🔄 Performing final git add for any uncommitted changes in: %s", session.WorkDir)
 		if err := h.performFinalGitAdd(session.WorkDir); err != nil {
-			log.Printf("⚠️  Final git add during cleanup failed (this is often expected): %v", err)
+			logger.Infof("⚠️  Final git add during cleanup failed (this is often expected): %v", err)
 		}
 	}
 
 	// End session tracking if it's a claude session
 	if session.Agent == "claude" {
 		if err := h.sessionService.EndActiveSession(session.WorkDir); err != nil {
-			log.Printf("⚠️  Failed to end session tracking for %s: %v", session.WorkDir, err)
+			logger.Infof("⚠️  Failed to end session tracking for %s: %v", session.WorkDir, err)
 		}
 	}
 
@@ -1077,9 +1117,9 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 
 	// Release ports for this session
 	if err := h.portService.ReleasePortsForSession(session.ID); err != nil {
-		log.Printf("⚠️  Failed to release ports for session %s: %v", session.ID, err)
+		logger.Infof("⚠️  Failed to release ports for session %s: %v", session.ID, err)
 	} else {
-		log.Printf("🔗 Released ports for session: %s", session.ID)
+		logger.Infof("🔗 Released ports for session: %s", session.ID)
 	}
 
 	// Remove from sessions map
@@ -1096,18 +1136,18 @@ func (h *PTYHandler) cleanupStaleConnections(session *Session, remoteAddr string
 	for conn, connInfo := range session.connections {
 		if connInfo.RemoteAddr == remoteAddr {
 			existingFromSameAddr++
-			log.Printf("🔍 Found existing connection [%s] from %s, testing if stale...", connInfo.ConnID, remoteAddr)
+			logger.Infof("🔍 Found existing connection [%s] from %s, testing if stale...", connInfo.ConnID, remoteAddr)
 			// Test if connection is still active by trying to ping it
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("🧹 Found stale connection [%s] from %s, removing (ping failed: %v)", connInfo.ConnID, remoteAddr, err)
+				logger.Infof("🧹 Found stale connection [%s] from %s, removing (ping failed: %v)", connInfo.ConnID, remoteAddr, err)
 				staleConnections = append(staleConnections, conn)
 			} else {
-				log.Printf("✅ Connection [%s] from %s is still active", connInfo.ConnID, remoteAddr)
+				logger.Infof("✅ Connection [%s] from %s is still active", connInfo.ConnID, remoteAddr)
 			}
 		}
 	}
 
-	log.Printf("🔍 Stale cleanup for %s: found %d existing connections, %d are stale", remoteAddr, existingFromSameAddr, len(staleConnections))
+	logger.Infof("🔍 Stale cleanup for %s: found %d existing connections, %d are stale", remoteAddr, existingFromSameAddr, len(staleConnections))
 
 	// Remove stale connections
 	for _, conn := range staleConnections {
@@ -1116,7 +1156,7 @@ func (h *PTYHandler) cleanupStaleConnections(session *Session, remoteAddr string
 	}
 
 	if len(staleConnections) > 0 {
-		log.Printf("🧹 Cleaned up %d stale connections from %s in session %s", len(staleConnections), remoteAddr, session.ID)
+		logger.Infof("🧹 Cleaned up %d stale connections from %s in session %s", len(staleConnections), remoteAddr, session.ID)
 	}
 }
 
@@ -1135,7 +1175,7 @@ func (h *PTYHandler) performFinalGitAdd(workspaceDir string) error {
 		return fmt.Errorf("git add failed: %v, output: %s", err, string(output))
 	}
 
-	log.Printf("✅ Staged any remaining changes in: %s", workspaceDir)
+	logger.Infof("✅ Staged any remaining changes in: %s", workspaceDir)
 	return nil
 }
 
@@ -1184,7 +1224,7 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 
 	// Log broadcasts for debugging (only for multiple connections or very large data)
 	if connectionCount > 1 || len(data) > 10000 {
-		log.Printf("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
+		logger.Debugf("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
 	}
 
 	s.connMutex.RLock()
@@ -1194,7 +1234,7 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 
 	for conn, connInfo := range s.connections {
 		if err := conn.WriteMessage(messageType, data); err != nil {
-			log.Printf("❌ WebSocket write error for connection [%s] in session %s: %v", connInfo.ConnID, s.ID, err)
+			logger.Infof("❌ WebSocket write error for connection [%s] in session %s: %v", connInfo.ConnID, s.ID, err)
 			// Mark connection for removal
 			disconnectedConns = append(disconnectedConns, conn)
 		}
@@ -1248,39 +1288,49 @@ func (h *PTYHandler) saveSessionState(session *Session) {
 	}
 
 	if err := h.sessionService.SaveSessionState(state); err != nil {
-		log.Printf("⚠️  Failed to save session state for %s: %v", session.ID, err)
+		logger.Infof("⚠️  Failed to save session state for %s: %v", session.ID, err)
 	} else {
-		log.Printf("💾 Saved session state for %s", session.ID)
+		logger.Infof("💾 Saved session state for %s", session.ID)
 	}
+}
+
+// getClaudeSessionTimeout returns the Claude session monitoring timeout from environment or default
+func getClaudeSessionTimeout() time.Duration {
+	if timeoutStr := os.Getenv("CATNIP_CLAUDE_SESSION_TIMEOUT_SECONDS"); timeoutStr != "" {
+		if timeout, err := strconv.Atoi(timeoutStr); err == nil && timeout > 0 {
+			return time.Duration(timeout) * time.Second
+		}
+	}
+	return 120 * time.Second // Default: Give Claude 2 minutes to create session file
 }
 
 // monitorClaudeSession monitors .claude/projects directory for new session files
 func (h *PTYHandler) monitorClaudeSession(session *Session) {
-	log.Printf("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
+	logger.Infof("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	startTime := time.Now()
-	timeout := 30 * time.Second // Give Claude 30 seconds to create session file
+	timeout := getClaudeSessionTimeout()
 
 	claudeProjectsDir := filepath.Join(session.WorkDir, ".claude", "projects")
 
 	for range ticker.C {
 		if time.Since(startTime) > timeout {
-			log.Printf("⏰ Claude session monitoring timeout for %s", session.ID)
+			logger.Infof("⏰ Claude session monitoring timeout for %s", session.ID)
 			return
 		}
 
 		// Find newest JSONL file in .claude/projects
 		sessionID := h.findNewestClaudeSession(claudeProjectsDir)
 		if sessionID != "" && sessionID != session.ClaudeSessionID {
-			log.Printf("🎯 Detected Claude session ID: %s for PTY session: %s", sessionID, session.ID)
+			logger.Infof("🎯 Detected Claude session ID: %s for PTY session: %s", sessionID, session.ID)
 			session.ClaudeSessionID = sessionID
 
 			// Update active sessions service with real Claude session UUID
 			if _, err := h.sessionService.StartOrResumeActiveSession(session.WorkDir, sessionID); err != nil {
-				log.Printf("⚠️  Failed to update active session with Claude UUID: %v", err)
+				logger.Infof("⚠️  Failed to update active session with Claude UUID: %v", err)
 			}
 
 			// Update persisted state
@@ -1288,6 +1338,58 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 			return
 		}
 	}
+}
+
+// getClaudeSessionLogModTime returns the modification time of the most recently modified Claude session log
+func (h *PTYHandler) getClaudeSessionLogModTime(workDir string) time.Time {
+	homeDir := config.Runtime.HomeDir
+
+	// Transform workDir path to Claude projects directory format
+	transformedPath := strings.ReplaceAll(workDir, "/", "-")
+	transformedPath = strings.TrimPrefix(transformedPath, "-")
+	transformedPath = "-" + transformedPath // Add back the leading dash
+
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+
+	// Check if .claude/projects directory exists
+	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
+		return time.Time{}
+	}
+
+	files, err := os.ReadDir(claudeProjectsDir)
+	if err != nil {
+		return time.Time{}
+	}
+
+	var newestTime time.Time
+
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
+			continue
+		}
+
+		// Extract session ID from filename (remove .jsonl extension)
+		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
+
+		// Validate that it looks like a UUID
+		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+			continue
+		}
+
+		// Get file modification time
+		filePath := filepath.Join(claudeProjectsDir, file.Name())
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			continue
+		}
+
+		// Track the newest modification time
+		if fileInfo.ModTime().After(newestTime) {
+			newestTime = fileInfo.ModTime()
+		}
+	}
+
+	return newestTime
 }
 
 // findNewestClaudeSession finds the newest JSONL file in .claude/projects directory
@@ -1299,7 +1401,7 @@ func (h *PTYHandler) findNewestClaudeSession(claudeProjectsDir string) string {
 
 	files, err := os.ReadDir(claudeProjectsDir)
 	if err != nil {
-		log.Printf("⚠️  Failed to read .claude/projects directory: %v", err)
+		logger.Infof("⚠️  Failed to read .claude/projects directory: %v", err)
 		return ""
 	}
 
@@ -1338,7 +1440,7 @@ func (h *PTYHandler) findNewestClaudeSession(claudeProjectsDir string) string {
 
 // handleTitleUpdate processes a new terminal title, committing previous work and updating session state
 func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
-	log.Printf("🪧 New terminal title detected: %q", title)
+	logger.Infof("🪧 New terminal title detected: %q", title)
 
 	// Get the previous title before updating
 	previousTitle := h.sessionService.GetPreviousTitle(session.WorkDir)
@@ -1350,7 +1452,7 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 
 	// Update session service with the new title (no commit hash yet)
 	if err := h.sessionService.UpdateSessionTitle(session.WorkDir, title, ""); err != nil {
-		log.Printf("⚠️  Failed to update session title: %v", err)
+		logger.Infof("⚠️  Failed to update session title: %v", err)
 	}
 
 	// Notify Claude monitor service directly (fallback for when log monitoring fails)
@@ -1368,13 +1470,13 @@ func (h *PTYHandler) handleTitleUpdate(session *Session, title string) {
 // commitPreviousWork commits the previous work with the given title and updates the commit hash
 func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) {
 	if h.gitService == nil {
-		log.Printf("⚠️  GitService is nil, skipping git operations")
+		logger.Infof("⚠️  GitService is nil, skipping git operations")
 		return
 	}
 
 	commitHash, err := h.gitService.GitAddCommitGetHash(session.WorkDir, previousTitle)
 	if err != nil {
-		log.Printf("⚠️  Git operations failed for previous title '%s': %v", previousTitle, err)
+		logger.Infof("⚠️  Git operations failed for previous title '%s': %v", previousTitle, err)
 		return
 	}
 
@@ -1382,16 +1484,16 @@ func (h *PTYHandler) commitPreviousWork(session *Session, previousTitle string) 
 		return
 	}
 
-	log.Printf("✅ Committed previous work with title: %q (hash: %s)", previousTitle, commitHash)
+	logger.Infof("✅ Committed previous work with title: %q (hash: %s)", previousTitle, commitHash)
 
 	// Update the previous title's commit hash
 	if err := h.sessionService.UpdatePreviousTitleCommitHash(session.WorkDir, commitHash); err != nil {
-		log.Printf("⚠️  Failed to update previous title commit hash: %v", err)
+		logger.Infof("⚠️  Failed to update previous title commit hash: %v", err)
 	}
 
 	// Refresh worktree status to update commit count in frontend
 	if err := h.gitService.RefreshWorktreeStatus(session.WorkDir); err != nil {
-		log.Printf("⚠️  Failed to refresh worktree status after commit: %v", err)
+		logger.Infof("⚠️  Failed to refresh worktree status after commit: %v", err)
 	}
 
 	// Update last commit time to reset checkpoint timer
@@ -1421,7 +1523,7 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 
 	requestingConnInfo, exists := session.connections[requestingConn]
 	if !exists {
-		log.Printf("❌ Requesting connection not found in session connections")
+		logger.Infof("❌ Requesting connection not found in session connections")
 		return
 	}
 
@@ -1438,14 +1540,14 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 
 	// If requesting connection is already the write connection, do nothing
 	if currentWriteConn == requestingConn {
-		log.Printf("🔄 Connection [%s] is already the write connection", requestingConnInfo.ConnID)
+		logger.Infof("🔄 Connection [%s] is already the write connection", requestingConnInfo.ConnID)
 		return
 	}
 
 	// If there's a current write connection, demote it to read-only
 	if currentWriteConn != nil && currentWriteConnInfo != nil {
 		currentWriteConnInfo.IsReadOnly = true
-		log.Printf("🔒 Demoted connection [%s] to read-only mode", currentWriteConnInfo.ConnID)
+		logger.Infof("🔒 Demoted connection [%s] to read-only mode", currentWriteConnInfo.ConnID)
 
 		// Notify the demoted connection
 		readOnlyMsg := struct {
@@ -1462,7 +1564,7 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 
 	// Promote the requesting connection to write access
 	requestingConnInfo.IsReadOnly = false
-	log.Printf("✍️ Promoted connection [%s] to write mode", requestingConnInfo.ConnID)
+	logger.Infof("✍️ Promoted connection [%s] to write mode", requestingConnInfo.ConnID)
 
 	// Notify the promoted connection
 	writeAccessMsg := struct {
@@ -1476,5 +1578,104 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 		_ = session.writeToConnection(requestingConn, websocket.TextMessage, data)
 	}
 
-	log.Printf("🔄 Connection promotion completed in session %s", session.ID)
+	logger.Infof("🔄 Connection promotion completed in session %s", session.ID)
+}
+
+// processTerminalOutput scans terminal output for localhost:XXXX patterns
+// and registers discovered ports.
+func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte {
+	// Convert to string for pattern matching
+	output := string(data)
+
+	// Regex to match localhost:XXXX patterns (various formats)
+	// Matches: localhost:3000, http://localhost:3000, https://localhost:3000, etc.
+	localhostRegex := regexp.MustCompile(`(https?://)?localhost:(\d{4,5})(/[^\s\x1b]*)?`)
+
+	// Find all matches and register ports
+	matches := localhostRegex.FindAllStringSubmatch(output, -1)
+	for _, match := range matches {
+		if len(match) >= 3 {
+			portStr := match[2]
+			if port, err := strconv.Atoi(portStr); err == nil {
+				// Skip port 8080 (our own proxy port)
+				if port != 8080 && port >= 1024 && port <= 65535 {
+					// Register the port with the port monitor
+					h.portMonitor.RegisterPortFromTerminalOutput(port, session.WorkDir)
+				}
+			}
+		}
+	}
+
+	// No rewriting; UI/CLI forwarding will handle host access
+	return []byte(output)
+}
+
+// handleFocusChange handles focus state changes and auto-promotes focused connections
+func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, focused bool) {
+	session.connMutex.Lock()
+	defer session.connMutex.Unlock()
+
+	connInfo, exists := session.connections[conn]
+	if !exists {
+		logger.Infof("❌ Connection not found in session connections for focus change")
+		return
+	}
+
+	// Update focus state
+	connInfo.IsFocused = focused
+	connID := connInfo.ConnID
+
+	if focused {
+		logger.Infof("🎯 Connection [%s] gained focus in session %s", connID, session.ID)
+
+		// Auto-promote focused connection if it's read-only
+		if connInfo.IsReadOnly {
+			// Find and demote the current write connection
+			var currentWriteConn *websocket.Conn
+			var currentWriteConnInfo *ConnectionInfo
+			for c, info := range session.connections {
+				if !info.IsReadOnly && c != conn {
+					currentWriteConn = c
+					currentWriteConnInfo = info
+					break
+				}
+			}
+
+			// Demote current write connection
+			if currentWriteConn != nil && currentWriteConnInfo != nil {
+				currentWriteConnInfo.IsReadOnly = true
+				logger.Infof("🔒 Auto-demoted connection [%s] to read-only (focus lost)", currentWriteConnInfo.ConnID)
+
+				// Notify the demoted connection
+				readOnlyMsg := struct {
+					Type string `json:"type"`
+					Data bool   `json:"data"`
+				}{
+					Type: "read-only",
+					Data: true,
+				}
+				if data, err := json.Marshal(readOnlyMsg); err == nil {
+					_ = session.writeToConnection(currentWriteConn, websocket.TextMessage, data)
+				}
+			}
+
+			// Promote the focused connection
+			connInfo.IsReadOnly = false
+			logger.Infof("✍️ Auto-promoted focused connection [%s] to write mode", connID)
+
+			// Notify the promoted connection
+			writeAccessMsg := struct {
+				Type string `json:"type"`
+				Data bool   `json:"data"`
+			}{
+				Type: "read-only",
+				Data: false,
+			}
+			if data, err := json.Marshal(writeAccessMsg); err == nil {
+				_ = session.writeToConnection(conn, websocket.TextMessage, data)
+			}
+		}
+	} else {
+		logger.Infof("👁️ Connection [%s] lost focus in session %s", connID, session.ID)
+	}
 }

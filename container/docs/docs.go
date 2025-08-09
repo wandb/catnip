@@ -429,6 +429,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/git/template": {
+            "post": {
+                "description": "Creates a new Git repository and workspace from a predefined project template",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Create workspace from template",
+                "parameters": [
+                    {
+                        "description": "Template creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateTemplateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request or template not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/worktrees": {
             "get": {
                 "description": "Returns a list of all worktrees for the current repository with fast cache-enhanced responses",
@@ -497,6 +552,45 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.WorktreeOperationResponse"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "description": "Updates specific fields of a worktree (for testing purposes)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Update worktree fields",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "updates",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Worktree"
                         }
                     }
                 }
@@ -942,6 +1036,99 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/ports/mappings": {
+            "post": {
+                "description": "Records a mapping from container port to host port and broadcasts an SSE event",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ports"
+                ],
+                "summary": "Set host port mapping for a container port",
+                "parameters": [
+                    {
+                        "description": "Mapping object with 'port' and 'host_port'",
+                        "name": "mapping",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Mapping set",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/ports/mappings/{port}": {
+            "delete": {
+                "description": "Removes a mapping and broadcasts an SSE event with host_port=0",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ports"
+                ],
+                "summary": "Delete host port mapping for a container port",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Container port",
+                        "name": "port",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Mapping deleted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid port",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -1597,6 +1784,11 @@ const docTemplate = `{
             "description": "Git repository information and metadata",
             "type": "object",
             "properties": {
+                "available": {
+                    "description": "Whether the repository is currently available on disk",
+                    "type": "boolean",
+                    "example": true
+                },
                 "created_at": {
                     "description": "When this repository was first cloned",
                     "type": "string",
@@ -1756,6 +1948,11 @@ const docTemplate = `{
                     "description": "Whether there's an active Claude session for this worktree (deprecated - use ClaudeActivityState)",
                     "type": "boolean"
                 },
+                "has_been_renamed": {
+                    "description": "Whether this worktree's branch has been renamed from its original catnip ref",
+                    "type": "boolean",
+                    "example": true
+                },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
                     "type": "boolean",
@@ -1839,6 +2036,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "command": {
+                    "type": "string"
+                },
+                "detection_source": {
+                    "description": "\"tcp-scan\", \"terminal-output\", etc.",
                     "type": "string"
                 },
                 "health": {
@@ -2050,6 +2251,21 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_handlers.CreateTemplateRequest": {
+            "type": "object",
+            "required": [
+                "project_name",
+                "template_id"
+            ],
+            "properties": {
+                "project_name": {
+                    "type": "string"
+                },
+                "template_id": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handlers.DeleteSessionResponse": {
             "description": "Response confirming session deletion",
             "type": "object",
@@ -2108,6 +2324,11 @@ const docTemplate = `{
                 "has_active_claude_session": {
                     "description": "Whether there's an active Claude session for this worktree (deprecated - use ClaudeActivityState)",
                     "type": "boolean"
+                },
+                "has_been_renamed": {
+                    "description": "Whether this worktree's branch has been renamed from its original catnip ref",
+                    "type": "boolean",
+                    "example": true
                 },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
@@ -2198,6 +2419,7 @@ const docTemplate = `{
                 "process:started",
                 "process:stopped",
                 "container:status",
+                "port:mapped",
                 "heartbeat",
                 "worktree:status_updated",
                 "worktree:batch_updated",
@@ -2217,6 +2439,7 @@ const docTemplate = `{
                 "ProcessStartedEvent",
                 "ProcessStoppedEvent",
                 "ContainerStatusEvent",
+                "PortMappedEvent",
                 "HeartbeatEvent",
                 "WorktreeStatusUpdatedEvent",
                 "WorktreeBatchUpdatedEvent",

@@ -3,14 +3,29 @@ package services
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
+
+// GitOperations interface for branch renaming operations
+type GitOperations interface {
+	GetCommitHash(worktreePath, ref string) (string, error)
+	CreateBranch(repoPath, branch, fromRef string) error
+	BranchExists(repoPath, branch string, isRemote bool) bool
+	SetConfig(repoPath, key, value string) error
+	GetConfig(repoPath, key string) (string, error)
+}
+
+// WorktreeRestorer interface for recreating worktrees during state restoration
+type WorktreeRestorer interface {
+	RecreateWorktree(worktree *models.Worktree, repo *models.Repository) error
+}
 
 // WorktreeStateChange represents a change to worktree state
 type WorktreeStateChange struct {
@@ -22,12 +37,13 @@ type WorktreeStateChange struct {
 
 // WorktreeStateManager manages all worktree state persistently
 type WorktreeStateManager struct {
-	mu             sync.RWMutex
-	repositories   map[string]*models.Repository
-	worktrees      map[string]*models.Worktree
-	stateDir       string
-	eventsEmitter  EventsEmitter
-	sessionService *SessionService
+	mu               sync.RWMutex
+	repositories     map[string]*models.Repository
+	worktrees        map[string]*models.Worktree
+	stateDir         string
+	eventsEmitter    EventsEmitter
+	sessionService   *SessionService
+	worktreeRestorer WorktreeRestorer
 
 	// Track field-level changes
 	previousState map[string]worktreeFieldState
@@ -53,6 +69,7 @@ type worktreeFieldState struct {
 	HasActiveClaudeSession bool
 	ClaudeActivityState    models.ClaudeActivityState
 	Todos                  []models.Todo
+	HasBeenRenamed         bool // Whether this worktree has had its branch renamed
 }
 
 // NewWorktreeStateManager creates a new centralized state manager
@@ -68,7 +85,7 @@ func NewWorktreeStateManager(stateDir string, eventsEmitter EventsEmitter) *Work
 
 	// Load existing state
 	if err := wsm.loadState(); err != nil {
-		log.Printf("⚠️ Failed to load state: %v", err)
+		logger.Warnf("⚠️ Failed to load state: %v", err)
 	}
 
 	return wsm
@@ -82,6 +99,13 @@ func (wsm *WorktreeStateManager) SetSessionService(sessionService *SessionServic
 
 	// Start periodic Claude activity state checking
 	go wsm.startClaudeActivitySync()
+}
+
+// SetWorktreeRestorer sets the worktree restorer for state restoration
+func (wsm *WorktreeStateManager) SetWorktreeRestorer(restorer WorktreeRestorer) {
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+	wsm.worktreeRestorer = restorer
 }
 
 // Stop stops the periodic syncing
@@ -138,14 +162,37 @@ func (wsm *WorktreeStateManager) AddRepository(repo *models.Repository) error {
 	wsm.mu.Lock()
 	defer wsm.mu.Unlock()
 
+	// Ensure new repositories are marked as available by default
+	if !repo.Available {
+		repo.Available = true
+	}
+
 	wsm.repositories[repo.ID] = repo
 	return wsm.saveStateInternal()
+}
+
+// IsRepositoryAvailable checks if a repository is available for operations
+func (wsm *WorktreeStateManager) IsRepositoryAvailable(repoID string) bool {
+	wsm.mu.RLock()
+	defer wsm.mu.RUnlock()
+
+	repo, exists := wsm.repositories[repoID]
+	return exists && repo.Available
 }
 
 // AddWorktree adds a new worktree
 func (wsm *WorktreeStateManager) AddWorktree(worktree *models.Worktree) error {
 	wsm.mu.Lock()
 	defer wsm.mu.Unlock()
+
+	// Check if the associated repository is available
+	repo, repoExists := wsm.repositories[worktree.RepoID]
+	if !repoExists {
+		return fmt.Errorf("repository %s not found", worktree.RepoID)
+	}
+	if !repo.Available {
+		return fmt.Errorf("repository %s is not available", worktree.RepoID)
+	}
 
 	wsm.worktrees[worktree.ID] = worktree
 
@@ -207,6 +254,14 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 			if v, ok := value.(string); ok {
 				worktree.PullRequestURL = v
 			}
+		case "pull_request_title":
+			if v, ok := value.(string); ok {
+				worktree.PullRequestTitle = v
+			}
+		case "pull_request_body":
+			if v, ok := value.(string); ok {
+				worktree.PullRequestBody = v
+			}
 		case "session_title":
 			if v, ok := value.(*models.TitleEntry); ok {
 				worktree.SessionTitle = v
@@ -230,6 +285,10 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 		case "todos":
 			if v, ok := value.([]models.Todo); ok {
 				worktree.Todos = v
+			}
+		case "has_been_renamed":
+			if v, ok := value.(bool); ok {
+				worktree.HasBeenRenamed = v
 			}
 		}
 	}
@@ -478,6 +537,95 @@ func (wsm *WorktreeStateManager) loadState() error {
 	return nil
 }
 
+// RestoreState recreates worktrees from persisted state on boot
+func (wsm *WorktreeStateManager) RestoreState() error {
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+
+	if wsm.worktreeRestorer == nil {
+		logger.Warn("⚠️ No worktree restorer set, skipping state restoration")
+		return nil
+	}
+
+	logger.Debug("🔄 Starting state restoration...")
+
+	// First, check repository availability
+	for repoID, repo := range wsm.repositories {
+		// Use the actual repo Path from the repository struct
+		// This should already contain the correct path (either /volume/repos/... or /live/...)
+		repoPath := repo.Path
+
+		if _, err := os.Stat(repoPath); err != nil {
+			logger.Warnf("⚠️ Repository %s not available at %s, marking as unavailable", repoID, repoPath)
+			repo.Available = false
+		} else {
+			logger.Debugf("✅ Repository %s found at %s", repoID, repoPath)
+			repo.Available = true
+		}
+	}
+
+	// Track restoration stats
+	restoredCount := 0
+	skippedCount := 0
+	failedCount := 0
+
+	// Attempt to restore worktrees
+	for _, worktree := range wsm.worktrees {
+		logger.Debugf("🔍 Processing worktree %s (RepoID: %s)", worktree.Name, worktree.RepoID)
+
+		// Check if the associated repository is available
+		repo, repoExists := wsm.repositories[worktree.RepoID]
+		if !repoExists {
+			logger.Warnf("⚠️ Worktree %s references missing repository %s, skipping", worktree.Name, worktree.RepoID)
+			skippedCount++
+			continue
+		}
+
+		if !repo.Available {
+			logger.Warnf("⚠️ Worktree %s belongs to unavailable repository %s, skipping", worktree.Name, worktree.RepoID)
+			skippedCount++
+			continue
+		}
+
+		// Check if worktree directory still exists
+		if _, err := os.Stat(worktree.Path); err == nil {
+			logger.Debugf("✅ Worktree %s already exists at %s, no restoration needed", worktree.Name, worktree.Path)
+			restoredCount++
+			continue
+		}
+
+		logger.Debugf("🔄 Attempting to restore worktree %s to %s (repo path: %s)", worktree.Name, worktree.Path, repo.Path)
+
+		// Add debug check for worktree restorer
+		if wsm.worktreeRestorer == nil {
+			logger.Errorf("❌ ERROR: worktreeRestorer is nil when trying to restore %s", worktree.Name)
+			failedCount++
+			continue
+		}
+
+		// Attempt to recreate the worktree
+		logger.Debugf("🔧 Calling RecreateWorktree for %s", worktree.Name)
+		if err := wsm.worktreeRestorer.RecreateWorktree(worktree, repo); err != nil {
+			logger.Errorf("❌ Failed to restore worktree %s: %v", worktree.Name, err)
+			failedCount++
+			continue
+		}
+
+		logger.Debugf("✅ Successfully restored worktree %s", worktree.Name)
+		restoredCount++
+	}
+
+	// Save state to persist any availability changes
+	if err := wsm.saveStateInternal(); err != nil {
+		logger.Warnf("⚠️ Failed to save state after restoration: %v", err)
+	}
+
+	logger.Infof("🎉 State restoration completed: %d restored, %d skipped, %d failed",
+		restoredCount, skippedCount, failedCount)
+
+	return nil
+}
+
 // captureFieldState captures the current state of worktree fields
 func (wsm *WorktreeStateManager) captureFieldState(wt *models.Worktree) worktreeFieldState {
 	state := worktreeFieldState{
@@ -494,6 +642,7 @@ func (wsm *WorktreeStateManager) captureFieldState(wt *models.Worktree) worktree
 		SessionTitle:           wt.SessionTitle,
 		HasActiveClaudeSession: wt.HasActiveClaudeSession,
 		ClaudeActivityState:    wt.ClaudeActivityState,
+		HasBeenRenamed:         wt.HasBeenRenamed,
 	}
 
 	// Deep copy title history
@@ -520,14 +669,14 @@ func (wsm *WorktreeStateManager) SetEventsEmitter(emitter EventsEmitter) {
 
 // startClaudeActivitySync periodically checks and updates Claude activity states
 func (wsm *WorktreeStateManager) startClaudeActivitySync() {
-	log.Printf("🔄 Starting Claude activity state sync")
+	logger.Debug("🔄 Starting Claude activity state sync")
 	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-wsm.stopChan:
-			log.Printf("🛑 Stopping Claude activity state sync")
+			logger.Debug("🛑 Stopping Claude activity state sync")
 			return
 		case <-ticker.C:
 			wsm.syncClaudeActivityStates()
@@ -566,7 +715,7 @@ func (wsm *WorktreeStateManager) syncClaudeActivityStates() {
 
 		// Check if activity state has changed
 		if wt.ClaudeActivityState != currentActivityState {
-			log.Printf("🔄 Claude activity state changed for %s: %s -> %s",
+			logger.Debugf("🔄 Claude activity state changed for %s: %s -> %s",
 				wt.Name, wt.ClaudeActivityState, currentActivityState)
 
 			if updates[worktreeID] == nil {
@@ -585,7 +734,107 @@ func (wsm *WorktreeStateManager) syncClaudeActivityStates() {
 	// Apply any updates found
 	if len(updates) > 0 {
 		if err := wsm.BatchUpdateWorktrees(updates); err != nil {
-			log.Printf("⚠️ Failed to update Claude activity states: %v", err)
+			logger.Warnf("⚠️ Failed to update Claude activity states: %v", err)
 		}
 	}
+}
+
+// RenameWorktreeBranch is the centralized method for renaming catnip branches to nice names
+// This is the ONLY place where branch renaming should happen
+func (wsm *WorktreeStateManager) RenameWorktreeBranch(worktreeID, niceBranchName string, gitOperations GitOperations) error {
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+
+	worktree, exists := wsm.worktrees[worktreeID]
+	if !exists {
+		return fmt.Errorf("worktree %s not found", worktreeID)
+	}
+
+	// Check if branch has already been renamed
+	if worktree.HasBeenRenamed {
+		logger.Debugf("🔍 Branch for worktree %s already renamed to %q, skipping", worktreeID, worktree.Branch)
+		return nil
+	}
+
+	// Only rename catnip branches
+	originalBranch := worktree.Branch
+	if !strings.HasPrefix(originalBranch, "refs/catnip/") {
+		logger.Debugf("🔍 Branch %s is not a catnip branch, skipping rename", originalBranch)
+		return nil
+	}
+
+	logger.Debugf("🔄 Creating nice branch %s for %s", niceBranchName, originalBranch)
+
+	// Create the nice branch using git operations (this can be done without holding the lock)
+	currentCommit, err := gitOperations.GetCommitHash(worktree.Path, "HEAD")
+	if err != nil {
+		return fmt.Errorf("failed to get current commit: %v", err)
+	}
+
+	if err := gitOperations.CreateBranch(worktree.Path, niceBranchName, currentCommit); err != nil {
+		return fmt.Errorf("failed to create nice branch %q: %v", niceBranchName, err)
+	}
+
+	// Store the branch mapping in git config for external tools (PRs, etc)
+	configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(originalBranch, "/", "."))
+	if err := gitOperations.SetConfig(worktree.Path, configKey, niceBranchName); err != nil {
+		logger.Warnf("⚠️ Failed to store branch mapping in git config: %v", err)
+		// Don't fail the operation for this
+	}
+
+	// Update the worktree state:
+	// - Branch field shows the nice name for UI display
+	// - The actual git HEAD stays on the catnip ref
+	// - has_been_renamed prevents future rename attempts
+	logger.Debugf("🔄 Updating worktree state: Branch %s -> %s (git HEAD stays on %s)", worktree.Branch, niceBranchName, originalBranch)
+	worktree.Branch = niceBranchName // This is what the UI displays
+	worktree.HasBeenRenamed = true   // This prevents further renames
+
+	// Save state directly
+	if err := wsm.saveStateInternal(); err != nil {
+		return fmt.Errorf("failed to save worktree state: %v", err)
+	}
+
+	// Emit events manually since we bypassed UpdateWorktree
+	if wsm.eventsEmitter != nil {
+		updates := map[string]interface{}{
+			"branch":           niceBranchName,
+			"has_been_renamed": true,
+		}
+		// No need to filter here since we're explicitly setting the nice branch name
+		wsm.eventsEmitter.EmitWorktreeUpdated(worktreeID, updates)
+	}
+
+	logger.Infof("✅ Successfully renamed branch display: %s -> %q for worktree %s (git HEAD remains on %s)",
+		originalBranch, niceBranchName, worktreeID, originalBranch)
+	return nil
+}
+
+// ShouldRenameBranch checks if a worktree branch should be renamed (centralized check)
+func (wsm *WorktreeStateManager) ShouldRenameBranch(worktreeID string) bool {
+	wsm.mu.RLock()
+	defer wsm.mu.RUnlock()
+
+	worktree, exists := wsm.worktrees[worktreeID]
+	if !exists {
+		return false
+	}
+
+	// Don't rename if already renamed
+	if worktree.HasBeenRenamed {
+		logger.Debugf("🔍 ShouldRenameBranch: %s already renamed (has_been_renamed=true)", worktreeID)
+		return false
+	}
+
+	// Check if this is a catnip branch that needs renaming
+	// After renaming, Branch field shows nice name, so we need to check git HEAD directly
+	if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+		logger.Debugf("🔍 ShouldRenameBranch: %s is catnip branch %s, should rename", worktreeID, worktree.Branch)
+		return true
+	}
+
+	// If Branch field doesn't start with refs/catnip/, we still need to check git HEAD
+	// in case the worktree was already renamed but git HEAD is still on catnip ref
+	logger.Debugf("🔍 ShouldRenameBranch: %s Branch=%s (not catnip format), checking if already processed", worktreeID, worktree.Branch)
+	return false
 }

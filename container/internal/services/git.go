@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,28 +10,25 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/git/templates"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/recovery"
 )
 
-const (
-	defaultWorkspaceDir = "/workspace"
-	liveDir             = "/live"
-	devRepoPath         = "/live/catnip" // Kept for backwards compatibility
-)
-
-// getWorkspaceDir returns the workspace directory, configurable via CATNIP_WORKSPACE_DIR
+// getWorkspaceDir returns the workspace directory for the current runtime
 func getWorkspaceDir() string {
 	if dir := os.Getenv("CATNIP_WORKSPACE_DIR"); dir != "" {
 		return dir
 	}
-	return defaultWorkspaceDir
+	return config.Runtime.WorkspaceDir
 }
 
-// getGitStateDir returns the git state directory based on workspace dir
+// getGitStateDir returns the git state directory based on volume dir
 func getGitStateDir() string {
-	return filepath.Join(getWorkspaceDir(), ".git-state")
+	return config.Runtime.VolumeDir
 }
 
 // generateUniqueSessionName generates a unique session name that doesn't already exist as a branch
@@ -50,7 +46,7 @@ func isCatnipBranch(branchName string) bool {
 
 // cleanupUnusedBranches removes catnip branches that have no commits
 func (s *GitService) cleanupUnusedBranches() {
-	log.Printf("🧹 Starting cleanup of unused catnip branches...")
+	logger.Debug("🧹 Starting cleanup of unused catnip branches...")
 
 	s.mu.RLock()
 	reposMap := s.stateManager.GetAllRepositories()
@@ -59,10 +55,16 @@ func (s *GitService) cleanupUnusedBranches() {
 	totalDeleted := 0
 
 	for _, repo := range reposMap {
+		// Check if repository path exists before trying to clean it up
+		if _, err := os.Stat(repo.Path); os.IsNotExist(err) {
+			// Skip non-existent repositories (likely in-memory test repositories)
+			continue
+		}
+
 		// List all branches in the bare repository
 		branches, err := s.operations.ListBranches(repo.Path, git.ListBranchesOptions{All: true})
 		if err != nil {
-			log.Printf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
+			logger.Warnf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
 			continue
 		}
 		deletedInRepo := 0
@@ -124,25 +126,25 @@ func (s *GitService) cleanupUnusedBranches() {
 			if err := s.operations.DeleteBranch(repo.Path, branchName, true); err == nil {
 				deletedInRepo++
 				totalDeleted++
-				log.Printf("🗑️  Deleted unused branch: %s in %s", branchName, repo.ID)
+				logger.Debugf("🗑️  Deleted unused branch: %s in %s", branchName, repo.ID)
 			}
 		}
 
 		if deletedInRepo > 0 {
-			log.Printf("✅ Cleaned up %d unused branches in %s", deletedInRepo, repo.ID)
+			logger.Infof("✅ Cleaned up %d unused branches in %s", deletedInRepo, repo.ID)
 		}
 	}
 
 	if totalDeleted > 0 {
-		log.Printf("🧹 Cleanup complete: removed %d unused catnip branches", totalDeleted)
+		logger.Infof("🧹 Cleanup complete: removed %d unused catnip branches", totalDeleted)
 	} else {
-		log.Printf("✅ No unused catnip branches found")
+		logger.Debug("✅ No unused catnip branches found")
 	}
 }
 
 // cleanupCatnipRefs provides comprehensive cleanup of refs/catnip/ namespace
 func (s *GitService) cleanupCatnipRefs() {
-	log.Printf("🧹 Starting cleanup of catnip refs namespace...")
+	logger.Debug("🧹 Starting cleanup of catnip refs namespace...")
 
 	s.mu.RLock()
 	reposMap := s.stateManager.GetAllRepositories()
@@ -154,7 +156,7 @@ func (s *GitService) cleanupCatnipRefs() {
 		// Use git for-each-ref to list all refs/catnip/ references
 		output, err := s.operations.ExecuteGit(repo.Path, "for-each-ref", "--format=%(refname)", "refs/catnip/")
 		if err != nil {
-			log.Printf("⚠️  Failed to list catnip refs for %s: %v", repo.ID, err)
+			logger.Warnf("⚠️  Failed to list catnip refs for %s: %v", repo.ID, err)
 			continue
 		}
 
@@ -190,31 +192,31 @@ func (s *GitService) cleanupCatnipRefs() {
 			if _, err := s.operations.ExecuteGit(repo.Path, "update-ref", "-d", ref); err == nil {
 				deletedInRepo++
 				totalDeleted++
-				log.Printf("🗑️  Deleted catnip ref: %s in %s", ref, repo.ID)
+				logger.Debugf("🗑️  Deleted catnip ref: %s in %s", ref, repo.ID)
 			} else {
-				log.Printf("⚠️  Failed to delete catnip ref %s: %v", ref, err)
+				logger.Warnf("⚠️  Failed to delete catnip ref %s: %v", ref, err)
 			}
 		}
 
 		if deletedInRepo > 0 {
-			log.Printf("✅ Cleaned up %d catnip refs in %s", deletedInRepo, repo.ID)
+			logger.Infof("✅ Cleaned up %d catnip refs in %s", deletedInRepo, repo.ID)
 			// Run garbage collection to clean up unreachable objects
 			if err := s.operations.GarbageCollect(repo.Path); err != nil {
-				log.Printf("⚠️ Failed to run garbage collection for %s: %v", repo.ID, err)
+				logger.Warnf("⚠️ Failed to run garbage collection for %s: %v", repo.ID, err)
 			}
 		}
 	}
 
 	if totalDeleted > 0 {
-		log.Printf("🧹 Catnip refs cleanup complete: removed %d refs", totalDeleted)
+		logger.Infof("🧹 Catnip refs cleanup complete: removed %d refs", totalDeleted)
 	} else {
-		log.Printf("✅ No orphaned catnip refs found")
+		logger.Debug("✅ No orphaned catnip refs found")
 	}
 }
 
 // CleanupAllCatnipRefs provides a comprehensive cleanup that handles both legacy catnip/ branches and new refs/catnip/ refs
 func (s *GitService) CleanupAllCatnipRefs() {
-	log.Printf("🧹 Starting comprehensive catnip cleanup...")
+	logger.Debug("🧹 Starting comprehensive catnip cleanup...")
 
 	// Clean up legacy catnip/ branches first
 	s.cleanupUnusedBranches()
@@ -222,7 +224,7 @@ func (s *GitService) CleanupAllCatnipRefs() {
 	// Then clean up new refs/catnip/ namespace
 	s.cleanupCatnipRefs()
 
-	log.Printf("✅ Comprehensive catnip cleanup complete")
+	logger.Debug("✅ Comprehensive catnip cleanup complete")
 }
 
 // SetupExecutor interface for executing setup.sh scripts in worktrees
@@ -249,6 +251,7 @@ type GitService struct {
 	gitWorktreeManager *git.WorktreeManager  // Git layer worktree operations
 	conflictResolver   *git.ConflictResolver // Handles conflict detection/resolution
 	githubManager      *git.GitHubManager    // Handles all GitHub CLI operations
+	localRepoManager   *LocalRepoManager     // Handles local repository detection
 	commitSync         *CommitSyncService    // Handles automatic checkpointing and commit sync
 	setupExecutor      SetupExecutor         // Handles setup.sh execution in PTY sessions
 	worktreeCache      *WorktreeStatusCache  // Handles worktree status caching with event updates
@@ -298,7 +301,7 @@ func (s *GitService) TriggerClaudeActivitySync() {
 // InitializeLocalRepos detects and loads any local repositories in /live
 // This should be called after SetSetupExecutor to ensure setup.sh execution works
 func (s *GitService) InitializeLocalRepos() {
-	log.Printf("🔍 Initializing local repositories with setup executor configured")
+	logger.Debug("🔍 Initializing local repositories with setup executor configured")
 	s.detectLocalRepos()
 }
 
@@ -311,8 +314,8 @@ func (s *GitService) isLocalRepo(repoID string) bool {
 func (s *GitService) execCommand(command string, args ...string) *exec.Cmd {
 	cmd := exec.Command(command, args...)
 	cmd.Env = append(os.Environ(),
-		"HOME=/home/catnip",
-		"USER=catnip",
+		"HOME="+config.Runtime.HomeDir,
+		"USER="+os.Getenv("USER"),
 	)
 	return cmd
 }
@@ -368,7 +371,7 @@ func (s *GitService) pushBranch(worktree *models.Worktree, repo *models.Reposito
 
 	// Handle push failure with sync retry (if requested)
 	if err != nil && strategy.SyncOnFail && git.IsPushRejected(err, err.Error()) {
-		log.Printf("🔄 Push rejected due to upstream changes, syncing and retrying")
+		logger.Debug("🔄 Push rejected due to upstream changes, syncing and retrying")
 
 		// Sync with upstream
 		if syncErr := s.syncBranchWithUpstream(worktree); syncErr != nil {
@@ -412,8 +415,13 @@ func NewGitService() *GitService {
 
 // NewGitServiceWithOperations creates a new Git service instance with injectable git operations
 func NewGitServiceWithOperations(operations git.Operations) *GitService {
+	return NewGitServiceWithStateDir(operations, getGitStateDir())
+}
+
+// NewGitServiceWithStateDir creates a new Git service instance with custom state directory (for testing)
+func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitService {
 	// Create state manager first (it will be connected to events handler later)
-	stateManager := NewWorktreeStateManager(getGitStateDir(), nil)
+	stateManager := NewWorktreeStateManager(stateDir, nil)
 
 	s := &GitService{
 		stateManager:       stateManager,
@@ -421,6 +429,7 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 		gitWorktreeManager: git.NewWorktreeManager(operations),
 		conflictResolver:   git.NewConflictResolver(operations),
 		githubManager:      git.NewGitHubManager(operations),
+		localRepoManager:   NewLocalRepoManager(operations),
 	}
 
 	// Initialize CommitSync service
@@ -442,8 +451,12 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 	_ = os.MkdirAll(getWorkspaceDir(), 0755)
 	_ = os.MkdirAll(getGitStateDir(), 0755)
 
-	// Configure Git to use gh as credential helper if available
-	s.configureGitCredentials()
+	// Configure Git to use gh as credential helper if available (containerized mode only)
+	if config.Runtime.IsContainerized() {
+		s.configureGitCredentials()
+	} else {
+		logger.Info("ℹ️ Running in native mode - respecting existing git configuration")
+	}
 
 	// State is already loaded by the state manager
 
@@ -453,13 +466,16 @@ func NewGitServiceWithOperations(operations git.Operations) *GitService {
 	if os.Getenv("CATNIP_DEV") != "true" {
 		s.cleanupUnusedBranches()
 	} else {
-		log.Printf("🔧 Skipping branch cleanup in dev mode")
+		logger.Debug("🔧 Skipping branch cleanup in dev mode")
 	}
 
 	// Start CommitSync service for automatic checkpointing
 	if err := s.commitSync.Start(); err != nil {
-		log.Printf("⚠️ Failed to start CommitSync service: %v", err)
+		logger.Warnf("⚠️ Failed to start CommitSync service: %v", err)
 	}
+
+	// Set up GitService as the WorktreeRestorer for state restoration
+	stateManager.SetWorktreeRestorer(s)
 
 	return s
 }
@@ -486,7 +502,14 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 	}
 
 	repoName := strings.ReplaceAll(repo, "/", "-")
-	barePath := filepath.Join(getWorkspaceDir(), fmt.Sprintf("%s.git", repoName))
+	reposDir := filepath.Join(config.Runtime.VolumeDir, "repos")
+
+	// Ensure repos directory exists
+	if err := os.MkdirAll(reposDir, 0755); err != nil {
+		return nil, nil, fmt.Errorf("failed to create repos directory: %v", err)
+	}
+
+	barePath := filepath.Join(reposDir, fmt.Sprintf("%s.git", repoName))
 
 	// Check if a directory is already mounted at the repo location
 	if s.isRepoMounted(getWorkspaceDir(), repoName) {
@@ -496,17 +519,17 @@ func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repos
 
 	// Check if repository already exists in our map
 	if existingRepo, exists := s.stateManager.GetRepository(repoID); exists {
-		log.Printf("🔄 Repository already loaded, creating new worktree: %s", repoID)
+		logger.Debugf("🔄 Repository already loaded, creating new worktree: %s", repoID)
 		return s.createWorktreeForExistingRepo(existingRepo, branch)
 	}
 
 	// Check if bare repository already exists on disk
 	if _, err := os.Stat(barePath); err == nil {
-		log.Printf("🔄 Found existing bare repository, loading and creating new worktree: %s", repoID)
+		logger.Debugf("🔄 Found existing bare repository, loading and creating new worktree: %s", repoID)
 		return s.handleExistingRepository(repoID, repoURL, barePath, branch)
 	}
 
-	log.Printf("🔄 Cloning new repository: %s", repoID)
+	logger.Debugf("🔄 Cloning new repository: %s", repoID)
 	return s.cloneNewRepository(repoID, repoURL, barePath, branch)
 }
 
@@ -515,7 +538,7 @@ func (s *GitService) isRepoMounted(workspaceDir, repoName string) bool {
 	potentialMountPath := filepath.Join(workspaceDir, repoName)
 	if info, err := os.Stat(potentialMountPath); err == nil && info.IsDir() {
 		if _, err := os.Stat(filepath.Join(potentialMountPath, ".git")); err == nil {
-			log.Printf("⚠️ Found existing Git repository at %s, skipping checkout", potentialMountPath)
+			logger.Warnf("⚠️ Found existing Git repository at %s, skipping checkout", potentialMountPath)
 			return true
 		}
 	}
@@ -527,7 +550,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 	// Load existing repository if we have state
 	var repo *models.Repository
 	if existingRepo, exists := s.stateManager.GetRepository(repoID); exists {
-		log.Printf("📦 Repository already loaded: %s", repoID)
+		logger.Debugf("📦 Repository already loaded: %s", repoID)
 		repo = existingRepo
 	} else {
 		// Create repository object for existing bare repo
@@ -545,7 +568,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 			LastAccessed:  time.Now(),
 		}
 		if err := s.stateManager.AddRepository(repo); err != nil {
-			log.Printf("⚠️ Failed to add repository to state: %v", err)
+			logger.Warnf("⚠️ Failed to add repository to state: %v", err)
 		}
 	}
 
@@ -556,7 +579,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 
 	// Check if the requested branch exists in the bare repo
 	if !s.branchExists(barePath, branch, true) {
-		log.Printf("🔄 Branch %s not found, fetching from remote", branch)
+		logger.Warnf("🔄 Branch %s not found, fetching from remote", branch)
 		if err := s.fetchBranch(barePath, git.FetchStrategy{
 			Branch:         branch,
 			Depth:          1,
@@ -574,7 +597,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 	}
 
 	// State persistence handled by state manager
-	log.Printf("✅ Worktree created from existing repository: %s", repoID)
+	logger.Warnf("✅ Worktree created from existing repository: %s", repoID)
 	return repo, worktree, nil
 }
 
@@ -611,7 +634,7 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 	}
 
 	if err := s.stateManager.AddRepository(repository); err != nil {
-		log.Printf("⚠️ Failed to add repository to state: %v", err)
+		logger.Warnf("⚠️ Failed to add repository to state: %v", err)
 	}
 
 	// Start background unshallow process for the requested branch
@@ -625,7 +648,7 @@ func (s *GitService) cloneNewRepository(repoID, repoURL, barePath, branch string
 	}
 
 	// State persistence handled by state manager
-	log.Printf("✅ Repository cloned successfully: %s", repository.ID)
+	logger.Warnf("✅ Repository cloned successfully: %s", repository.ID)
 	return repository, worktree, nil
 }
 
@@ -664,6 +687,16 @@ func (s *GitService) GetStatus() *models.GitStatus {
 		Repositories:  repos, // All repositories
 		WorktreeCount: len(s.stateManager.GetAllWorktrees()),
 	}
+}
+
+// UpdateWorktreeFields updates specific fields of a worktree
+func (s *GitService) UpdateWorktreeFields(worktreeID string, updates map[string]interface{}) error {
+	return s.stateManager.UpdateWorktree(worktreeID, updates)
+}
+
+// GetWorktree returns a worktree by ID
+func (s *GitService) GetWorktree(worktreeID string) (*models.Worktree, bool) {
+	return s.stateManager.GetWorktree(worktreeID)
 }
 
 // updateCurrentSymlink updates the /workspace/current symlink
@@ -706,9 +739,9 @@ func (s *GitService) GetDefaultWorktreePath() string {
 // configureGitCredentials sets up Git to use gh CLI for GitHub authentication
 func (s *GitService) configureGitCredentials() {
 	if err := s.githubManager.ConfigureGitCredentials(); err != nil {
-		log.Printf("❌ Failed to configure Git credential helper: %v", err)
+		logger.Warnf("❌ Failed to configure Git credential helper: %v", err)
 	} else {
-		log.Printf("✅ Git credential helper configured successfully")
+		logger.Warnf("✅ Git credential helper configured successfully")
 	}
 }
 
@@ -764,67 +797,31 @@ func (s *GitService) ListGitHubRepositories() ([]map[string]interface{}, error) 
 	return repos, nil
 }
 
-// detectLocalRepos scans /live for any Git repositories and loads them
+// detectLocalRepos delegates to LocalRepoManager for detecting local repositories
 func (s *GitService) detectLocalRepos() {
-	// Check if /live directory exists
-	if _, err := os.Stat(liveDir); os.IsNotExist(err) {
-		log.Printf("📁 No /live directory found, skipping local repo detection")
-		return
-	}
+	repos := s.localRepoManager.DetectLocalRepos()
 
-	// Read all entries in /live
-	entries, err := os.ReadDir(liveDir)
-	if err != nil {
-		log.Printf("❌ Failed to read /live directory: %v", err)
-		return
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		repoPath := filepath.Join(liveDir, entry.Name())
-		gitPath := filepath.Join(repoPath, ".git")
-
-		// Check if it's a git repository
-		if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-			continue
-		}
-
-		log.Printf("🔍 Detected local repository at %s", repoPath)
-
-		// Create repository object
-		repoID := fmt.Sprintf("local/%s", entry.Name())
-		repo := &models.Repository{
-			ID:            repoID,
-			URL:           "file://" + repoPath,
-			Path:          repoPath,
-			DefaultBranch: s.getLocalRepoDefaultBranch(repoPath),
-			CreatedAt:     time.Now(),
-			LastAccessed:  time.Now(),
-		}
-
-		// Add to repositories map
+	// Add detected repos to our repository map via state manager
+	for repoID, repo := range repos {
 		if err := s.stateManager.AddRepository(repo); err != nil {
-			log.Printf("⚠️ Failed to add repository to state: %v", err)
+			logger.Warnf("⚠️ Failed to add repository %s to state: %v", repoID, err)
+			continue
 		}
-
-		log.Printf("✅ Local repository loaded: %s", repoID)
 
 		// Check if any worktrees exist for this repo
 		if s.shouldCreateInitialWorktree(repoID) {
-			log.Printf("🌱 Creating initial worktree for %s", repoID)
+			logger.Warnf("🌱 Creating initial worktree for %s", repoID)
 
-			// Proactively prune any missing worktrees before attempting to create new ones
-			if pruneErr := s.operations.PruneWorktrees(repo.Path); pruneErr != nil {
-				log.Printf("⚠️  Failed to prune worktrees for %s: %v", repoID, pruneErr)
-			}
+			// Don't proactively prune during runtime - it can delete workspaces being restored
+			// Pruning should only happen on explicit user request or during shutdown
+			// if pruneErr := s.operations.PruneWorktrees(repo.Path); pruneErr != nil {
+			// 	logger.Warnf("⚠️  Failed to prune worktrees for %s: %v", repoID, pruneErr)
+			// }
 
 			if _, worktree, err := s.handleLocalRepoWorktree(repoID, repo.DefaultBranch); err != nil {
-				log.Printf("❌ Failed to create initial worktree for %s: %v", repoID, err)
+				logger.Warnf("❌ Failed to create initial worktree for %s: %v", repoID, err)
 			} else {
-				log.Printf("✅ Initial worktree created: %s", worktree.Name)
+				logger.Warnf("✅ Initial worktree created: %s", worktree.Name)
 			}
 		}
 	}
@@ -832,6 +829,15 @@ func (s *GitService) detectLocalRepos() {
 
 // shouldCreateInitialWorktree checks if we should create an initial worktree for a repo
 func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
+	// First check if worktrees exist in state manager (for restore scenario)
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
+		if worktree.RepoID == repoID {
+			logger.Warnf("🔍 Found existing worktree in state for %s: %s", repoID, worktree.Name)
+			return false
+		}
+	}
+
 	// Check if any worktrees exist for this repo in /workspace
 	dirName := filepath.Base(strings.TrimPrefix(repoID, "local/"))
 	repoWorkspaceDir := filepath.Join(getWorkspaceDir(), dirName)
@@ -842,14 +848,14 @@ func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
 			if entry.IsDir() {
 				// Check if this directory is a valid git worktree
 				if _, err := os.Stat(filepath.Join(repoWorkspaceDir, entry.Name(), ".git")); err == nil {
-					log.Printf("🔍 Found existing worktree for %s: %s", repoID, entry.Name())
+					logger.Warnf("🔍 Found existing worktree for %s: %s", repoID, entry.Name())
 					return false
 				}
 			}
 		}
 	}
 
-	log.Printf("🔍 No existing worktrees found for %s, will create initial worktree", repoID)
+	logger.Warnf("🔍 No existing worktrees found for %s, will create initial worktree", repoID)
 	return true
 }
 
@@ -857,7 +863,7 @@ func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
 func (s *GitService) getLocalRepoDefaultBranch(repoPath string) string {
 	output, err := s.runGitCommand(repoPath, "branch", "--show-current")
 	if err != nil {
-		log.Printf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
+		logger.Warnf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
 		return "main"
 	}
 
@@ -899,7 +905,7 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 	// Save state
 	// State persistence handled by state manager
 
-	log.Printf("✅ Local repo worktree created: %s from branch %s", worktree.Name, worktree.SourceBranch)
+	logger.Warnf("✅ Local repo worktree created: %s from branch %s", worktree.Name, worktree.SourceBranch)
 	return localRepo, worktree, nil
 }
 
@@ -918,7 +924,7 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 
 	// Store worktree in service map
 	if err := s.stateManager.AddWorktree(worktree); err != nil {
-		log.Printf("⚠️ Failed to add worktree to state: %v", err)
+		logger.Warnf("⚠️ Failed to add worktree to state: %v", err)
 	}
 
 	// Notify ClaudeMonitor service about the new worktree
@@ -933,16 +939,16 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 
 	// Execute setup.sh if it exists in the newly created worktree
 	if s.setupExecutor != nil {
-		log.Printf("🚀 Scheduling setup.sh execution for local worktree: %s", worktree.Path)
+		logger.Warnf("🚀 Scheduling setup.sh execution for local worktree: %s", worktree.Path)
 		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
 		recovery.SafeGo("setup-script-local-"+worktree.Path, func() {
 			// Wait a moment to ensure the worktree is fully ready
 			time.Sleep(2 * time.Second)
-			log.Printf("⏰ Starting setup.sh execution for local worktree: %s", worktree.Path)
+			logger.Warnf("⏰ Starting setup.sh execution for local worktree: %s", worktree.Path)
 			s.setupExecutor.ExecuteSetupScript(worktree.Path)
 		})
 	} else {
-		log.Printf("⚠️ No setup executor configured, skipping setup.sh execution for local worktree: %s", worktree.Path)
+		logger.Warnf("⚠️ No setup executor configured, skipping setup.sh execution for local worktree: %s", worktree.Path)
 	}
 
 	return worktree, nil
@@ -970,9 +976,36 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 		return nil, fmt.Errorf("repository %s not found", repoID)
 	}
 
-	// Handle local repos specially
+	// Check if repository is available for local repos only
+	// Remote repos can still be queried even if not locally available
+	if s.isLocalRepo(repoID) && !repo.Available {
+		return nil, fmt.Errorf("repository %s is not available", repoID)
+	}
+
+	// Handle local repos specially - only use local branches to avoid network complexity
 	if s.isLocalRepo(repoID) {
-		return s.operations.GetLocalBranches(repo.Path)
+		// Get local branches only - no remote fetching to avoid network issues
+		localBranches, err := s.operations.GetLocalBranches(repo.Path)
+		if err != nil {
+			logger.Warnf("Warning: failed to get local branches for %s: %v", repoID, err)
+			// Fallback to default branch if we have it
+			if repo.DefaultBranch != "" {
+				return []string{repo.DefaultBranch}, nil
+			}
+			return []string{"main"}, nil // final fallback
+		}
+
+		// Return local branches if we have them
+		if len(localBranches) > 0 {
+			return localBranches, nil
+		}
+
+		// No local branches found - return sensible fallback
+		logger.Warnf("Warning: no local branches found for %s", repoID)
+		if repo.DefaultBranch != "" {
+			return []string{repo.DefaultBranch}, nil
+		}
+		return []string{"main"}, nil // final fallback
 	}
 
 	// For remote repos, use the operations interface
@@ -1008,7 +1041,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 
 	// Remove from service memory
 	if err := s.stateManager.DeleteWorktree(worktreeID); err != nil {
-		log.Printf("⚠️ Failed to delete worktree from state: %v", err)
+		logger.Warnf("⚠️ Failed to delete worktree from state: %v", err)
 	}
 
 	// Save state
@@ -1047,7 +1080,7 @@ func (s *GitService) UpdateWorktreeBranchName(worktreePath, newBranchName string
 		return fmt.Errorf("failed to update worktree branch: %v", err)
 	}
 
-	log.Printf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
+	logger.Warnf("✅ Updated worktree %s branch name: %s -> %s", targetWorktree.Name, oldBranchName, newBranchName)
 
 	return nil
 }
@@ -1060,25 +1093,25 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 	var cleanedUp []string
 	var errors []error
 
-	log.Printf("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(s.stateManager.GetAllWorktrees()))
+	logger.Warnf("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(s.stateManager.GetAllWorktrees()))
 
 	for _, worktree := range s.stateManager.GetAllWorktrees() {
-		log.Printf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
+		logger.Warnf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
 			worktree.Name, worktree.IsDirty, worktree.HasConflicts, worktree.CommitCount, worktree.SourceBranch)
 
 		// Skip if worktree has uncommitted changes or conflicts
 		if worktree.IsDirty {
-			log.Printf("⏭️  Skipping cleanup of dirty worktree: %s", worktree.Name)
+			logger.Warnf("⏭️  Skipping cleanup of dirty worktree: %s", worktree.Name)
 			continue
 		}
 		if worktree.HasConflicts {
-			log.Printf("⏭️  Skipping cleanup of conflicted worktree: %s", worktree.Name)
+			logger.Warnf("⏭️  Skipping cleanup of conflicted worktree: %s", worktree.Name)
 			continue
 		}
 
 		// Skip if worktree has commits ahead of source
 		if worktree.CommitCount > 0 {
-			log.Printf("⏭️  Skipping cleanup of worktree with %d commits ahead: %s", worktree.CommitCount, worktree.Name)
+			logger.Warnf("⏭️  Skipping cleanup of worktree with %d commits ahead: %s", worktree.CommitCount, worktree.Name)
 			continue
 		}
 
@@ -1093,20 +1126,20 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 		var isMerged bool
 
 		if isLocal {
-			log.Printf("🔍 Checking local worktree %s: branch=%s, source=%s", worktree.Name, worktree.Branch, worktree.SourceBranch)
+			logger.Warnf("🔍 Checking local worktree %s: branch=%s, source=%s", worktree.Name, worktree.Branch, worktree.SourceBranch)
 
 			// For local repos, check if the branch exists in the main repo
 			// If it doesn't exist, it was likely deleted after merge
 			branchExists := s.operations.BranchExists(repo.Path, worktree.Branch, false)
 
 			if !branchExists {
-				log.Printf("✅ Branch %s no longer exists in main repo (likely merged and deleted)", worktree.Branch)
+				logger.Warnf("✅ Branch %s no longer exists in main repo (likely merged and deleted)", worktree.Branch)
 				isMerged = true
 			} else {
 				// Branch still exists, check if it's merged
 				branches, err := s.operations.ListBranches(repo.Path, git.ListBranchesOptions{Merged: worktree.SourceBranch})
 				if err != nil {
-					log.Printf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
+					logger.Warnf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
 					continue
 				}
 
@@ -1114,40 +1147,40 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 					branch = git.CleanBranchName(branch)
 					if branch == worktree.Branch {
 						isMerged = true
-						log.Printf("✅ Found %s in merged branches list", worktree.Branch)
+						logger.Warnf("✅ Found %s in merged branches list", worktree.Branch)
 						break
 					}
 				}
 			}
 		} else {
 			// Regular repo logic (existing code)
-			log.Printf("🔍 Checking if branch %s is merged into %s in repo %s", worktree.Branch, worktree.SourceBranch, repo.Path)
+			logger.Warnf("🔍 Checking if branch %s is merged into %s in repo %s", worktree.Branch, worktree.SourceBranch, repo.Path)
 			branches, err := s.operations.ListBranches(repo.Path, git.ListBranchesOptions{Merged: worktree.SourceBranch})
 			if err != nil {
-				log.Printf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
+				logger.Warnf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
 				continue
 			}
 
 			// Check if our branch appears in the merged branches list
-			log.Printf("📋 Merged branches into %s: %d branches found", worktree.SourceBranch, len(branches))
+			logger.Warnf("📋 Merged branches into %s: %d branches found", worktree.SourceBranch, len(branches))
 
 			for _, branch := range branches {
 				// Handle both regular branches and worktree branches (marked with +)
 				branch = git.CleanBranchName(branch)
 				if branch == worktree.Branch {
 					isMerged = true
-					log.Printf("✅ Found %s in merged branches list", worktree.Branch)
+					logger.Warnf("✅ Found %s in merged branches list", worktree.Branch)
 					break
 				}
 			}
 		}
 
 		if !isMerged {
-			log.Printf("❌ Branch %s not eligible for cleanup", worktree.Branch)
+			logger.Warnf("❌ Branch %s not eligible for cleanup", worktree.Branch)
 		}
 
 		if isMerged {
-			log.Printf("🧹 Found merged worktree to cleanup: %s", worktree.Name)
+			logger.Warnf("🧹 Found merged worktree to cleanup: %s", worktree.Name)
 
 			// Use the existing deletion logic but don't hold the mutex
 			s.mu.Unlock()
@@ -1161,7 +1194,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 	}
 
 	if len(cleanedUp) > 0 {
-		log.Printf("✅ Cleaned up %d merged worktrees: %s", len(cleanedUp), strings.Join(cleanedUp, ", "))
+		logger.Warnf("✅ Cleaned up %d merged worktrees: %s", len(cleanedUp), strings.Join(cleanedUp, ", "))
 	}
 
 	if len(errors) > 0 {
@@ -1178,9 +1211,9 @@ func (s *GitService) cleanupActiveSessions(worktreePath string) {
 	cmd := s.execCommand("pkill", "-f", worktreePath)
 	if err := cmd.Run(); err != nil {
 		// Don't log this as an error since it's common for no processes to be found
-		log.Printf("ℹ️ No active processes found for worktree path: %s", worktreePath)
+		logger.Warnf("ℹ️ No active processes found for worktree path: %s", worktreePath)
 	} else {
-		log.Printf("✅ Terminated processes for worktree: %s", worktreePath)
+		logger.Warnf("✅ Terminated processes for worktree: %s", worktreePath)
 	}
 
 	// Also try to cleanup any session directories that might exist
@@ -1194,9 +1227,9 @@ func (s *GitService) cleanupActiveSessions(worktreePath string) {
 		if sessionWorkDir != worktreePath {
 			if _, err := os.Stat(sessionWorkDir); err == nil {
 				if removeErr := os.RemoveAll(sessionWorkDir); removeErr != nil {
-					log.Printf("⚠️ Failed to remove session directory %s: %v", sessionWorkDir, removeErr)
+					logger.Warnf("⚠️ Failed to remove session directory %s: %v", sessionWorkDir, removeErr)
 				} else {
-					log.Printf("✅ Removed session directory: %s", sessionWorkDir)
+					logger.Warnf("✅ Removed session directory: %s", sessionWorkDir)
 				}
 			}
 		}
@@ -1278,7 +1311,7 @@ func (s *GitService) syncWorktreeInternal(worktree *models.Worktree, strategy st
 	}
 	s.gitWorktreeManager.UpdateWorktreeStatus(worktree, getSourceRef)
 
-	log.Printf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
+	logger.Warnf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
 	return nil
 }
 
@@ -1332,7 +1365,7 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 		return fmt.Errorf("local repository %s not found", worktree.RepoID)
 	}
 
-	log.Printf("🔄 Merging worktree %s back to main repository", worktree.Name)
+	logger.Warnf("🔄 Merging worktree %s back to main repository", worktree.Name)
 
 	// Ensure we have full history for merge operations
 	s.fetchFullHistory(worktree)
@@ -1378,16 +1411,16 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 
 	// Get the new commit hash from the main branch after merge
 	if newCommitHash, err := s.operations.GetCommitHash(repo.Path, "HEAD"); err != nil {
-		log.Printf("⚠️  Failed to get new commit hash after merge: %v", err)
+		logger.Warnf("⚠️  Failed to get new commit hash after merge: %v", err)
 	} else {
 		// Update the worktree's commit hash to the new merge point
 		s.mu.Lock()
 		worktree.CommitHash = newCommitHash
 		s.mu.Unlock()
-		log.Printf("📝 Updated worktree %s CommitHash to %s", worktree.Name, newCommitHash)
+		logger.Warnf("📝 Updated worktree %s CommitHash to %s", worktree.Name, newCommitHash)
 	}
 
-	log.Printf("✅ Merged worktree %s to main repository", worktree.Name)
+	logger.Warnf("✅ Merged worktree %s to main repository", worktree.Name)
 	return nil
 }
 
@@ -1412,8 +1445,13 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 		return fmt.Errorf("local repository %s not found", worktree.RepoID)
 	}
 
+	// Check if repository is available
+	if !repo.Available {
+		return fmt.Errorf("repository %s is not available", worktree.RepoID)
+	}
+
 	previewBranchName := fmt.Sprintf("catnip/%s", git.ExtractWorkspaceName(worktree.Branch))
-	log.Printf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
+	logger.Warnf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
 
 	// Check if there are uncommitted changes (staged, unstaged, or untracked)
 	hasUncommittedChanges, err := s.hasUncommittedChanges(worktree.Path)
@@ -1446,7 +1484,7 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 	pushArgs := []string{"push"}
 	if shouldForceUpdate {
 		pushArgs = append(pushArgs, "--force")
-		log.Printf("🔄 Updating existing preview branch %s", previewBranchName)
+		logger.Warnf("🔄 Updating existing preview branch %s", previewBranchName)
 	}
 	pushArgs = append(pushArgs, repo.Path, fmt.Sprintf("%s:refs/heads/%s", worktree.Branch, previewBranchName))
 
@@ -1461,9 +1499,9 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 	}
 
 	if hasUncommittedChanges {
-		log.Printf("✅ Preview branch %s %s with uncommitted changes - you can now checkout this branch outside the container", previewBranchName, action)
+		logger.Warnf("✅ Preview branch %s %s with uncommitted changes - you can now checkout this branch outside the container", previewBranchName, action)
 	} else {
-		log.Printf("✅ Preview branch %s %s - you can now checkout this branch outside the container", previewBranchName, action)
+		logger.Warnf("✅ Preview branch %s %s - you can now checkout this branch outside the container", previewBranchName, action)
 	}
 	return nil
 }
@@ -1483,7 +1521,7 @@ func (s *GitService) shouldForceUpdatePreviewBranch(repoPath, previewBranchName 
 	}
 
 	lastCommitMessage := strings.TrimSpace(string(output))
-	log.Printf("🔄 Found existing preview branch %s with commit: '%s' - will force update", previewBranchName, lastCommitMessage)
+	logger.Warnf("🔄 Found existing preview branch %s with commit: '%s' - will force update", previewBranchName, lastCommitMessage)
 	return true, nil
 }
 
@@ -1509,7 +1547,7 @@ func (s *GitService) createTemporaryCommit(worktreePath string) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("failed to get commit hash: %v", err)
 	}
-	log.Printf("📝 Created temporary commit %s with uncommitted changes", commitHash[:8])
+	logger.Warnf("📝 Created temporary commit %s with uncommitted changes", commitHash[:8])
 	return commitHash, nil
 }
 
@@ -1589,6 +1627,13 @@ func (s *GitService) CheckMergeConflicts(worktreeID string) (*models.MergeConfli
 	return s.conflictResolver.CheckMergeConflicts(repo.Path, worktree.Path, worktree.Branch, worktree.SourceBranch, worktree.Name)
 }
 
+// GetStateManager returns the worktree state manager
+func (s *GitService) GetStateManager() *WorktreeStateManager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stateManager
+}
+
 // Stop stops the Git service
 func (s *GitService) Stop() {
 	// Stop CommitSync service
@@ -1628,7 +1673,7 @@ func (s *GitService) RefreshWorktreeStatus(workDir string) error {
 			// Trigger cache refresh if available
 			if s.worktreeCache != nil {
 				s.worktreeCache.ForceRefresh(worktree.ID)
-				log.Printf("🔄 Triggered worktree status refresh for %s", worktree.Name)
+				logger.Warnf("🔄 Triggered worktree status refresh for %s", worktree.Name)
 			}
 			return nil
 		}
@@ -1642,7 +1687,7 @@ func (s *GitService) RefreshWorktreeStatus(workDir string) error {
 func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, error) {
 	// Check if it's a git repository
 	if !s.operations.IsGitRepository(workspaceDir) {
-		log.Printf("📂 Not a git repository, skipping git operations for: %s", workspaceDir)
+		logger.Warnf("📂 Not a git repository, skipping git operations for: %s", workspaceDir)
 		return "", nil
 	}
 
@@ -1684,7 +1729,7 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 	}
 
 	// Always fetch the latest state for checkout operations (full history)
-	log.Printf("🔄 Fetching latest state for branch %s", branch)
+	logger.Warnf("🔄 Fetching latest state for branch %s", branch)
 	if err := s.fetchBranch(repo.Path, git.FetchStrategy{
 		Branch:         branch,
 		UpdateLocalRef: true,
@@ -1693,7 +1738,7 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 		if !s.branchExists(repo.Path, branch, true) {
 			return nil, nil, fmt.Errorf("failed to fetch branch %s: %v", branch, err)
 		}
-		log.Printf("⚠️ Fetch failed but branch exists locally, proceeding with checkout")
+		logger.Warnf("⚠️ Fetch failed but branch exists locally, proceeding with checkout")
 	}
 
 	// Create new worktree with fun name
@@ -1707,7 +1752,7 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 	// Save state
 	// State persistence handled by state manager
 
-	log.Printf("✅ Worktree created for existing repository: %s", repo.ID)
+	logger.Warnf("✅ Worktree created for existing repository: %s", repo.ID)
 	return repo, worktree, nil
 }
 
@@ -1724,7 +1769,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 	if err != nil {
 		// Check if the error is because branch already exists
 		if strings.Contains(err.Error(), "already exists") {
-			log.Printf("⚠️  Branch %s already exists, trying a new name...", name)
+			logger.Warnf("⚠️  Branch %s already exists, trying a new name...", name)
 			// Generate a unique name that doesn't already exist
 			newName := s.generateUniqueSessionName(repo.Path)
 			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
@@ -1734,7 +1779,7 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 
 	// Store worktree in service map
 	if err := s.stateManager.AddWorktree(worktree); err != nil {
-		log.Printf("⚠️ Failed to add worktree to state: %v", err)
+		logger.Warnf("⚠️ Failed to add worktree to state: %v", err)
 	}
 
 	// Add to cache and start watching
@@ -1757,16 +1802,16 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 
 	// Execute setup.sh if it exists in the newly created worktree
 	if s.setupExecutor != nil {
-		log.Printf("🚀 Scheduling setup.sh execution for worktree: %s", worktree.Path)
+		logger.Warnf("🚀 Scheduling setup.sh execution for worktree: %s", worktree.Path)
 		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
 		recovery.SafeGo("setup-script-"+worktree.Path, func() {
 			// Wait a moment to ensure the worktree is fully ready
 			time.Sleep(2 * time.Second)
-			log.Printf("⏰ Starting setup.sh execution for worktree: %s", worktree.Path)
+			logger.Warnf("⏰ Starting setup.sh execution for worktree: %s", worktree.Path)
 			s.setupExecutor.ExecuteSetupScript(worktree.Path)
 		})
 	} else {
-		log.Printf("⚠️ No setup executor configured, skipping setup.sh execution for worktree: %s", worktree.Path)
+		logger.Warnf("⚠️ No setup executor configured, skipping setup.sh execution for worktree: %s", worktree.Path)
 	}
 
 	return worktree, nil
@@ -1852,7 +1897,7 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 	}
 	s.mu.RUnlock()
 
-	log.Printf("🔄 Creating pull request for worktree %s", worktree.Name)
+	logger.Warnf("🔄 Creating pull request for worktree %s", worktree.Name)
 
 	// Check if base branch exists on remote and push if needed
 	if err := s.ensureBaseBranchOnRemote(worktree, repo); err != nil {
@@ -1875,13 +1920,15 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 		return nil, err
 	}
 
-	// Save PR metadata to worktree state
+	// Save PR metadata to worktree state and emit events
 	s.mu.Lock()
-	if worktree, exists := s.stateManager.GetWorktree(worktreeID); exists {
-		worktree.PullRequestURL = pr.URL
-		worktree.PullRequestTitle = title
-		worktree.PullRequestBody = body
-		// State persistence handled by state manager
+	updates := map[string]interface{}{
+		"pull_request_url":   pr.URL,
+		"pull_request_title": title,
+		"pull_request_body":  body,
+	}
+	if err := s.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+		logger.Warnf("Failed to update worktree %s with PR metadata: %v", worktreeID, err)
 	}
 	s.mu.Unlock()
 
@@ -1904,7 +1951,7 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 	}
 	s.mu.RUnlock()
 
-	log.Printf("🔄 Updating pull request for worktree %s", worktree.Name)
+	logger.Warnf("🔄 Updating pull request for worktree %s", worktree.Name)
 
 	// Check if base branch exists on remote and push if needed
 	if err := s.ensureBaseBranchOnRemote(worktree, repo); err != nil {
@@ -1927,13 +1974,15 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 		return nil, err
 	}
 
-	// Save PR metadata to worktree state (in case it changed)
+	// Save PR metadata to worktree state (in case it changed) and emit events
 	s.mu.Lock()
-	if worktree, exists := s.stateManager.GetWorktree(worktreeID); exists {
-		worktree.PullRequestURL = pr.URL
-		worktree.PullRequestTitle = title
-		worktree.PullRequestBody = body
-		// State persistence handled by state manager
+	updates := map[string]interface{}{
+		"pull_request_url":   pr.URL,
+		"pull_request_title": title,
+		"pull_request_body":  body,
+	}
+	if err := s.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+		logger.Warnf("Failed to update worktree %s with PR metadata: %v", worktreeID, err)
 	}
 	s.mu.Unlock()
 
@@ -1951,14 +2000,14 @@ func (s *GitService) ensureBaseBranchOnRemote(worktree *models.Worktree, repo *m
 			remoteURL, err = s.getRemoteURL(repo.Path)
 			if err != nil {
 				// If no remote is configured, we can't check - assume it's handled locally
-				log.Printf("⚠️ No remote configured for local repo %s, skipping base branch check", worktree.RepoID)
+				logger.Warnf("⚠️ No remote configured for local repo %s, skipping base branch check", worktree.RepoID)
 				return nil
 			}
 		}
 
 		// Check if base branch exists on remote
 		if err := s.checkBaseBranchOnRemote(worktree, remoteURL); err != nil {
-			log.Printf("🔄 Base branch %s not found on remote, pushing it", worktree.SourceBranch)
+			logger.Warnf("🔄 Base branch %s not found on remote, pushing it", worktree.SourceBranch)
 			if err := s.pushBaseBranchToRemote(worktree, repo, remoteURL); err != nil {
 				return fmt.Errorf("failed to push base branch to remote: %v", err)
 			}
@@ -1966,7 +2015,7 @@ func (s *GitService) ensureBaseBranchOnRemote(worktree *models.Worktree, repo *m
 	} else {
 		// For remote repositories, ensure we have the latest base branch
 		if err := s.fetchBaseBranchFromOrigin(worktree); err != nil {
-			log.Printf("⚠️ Could not fetch base branch from origin: %v", err)
+			logger.Warnf("⚠️ Could not fetch base branch from origin: %v", err)
 			// This is not a fatal error, continue with PR creation
 		}
 	}
@@ -1978,7 +2027,7 @@ func (s *GitService) ensureBaseBranchOnRemote(worktree *models.Worktree, repo *m
 func (s *GitService) checkBaseBranchOnRemote(worktree *models.Worktree, remoteURL string) error {
 	// Convert SSH URLs to HTTPS to avoid authentication issues
 	httpsURL := git.ConvertSSHToHTTPS(remoteURL)
-	log.Printf("🔍 Checking base branch on remote: %s -> %s", remoteURL, httpsURL)
+	logger.Warnf("🔍 Checking base branch on remote: %s -> %s", remoteURL, httpsURL)
 
 	// Use git ls-remote to check if the base branch exists on remote
 	output, err := s.runGitCommand("", "ls-remote", "--heads", httpsURL, worktree.SourceBranch)
@@ -2014,14 +2063,14 @@ func (s *GitService) fetchBaseBranchFromOrigin(worktree *models.Worktree) error 
 
 // syncBranchWithUpstream syncs the current branch with upstream when push fails due to being behind
 func (s *GitService) syncBranchWithUpstream(worktree *models.Worktree) error {
-	log.Printf("🔄 Syncing branch %s with upstream due to push failure", worktree.Branch)
+	logger.Warnf("🔄 Syncing branch %s with upstream due to push failure", worktree.Branch)
 
 	// First, fetch the latest changes from remote
 	if err := s.fetchBranch(worktree.Path, git.FetchStrategy{
 		Branch: worktree.Branch,
 	}); err != nil {
 		// If fetch fails, the branch might not exist on remote yet - that's OK
-		log.Printf("⚠️ Could not fetch remote branch %s (might not exist yet): %v", worktree.Branch, err)
+		logger.Warnf("⚠️ Could not fetch remote branch %s (might not exist yet): %v", worktree.Branch, err)
 		return nil
 	}
 
@@ -2038,7 +2087,7 @@ func (s *GitService) syncBranchWithUpstream(worktree *models.Worktree) error {
 		return nil
 	}
 
-	log.Printf("🔄 Branch %s is %d commits behind remote, syncing", worktree.Branch, behindCount)
+	logger.Warnf("🔄 Branch %s is %d commits behind remote, syncing", worktree.Branch, behindCount)
 
 	// Rebase our changes on top of the remote branch
 	output, err = s.runGitCommand(worktree.Path, "rebase", fmt.Sprintf("origin/%s", worktree.Branch))
@@ -2050,7 +2099,7 @@ func (s *GitService) syncBranchWithUpstream(worktree *models.Worktree) error {
 		return fmt.Errorf("failed to rebase on upstream: %v\n%s", err, output)
 	}
 
-	log.Printf("✅ Successfully synced branch %s with upstream", worktree.Branch)
+	logger.Warnf("✅ Successfully synced branch %s with upstream", worktree.Branch)
 	return nil
 }
 
@@ -2075,7 +2124,7 @@ func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestI
 	// Check if branch has commits ahead of the base branch
 	hasCommitsAhead, err := s.checkHasCommitsAhead(worktree)
 	if err != nil {
-		log.Printf("⚠️ Could not check commits ahead: %v", err)
+		logger.Warnf("⚠️ Could not check commits ahead: %v", err)
 		hasCommitsAhead = false // Default to false if we can't determine
 	}
 
@@ -2089,7 +2138,7 @@ func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestI
 
 	// Get PR info from GitHub manager (already handles checking existing PR)
 	if ghPrInfo, err := s.githubManager.GetPullRequestInfo(worktree, repo); err != nil {
-		log.Printf("⚠️ Could not check for existing PR: %v", err)
+		logger.Warnf("⚠️ Could not check for existing PR: %v", err)
 	} else {
 		prInfo = ghPrInfo
 	}
@@ -2121,7 +2170,7 @@ func (s *GitService) checkHasCommitsAhead(worktree *models.Worktree) (bool, erro
 	} else {
 		// For remote repos, fetch the latest base branch and use origin reference
 		if _, err := s.runGitCommand(worktree.Path, "fetch", "origin", worktree.SourceBranch); err != nil {
-			log.Printf("⚠️ Could not fetch base branch %s: %v", worktree.SourceBranch, err)
+			logger.Warnf("⚠️ Could not fetch base branch %s: %v", worktree.SourceBranch, err)
 		}
 		baseRef = fmt.Sprintf("origin/%s", worktree.SourceBranch)
 	}
@@ -2185,6 +2234,286 @@ func (s *GitService) RefreshWorktreeStatusByID(worktreeID string) error {
 		return fmt.Errorf("failed to update worktree state: %v", err)
 	}
 
-	log.Printf("✅ Force refreshed worktree %s status: %d commits ahead", worktree.Name, worktree.CommitCount)
+	logger.Warnf("✅ Force refreshed worktree %s status: %d commits ahead", worktree.Name, worktree.CommitCount)
 	return nil
+}
+
+// CreateFromTemplate creates a new project from a template
+func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models.Repository, *models.Worktree, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Validate project name
+	if projectName == "" {
+		return nil, nil, fmt.Errorf("project name is required")
+	}
+
+	// Check if project already exists in /live
+	projectPath := filepath.Join("/live", projectName)
+	if _, err := os.Stat(projectPath); err == nil {
+		return nil, nil, fmt.Errorf("project %s already exists", projectName)
+	}
+
+	// Create the project based on template type
+	logger.Warnf("🏗️ Creating project from template %s at %s", templateID, projectPath)
+
+	var cmd *exec.Cmd
+	switch templateID {
+	case "react-vite":
+		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "react-ts")
+		cmd.Dir = "/live"
+	case "vue-vite":
+		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "vue-ts")
+		cmd.Dir = "/live"
+	case "nextjs-app":
+		cmd = exec.Command("pnpm", "create", "next-app", projectName, "--typescript", "--tailwind", "--app", "--no-eslint")
+		cmd.Dir = "/live"
+	case "node-express", "python-fastapi":
+		// For these, we create the directory manually and populate it
+		if err := os.MkdirAll(projectPath, 0755); err != nil {
+			return nil, nil, fmt.Errorf("failed to create project directory: %v", err)
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported template: %s", templateID)
+	}
+
+	// Execute the creation command if one was set
+	if cmd != nil {
+		logger.Warnf("🏗️ Running command: %s", strings.Join(cmd.Args, " "))
+		output, err := cmd.CombinedOutput()
+		logger.Warnf("📄 Command output: %s", string(output))
+		if err != nil {
+			logger.Warnf("❌ Command failed: %v", err)
+			return nil, nil, fmt.Errorf("failed to create project: %v\nOutput: %s", err, string(output))
+		}
+		logger.Warnf("✅ Command completed successfully")
+	}
+
+	// Verify the project directory was created
+	if _, err := os.Stat(projectPath); os.IsNotExist(err) {
+		logger.Warnf("❌ Project directory %s does not exist after command execution", projectPath)
+		return nil, nil, fmt.Errorf("project directory %s was not created by template command", projectPath)
+	}
+	logger.Warnf("✅ Project directory verified: %s", projectPath)
+
+	// For templates that just create directories, we need to set up the files manually
+	supportedTemplates := templates.GetSupportedTemplates()
+	isSupported := false
+	for _, supported := range supportedTemplates {
+		if templateID == supported {
+			isSupported = true
+			break
+		}
+	}
+	if isSupported {
+		if err := templates.SetupTemplateFiles(templateID, projectPath); err != nil {
+			// Clean up on failure
+			os.RemoveAll(projectPath)
+			return nil, nil, fmt.Errorf("failed to setup template files: %v", err)
+		}
+	}
+
+	// Initialize git repository
+	gitInitCmd := exec.Command("git", "init")
+	gitInitCmd.Dir = projectPath
+	if output, err := gitInitCmd.CombinedOutput(); err != nil {
+		// Clean up on failure
+		os.RemoveAll(projectPath)
+		return nil, nil, fmt.Errorf("failed to initialize git repo: %v\nOutput: %s", err, string(output))
+	}
+
+	// Configure git user for the repo (needed for commits)
+	gitConfigEmailCmd := exec.Command("git", "config", "user.email", "user@catnip.local")
+	gitConfigEmailCmd.Dir = projectPath
+	_, _ = gitConfigEmailCmd.CombinedOutput()
+
+	gitConfigNameCmd := exec.Command("git", "config", "user.name", "Catnip User")
+	gitConfigNameCmd.Dir = projectPath
+	_, _ = gitConfigNameCmd.CombinedOutput()
+
+	// Add all files and make initial commit
+	gitAddCmd := exec.Command("git", "add", ".")
+	gitAddCmd.Dir = projectPath
+	if output, err := gitAddCmd.CombinedOutput(); err != nil {
+		logger.Warnf("⚠️ Failed to add files to git: %v\nOutput: %s", err, string(output))
+	}
+
+	gitCommitCmd := exec.Command("git", "commit", "-m", fmt.Sprintf("Initial commit from %s template", templateID))
+	gitCommitCmd.Dir = projectPath
+	if output, err := gitCommitCmd.CombinedOutput(); err != nil {
+		logger.Warnf("⚠️ Failed to make initial commit: %v\nOutput: %s", err, string(output))
+	}
+
+	// Create a repository entry for this local project (like /live/catnip)
+	repoID := fmt.Sprintf("local/%s", projectName)
+	repo := &models.Repository{
+		ID:            repoID,
+		URL:           projectPath,
+		Path:          projectPath,
+		DefaultBranch: "main",
+		Description:   fmt.Sprintf("Created from %s template", templateID),
+		CreatedAt:     time.Now(),
+		LastAccessed:  time.Now(),
+	}
+
+	// Add repository to state
+	if err := s.stateManager.AddRepository(repo); err != nil {
+		logger.Warnf("⚠️ Failed to add repository to state: %v", err)
+	}
+
+	// Create an initial worktree for the template project so the user can immediately start working
+	logger.Warnf("🌱 Creating initial worktree for template project %s", projectName)
+
+	// Generate a unique session name for the initial worktree
+	funName := s.generateUniqueSessionName(repo.Path)
+
+	// Create worktree for the local repo using main branch
+	worktree, err := s.createLocalRepoWorktree(repo, "main", funName)
+	if err != nil {
+		logger.Warnf("⚠️ Failed to create initial worktree for template project: %v", err)
+		// Still return success since the repository was created successfully
+		// The user can create worktrees manually later
+		return repo, nil, nil
+	}
+
+	logger.Warnf("✅ Successfully created project %s from template %s with initial worktree %s", projectName, templateID, worktree.Name)
+	return repo, worktree, nil
+}
+
+// RecreateWorktree implements the WorktreeRestorer interface
+// This method manually restores worktrees by leveraging existing git metadata
+// instead of using `git worktree add` which fails due to registration conflicts
+func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Repository) error {
+	logger.Warnf("🔄 Manually restoring worktree %s at %s (from repo %s)", worktree.Name, worktree.Path, repo.Path)
+
+	// Step 1: Create the workspace directory
+	if err := os.MkdirAll(worktree.Path, 0755); err != nil {
+		logger.Warnf("❌ Failed to create workspace directory %s: %v", worktree.Path, err)
+		return fmt.Errorf("failed to create workspace directory %s: %v", worktree.Path, err)
+	}
+	logger.Warnf("✅ Created workspace directory: %s", worktree.Path)
+
+	// Step 2: Determine the correct worktree metadata path
+	// Extract workspace name from the worktree path
+	workspaceName := filepath.Base(worktree.Path)
+	// Handle different repo types:
+	// - Local repos (e.g., /live/catnip): metadata at /live/catnip/.git/worktrees/coal
+	// - Remote repos (e.g., /volume/repos/slide.git): metadata at /volume/repos/slide.git/worktrees/buddy
+	var worktreeMetadataPath string
+	if strings.HasSuffix(repo.Path, ".git") {
+		// Bare repository (remote repo) - worktrees directly under repo path
+		worktreeMetadataPath = filepath.Join(repo.Path, "worktrees", workspaceName)
+	} else {
+		// Regular repository (local repo) - worktrees under .git subdirectory
+		worktreeMetadataPath = filepath.Join(repo.Path, ".git", "worktrees", workspaceName)
+	}
+
+	// Check if worktree metadata exists
+	if _, err := os.Stat(worktreeMetadataPath); os.IsNotExist(err) {
+		logger.Warnf("⚠️ Worktree metadata not found at %s - falling back to fresh worktree creation", worktreeMetadataPath)
+
+		// For renamed branches, we need to find the original catnip branch reference
+		branchRef := worktree.Branch
+		if worktree.HasBeenRenamed && !strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+			parts := strings.Split(worktree.Name, "/")
+			workspaceName := parts[len(parts)-1]
+			branchRef = fmt.Sprintf("refs/catnip/%s", workspaceName)
+			logger.Warnf("🔍 Using catnip ref %s for recreating renamed worktree %s", branchRef, worktree.Name)
+		}
+
+		// Use existing CreateWorktree logic
+		workspaceRoot := "/workspace"
+		logger.Warnf("🔧 Creating fresh worktree with: repo=%s, sourceBranch=%s, branchName=%s, workspaceDir=%s",
+			repo.Path, worktree.SourceBranch, branchRef, workspaceRoot)
+
+		_, err := s.gitWorktreeManager.CreateWorktree(git.CreateWorktreeRequest{
+			Repository:   repo,
+			SourceBranch: worktree.SourceBranch,
+			BranchName:   branchRef,
+			WorkspaceDir: workspaceRoot,
+			IsInitial:    false,
+		})
+
+		if err != nil {
+			logger.Warnf("❌ Fresh worktree creation failed for %s: %v", worktree.Name, err)
+			return fmt.Errorf("failed to create fresh worktree: %v", err)
+		}
+
+		logger.Warnf("✅ Successfully created fresh worktree %s", worktree.Name)
+		return nil
+	}
+	logger.Warnf("✅ Found worktree metadata at: %s", worktreeMetadataPath)
+
+	// Step 3: Create the .git file pointing to the worktree metadata
+	gitFilePath := filepath.Join(worktree.Path, ".git")
+	gitFileContent := fmt.Sprintf("gitdir: %s", worktreeMetadataPath)
+	if err := os.WriteFile(gitFilePath, []byte(gitFileContent), 0644); err != nil {
+		logger.Warnf("❌ Failed to create .git file at %s: %v", gitFilePath, err)
+		return fmt.Errorf("failed to create .git file: %v", err)
+	}
+	logger.Warnf("✅ Created .git file pointing to metadata: %s", gitFilePath)
+
+	// Step 4: Restore files from git index
+	logger.Warnf("🔄 Restoring files from git index...")
+	restoreCmd := []string{"restore", "."}
+	if _, err := s.operations.ExecuteGit(worktree.Path, restoreCmd...); err != nil {
+		logger.Warnf("❌ Failed to restore files in %s: %v", worktree.Path, err)
+		return fmt.Errorf("failed to restore files: %v", err)
+	}
+	logger.Warnf("✅ Restored files from git index")
+
+	// Step 5: Verify the restoration
+	statusCmd := []string{"status", "--porcelain"}
+	if output, err := s.operations.ExecuteGit(worktree.Path, statusCmd...); err != nil {
+		logger.Warnf("⚠️ Could not verify git status after restoration: %v", err)
+	} else if strings.TrimSpace(string(output)) == "" {
+		logger.Warnf("✅ Worktree restoration verified - working tree is clean")
+	} else {
+		logger.Warnf("⚠️ Worktree may have uncommitted changes after restoration")
+	}
+
+	// Step 6: Recreate nice branch name for renamed worktrees
+	if worktree.HasBeenRenamed {
+		logger.Warnf("🔄 Worktree has been renamed, recreating nice branch name...")
+
+		// Get current branch (should be refs/catnip/workspacename)
+		currentBranchOutput, err := s.operations.ExecuteGit(worktree.Path, "rev-parse", "--symbolic-full-name", "HEAD")
+		if err != nil {
+			logger.Warnf("⚠️ Failed to get current branch for renamed worktree %s: %v", worktree.Name, err)
+		} else {
+			currentBranch := strings.TrimSpace(string(currentBranchOutput))
+			logger.Warnf("🔍 Current branch: %s", currentBranch)
+
+			// Look up the nice branch name from git config
+			configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(currentBranch, "/", "."))
+			niceBranchName, err := s.operations.GetConfig(worktree.Path, configKey)
+			if err == nil && strings.TrimSpace(niceBranchName) != "" {
+				niceBranchName = strings.TrimSpace(niceBranchName)
+				logger.Warnf("🔍 Found nice branch mapping: %s -> %s", currentBranch, niceBranchName)
+
+				// Get current commit hash
+				currentCommit, err := s.operations.GetCommitHash(worktree.Path, "HEAD")
+				if err != nil {
+					logger.Warnf("⚠️ Failed to get current commit for branch recreation: %v", err)
+				} else {
+					// Create the nice branch pointing to the same commit
+					if err := s.operations.CreateBranch(worktree.Path, niceBranchName, currentCommit); err != nil {
+						logger.Warnf("⚠️ Failed to recreate nice branch %q: %v", niceBranchName, err)
+					} else {
+						logger.Warnf("✅ Successfully recreated nice branch %q pointing to %s", niceBranchName, currentCommit[:8])
+					}
+				}
+			} else {
+				logger.Warnf("⚠️ No nice branch mapping found for %s in git config", currentBranch)
+			}
+		}
+	}
+
+	logger.Warnf("✅ Successfully restored worktree %s using manual restoration", worktree.Name)
+	return nil
+}
+
+// RestoreState restores worktree state from persistent storage
+func (s *GitService) RestoreState() error {
+	return s.stateManager.RestoreState()
 }
