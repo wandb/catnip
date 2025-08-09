@@ -1041,6 +1041,99 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/ports/mappings": {
+            "post": {
+                "description": "Records a mapping from container port to host port and broadcasts an SSE event",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ports"
+                ],
+                "summary": "Set host port mapping for a container port",
+                "parameters": [
+                    {
+                        "description": "Mapping object with 'port' and 'host_port'",
+                        "name": "mapping",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "integer"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Mapping set",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/ports/mappings/{port}": {
+            "delete": {
+                "description": "Removes a mapping and broadcasts an SSE event with host_port=0",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "ports"
+                ],
+                "summary": "Delete host port mapping for a container port",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Container port",
+                        "name": "port",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Mapping deleted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid port",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/ports/{port}": {
             "get": {
                 "description": "Returns detailed information about a specific port if it exists",
@@ -1945,6 +2038,10 @@ const docTemplate = `{
                 "command": {
                     "type": "string"
                 },
+                "detection_source": {
+                    "description": "\"tcp-scan\", \"terminal-output\", etc.",
+                    "type": "string"
+                },
                 "health": {
                     "type": "string"
                 },
@@ -2322,6 +2419,7 @@ const docTemplate = `{
                 "process:started",
                 "process:stopped",
                 "container:status",
+                "port:mapped",
                 "heartbeat",
                 "worktree:status_updated",
                 "worktree:batch_updated",
@@ -2341,6 +2439,7 @@ const docTemplate = `{
                 "ProcessStartedEvent",
                 "ProcessStoppedEvent",
                 "ContainerStatusEvent",
+                "PortMappedEvent",
                 "HeartbeatEvent",
                 "WorktreeStatusUpdatedEvent",
                 "WorktreeBatchUpdatedEvent",

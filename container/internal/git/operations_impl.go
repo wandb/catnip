@@ -2,7 +2,6 @@ package git
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // OperationsImpl implements the Operations interface using gogit where possible
@@ -208,14 +208,12 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
 		if err != nil {
-			// If it fails due to missing worktree, try to prune and retry once
+			// If it fails due to missing worktree, log but don't auto-prune
+			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				log.Printf("⚠️  Pruning missing worktrees and retrying...")
-				if pruneErr := o.PruneWorktrees(repoPath); pruneErr != nil {
-					log.Printf("⚠️  Failed to prune worktrees: %v", pruneErr)
-				}
-				// Retry the command once after pruning
-				_, err = o.ExecuteGit(repoPath, args...)
+				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
+				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				// Don't retry - let the error propagate so the caller can handle it
 			}
 			if err != nil {
 				return err
@@ -249,14 +247,12 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
 		if err != nil {
-			// If it fails due to missing worktree, try to prune and retry once
+			// If it fails due to missing worktree, log but don't auto-prune
+			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				log.Printf("⚠️  Pruning missing worktrees and retrying...")
-				if pruneErr := o.PruneWorktrees(repoPath); pruneErr != nil {
-					log.Printf("⚠️  Failed to prune worktrees: %v", pruneErr)
-				}
-				// Retry the command once after pruning
-				_, err = o.ExecuteGit(repoPath, args...)
+				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
+				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				// Don't retry - let the error propagate so the caller can handle it
 			}
 		}
 		return err

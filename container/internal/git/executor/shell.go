@@ -2,12 +2,14 @@ package executor
 
 import (
 	"bytes"
+	"context"
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // ShellExecutor implements CommandExecutor using the git binary
@@ -36,7 +38,22 @@ func (e *ShellExecutor) Execute(dir string, args ...string) ([]byte, error) {
 
 // ExecuteWithEnv runs a git command with custom environment variables
 func (e *ShellExecutor) ExecuteWithEnv(dir string, env []string, args ...string) ([]byte, error) {
-	cmd := exec.Command("git", args...)
+	return e.ExecuteWithEnvAndTimeout(dir, env, 0, args...)
+}
+
+// ExecuteWithEnvAndTimeout runs a git command with custom environment variables and timeout
+func (e *ShellExecutor) ExecuteWithEnvAndTimeout(dir string, env []string, timeout time.Duration, args ...string) ([]byte, error) {
+	var ctx context.Context
+	var cancel context.CancelFunc
+
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+	} else {
+		ctx = context.Background()
+	}
+
+	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -48,6 +65,9 @@ func (e *ShellExecutor) ExecuteWithEnv(dir string, env []string, args ...string)
 
 	err := cmd.Run()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("git %s timed out after %v", strings.Join(args, " "), timeout)
+		}
 		return nil, fmt.Errorf("git %s failed: %v\nstderr: %s", strings.Join(args, " "), err, stderr.String())
 	}
 
@@ -61,7 +81,7 @@ func (e *ShellExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...stri
 	}
 	// Only log non-routine git commands
 	if len(args) > 0 && args[0] != "-C" && (len(args) < 2 || (args[1] != "symbolic-ref" && args[1] != "rev-list" && args[1] != "rev-parse" && !strings.HasPrefix(args[1], "diff"))) {
-		log.Printf("🐚 ShellExecutor: executing git %v", args)
+		logger.Debugf("🐚 ShellExecutor: executing git %v", args)
 	}
 	return e.Execute("", args...)
 }

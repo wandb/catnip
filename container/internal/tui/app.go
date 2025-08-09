@@ -5,13 +5,14 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -28,24 +29,18 @@ var embeddedLogo string
 //go:embed logo-small.ascii
 var embeddedSmallLogo string
 
-var debugLogger *log.Logger
 var debugEnabled bool
 
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catnip-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			log.Fatalln("Failed to open debug log file:", err)
-		}
-		debugLogger = log.New(logFile, "", log.LstdFlags|log.Lmicroseconds)
-		debugLogger.Println("=== TUI DEBUG LOG STARTED ===")
+		logger.Debug("=== TUI DEBUG LOG STARTED ===")
 	}
 }
 
 func debugLog(format string, args ...interface{}) {
-	if debugEnabled && debugLogger != nil {
-		debugLogger.Printf(format+"\n", args...)
+	if debugEnabled {
+		logger.Debugf(format, args...)
 	}
 }
 
@@ -55,6 +50,7 @@ type App struct {
 	containerName    string
 	program          *tea.Program
 	sseClient        *SSEClient
+	portForwarder    *PortForwardManager
 
 	// Initialization parameters
 	containerImage string
@@ -102,6 +98,32 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 
 	// Initialize SSE client
 	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
+	// Initialize port forwarder (uses backend on 8080)
+	a.portForwarder = NewPortForwardManager("http://localhost:8080")
+	// Start forwarding when ports open (only if SSH enabled)
+	sseClient.onEvent = func(ev AppEvent) {
+		if !a.sshEnabled || a.portForwarder == nil {
+			return
+		}
+		switch ev.Type {
+		case PortOpenedEvent:
+			if payload, ok := ev.Payload.(map[string]interface{}); ok {
+				if pf, ok := payload["port"].(float64); ok {
+					cp := int(pf)
+					a.portForwarder.EnsureForward(cp)
+					// Immediately announce mapping in case backend restarted
+					a.portForwarder.ReannounceMappings()
+				}
+			}
+		case PortClosedEvent:
+			if payload, ok := ev.Payload.(map[string]interface{}); ok {
+				if pf, ok := payload["port"].(float64); ok {
+					cp := int(pf)
+					a.portForwarder.StopForward(cp)
+				}
+			}
+		}
+	}
 
 	// Create the model - always with initialization
 	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag)
@@ -133,6 +155,9 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	// Clean up SSE client if it was started
 	if a.sseClient != nil {
 		a.sseClient.Stop()
+	}
+	if a.portForwarder != nil {
+		a.portForwarder.StopAll()
 	}
 
 	// Best-effort terminal reset to avoid leaving the user's terminal in an odd state

@@ -3,7 +3,6 @@ package models
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // Settings manages persistence of Claude and GitHub configuration files
@@ -37,10 +37,10 @@ func NewSettings() *Settings {
 
 // Start begins the settings synchronization process
 func (s *Settings) Start() {
-	log.Println("🔧 Starting settings persistence manager")
+	logger.Info("🔧 Starting settings persistence manager")
 
 	// ONLY restore settings from volume on boot - never during runtime
-	log.Println("📥 Boot-time restore: copying settings from volume to home directory")
+	logger.Info("📥 Boot-time restore: copying settings from volume to home directory")
 	s.restoreFromVolumeOnBoot()
 
 	// Restore IDE directory if it exists
@@ -76,23 +76,23 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 
 	for _, dir := range []string{volumeClaudeDir, volumeGitHubDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			log.Printf("❌ Failed to create volume directory %s: %v", dir, err)
+			logger.Errorf("❌ Failed to create volume directory %s: %v", dir, err)
 			continue
 		}
 
 		// Fix permissions (make it writable by catnip user)
 		if err := os.Chown(dir, 1000, 1000); err != nil {
-			log.Printf("⚠️  Failed to chown volume directory %s: %v", dir, err)
+			logger.Warnf("⚠️  Failed to chown volume directory %s: %v", dir, err)
 		}
 	}
 
 	// Create nested directory for credentials
 	volumeClaudeNestedDir := filepath.Join(volumeClaudeDir, ".claude")
 	if err := os.MkdirAll(volumeClaudeNestedDir, 0755); err != nil {
-		log.Printf("❌ Failed to create nested volume directory %s: %v", volumeClaudeNestedDir, err)
+		logger.Errorf("❌ Failed to create nested volume directory %s: %v", volumeClaudeNestedDir, err)
 	} else {
 		if err := os.Chown(volumeClaudeNestedDir, 1000, 1000); err != nil {
-			log.Printf("⚠️  Failed to chown nested volume directory %s: %v", volumeClaudeNestedDir, err)
+			logger.Warnf("⚠️  Failed to chown nested volume directory %s: %v", volumeClaudeNestedDir, err)
 		}
 	}
 
@@ -118,26 +118,26 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 
 		// Check if destination file already exists - if so, skip (boot-time only restore)
 		if _, err := os.Stat(file.destPath); err == nil {
-			log.Printf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
+			logger.Debugf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
 			continue
 		}
 
 		// Create destination directory if needed
 		destDir := filepath.Dir(file.destPath)
 		if err := os.MkdirAll(destDir, 0755); err != nil {
-			log.Printf("❌ Failed to create directory %s: %v", destDir, err)
+			logger.Errorf("❌ Failed to create directory %s: %v", destDir, err)
 			continue
 		}
 
 		// Copy file from volume to home
 		if err := s.copyFile(sourcePath, file.destPath); err != nil {
-			log.Printf("❌ Failed to restore %s: %v", file.filename, err)
+			logger.Errorf("❌ Failed to restore %s: %v", file.filename, err)
 		} else {
-			log.Printf("✅ Restored %s from volume", file.filename)
+			logger.Infof("✅ Restored %s from volume", file.filename)
 
 			// Set proper ownership for catnip user
 			if err := os.Chown(file.destPath, 1000, 1000); err != nil {
-				log.Printf("⚠️  Failed to chown %s: %v", file.destPath, err)
+				logger.Warnf("⚠️  Failed to chown %s: %v", file.destPath, err)
 			}
 		}
 	}
@@ -153,18 +153,18 @@ func (s *Settings) restoreIDEDirectory() {
 		return
 	}
 
-	log.Printf("📁 Restoring IDE directory from volume")
+	logger.Info("📁 Restoring IDE directory from volume")
 
 	// Remove existing home IDE directory if it exists
 	if err := os.RemoveAll(homeIDEDir); err != nil {
-		log.Printf("⚠️  Failed to remove existing IDE directory: %v", err)
+		logger.Warnf("⚠️  Failed to remove existing IDE directory: %v", err)
 	}
 
 	// Copy the entire directory
 	if err := s.copyDirectory(volumeIDEDir, homeIDEDir); err != nil {
-		log.Printf("❌ Failed to restore IDE directory: %v", err)
+		logger.Errorf("❌ Failed to restore IDE directory: %v", err)
 	} else {
-		log.Printf("✅ Restored IDE directory from volume")
+		logger.Info("✅ Restored IDE directory from volume")
 	}
 }
 
@@ -183,7 +183,7 @@ func (s *Settings) copyDirectory(src, dst string) error {
 
 	// Set ownership
 	if err := os.Chown(dst, 1000, 1000); err != nil {
-		log.Printf("⚠️  Failed to chown directory %s: %v", dst, err)
+		logger.Warnf("⚠️  Failed to chown directory %s: %v", dst, err)
 	}
 
 	// Read source directory
@@ -216,7 +216,7 @@ func (s *Settings) copyDirectory(src, dst string) error {
 			}
 			// Set ownership for file
 			if err := os.Chown(dstPath, 1000, 1000); err != nil {
-				log.Printf("⚠️  Failed to chown file %s: %v", dstPath, err)
+				logger.Warnf("⚠️  Failed to chown file %s: %v", dstPath, err)
 			}
 		}
 	}
@@ -236,14 +236,14 @@ func (s *Settings) copyLockFile(src, dst string) error {
 	var lockData map[string]interface{}
 	if err := json.Unmarshal(data, &lockData); err != nil {
 		// If it's not valid JSON, just copy as-is
-		log.Printf("⚠️  Lock file %s is not valid JSON, copying as-is: %v", src, err)
+		logger.Warnf("⚠️  Lock file %s is not valid JSON, copying as-is: %v", src, err)
 		return s.copyFile(src, dst)
 	}
 
 	// Remove the PID key if it exists
 	if _, exists := lockData["pid"]; exists {
 		delete(lockData, "pid")
-		log.Printf("🔧 Removed PID from lock file %s", filepath.Base(src))
+		logger.Debugf("🔧 Removed PID from lock file %s", filepath.Base(src))
 	}
 
 	// Map workspace folders to container paths
@@ -253,7 +253,7 @@ func (s *Settings) copyLockFile(src, dst string) error {
 				if folderPath, ok := folder.(string); ok {
 					if mappedPath := s.mapWorkspacePath(folderPath); mappedPath != folderPath {
 						folders[i] = mappedPath
-						log.Printf("🔧 Mapped workspace path %s -> %s", folderPath, mappedPath)
+						logger.Debugf("🔧 Mapped workspace path %s -> %s", folderPath, mappedPath)
 					}
 				}
 			}
@@ -325,7 +325,7 @@ func (s *Settings) checkAndSyncFiles() {
 			continue
 		}
 		if err != nil {
-			log.Printf("❌ Error checking file %s: %v", file.sourcePath, err)
+			logger.Errorf("❌ Error checking file %s: %v", file.sourcePath, err)
 			continue
 		}
 
@@ -366,24 +366,24 @@ func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensi
 	// Double-check the file still exists and hasn't changed again
 	info, err := os.Stat(sourcePath)
 	if os.IsNotExist(err) {
-		log.Printf("⚠️  File %s no longer exists, skipping sync", sourcePath)
+		logger.Debugf("⚠️  File %s no longer exists, skipping sync", sourcePath)
 		return
 	}
 	if err != nil {
-		log.Printf("❌ Error re-checking file %s: %v", sourcePath, err)
+		logger.Errorf("❌ Error re-checking file %s: %v", sourcePath, err)
 		return
 	}
 
 	// If file has been modified again since we scheduled this sync, skip it
 	if !info.ModTime().Equal(expectedModTime) {
-		log.Printf("⚠️  File %s was modified again, skipping this sync", sourcePath)
+		logger.Debugf("⚠️  File %s was modified again, skipping this sync", sourcePath)
 		return
 	}
 
 	// For sensitive files, check for potential lock files or concurrent access
 	if sensitive {
 		if s.isFileBeingAccessed(sourcePath) {
-			log.Printf("⚠️  File %s appears to be in use, deferring sync", sourcePath)
+			logger.Debugf("⚠️  File %s appears to be in use, deferring sync", sourcePath)
 			// Reschedule for later
 			time.AfterFunc(10*time.Second, func() {
 				s.performSafeSync(sourcePath, volumeDir, destName, sensitive, expectedModTime)
@@ -396,7 +396,7 @@ func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensi
 
 	// Ensure volume directory exists
 	if err := os.MkdirAll(volumeDir, 0755); err != nil {
-		log.Printf("❌ Failed to create volume directory: %v", err)
+		logger.Errorf("❌ Failed to create volume directory: %v", err)
 		return
 	}
 
@@ -408,7 +408,7 @@ func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensi
 	}
 
 	if err != nil {
-		log.Printf("❌ Failed to sync %s to volume: %v", sourcePath, err)
+		logger.Errorf("❌ Failed to sync %s to volume: %v", sourcePath, err)
 		return
 	}
 
@@ -417,7 +417,7 @@ func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensi
 
 	// Only log sync for non-routine files or first sync
 	if _, exists := s.lastModTimes[sourcePath]; !exists || (!strings.Contains(destName, ".json") && !strings.Contains(destName, ".yml")) {
-		log.Printf("📋 Synced %s to volume", destName)
+		logger.Debugf("📋 Synced %s to volume", destName)
 	}
 	s.lastModTimes[sourcePath] = info.ModTime()
 }
@@ -434,7 +434,7 @@ func (s *Settings) isFileBeingAccessed(filePath string) bool {
 
 	for _, lockPath := range lockPatterns {
 		if _, err := os.Stat(lockPath); err == nil {
-			log.Printf("🔒 Lock file detected: %s", lockPath)
+			logger.Debugf("🔒 Lock file detected: %s", lockPath)
 			return true
 		}
 	}
@@ -499,7 +499,7 @@ func (s *Settings) copyFile(src, dst string) error {
 	// Try to preserve permissions
 	if err := destFile.Chmod(sourceInfo.Mode()); err != nil {
 		// Log but don't fail
-		log.Printf("⚠️  Could not preserve permissions on %s: %v", dst, err)
+		logger.Warnf("⚠️  Could not preserve permissions on %s: %v", dst, err)
 	}
 
 	return nil
@@ -524,7 +524,7 @@ func (s *Settings) ValidateSettings() error {
 
 		var js json.RawMessage
 		if err := json.Unmarshal(data, &js); err != nil {
-			log.Printf("⚠️  Invalid JSON in %s: %v", file, err)
+			logger.Warnf("⚠️  Invalid JSON in %s: %v", file, err)
 			return err
 		}
 	}

@@ -50,6 +50,13 @@ function TerminalPage() {
     }
   }, []);
 
+  // Send focus state to backend
+  const sendFocusState = useCallback((focused: boolean) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "focus", focused }));
+    }
+  }, []);
+
   // Helper to generate a unique key for session storage
   const getPromptStorageKey = useCallback(
     async (sessionId: string, prompt: string) => {
@@ -101,6 +108,34 @@ function TerminalPage() {
       return 14;
     }
   }, []);
+
+  // Handle tab focus/blur events
+  useEffect(() => {
+    const handleFocus = () => {
+      sendFocusState(true);
+    };
+
+    const handleBlur = () => {
+      sendFocusState(false);
+    };
+
+    const handleVisibilityChange = () => {
+      sendFocusState(!document.hidden);
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Send initial focus state
+    sendFocusState(document.hasFocus() && !document.hidden);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [sendFocusState]);
 
   // Reset state when sessionId changes
   useEffect(() => {

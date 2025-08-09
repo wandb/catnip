@@ -1,12 +1,12 @@
 package handlers
 
 import (
-	"log"
 	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
+	catniplogger "github.com/vanpelt/catnip/internal/logger"
 )
 
 // SamplingLogger creates a custom logger middleware that samples certain endpoints
@@ -35,7 +35,7 @@ func SamplingLogger() fiber.Handler {
 				duration := time.Since(start)
 
 				// Log a summary instead of individual request
-				log.Printf("%d | %v | %s | %s | %s | - [sampled: %d calls]",
+				catniplogger.Debugf("%d | %v | %s | %s | %s | - [sampled: %d calls]",
 					c.Response().StatusCode(),
 					duration,
 					c.IP(),

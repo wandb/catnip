@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vanpelt/catnip/internal/git/executor"
 )
@@ -135,8 +136,36 @@ func (b *BranchOperations) GetRemoteBranches(repoPath string, defaultBranch stri
 	// First, try to get the remote URL and use ls-remote for accurate branch list
 	remoteURL, err := b.GetRemoteURL(repoPath)
 	if err == nil && remoteURL != "" {
-		// Use ls-remote to get all remote branches directly from origin
-		output, err := b.executor.ExecuteGitWithWorkingDir(repoPath, "ls-remote", "--heads", "origin")
+		// Try ls-remote with the remote URL directly (more reliable) - use timeout for network operations
+		output, err := b.executor.ExecuteWithEnvAndTimeout("", nil, 10*time.Second, "-C", repoPath, "ls-remote", "--heads", remoteURL)
+		if err == nil {
+			var branches []string
+			branchSet := map[string]bool{}
+
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" {
+					continue
+				}
+				// Each line is in format: <commit-hash> refs/heads/<branch-name>
+				parts := strings.Fields(line)
+				if len(parts) >= 2 && strings.HasPrefix(parts[1], "refs/heads/") {
+					branch := strings.TrimPrefix(parts[1], "refs/heads/")
+					if !branchSet[branch] {
+						branches = append(branches, branch)
+						branchSet[branch] = true
+					}
+				}
+			}
+
+			if len(branches) > 0 {
+				return branches, nil
+			}
+		}
+
+		// If the direct URL approach failed, try with origin - with timeout
+		output, err = b.executor.ExecuteWithEnvAndTimeout("", nil, 10*time.Second, "-C", repoPath, "ls-remote", "--heads", "origin")
 		if err == nil {
 			var branches []string
 			branchSet := map[string]bool{}
@@ -164,11 +193,17 @@ func (b *BranchOperations) GetRemoteBranches(repoPath string, defaultBranch stri
 		}
 	}
 
-	// Fallback to the original method using cached remote branches
-	// Start with the default branch
-	branches := []string{defaultBranch}
-	branchSet := map[string]bool{defaultBranch: true}
+	// Fallback to using local remote-tracking branches (cached)
+	var branches []string
+	branchSet := map[string]bool{}
 
+	// Start with default branch if we have one
+	if defaultBranch != "" {
+		branches = append(branches, defaultBranch)
+		branchSet[defaultBranch] = true
+	}
+
+	// Try to get remote-tracking branches (these are cached locally)
 	output, err := b.executor.ExecuteGitWithWorkingDir(repoPath, "branch", "-r")
 	if err != nil {
 		return branches, nil // Return at least the default branch

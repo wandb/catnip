@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 
 	"github.com/vanpelt/catnip/internal/git"
 )
@@ -681,23 +682,18 @@ func KillProcessGroup(pid int) error {
 	return syscall.Kill(-pid, syscall.SIGTERM)
 }
 
-var containerLogger *log.Logger
 var containerDebugEnabled bool
 
 func init() {
 	containerDebugEnabled = os.Getenv("DEBUG") == "true"
 	if containerDebugEnabled {
-		logFile, err := os.OpenFile("/tmp/catnip-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			log.Fatalln("Failed to open debug log file:", err)
-		}
-		containerLogger = log.New(logFile, "[CONTAINER] ", log.LstdFlags|log.Lmicroseconds)
+		logger.Debug("=== CONTAINER DEBUG LOG STARTED ===")
 	}
 }
 
 func containerDebugLog(format string, args ...interface{}) {
-	if containerDebugEnabled && containerLogger != nil {
-		containerLogger.Printf(format+"\n", args...)
+	if containerDebugEnabled {
+		logger.Debugf(format, args...)
 	}
 }
 

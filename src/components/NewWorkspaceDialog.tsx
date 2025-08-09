@@ -10,7 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BranchSelector } from "@/components/BranchSelector";
+import { BranchDisplay } from "@/components/BranchDisplay";
 import { RepoSelector } from "@/components/RepoSelector";
 import { TemplateSelector } from "@/components/TemplateSelector";
 import { Loader2, GitBranch, FileCode, X } from "lucide-react";
@@ -78,16 +78,11 @@ export function NewWorkspaceDialog({
         if (initialBranch) {
           setSelectedBranch(initialBranch);
         }
+        // Immediately fetch branches for the initial repo
+        void handleRepoChange(initialRepoUrl);
       }
     }
   }, [open, initialRepoUrl, initialBranch, showTemplateFirst]);
-
-  // Fetch branches when initial repo URL is provided
-  useEffect(() => {
-    if (open && initialRepoUrl && githubUrl === initialRepoUrl) {
-      void handleRepoChange(initialRepoUrl);
-    }
-  }, [open, initialRepoUrl]);
 
   // Fetch GitHub repositories when dialog opens (only once)
   useEffect(() => {
@@ -260,14 +255,18 @@ export function NewWorkspaceDialog({
         repoId = currentRepo.id;
         branches = await gitApi.fetchBranches(repoId);
 
-        // Set default branch as selected for current repos
+        // Always prioritize the repo's default branch
         if (
           currentRepo.default_branch &&
           branches.includes(currentRepo.default_branch)
         ) {
           setSelectedBranch(currentRepo.default_branch);
         } else if (branches.length > 0) {
-          setSelectedBranch(branches[0]);
+          // Look for common default branch names first
+          const defaultCandidate = branches.find(
+            (branch) => branch === "main" || branch === "master",
+          );
+          setSelectedBranch(defaultCandidate || branches[0]);
         }
       } else {
         // For remote GitHub repos that haven't been checked out yet
@@ -373,23 +372,27 @@ export function NewWorkspaceDialog({
           </TabsList>
 
           <TabsContent value="repository" className="space-y-4">
-            <RepoSelector
-              value={githubUrl}
-              onValueChange={handleRepoChange}
-              repositories={githubRepos}
-              currentRepositories={currentGithubRepos}
-              loading={false}
-            />
-
-            <BranchSelector
-              value={selectedBranch}
-              onValueChange={setSelectedBranch}
-              branches={selectedRepoBranches}
-              currentBranch={getCurrentBranch()}
-              defaultBranch={getDefaultBranch()}
-              disabled={false}
-              loading={branchesLoading}
-            />
+            <div className="flex gap-2 w-full overflow-hidden">
+              <div className="flex-1 min-w-0 max-w-[320px]">
+                <RepoSelector
+                  value={githubUrl}
+                  onValueChange={handleRepoChange}
+                  repositories={githubRepos}
+                  currentRepositories={currentGithubRepos}
+                  loading={false}
+                />
+              </div>
+              <div className="w-32 flex-shrink-0">
+                <BranchDisplay
+                  value={selectedBranch || "main"}
+                  onValueChange={setSelectedBranch}
+                  branches={selectedRepoBranches}
+                  currentBranch={getCurrentBranch()}
+                  defaultBranch={getDefaultBranch()}
+                  loading={branchesLoading}
+                />
+              </div>
+            </div>
 
             <div className="flex justify-end gap-2">
               <Button

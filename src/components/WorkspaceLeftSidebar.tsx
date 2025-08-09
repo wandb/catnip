@@ -48,7 +48,10 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogAction,
+  AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { useGitApi } from "@/hooks/useGitApi";
+import { useNavigate } from "@tanstack/react-router";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
@@ -63,7 +66,18 @@ export function WorkspaceLeftSidebar() {
   const [unavailableRepoAlert, setUnavailableRepoAlert] = useState<{
     open: boolean;
     repoName: string;
-  }>({ open: false, repoName: "" });
+    repoId: string;
+    worktrees: Worktree[];
+  }>({ open: false, repoName: "", repoId: "", worktrees: [] });
+
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
+    open: boolean;
+    worktrees: Worktree[];
+    repoName: string;
+  }>({ open: false, worktrees: [], repoName: "" });
+
+  const { deleteWorktree } = useGitApi();
+  const navigate = useNavigate();
 
   // Use stable selectors to avoid infinite loops
   const worktreesCount = useAppStore(
@@ -145,6 +159,42 @@ export function WorkspaceLeftSidebar() {
     setNewWorkspaceDialogOpen(true);
   };
 
+  const handleDeleteWorkspaces = () => {
+    // Show delete confirmation dialog
+    setDeleteConfirmDialog({
+      open: true,
+      worktrees: unavailableRepoAlert.worktrees,
+      repoName: unavailableRepoAlert.repoName,
+    });
+  };
+
+  const handleDeleteConfirmed = async () => {
+    try {
+      // Delete all worktrees for this repository
+      for (const worktree of deleteConfirmDialog.worktrees) {
+        await deleteWorktree(worktree.id);
+      }
+      setDeleteConfirmDialog({ open: false, worktrees: [], repoName: "" });
+      setUnavailableRepoAlert({
+        open: false,
+        repoName: "",
+        repoId: "",
+        worktrees: [],
+      });
+
+      // Navigate to workspace index if we deleted the current workspace
+      const currentWorkspaceName = `${project}/${workspace}`;
+      const wasCurrentDeleted = deleteConfirmDialog.worktrees.some(
+        (w) => w.name === currentWorkspaceName,
+      );
+      if (wasCurrentDeleted) {
+        void navigate({ to: "/workspace" });
+      }
+    } catch (error) {
+      console.error("Failed to delete workspaces:", error);
+    }
+  };
+
   return (
     <>
       <Sidebar className="border-r-0">
@@ -211,9 +261,11 @@ export function WorkspaceLeftSidebar() {
                                     setUnavailableRepoAlert({
                                       open: true,
                                       repoName: projectName,
+                                      repoId: repo.id,
+                                      worktrees: worktrees,
                                     });
                                   }}
-                                  className="mr-5 text-yellow-500 hover:bg-accent"
+                                  className="mr-5 text-yellow-500 hover:bg-accent cursor-pointer"
                                 >
                                   <AlertTriangle className="h-4 w-4" />
                                 </SidebarMenuAction>
@@ -233,6 +285,9 @@ export function WorkspaceLeftSidebar() {
                                   </code>{" "}
                                   from the git repo on your host to make it
                                   available.
+                                </div>
+                                <div className="text-sm text-muted-foreground">
+                                  Click to open options
                                 </div>
                               </TooltipContent>
                             </Tooltip>
@@ -262,6 +317,8 @@ export function WorkspaceLeftSidebar() {
                                             setUnavailableRepoAlert({
                                               open: true,
                                               repoName: projectName,
+                                              repoId: repo.id,
+                                              worktrees: worktrees,
                                             });
                                           }
                                         : undefined
@@ -393,7 +450,50 @@ export function WorkspaceLeftSidebar() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction>OK</AlertDialogAction>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteWorkspaces}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Workspaces
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={deleteConfirmDialog.open}
+        onOpenChange={(open) =>
+          setDeleteConfirmDialog({ ...deleteConfirmDialog, open })
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              {deleteConfirmDialog.worktrees.length} workspace
+              {deleteConfirmDialog.worktrees.length > 1 ? "s" : ""} for "
+              {deleteConfirmDialog.repoName}"? This action cannot be undone.
+              {deleteConfirmDialog.worktrees.some(
+                (w) => w.is_dirty || w.commit_count > 0,
+              ) && (
+                <div className="mt-2 text-yellow-600">
+                  Warning: Some workspaces have uncommitted changes or unpushed
+                  commits.
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirmed}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete All Workspaces
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

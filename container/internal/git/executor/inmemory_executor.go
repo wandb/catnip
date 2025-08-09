@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -151,6 +152,8 @@ func (e *InMemoryExecutor) handleGitCommand(repo *TestRepository, workingDir str
 		return e.handleCheckout(repo, args[1:])
 	case "config":
 		return e.handleConfig(repo, args[1:])
+	case "show-ref":
+		return e.handleShowRef(repo, args[1:])
 	default:
 		return nil, fmt.Errorf("git command not implemented in memory executor: %s", command)
 	}
@@ -340,4 +343,53 @@ func (e *InMemoryExecutor) handleCheckout(repo *TestRepository, args []string) (
 func (e *InMemoryExecutor) handleConfig(repo *TestRepository, args []string) ([]byte, error) {
 	// Mock successful config
 	return []byte(""), nil
+}
+
+// handleShowRef implements git show-ref
+func (e *InMemoryExecutor) handleShowRef(repo *TestRepository, args []string) ([]byte, error) {
+	gitRepo := repo.GetRepository()
+
+	// Parse flags
+	verify := false
+	quiet := false
+	refName := ""
+
+	for _, arg := range args {
+		switch arg {
+		case "--verify":
+			verify = true
+		case "--quiet":
+			quiet = true
+		default:
+			if strings.HasPrefix(arg, "refs/") {
+				refName = arg
+			}
+		}
+	}
+
+	// If we have a specific ref to verify
+	if verify && refName != "" {
+		// Look up the reference
+		ref, err := gitRepo.Reference(plumbing.ReferenceName(refName), true)
+		if err != nil {
+			// Reference not found - return non-zero exit code
+			return nil, fmt.Errorf("reference not found: %s", refName)
+		}
+
+		if quiet {
+			// --quiet mode: return empty output on success
+			return []byte(""), nil
+		} else {
+			// Return hash and ref name
+			return []byte(fmt.Sprintf("%s %s\n", ref.Hash().String(), refName)), nil
+		}
+	}
+
+	// Default behavior: list all references (not implemented for now)
+	return []byte(""), nil
+}
+
+// ExecuteWithEnvAndTimeout implements the timeout interface for testing - ignores timeout
+func (e *InMemoryExecutor) ExecuteWithEnvAndTimeout(dir string, env []string, timeout time.Duration, args ...string) ([]byte, error) {
+	return e.ExecuteWithEnv(dir, env, args...)
 }
