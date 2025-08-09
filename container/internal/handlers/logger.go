@@ -35,7 +35,7 @@ func SamplingLogger() fiber.Handler {
 				duration := time.Since(start)
 
 				// Log a summary instead of individual request
-				logger.Debugf("%d | %v | %s | %s | %s | - [sampled: %d calls]",
+				catniplogger.Debugf("%d | %v | %s | %s | %s | - [sampled: %d calls]",
 					c.Response().StatusCode(),
 					duration,
 					c.IP(),
