@@ -5,13 +5,14 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -28,24 +29,18 @@ var embeddedLogo string
 //go:embed logo-small.ascii
 var embeddedSmallLogo string
 
-var debugLogger *log.Logger
 var debugEnabled bool
 
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logFile, err := os.OpenFile("/tmp/catnip-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			log.Fatalln("Failed to open debug log file:", err)
-		}
-		debugLogger = log.New(logFile, "", log.LstdFlags|log.Lmicroseconds)
-		debugLogger.Println("=== TUI DEBUG LOG STARTED ===")
+		logger.Debug("=== TUI DEBUG LOG STARTED ===")
 	}
 }
 
 func debugLog(format string, args ...interface{}) {
-	if debugEnabled && debugLogger != nil {
-		debugLogger.Printf(format+"\n", args...)
+	if debugEnabled {
+		logger.Debugf(format, args...)
 	}
 }
 
