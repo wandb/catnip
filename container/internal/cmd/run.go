@@ -289,22 +289,22 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 	// Clean up container when TUI exits normally
 	if rmFlag {
-		fmt.Printf("Stopping and removing container '%s'...\n", finalContainerName)
+		logger.Infof("Stopping and removing container '%s'...", finalContainerName)
 		if err := containerService.StopContainer(ctx, finalContainerName); err != nil {
-			fmt.Printf("Warning: Failed to stop container: %v\n", err)
+			logger.Warnf("Failed to stop container: %v", err)
 		} else {
 			if err := containerService.RemoveContainer(ctx, finalContainerName); err != nil {
-				fmt.Printf("Warning: Failed to remove container: %v\n", err)
+				logger.Warnf("Failed to remove container: %v", err)
 			} else {
-				fmt.Printf("Container stopped and removed successfully.\n")
+				logger.Info("Container stopped and removed successfully.")
 			}
 		}
 	} else {
-		fmt.Printf("Stopping container '%s'...\n", finalContainerName)
+		logger.Infof("Stopping container '%s'...", finalContainerName)
 		if err := containerService.StopContainer(ctx, finalContainerName); err != nil {
-			fmt.Printf("Warning: Failed to stop container: %v\n", err)
+			logger.Warnf("Failed to stop container: %v", err)
 		} else {
-			fmt.Printf("Container stopped successfully.\n")
+			logger.Info("Container stopped successfully.")
 		}
 	}
 
@@ -379,10 +379,10 @@ func tailContainerLogs(ctx context.Context, containerService *services.Container
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("\nStopping log tail...")
+			logger.Info("\nStopping log tail...")
 			return nil
 		case line := <-outputChan:
-			fmt.Println(line)
+			fmt.Println(line) // Keep raw output for log tailing
 		case err := <-errorChan:
 			return err
 		}
@@ -440,10 +440,10 @@ func setupSSH() error {
 
 	// Check if SSH key already exists
 	if _, err := os.Stat(privateKeyPath); err == nil {
-		fmt.Printf("Using existing SSH key: %s\n", privateKeyPath)
+		logger.Infof("Using existing SSH key: %s", privateKeyPath)
 	} else {
 		// Generate SSH key pair
-		fmt.Println("Generating SSH key pair for Catnip...")
+		logger.Info("Generating SSH key pair for Catnip...")
 		privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
 		if err != nil {
 			return fmt.Errorf("failed to generate private key: %w", err)
