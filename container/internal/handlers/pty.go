@@ -162,6 +162,9 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 		agent := c.Query("agent", "")
 		reset := c.Query("reset", "false") == "true"
 
+		// Debug logging to understand what session ID we're actually receiving
+		log.Printf("🔍 WebSocket PTY request - Raw session param: %q, Default session: %q, Final sessionID: %q", c.Query("session"), defaultSession, sessionID)
+
 		// Create composite session key: path + agent
 		compositeSessionID := sessionID
 		if agent != "" {
