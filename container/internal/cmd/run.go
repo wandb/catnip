@@ -234,7 +234,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 			}
 		} else {
 			if !containerService.ImageExists(ctx, containerImage) || refresh {
-				fmt.Printf("Running 'docker pull %s'...\n", containerImage)
+				logger.Infof("Running 'docker pull %s'...", containerImage)
 				if err := runDockerPullDirect(ctx, containerService, containerImage); err != nil {
 					return fmt.Errorf("pull failed: %w", err)
 				}
@@ -242,7 +242,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		}
 
 		// Start the container
-		fmt.Printf("Starting container '%s'...\n", name)
+		logger.Infof("Starting container '%s'...", name)
 		workDirForContainer := workDir
 		if isGitRepo {
 			workDirForContainer = gitRoot
@@ -250,13 +250,13 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB, processedEnvVars); err != nil {
 			return fmt.Errorf("failed to run %s: %w", cmd, err)
 		}
-		fmt.Printf("Container started successfully!\n")
+		logger.Info("Container started successfully!")
 	}
 
 	// If detached mode, just exit
 	if detach {
-		fmt.Printf("Container '%s' is running in detached mode.\n", name)
-		fmt.Printf("Use 'catnip attach %s' to connect to it later.\n", name)
+		logger.Infof("Container '%s' is running in detached mode.", name)
+		logger.Infof("Use 'catnip attach %s' to connect to it later.", name)
 		return nil
 	}
 
