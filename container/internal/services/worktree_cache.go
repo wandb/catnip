@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -177,7 +177,7 @@ func (c *WorktreeStatusCache) startWatchingWorktree(worktreeID, worktreePath str
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Printf("⚠️ Failed to create watcher for %s: %v", worktreePath, err)
+		logger.Warnf("⚠️ Failed to create watcher for %s: %v", worktreePath, err)
 		return
 	}
 

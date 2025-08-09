@@ -138,7 +138,7 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		log.Printf("❌ Git http-backend error: %v, stderr: %s", err, stderr.String())
+		logger.Errorf("❌ Git http-backend error: %v, stderr: %s", err, stderr.String())
 		return c.Status(500).SendString("Git operation failed")
 	}
 
