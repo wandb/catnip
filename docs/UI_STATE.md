@@ -217,7 +217,7 @@ console.log("SSE Event:", event);
 
 ```go
 // Add logging in events handler
-logger.Debug("Broadcasting event: %+v", event)
+logger.Debugf("Broadcasting event: %+v", event)
 ```
 
 ### Network Debugging

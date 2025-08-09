@@ -43,7 +43,7 @@ func (m *URLManager) SetupRemoteURL(worktreePath, remoteName, targetURL string) 
 		return fmt.Errorf("failed to set remote URL: %v", err)
 	}
 
-	logger.Debug("🔗 Updated remote %s URL to: %s", remoteName, targetURL)
+	logger.Debugf("🔗 Updated remote %s URL to: %s", remoteName, targetURL)
 	return nil
 }
 
@@ -62,11 +62,11 @@ func (m *URLManager) RestoreOriginalURL(worktreePath, remoteName string) error {
 
 	_, err := m.executor.ExecuteGitWithWorkingDir(worktreePath, "remote", "set-url", remoteName, originalURL)
 	if err != nil {
-		logger.Debug("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
+		logger.Debugf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
 		return err
 	}
 
-	logger.Debug("✅ Restored original remote URL: %s", originalURL)
+	logger.Debugf("✅ Restored original remote URL: %s", originalURL)
 
 	// Clear from cache after successful restoration
 	delete(m.originalURLCache, cacheKey)
