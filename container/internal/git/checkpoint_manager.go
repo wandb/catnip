@@ -2,11 +2,12 @@ package git
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // DefaultCheckpointTimeoutSeconds is the default checkpoint timeout in seconds
@@ -92,19 +93,19 @@ func (cm *SessionCheckpointManager) CreateCheckpoint(title string) error {
 
 	cm.checkpointCount++
 
-	log.Printf("✅ Created checkpoint commit: %q (hash: %s)", checkpointTitle, commitHash)
+	logger.Debug("✅ Created checkpoint commit: %q (hash: %s)", checkpointTitle, commitHash)
 
 	// Update last commit time
 	cm.lastCommitTime = time.Now()
 
 	// Add the checkpoint to session history (without updating the current title)
 	if err := cm.sessionService.AddToSessionHistory(cm.workDir, checkpointTitle, commitHash); err != nil {
-		log.Printf("⚠️  Failed to add checkpoint to session history: %v", err)
+		logger.Debug("⚠️  Failed to add checkpoint to session history: %v", err)
 	}
 
 	// Refresh worktree status to update commit count in frontend
 	if err := cm.gitService.RefreshWorktreeStatus(cm.workDir); err != nil {
-		log.Printf("⚠️  Failed to refresh worktree status after checkpoint: %v", err)
+		logger.Debug("⚠️  Failed to refresh worktree status after checkpoint: %v", err)
 	}
 
 	return nil

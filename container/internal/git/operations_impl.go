@@ -2,7 +2,6 @@ package git
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // OperationsImpl implements the Operations interface using gogit where possible
@@ -211,8 +211,8 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 			// If it fails due to missing worktree, log but don't auto-prune
 			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				log.Printf("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
-				log.Printf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
+				logger.Debug("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
 				// Don't retry - let the error propagate so the caller can handle it
 			}
 			if err != nil {
@@ -250,8 +250,8 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 			// If it fails due to missing worktree, log but don't auto-prune
 			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				log.Printf("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
-				log.Printf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
+				logger.Debug("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
 				// Don't retry - let the error propagate so the caller can handle it
 			}
 		}

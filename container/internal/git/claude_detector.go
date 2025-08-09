@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // ClaudeSessionDetector detects and monitors Claude sessions running in a worktree
@@ -72,7 +73,7 @@ func (d *ClaudeSessionDetector) findClaudeSessionFromFiles() *ClaudeSessionInfo 
 
 	files, err := os.ReadDir(claudeProjectsDir)
 	if err != nil {
-		log.Printf("⚠️  Failed to read Claude projects directory: %v", err)
+		logger.Debug("⚠️  Failed to read Claude projects directory: %v", err)
 		return nil
 	}
 
