@@ -450,7 +450,50 @@ export function WorkspaceLeftSidebar() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction>OK</AlertDialogAction>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteWorkspaces}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Workspaces
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={deleteConfirmDialog.open}
+        onOpenChange={(open) =>
+          setDeleteConfirmDialog({ ...deleteConfirmDialog, open })
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              {deleteConfirmDialog.worktrees.length} workspace
+              {deleteConfirmDialog.worktrees.length > 1 ? "s" : ""} for "
+              {deleteConfirmDialog.repoName}"? This action cannot be undone.
+              {deleteConfirmDialog.worktrees.some(
+                (w) => w.is_dirty || w.commit_count > 0,
+              ) && (
+                <div className="mt-2 text-yellow-600">
+                  Warning: Some workspaces have uncommitted changes or unpushed
+                  commits.
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirmed}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete All Workspaces
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
