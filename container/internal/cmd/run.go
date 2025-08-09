@@ -538,7 +538,7 @@ Host catnip
 				return fmt.Errorf("failed to write SSH config: %w", err)
 			}
 
-			fmt.Println("Updated existing catnip SSH config entry")
+			logger.Info("Updated existing catnip SSH config entry")
 			return nil
 		}
 	}
@@ -574,6 +574,6 @@ Host catnip
 		return fmt.Errorf("failed to write SSH config: %w", err)
 	}
 
-	fmt.Println("Added catnip SSH config entry")
+	logger.Info("Added catnip SSH config entry")
 	return nil
 }
