@@ -50,7 +50,7 @@ func (w *ClaudeSubprocessWrapper) tryAlternativeClaudePaths() string {
 	if nvmBin := os.Getenv("NVM_BIN"); nvmBin != "" {
 		nvmClaudePath := filepath.Join(nvmBin, "claude")
 		if _, err := os.Stat(nvmClaudePath); err == nil {
-			log.Printf("[DEBUG] Found claude at NVM_BIN path: %s", nvmClaudePath)
+			logger.Debugf("[DEBUG] Found claude at NVM_BIN path: %s", nvmClaudePath)
 			return nvmClaudePath
 		}
 	}
@@ -68,14 +68,14 @@ func (w *ClaudeSubprocessWrapper) tryAlternativeClaudePaths() string {
 			if matches, err := filepath.Glob(pattern); err == nil {
 				for _, match := range matches {
 					if _, err := os.Stat(match); err == nil {
-						log.Printf("[DEBUG] Found claude at glob path: %s", match)
+						logger.Debugf("[DEBUG] Found claude at glob path: %s", match)
 						return match
 					}
 				}
 			}
 		} else {
 			if _, err := os.Stat(pattern); err == nil {
-				log.Printf("[DEBUG] Found claude at common path: %s", pattern)
+				logger.Debugf("[DEBUG] Found claude at common path: %s", pattern)
 				return pattern
 			}
 		}
@@ -105,7 +105,7 @@ func (w *ClaudeSubprocessWrapper) retryClaudeCommand(ctx context.Context, origin
 		err := cmd.Start()
 		if err == nil {
 			if attempt > 1 {
-				log.Printf("[INFO] Claude command started successfully on attempt %d", attempt)
+				logger.Infof("[INFO] Claude command started successfully on attempt %d", attempt)
 			}
 			// Update the original command reference to the successful one
 			if attempt > 1 {
@@ -119,34 +119,34 @@ func (w *ClaudeSubprocessWrapper) retryClaudeCommand(ctx context.Context, origin
 		// Check if this is the specific "executable not found" error
 		if !isExecutableNotFoundError(err) {
 			// Different error type, don't retry
-			log.Printf("[DEBUG] Failed to start claude command (%s) - non-retryable error", operation)
-			log.Printf("[DEBUG] Command path: %s", w.claudePath)
-			log.Printf("[DEBUG] Args: %v", originalCmd.Args[1:])
-			log.Printf("[DEBUG] Working directory: %s", originalCmd.Dir)
-			log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
+			logger.Debugf("[DEBUG] Failed to start claude command (%s) - non-retryable error", operation)
+			logger.Debugf("[DEBUG] Command path: %s", w.claudePath)
+			logger.Debugf("[DEBUG] Args: %v", originalCmd.Args[1:])
+			logger.Debugf("[DEBUG] Working directory: %s", originalCmd.Dir)
+			logger.Debugf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
 			return fmt.Errorf("failed to start claude command: %w", err)
 		}
 
-		log.Printf("[WARN] Claude executable not found (attempt %d/%d): %v", attempt, maxRetries, err)
-		log.Printf("[DEBUG] This suggests a race condition or PATH issue - investigating...")
+		logger.Warnf("[WARN] Claude executable not found (attempt %d/%d): %v", attempt, maxRetries, err)
+		logger.Debugf("[DEBUG] This suggests a race condition or PATH issue - investigating...")
 
 		// Add comprehensive debugging information
-		log.Printf("[DEBUG] Command path: %s", w.claudePath)
-		log.Printf("[DEBUG] Working directory: %s", originalCmd.Dir)
-		log.Printf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
-		log.Printf("[DEBUG] Environment NVM_BIN: %s", os.Getenv("NVM_BIN"))
+		logger.Debugf("[DEBUG] Command path: %s", w.claudePath)
+		logger.Debugf("[DEBUG] Working directory: %s", originalCmd.Dir)
+		logger.Debugf("[DEBUG] Environment PATH: %s", os.Getenv("PATH"))
+		logger.Debugf("[DEBUG] Environment NVM_BIN: %s", os.Getenv("NVM_BIN"))
 
 		// Try to find the actual claude binary location using various methods
 		if claudePath, lookErr := exec.LookPath("claude"); lookErr == nil {
-			log.Printf("[DEBUG] exec.LookPath found claude at: %s", claudePath)
+			logger.Debugf("[DEBUG] exec.LookPath found claude at: %s", claudePath)
 		} else {
-			log.Printf("[DEBUG] exec.LookPath failed: %v", lookErr)
+			logger.Debugf("[DEBUG] exec.LookPath failed: %v", lookErr)
 		}
 
 		// Try alternative paths on the first retry
 		if attempt == 1 {
 			if altPath := w.tryAlternativeClaudePaths(); altPath != "" {
-				log.Printf("[INFO] Switching to alternative claude path: %s", altPath)
+				logger.Infof("[INFO] Switching to alternative claude path: %s", altPath)
 				w.claudePath = altPath
 				// Update the command path for the next attempt
 				originalCmd.Path = altPath
@@ -154,7 +154,7 @@ func (w *ClaudeSubprocessWrapper) retryClaudeCommand(ctx context.Context, origin
 		}
 
 		if attempt < maxRetries {
-			log.Printf("[INFO] Retrying claude command in %v...", retryDelay)
+			logger.Infof("[INFO] Retrying claude command in %v...", retryDelay)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -164,11 +164,11 @@ func (w *ClaudeSubprocessWrapper) retryClaudeCommand(ctx context.Context, origin
 		}
 	}
 
-	log.Printf("[ERROR] Failed to start claude after all attempts. This indicates a serious issue:")
-	log.Printf("[ERROR] - Possible race condition with claude binary")
-	log.Printf("[ERROR] - PATH environment variable corruption")
-	log.Printf("[ERROR] - File system or permission issues")
-	log.Printf("[ERROR] Consider investigating the root cause rather than relying on retries")
+	logger.Errorf("[ERROR] Failed to start claude after all attempts. This indicates a serious issue:")
+	logger.Errorf("[ERROR] - Possible race condition with claude binary")
+	logger.Errorf("[ERROR] - PATH environment variable corruption")
+	logger.Errorf("[ERROR] - File system or permission issues")
+	logger.Errorf("[ERROR] Consider investigating the root cause rather than relying on retries")
 
 	return fmt.Errorf("failed to start claude command after %d attempts: %w", maxRetries, lastErr)
 }
@@ -268,15 +268,15 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 		}
 		if messageJSON, err := json.Marshal(message); err == nil {
 			if _, writeErr := stdin.Write(messageJSON); writeErr != nil {
-				log.Printf("[ERROR] Failed to write message to stdin: %v", writeErr)
+				logger.Errorf("[ERROR] Failed to write message to stdin: %v", writeErr)
 				return
 			}
 			if _, writeErr := stdin.Write([]byte("\n")); writeErr != nil {
-				log.Printf("[ERROR] Failed to write newline to stdin: %v", writeErr)
+				logger.Errorf("[ERROR] Failed to write newline to stdin: %v", writeErr)
 				return
 			}
 		} else {
-			log.Printf("[ERROR] Failed to marshal message: %v", err)
+			logger.Errorf("[ERROR] Failed to marshal message: %v", err)
 		}
 	}()
 
@@ -342,7 +342,7 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 	var stderrBuffer strings.Builder
 	go func() {
 		if _, err := io.Copy(&stderrBuffer, stderr); err != nil {
-			log.Printf("[WARNING] Failed to read stderr: %v", err)
+			logger.Warnf("[WARNING] Failed to read stderr: %v", err)
 		}
 	}()
 
@@ -357,9 +357,9 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 		}
 
 		// Log the full error details
-		log.Printf("[ERROR] Claude CLI failed - Exit error: %v", err)
-		log.Printf("[ERROR] Claude CLI stderr: '%s'", errorMsg)
-		log.Printf("[ERROR] Full command was: %s %v", w.claudePath, args)
+		logger.Errorf("[ERROR] Claude CLI failed - Exit error: %v", err)
+		logger.Errorf("[ERROR] Claude CLI stderr: '%s'", errorMsg)
+		logger.Errorf("[ERROR] Full command was: %s %v", w.claudePath, args)
 
 		// Send error as final chunk
 		errorResponse := &models.CreateCompletionResponse{
@@ -370,7 +370,7 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 
 		responseJSON, _ := json.Marshal(errorResponse)
 		if _, err := responseWriter.Write(append(responseJSON, '\n')); err != nil {
-			log.Printf("[WARNING] Failed to write response: %v", err)
+			logger.Warnf("[WARNING] Failed to write response: %v", err)
 		}
 
 		return fmt.Errorf("claude command failed: %s", errorMsg)
@@ -385,7 +385,7 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 	responseJSON, err := json.Marshal(finalResponse)
 	if err == nil {
 		if _, err := responseWriter.Write(append(responseJSON, '\n')); err != nil {
-			log.Printf("[WARNING] Failed to write response: %v", err)
+			logger.Warnf("[WARNING] Failed to write response: %v", err)
 		}
 	}
 
@@ -471,7 +471,7 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 	}
 	messageJSON, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("[ERROR] Failed to marshal message: %v", err)
+		logger.Errorf("[ERROR] Failed to marshal message: %v", err)
 		return nil, fmt.Errorf("failed to marshal message: %w", err)
 	}
 
@@ -484,7 +484,7 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 
 	// Close stdin immediately to signal EOF
 	if err := stdin.Close(); err != nil {
-		log.Printf("[WARNING] Failed to close stdin: %v", err)
+		logger.Warnf("[WARNING] Failed to close stdin: %v", err)
 	}
 
 	// Process streaming response
@@ -518,7 +518,7 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 	go func() {
 		defer close(stderrDone)
 		if _, err := io.Copy(&stderrBuffer, stderr); err != nil {
-			log.Printf("[WARNING] Failed to read stderr: %v", err)
+			logger.Warnf("[WARNING] Failed to read stderr: %v", err)
 		}
 	}()
 
