@@ -2,9 +2,9 @@ package git
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/vanpelt/catnip/internal/git/executor"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // URLManager handles remote URL operations with conversion and restoration
@@ -43,7 +43,7 @@ func (m *URLManager) SetupRemoteURL(worktreePath, remoteName, targetURL string) 
 		return fmt.Errorf("failed to set remote URL: %v", err)
 	}
 
-	log.Printf("🔗 Updated remote %s URL to: %s", remoteName, targetURL)
+	logger.Debug("🔗 Updated remote %s URL to: %s", remoteName, targetURL)
 	return nil
 }
 
@@ -62,11 +62,11 @@ func (m *URLManager) RestoreOriginalURL(worktreePath, remoteName string) error {
 
 	_, err := m.executor.ExecuteGitWithWorkingDir(worktreePath, "remote", "set-url", remoteName, originalURL)
 	if err != nil {
-		log.Printf("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
+		logger.Debug("⚠️ Failed to restore original remote URL %s: %v", originalURL, err)
 		return err
 	}
 
-	log.Printf("✅ Restored original remote URL: %s", originalURL)
+	logger.Debug("✅ Restored original remote URL: %s", originalURL)
 
 	// Clear from cache after successful restoration
 	delete(m.originalURLCache, cacheKey)

@@ -2,10 +2,10 @@ package git
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // FetchStrategy defines the strategy for fetching branches
@@ -91,7 +91,7 @@ func (f *FetchExecutor) FetchBranch(repoPath string, strategy FetchStrategy) err
 			fmt.Sprintf("refs/heads/%s", strategy.Branch),
 			fmt.Sprintf("refs/remotes/%s/%s", strategy.RemoteName, strategy.Branch))
 		if err != nil {
-			log.Printf("⚠️ Could not update local branch ref: %v", err)
+			logger.Debug("⚠️ Could not update local branch ref: %v", err)
 		}
 	}
 
@@ -183,26 +183,26 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 		// Use git config URL rewriting - works for SSH (converts) and HTTPS (no-op)
 		// This avoids OAuth scope issues and doesn't modify .git/config
 		gitArgs := append([]string{"-c", "url.https://github.com/.insteadOf=git@github.com:"}, args...)
-		log.Printf("🔄 Executing git push with URL rewriting: %v", gitArgs)
+		logger.Debug("🔄 Executing git push with URL rewriting: %v", gitArgs)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, gitArgs...)
 	} else {
 		// Normal push execution (native mode or no HTTPS conversion needed)
 		if strategy.ConvertHTTPS && config.Runtime.IsNative() {
-			log.Printf("🔄 Native mode: skipping URL rewriting, using existing git configuration")
+			logger.Debug("🔄 Native mode: skipping URL rewriting, using existing git configuration")
 		}
-		log.Printf("🔄 Executing git push without URL rewriting: %v", args)
+		logger.Debug("🔄 Executing git push without URL rewriting: %v", args)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, args...)
 	}
 	if err != nil {
 		// Handle push rejection with sync retry if configured
 		if strategy.SyncOnFail && IsPushRejected(err, string(output)) {
-			log.Printf("🔄 Push rejected due to upstream changes, sync would be needed")
+			logger.Debug("🔄 Push rejected due to upstream changes, sync would be needed")
 			// Note: Actual sync logic would need to be implemented by caller
 			// as it requires access to worktree and sync operations
 		}
 		return fmt.Errorf("failed to push branch %s to %s: %v\n%s", strategy.Branch, strategy.Remote, err, output)
 	}
 
-	log.Printf("✅ Pushed branch %s to %s", strategy.Branch, strategy.Remote)
+	logger.Debug("✅ Pushed branch %s to %s", strategy.Branch, strategy.Remote)
 	return nil
 }
