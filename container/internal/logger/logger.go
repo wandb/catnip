@@ -17,9 +17,13 @@ var (
 type LogLevel string
 
 const (
+	// LevelDebug enables debug level logging
 	LevelDebug LogLevel = "debug"
-	LevelInfo  LogLevel = "info"
-	LevelWarn  LogLevel = "warn"
+	// LevelInfo enables info level logging
+	LevelInfo LogLevel = "info"
+	// LevelWarn enables warn level logging
+	LevelWarn LogLevel = "warn"
+	// LevelError enables error level logging
 	LevelError LogLevel = "error"
 )
 
