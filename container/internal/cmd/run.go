@@ -480,7 +480,7 @@ func setupSSH() error {
 			return fmt.Errorf("failed to write public key: %w", err)
 		}
 
-		fmt.Printf("SSH key pair generated: %s\n", privateKeyPath)
+		logger.Infof("SSH key pair generated: %s", privateKeyPath)
 	}
 
 	// Update SSH config
