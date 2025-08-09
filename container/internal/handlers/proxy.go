@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/vanpelt/catnip/internal/logger"
 	"time"
 
 	"golang.org/x/net/html"
@@ -29,7 +30,7 @@ import (
 func rewriteHTMLAbsolutePaths(htmlContent string, basePath string) string {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
-		log.Printf("❌ Failed to parse HTML: %v", err)
+		logger.Errorf("❌ Failed to parse HTML: %v", err)
 		return htmlContent
 	}
 
@@ -38,7 +39,7 @@ func rewriteHTMLAbsolutePaths(htmlContent string, basePath string) string {
 	var buf bytes.Buffer
 	err = html.Render(&buf, doc)
 	if err != nil {
-		log.Printf("❌ Failed to render modified HTML: %v", err)
+		logger.Errorf("❌ Failed to render modified HTML: %v", err)
 		return htmlContent
 	}
 
@@ -229,7 +230,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Create request
 	req, err := http.NewRequest(string(c.Request().Header.Method()), targetURL, bytes.NewReader(c.Body()))
 	if err != nil {
-		log.Printf("❌ Error creating proxy request: %v", err)
+		logger.Errorf("❌ Error creating proxy request: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create proxy request",
 		})
@@ -253,7 +254,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Make the request
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("❌ Error making proxy request to %s: %v", targetURL, err)
+		logger.Errorf("❌ Error making proxy request to %s: %v", targetURL, err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
 			"error": "Failed to connect to service",
 		})
@@ -287,7 +288,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		gzipReader, err := gzip.NewReader(resp.Body)
 		if err != nil {
-			log.Printf("❌ Error creating gzip reader: %v", err)
+			logger.Errorf("❌ Error creating gzip reader: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "Failed to decompress service response",
 			})
