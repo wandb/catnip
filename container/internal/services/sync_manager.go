@@ -2,11 +2,11 @@ package services
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -42,13 +42,13 @@ func (sm *SyncManager) SyncWorktree(worktree *models.Worktree, strategy string, 
 		return err
 	}
 
-	log.Printf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
+	logger.Debugf("✅ Synced worktree %s with %s strategy", worktree.Name, strategy)
 	return nil
 }
 
 // MergeWorktreeToMain merges a local repo worktree's changes back to the main repository
 func (sm *SyncManager) MergeWorktreeToMain(repo *models.Repository, worktree *models.Worktree, squash bool) error {
-	log.Printf("🔄 Merging worktree %s back to main repository", worktree.Name)
+	logger.Debugf("🔄 Merging worktree %s back to main repository", worktree.Name)
 
 	// Ensure we have full history for merge operations
 	sm.fetchFullHistory(worktree, true)
@@ -102,14 +102,14 @@ func (sm *SyncManager) MergeWorktreeToMain(repo *models.Repository, worktree *mo
 	// Get the new commit hash from the main branch after merge
 	newCommitHash, err := sm.operations.GetCommitHash(repo.Path, "HEAD")
 	if err != nil {
-		log.Printf("⚠️  Failed to get new commit hash after merge: %v", err)
+		logger.Warnf("⚠️  Failed to get new commit hash after merge: %v", err)
 	} else {
 		// Update the worktree's commit hash to the new merge point
 		worktree.CommitHash = newCommitHash
-		log.Printf("📝 Updated worktree %s CommitHash to %s", worktree.Name, newCommitHash)
+		logger.Debugf("📝 Updated worktree %s CommitHash to %s", worktree.Name, newCommitHash)
 	}
 
-	log.Printf("✅ Merged worktree %s to main repository", worktree.Name)
+	logger.Debugf("✅ Merged worktree %s to main repository", worktree.Name)
 	return nil
 }
 
@@ -182,7 +182,7 @@ func (sm *SyncManager) fetchFullHistory(worktree *models.Worktree, isLocalRepo b
 	} else {
 		// For remote repos, fetch full history from origin
 		if err := sm.operations.FetchBranchFull(worktree.Path, worktree.SourceBranch); err != nil {
-			log.Printf("⚠️ Failed to fetch full history from origin: %v", err)
+			logger.Warnf("⚠️ Failed to fetch full history from origin: %v", err)
 		}
 	}
 }
