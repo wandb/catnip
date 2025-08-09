@@ -6,7 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/vanpelt/catnip/internal/logger"
+	catniplogger "github.com/vanpelt/catnip/internal/logger"
 )
 
 // SamplingLogger creates a custom logger middleware that samples certain endpoints
