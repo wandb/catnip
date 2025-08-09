@@ -142,6 +142,19 @@ The integration tests cover these major areas:
 ./run_integration_tests.sh stop
 ```
 
+### End-to-End (Playwright)
+
+The runner now also executes Playwright UI tests against the same test container:
+
+```bash
+# Ensure container is up, then run UI tests only
+./run_integration_tests.sh start
+pnpm dlx playwright install --with-deps chromium
+CATNIP_TEST_SERVER_URL=http://localhost:8181 pnpm test:e2e
+```
+
+In CI, the `Integration & E2E` workflow builds the test container, runs API integration tests, installs Playwright, and runs E2E against `http://localhost:8181`.
+
 ### Development Workflow
 
 The new architecture provides excellent development experience:

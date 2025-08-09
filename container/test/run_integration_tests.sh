@@ -94,6 +94,8 @@ start_test_container() {
     
     # Start the container using docker-compose
     # No need to build, just use the existing catnip:test image
+    # Default to disabling Air unless explicitly enabled by caller
+    export CATNIP_TEST_AIR=${CATNIP_TEST_AIR:-0}
     docker-compose -f docker-compose.test.yml up -d --no-build
     
     # Wait for the container to be healthy
@@ -152,8 +154,7 @@ run_tests() {
     # Ensure test container is running
     ensure_test_container
     
-    # Run the tests from the host using Go installed locally or in a runner container
-    # For now, we'll use a simple approach - create a minimal test runner
+    # Run the API tests from host using Go installed locally or in a runner container
     cd "$SCRIPT_DIR/integration"
     
     # Set environment variables for tests to point to our test server
@@ -163,7 +164,7 @@ run_tests() {
     
     # Check if go is available locally
     if command -v go >/dev/null 2>&1; then
-        log_info "Running tests with local Go installation..."
+        log_info "Running API integration tests with local Go installation..."
         go test -v -timeout 30m -tags=integration ./... 2>&1
     else
         log_info "Go not found locally, using Docker to run tests..."
@@ -180,14 +181,34 @@ run_tests() {
             go test -v -timeout 30m -tags=integration ./...
     fi
     
-    local test_exit_code=$?
+    local api_test_exit_code=$?
     
-    if [ $test_exit_code -eq 0 ]; then
-        log_success "All integration tests passed!"
-    else
-        log_error "Integration tests failed with exit code: $test_exit_code"
-        return $test_exit_code
+    if [ $api_test_exit_code -ne 0 ]; then
+        log_error "API integration tests failed with exit code: $api_test_exit_code"
+        return $api_test_exit_code
     fi
+
+    # Run Playwright E2E against running test server if Node is available
+    if command -v pnpm >/dev/null 2>&1; then
+        log_info "Running Playwright E2E tests with pnpm..."
+        cd "$PROJECT_ROOT"
+        # Ensure Playwright is installed (idempotent); install browsers if missing
+        if ! pnpm dlx playwright --version >/dev/null 2>&1; then
+            pnpm dlx playwright install --with-deps chromium
+        else
+            pnpm dlx playwright install --with-deps chromium
+        fi
+        CATNIP_TEST_SERVER_URL="http://localhost:$TEST_PORT" pnpm test:e2e
+        local e2e_exit_code=$?
+        if [ $e2e_exit_code -ne 0 ]; then
+            log_error "Playwright E2E tests failed with exit code: $e2e_exit_code"
+            return $e2e_exit_code
+        fi
+    else
+        log_warning "pnpm not found; skipping Playwright E2E tests."
+    fi
+
+    log_success "All integration tests (API + E2E) passed!"
 }
 
 # Function to run specific test
