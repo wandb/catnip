@@ -317,6 +317,8 @@ export function WorkspaceLeftSidebar() {
                                             setUnavailableRepoAlert({
                                               open: true,
                                               repoName: projectName,
+                                              repoId: repo.id,
+                                              worktrees: worktrees,
                                             });
                                           }
                                         : undefined
