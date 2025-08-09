@@ -3,6 +3,7 @@ package git
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/vanpelt/catnip/internal/config"
@@ -36,6 +37,12 @@ func (m *MockExecutorForURLRewrite) ExecuteGitWithStdErr(workingDir string, args
 	// Record the git command for verification
 	m.recordedCommands = append(m.recordedCommands, args)
 	return []byte(""), []byte(""), m.mockError
+}
+
+func (m *MockExecutorForURLRewrite) ExecuteWithEnvAndTimeout(dir string, env []string, timeout time.Duration, args ...string) ([]byte, error) {
+	// Record the git command for verification
+	m.recordedCommands = append(m.recordedCommands, args)
+	return []byte(""), m.mockError
 }
 
 // TestPushStrategyConvertHTTPS verifies that ConvertHTTPS properly adds URL rewriting config

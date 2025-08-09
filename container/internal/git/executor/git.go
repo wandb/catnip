@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -607,4 +608,9 @@ func (e *GitExecutor) getStatusCode(status gogit.StatusCode) string {
 	default:
 		return "?"
 	}
+}
+
+// ExecuteWithEnvAndTimeout runs a command with timeout - delegates to fallback executor
+func (e *GitExecutor) ExecuteWithEnvAndTimeout(dir string, env []string, timeout time.Duration, args ...string) ([]byte, error) {
+	return e.fallbackExecutor.ExecuteWithEnvAndTimeout(dir, env, timeout, args...)
 }

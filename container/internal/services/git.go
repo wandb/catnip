@@ -982,9 +982,30 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 		return nil, fmt.Errorf("repository %s is not available", repoID)
 	}
 
-	// Handle local repos specially
+	// Handle local repos specially - only use local branches to avoid network complexity
 	if s.isLocalRepo(repoID) {
-		return s.operations.GetLocalBranches(repo.Path)
+		// Get local branches only - no remote fetching to avoid network issues
+		localBranches, err := s.operations.GetLocalBranches(repo.Path)
+		if err != nil {
+			log.Printf("Warning: failed to get local branches for %s: %v", repoID, err)
+			// Fallback to default branch if we have it
+			if repo.DefaultBranch != "" {
+				return []string{repo.DefaultBranch}, nil
+			}
+			return []string{"main"}, nil // final fallback
+		}
+
+		// Return local branches if we have them
+		if len(localBranches) > 0 {
+			return localBranches, nil
+		}
+
+		// No local branches found - return sensible fallback
+		log.Printf("Warning: no local branches found for %s", repoID)
+		if repo.DefaultBranch != "" {
+			return []string{repo.DefaultBranch}, nil
+		}
+		return []string{"main"}, nil // final fallback
 	}
 
 	// For remote repos, use the operations interface

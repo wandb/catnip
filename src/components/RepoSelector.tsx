@@ -68,9 +68,9 @@ export function RepoSelector({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="w-full justify-between"
+          className="w-full justify-between max-w-full"
         >
-          {value || placeholder}
+          <span className="truncate text-left">{value || placeholder}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -82,7 +82,7 @@ export function RepoSelector({
             onValueChange={setSearchValue}
             onKeyDown={handleKeyDown}
           />
-          <CommandList>
+          <CommandList className="max-h-[300px] overflow-auto">
             <CommandEmpty>
               {searchValue.startsWith("https://github.com/") ||
               searchValue.includes("/")

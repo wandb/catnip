@@ -3,6 +3,7 @@ package executor
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -386,4 +387,9 @@ func (e *InMemoryExecutor) handleShowRef(repo *TestRepository, args []string) ([
 
 	// Default behavior: list all references (not implemented for now)
 	return []byte(""), nil
+}
+
+// ExecuteWithEnvAndTimeout implements the timeout interface for testing - ignores timeout
+func (e *InMemoryExecutor) ExecuteWithEnvAndTimeout(dir string, env []string, timeout time.Duration, args ...string) ([]byte, error) {
+	return e.ExecuteWithEnv(dir, env, args...)
 }
