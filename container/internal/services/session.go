@@ -291,7 +291,12 @@ func (s *SessionService) getLastClaudeActivityTime(workDir string) time.Time {
 
 // hasPTYSession checks if there's an active PTY session for this workspace
 func (s *SessionService) hasPTYSession(workDir string) bool {
-	// Method 1: Check for processes with the workspace directory in their command line
+	// Method 1: Check active sessions tracking first (most reliable)
+	if s.IsActiveSessionActive(workDir) {
+		return true
+	}
+
+	// Method 2: Check for processes with the workspace directory in their command line
 	// This is more specific - look for bash processes that might be running in this directory
 	cmd := exec.Command("pgrep", "-f", fmt.Sprintf("bash.*%s", workDir))
 	output, err := cmd.Output()
@@ -299,7 +304,7 @@ func (s *SessionService) hasPTYSession(workDir string) bool {
 		return true
 	}
 
-	// Method 2: Check for Claude processes running in this workspace directory
+	// Method 3: Check for Claude processes running in this workspace directory
 	// Look for claude processes and check their working directory
 	cmd = exec.Command("pgrep", "-f", "claude")
 	output, err = cmd.Output()
