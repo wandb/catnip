@@ -282,29 +282,29 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	finalContainerName, err := tuiApp.Run(ctx, workDirForTUI, ports)
 	if err != nil {
 		// Clean up container on TUI error
-		logger.Infof("Stopping container '%s'...", finalContainerName)
+		fmt.Printf("Stopping container '%s'...\n", finalContainerName)
 		_ = containerService.StopContainer(ctx, finalContainerName)
 		return fmt.Errorf("TUI error: %w", err)
 	}
 
 	// Clean up container when TUI exits normally
 	if rmFlag {
-		logger.Infof("Stopping and removing container '%s'...", finalContainerName)
+		fmt.Printf("Stopping and removing container '%s'...\n", finalContainerName)
 		if err := containerService.StopContainer(ctx, finalContainerName); err != nil {
-			logger.Warnf("Failed to stop container: %v", err)
+			fmt.Printf("Warning: Failed to stop container: %v\n", err)
 		} else {
 			if err := containerService.RemoveContainer(ctx, finalContainerName); err != nil {
-				logger.Warnf("Failed to remove container: %v", err)
+				fmt.Printf("Warning: Failed to remove container: %v\n", err)
 			} else {
-				logger.Info("Container stopped and removed successfully.")
+				fmt.Printf("Container stopped and removed successfully.\n")
 			}
 		}
 	} else {
-		logger.Infof("Stopping container '%s'...", finalContainerName)
+		fmt.Printf("Stopping container '%s'...\n", finalContainerName)
 		if err := containerService.StopContainer(ctx, finalContainerName); err != nil {
-			logger.Warnf("Failed to stop container: %v", err)
+			fmt.Printf("Warning: Failed to stop container: %v\n", err)
 		} else {
-			logger.Info("Container stopped successfully.")
+			fmt.Printf("Container stopped successfully.\n")
 		}
 	}
 
