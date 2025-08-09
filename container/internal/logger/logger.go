@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -52,11 +53,119 @@ func Configure(level LogLevel, isDev bool) {
 
 	var writer io.Writer = os.Stderr
 	if isDev {
-		// Use pretty console output for development
+		// Use pretty console output for development with custom format to match Fiber logs
 		writer = zerolog.ConsoleWriter{
 			Out:        os.Stderr,
-			TimeFormat: time.RFC3339,
+			TimeFormat: "15:04:05", // Short time format like Fiber
 			NoColor:    false,
+			FormatMessage: func(i interface{}) string {
+				return fmt.Sprintf("| %s", i)
+			},
+			FormatLevel: func(i interface{}) string {
+				var l string
+				if ll, ok := i.(string); ok {
+					switch ll {
+					case "debug":
+						l = "DBG"
+					case "info":
+						l = "INF"
+					case "warn":
+						l = "WRN"
+					case "error":
+						l = "ERR"
+					case "fatal":
+						l = "FTL"
+					default:
+						l = strings.ToUpper(ll)
+					}
+				}
+				return l
+			},
+			FormatTimestamp: func(i interface{}) string {
+				if ts, ok := i.(string); ok {
+					// Parse the timestamp and format it as HH:MM:SS
+					if t, err := time.Parse(time.RFC3339, ts); err == nil {
+						return fmt.Sprintf("%s |", t.Format("15:04:05"))
+					}
+				}
+				return fmt.Sprintf("%s |", i)
+			},
+		}
+	}
+
+	Logger = zerolog.New(writer).With().Timestamp().Logger()
+
+	// Update the global logger
+	log.Logger = Logger
+}
+
+// ConfigureForTUI sets up the global logger to write to debug file instead of stderr
+// This prevents log output from corrupting the TUI display
+func ConfigureForTUI(level LogLevel, isDev bool) {
+	var zeroLevel zerolog.Level
+	switch level {
+	case LevelDebug:
+		zeroLevel = zerolog.DebugLevel
+	case LevelInfo:
+		zeroLevel = zerolog.InfoLevel
+	case LevelWarn:
+		zeroLevel = zerolog.WarnLevel
+	case LevelError:
+		zeroLevel = zerolog.ErrorLevel
+	default:
+		zeroLevel = zerolog.InfoLevel
+	}
+
+	zerolog.SetGlobalLevel(zeroLevel)
+
+	// Always write to debug file when running TUI to avoid corrupting display
+	file, err := os.OpenFile("/tmp/catnip-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		// Fallback to stderr if we can't open the debug file
+		Logger = zerolog.New(os.Stderr).With().Timestamp().Logger()
+		log.Logger = Logger
+		return
+	}
+
+	var writer io.Writer = file
+	if isDev {
+		// Use pretty console output for development, but write to file with custom format to match Fiber logs
+		writer = zerolog.ConsoleWriter{
+			Out:        file,
+			TimeFormat: "15:04:05", // Short time format like Fiber
+			NoColor:    true,       // Disable color codes in file
+			FormatMessage: func(i interface{}) string {
+				return fmt.Sprintf("| %s", i)
+			},
+			FormatLevel: func(i interface{}) string {
+				var l string
+				if ll, ok := i.(string); ok {
+					switch ll {
+					case "debug":
+						l = "DBG"
+					case "info":
+						l = "INF"
+					case "warn":
+						l = "WRN"
+					case "error":
+						l = "ERR"
+					case "fatal":
+						l = "FTL"
+					default:
+						l = strings.ToUpper(ll)
+					}
+				}
+				return l
+			},
+			FormatTimestamp: func(i interface{}) string {
+				if ts, ok := i.(string); ok {
+					// Parse the timestamp and format it as HH:MM:SS
+					if t, err := time.Parse(time.RFC3339, ts); err == nil {
+						return fmt.Sprintf("%s |", t.Format("15:04:05"))
+					}
+				}
+				return fmt.Sprintf("%s |", i)
+			},
 		}
 	}
 

@@ -49,10 +49,11 @@ func init() {
 // @host localhost:8080
 // @schemes http ws
 func startServer(cmd *cobra.Command) {
-	// Configure logging based on environment
-	// In containerized environments, we want less verbose logging by default
-	logLevel := logger.GetLogLevelFromEnv(false) // false = not dev mode by default
-	logger.Configure(logLevel, false)
+	// Configure logging with formatted output (always use console formatting to match Fiber)
+	debugEnv := os.Getenv("DEBUG")
+	isDevMode := debugEnv == "true" || debugEnv == "1"
+	logLevel := logger.GetLogLevelFromEnv(isDevMode)
+	logger.Configure(logLevel, true) // Always use formatted output
 
 	// Import and log runtime configuration
 	logger.Infof("🚀 Starting Catnip in %s mode", config.Runtime.Mode)

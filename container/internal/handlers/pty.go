@@ -144,6 +144,43 @@ func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.Clau
 	}
 }
 
+// findClaudeExecutable finds the claude executable using robust path lookup
+func (h *PTYHandler) findClaudeExecutable() string {
+	// First try to find claude in PATH
+	if path, err := exec.LookPath("claude"); err == nil {
+		logger.Debugf("Found claude in PATH: %s", path)
+		return path
+	}
+
+	// Try NVM_BIN path first since that's where claude is usually installed
+	if nvmBin := os.Getenv("NVM_BIN"); nvmBin != "" {
+		nvmClaudePath := filepath.Join(nvmBin, "claude")
+		if _, err := os.Stat(nvmClaudePath); err == nil {
+			logger.Debugf("Found claude at NVM_BIN path: %s", nvmClaudePath)
+			return nvmClaudePath
+		}
+	}
+
+	// Try common Node.js installation paths
+	commonPaths := []string{
+		"/opt/catnip/nvm/versions/node/v22.17.0/bin/claude",
+		"/usr/local/bin/claude",
+		"/opt/homebrew/bin/claude",
+		"/home/catnip/.local/bin/claude",
+	}
+
+	for _, path := range commonPaths {
+		if _, err := os.Stat(path); err == nil {
+			logger.Debugf("Found claude at common path: %s", path)
+			return path
+		}
+	}
+
+	// If all else fails, return "claude" and let exec.Command handle the error
+	logger.Warnf("Claude executable not found in any known location, falling back to PATH lookup")
+	return "claude"
+}
+
 // HandleWebSocket handles WebSocket connections for PTY
 // @Summary Create PTY WebSocket connection
 // @Description Establishes a WebSocket connection for terminal access
@@ -184,9 +221,9 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	connID := fmt.Sprintf("%p", conn)
 
 	if agent != "" {
-		logger.Infof("📡 New PTY connection [%s] for session: %s with agent: %s (reset: %t)", connID, sessionID, agent, reset)
+		logger.Debugf("📡 New PTY connection [%s] for session: %s with agent: %s (reset: %t)", connID, sessionID, agent, reset)
 	} else {
-		logger.Infof("📡 New PTY connection [%s] for session: %s (reset: %t)", connID, sessionID, reset)
+		logger.Debugf("📡 New PTY connection [%s] for session: %s (reset: %t)", connID, sessionID, reset)
 	}
 
 	// Handle reset logic for Claude agent
@@ -273,7 +310,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			_ = session.writeToConnection(conn, websocket.TextMessage, data)
 		}
 	} else {
-		logger.Infof("🔗 Added WRITE connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
+		logger.Debugf("🔗 Added WRITE connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
 
 		// Notify client that it has write access
 		writeAccessMsg := struct {
@@ -470,7 +507,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					h.recreateSession(session)
 					continue
 				case "ready":
-					logger.Infof("🎯 Client ready signal received")
+					logger.Debugf("🎯 Client ready signal received")
 
 					// Get buffer info
 					session.bufferMutex.RLock()
@@ -531,7 +568,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 							}()
 						}
 					} else {
-						logger.Infof("📋 No buffer to replay or dimensions not captured")
+						logger.Debugf("📋 No buffer to replay or dimensions not captured")
 					}
 					// Always send buffer complete signal
 					completeMsg := struct {
@@ -590,7 +627,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				session.cols = resizeMsg.Cols
 				session.rows = resizeMsg.Rows
 				_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
-				logger.Infof("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
+				logger.Debugf("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
 				continue
 			}
 		}
@@ -691,7 +728,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 				// Additional validation: check if it's actually a git worktree
 				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
 					workDir = branchWorktreePath
-					logger.Infof("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
+					logger.Debugf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
 				} else {
 					logger.Infof("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
 					logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
@@ -742,7 +779,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		logger.Infof("❌ Failed to allocate ports for session %s: %v", sessionID, err)
 		return nil
 	}
-	logger.Infof("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
+	logger.Debugf("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
 
 	// Create command based on agent parameter
 	cmd := h.createCommand(sessionID, agent, workDir, resumeSessionID, useContinue, ports)
@@ -784,7 +821,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	}
 
 	h.sessions[sessionID] = session
-	logger.Infof("✅ Created new PTY session: %s in %s", sessionID, workDir)
+	logger.Debugf("✅ Created new PTY session: %s in %s", sessionID, workDir)
 
 	// Track active session for this workspace
 	if agent == "claude" {
@@ -913,7 +950,7 @@ func (h *PTYHandler) monitorSession(session *Session) {
 }
 
 func (h *PTYHandler) monitorCheckpoints(session *Session) {
-	logger.Infof("🔍 Starting checkpoint monitoring for session %s", session.ID)
+	logger.Debugf("🔍 Starting checkpoint monitoring for session %s", session.ID)
 	// Monitor session for checkpoint opportunities
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -964,10 +1001,12 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 			args = append(args, "--resume", resumeSessionID)
 			logger.Infof("🔄 Starting Claude Code with resume for session: %s (resuming: %s)", sessionID, resumeSessionID)
 		} else {
-			logger.Infof("🤖 Starting new Claude Code session: %s", sessionID)
+			logger.Debugf("🤖 Starting new Claude Code session: %s", sessionID)
 		}
 
-		cmd = exec.Command("claude", args...)
+		// Find claude executable using robust path lookup
+		claudePath := h.findClaudeExecutable()
+		cmd = exec.Command(claudePath, args...)
 		cmd.Env = append(os.Environ(),
 			fmt.Sprintf("SESSION_ID=%s", sessionID),
 			"HOME="+config.Runtime.HomeDir,
@@ -1147,7 +1186,7 @@ func (h *PTYHandler) cleanupStaleConnections(session *Session, remoteAddr string
 		}
 	}
 
-	logger.Infof("🔍 Stale cleanup for %s: found %d existing connections, %d are stale", remoteAddr, existingFromSameAddr, len(staleConnections))
+	logger.Debugf("🔍 Stale cleanup for %s: found %d existing connections, %d are stale", remoteAddr, existingFromSameAddr, len(staleConnections))
 
 	// Remove stale connections
 	for _, conn := range staleConnections {
@@ -1290,7 +1329,7 @@ func (h *PTYHandler) saveSessionState(session *Session) {
 	if err := h.sessionService.SaveSessionState(state); err != nil {
 		logger.Infof("⚠️  Failed to save session state for %s: %v", session.ID, err)
 	} else {
-		logger.Infof("💾 Saved session state for %s", session.ID)
+		logger.Debugf("💾 Saved session state for %s", session.ID)
 	}
 }
 
@@ -1306,7 +1345,7 @@ func getClaudeSessionTimeout() time.Duration {
 
 // monitorClaudeSession monitors .claude/projects directory for new session files
 func (h *PTYHandler) monitorClaudeSession(session *Session) {
-	logger.Infof("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
+	logger.Debugf("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()

@@ -48,11 +48,8 @@ func (v *OverviewViewImpl) HandleResize(m *Model, msg tea.WindowSizeMsg) (*Model
 
 // Render generates the overview view content
 func (v *OverviewViewImpl) Render(m *Model) string {
-	debugLog("OverviewView.Render() called with width: %d, height: %d", m.width, m.height)
-
 	// Check if we have enough width for the logo (110 is minimum)
 	showLogo := m.width >= 110
-	debugLog("showLogo: %t (width >= 110)", showLogo)
 
 	var sections []string
 

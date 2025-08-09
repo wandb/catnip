@@ -100,7 +100,13 @@ func cleanVersionForProduction(version string) string {
 func runContainer(cmd *cobra.Command, args []string) error {
 	// Configure logging based on dev mode and environment
 	logLevel := logger.GetLogLevelFromEnv(dev)
-	logger.Configure(logLevel, dev)
+
+	// Use TUI-specific logging configuration if we'll be running TUI
+	if !detach && !noTUI && isTTY() {
+		logger.ConfigureForTUI(logLevel, dev)
+	} else {
+		logger.Configure(logLevel, dev)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -191,9 +197,8 @@ func runContainer(cmd *cobra.Command, args []string) error {
 			processedEnvVars = append(processedEnvVars, "DEBUG=false")
 		}
 	} else {
-		if debugValue != "" {
-			processedEnvVars = append(processedEnvVars, fmt.Sprintf("DEBUG=%s", debugValue))
-		}
+		// Always forward DEBUG value from host (even if empty)
+		processedEnvVars = append(processedEnvVars, fmt.Sprintf("DEBUG=%s", debugValue))
 	}
 
 	for _, envVar := range envVars {

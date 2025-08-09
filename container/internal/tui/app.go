@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vanpelt/catnip/internal/logger"
-
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -34,14 +32,26 @@ var debugEnabled bool
 func init() {
 	debugEnabled = os.Getenv("DEBUG") == "true"
 	if debugEnabled {
-		logger.Debug("=== TUI DEBUG LOG STARTED ===")
+		writeToDebugFile("=== TUI DEBUG LOG STARTED ===")
 	}
 }
 
 func debugLog(format string, args ...interface{}) {
 	if debugEnabled {
-		logger.Debugf(format, args...)
+		msg := fmt.Sprintf(format, args...)
+		writeToDebugFile(msg)
 	}
+}
+
+func writeToDebugFile(msg string) {
+	file, err := os.OpenFile("/tmp/catnip-debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	timestamp := time.Now().Format("2006-01-02T15:04:05.000Z07:00")
+	_, _ = fmt.Fprintf(file, "%s TUI: %s\n", timestamp, msg)
 }
 
 // App represents the main TUI application

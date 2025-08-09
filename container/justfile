@@ -8,9 +8,17 @@ build: swagger build-frontend build-scripts
 	#!/usr/bin/env bash
 	set -euo pipefail
 
-	# Get the latest git tag (version)
-	LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-	VERSION="${LATEST_TAG}-dev"
+	# Get the latest git tag (version) - try multiple strategies
+	if LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null); then
+		# Found a reachable tag
+		VERSION="${LATEST_TAG}-dev"
+	elif LATEST_TAG=$(git tag --sort=-version:refname | head -1 2>/dev/null) && [ -n "$LATEST_TAG" ]; then
+		# Use the highest version tag available, even if not reachable
+		VERSION="${LATEST_TAG}-dev-unreachable"
+	else
+		# No tags found at all
+		VERSION="v0.0.0-dev"
+	fi
 
 	# Get git commit info
 	COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
