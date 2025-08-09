@@ -98,9 +98,20 @@ export function WorkspaceLeftSidebar() {
     return Array.from(repoIds)
       .map((repoId) => {
         const repo = getRepository(repoId);
-        return repo ? { ...repo, worktrees: getWorktreesByRepo(repoId) } : null;
+        const worktrees = getWorktreesByRepo(repoId);
+        // Sort worktrees by name in lexical order
+        const sortedWorktrees = worktrees.sort((a, b) =>
+          a.name.localeCompare(b.name),
+        );
+        return repo ? { ...repo, worktrees: sortedWorktrees } : null;
       })
-      .filter((repo): repo is NonNullable<typeof repo> => repo !== null);
+      .filter((repo): repo is NonNullable<typeof repo> => repo !== null)
+      .sort((a, b) => {
+        // Sort repositories by name in lexical order
+        const nameA = a.name || a.id;
+        const nameB = b.name || b.id;
+        return nameA.localeCompare(nameB);
+      });
   }, [worktreesCount, worktrees, getWorktreesByRepo, getRepository]);
 
   // Find current worktree to get its repo_id for expanded state
