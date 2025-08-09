@@ -457,7 +457,7 @@ func (h *EventsHandler) monitorPorts() {
 			// Check for new ports
 			for portNum, serviceInfo := range currentPorts {
 				if _, exists := lastPorts[portNum]; !exists {
-					logger.Infof("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
+					logger.Debugf("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
 					h.broadcastEvent(h.makePortOpened(serviceInfo).Event)
 				}
 			}
@@ -465,7 +465,7 @@ func (h *EventsHandler) monitorPorts() {
 			// Check for closed ports
 			for portNum := range lastPorts {
 				if _, exists := currentPorts[portNum]; !exists {
-					logger.Infof("Port closed: %d", portNum)
+					logger.Debugf("Port closed: %d", portNum)
 					h.broadcastEvent(AppEvent{
 						Type: PortClosedEvent,
 						Payload: PortPayload{

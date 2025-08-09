@@ -309,12 +309,12 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		wasWriteConnection := exists && !connInfo.IsReadOnly
 
 		if exists {
-			logger.Infof("🔌❌ Removing connection [%s] from session %s (was write: %v)", connInfo.ConnID, session.ID, !connInfo.IsReadOnly)
+			logger.Debugf("🔌❌ Removing connection [%s] from session %s (was write: %v)", connInfo.ConnID, session.ID, !connInfo.IsReadOnly)
 		}
 
 		delete(session.connections, conn)
 		connectionCount := len(session.connections)
-		logger.Infof("🔍 Connection count for session %s: %d (after removal)", session.ID, connectionCount)
+		logger.Debugf("🔍 Connection count for session %s: %d (after removal)", session.ID, connectionCount)
 
 		// If the write connection disconnected, promote the oldest read-only connection
 		if wasWriteConnection && connectionCount > 0 {
@@ -331,7 +331,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			if oldestConn != nil {
 				session.connections[oldestConn].IsReadOnly = false
 				promotedConnID := session.connections[oldestConn].ConnID
-				logger.Infof("🔄 Promoted connection [%s] to WRITE access in session %s", promotedConnID, sessionID)
+				logger.Debugf("🔄 Promoted connection [%s] to WRITE access in session %s", promotedConnID, sessionID)
 
 				// Notify the promoted connection about write access
 				writeAccessMsg := struct {
