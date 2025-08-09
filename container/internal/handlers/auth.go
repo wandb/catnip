@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 	"gopkg.in/yaml.v2"
 )
 
@@ -233,13 +233,13 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 	// Create pipes for stdout
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		log.Printf("❌ Failed to create stdout pipe: %v", err)
+		logger.Errorf("❌ Failed to create stdout pipe: %v", err)
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to start authentication"})
 	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
-		log.Printf("❌ Failed to start auth command: %v", err)
+		logger.Errorf("❌ Failed to start auth command: %v", err)
 		return c.Status(500).JSON(fiber.Map{"error": "Failed to start authentication"})
 	}
 
@@ -264,11 +264,11 @@ func (h *AuthHandler) StartGitHubAuth(c *fiber.Ctx) error {
 		}
 
 		if err != nil && h.activeAuth.Status != "success" {
-			log.Printf("❌ Auth process error: %v", err)
+			logger.Errorf("❌ Auth process error: %v", err)
 			h.activeAuth.Status = "error"
 			h.activeAuth.Error = fmt.Sprintf("Authentication failed: %v", err)
 		} else if h.activeAuth.Status != "error" {
-			log.Printf("✅ Auth process completed successfully")
+			logger.Info("✅ Auth process completed successfully")
 			h.activeAuth.Status = "success"
 		}
 	}()
