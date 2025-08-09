@@ -122,6 +122,16 @@ func Errorf(format string, args ...interface{}) {
 	Logger.Error().Msgf(format, args...)
 }
 
+// Fatal logs a message at fatal level and exits
+func Fatal(msg string) {
+	Logger.Fatal().Msg(msg)
+}
+
+// Fatalf logs a formatted message at fatal level and exits
+func Fatalf(format string, args ...interface{}) {
+	Logger.Fatal().Msgf(format, args...)
+}
+
 // WithField creates a logger with a field
 func WithField(key string, value interface{}) zerolog.Logger {
 	return Logger.With().Interface(key, value).Logger()
