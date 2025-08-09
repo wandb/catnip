@@ -400,7 +400,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 		}
 	}
 
-	log.Printf("🔧 Modified HTML response for port %d with base path %s", port, basePath)
+	logger.Debugf("🔧 Modified HTML response for port %d with base path %s", port, basePath)
 	return content
 }
 
@@ -625,7 +625,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 				originalURL := match
 				if isLocalhostPortRewritable(originalURL, basePath) {
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting unquoted WebSocket URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting unquoted WebSocket URL: %s -> %s", originalURL, rewrittenURL)
 					return rewrittenURL
 				}
 				return match
@@ -639,7 +639,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 				originalURL := match
 				if isLocalhostPortRewritable(originalURL, basePath) {
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting unquoted HTTP URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting unquoted HTTP URL: %s -> %s", originalURL, rewrittenURL)
 					return rewrittenURL
 				}
 				return match
@@ -665,11 +665,11 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 	// Only log if we actually made changes and debug is enabled
 	if content != originalContent {
 		if os.Getenv("CATNIP_DEBUG") != "" {
-			log.Printf("🔧 Modified JavaScript response for port %d with base path %s", port, basePath)
+			logger.Debugf("🔧 Modified JavaScript response for port %d with base path %s", port, basePath)
 			// Log first few import/export statements for debugging
 			importMatches := regexp.MustCompile("(?:import|export)[^;{]+[;{]").FindAllString(content, 5)
 			if len(importMatches) > 0 {
-				log.Printf("   Sample imports after rewriting: %v", importMatches)
+				logger.Debugf("   Sample imports after rewriting: %v", importMatches)
 			}
 		}
 	}
@@ -695,7 +695,7 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		targetURL += "?" + string(c.Request().URI().QueryString())
 	}
 
-	log.Printf("🔌 WebSocket proxy request from %s to target: %s", c.Path(), targetURL)
+	logger.Infof("🔌 WebSocket proxy request from %s to target: %s", c.Path(), targetURL)
 
 	// Extract headers from the original request BEFORE entering the WebSocket handler
 	// because the Fiber context becomes invalid inside the handler
@@ -712,7 +712,7 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		// Add panic recovery to prevent container crashes
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("🚨 PANIC recovered in WebSocket proxy: %v", r)
+				logger.Errorf("🚨 PANIC recovered in WebSocket proxy: %v", r)
 				if clientConn != nil {
 					clientConn.Close()
 				}
@@ -720,7 +720,7 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		}()
 
 		defer clientConn.Close()
-		log.Printf("✅ Fiber WebSocket connection established")
+		logger.Debugf("✅ Fiber WebSocket connection established")
 
 		// Create WebSocket dialer to connect to the target
 		dialer := gorilla_websocket.Dialer{
@@ -728,19 +728,19 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		}
 
 		// Connect to target WebSocket server
-		log.Printf("🔌 Attempting to dial target WebSocket: %s", targetURL)
+		logger.Debugf("🔌 Attempting to dial target WebSocket: %s", targetURL)
 		targetConn, _, err := dialer.Dial(targetURL, requestHeader)
 		if err != nil {
-			log.Printf("🔌❌ WebSocket dial failed: %v", err)
+			logger.Errorf("🔌❌ WebSocket dial failed: %v", err)
 			if closeErr := clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Failed to connect to target")); closeErr != nil {
-				log.Printf("❌ Failed to send close message: %v", closeErr)
+				logger.Errorf("❌ Failed to send close message: %v", closeErr)
 			}
 			return
 		}
 		defer targetConn.Close()
-		log.Printf("✅ Successfully connected to target WebSocket")
+		logger.Debugf("✅ Successfully connected to target WebSocket")
 
-		log.Printf("✅ WebSocket proxy established successfully - starting message relay")
+		logger.Debugf("✅ WebSocket proxy established successfully - starting message relay")
 
 		// Start proxying messages between client and target
 		h.proxyWebSocketConnectionsSimple(clientConn, targetConn)
@@ -758,7 +758,7 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 			messageType, data, err := fiberConn.ReadMessage()
 			if err != nil {
 				if os.Getenv("CATNIP_DEBUG") != "" {
-					log.Printf("❌ WebSocket read error from Fiber client: %v", err)
+					logger.Errorf("❌ WebSocket read error from Fiber client: %v", err)
 				}
 				break
 			}
@@ -766,7 +766,7 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 			err = gorillaConn.WriteMessage(messageType, data)
 			if err != nil {
 				if os.Getenv("CATNIP_DEBUG") != "" {
-					log.Printf("❌ WebSocket write error to Gorilla target: %v", err)
+					logger.Errorf("❌ WebSocket write error to Gorilla target: %v", err)
 				}
 				break
 			}
@@ -781,14 +781,14 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 		for {
 			messageType, data, err := gorillaConn.ReadMessage()
 			if err != nil {
-				log.Printf("❌ WebSocket read error from target: %v", err)
+				logger.Errorf("❌ WebSocket read error from target: %v", err)
 				break
 			}
 
 			err = fiberConn.WriteMessage(messageType, data)
 			if err != nil {
 				if os.Getenv("CATNIP_DEBUG") != "" {
-					log.Printf("❌ WebSocket write error to Fiber client: %v", err)
+					logger.Errorf("❌ WebSocket write error to Fiber client: %v", err)
 				}
 				break
 			}
@@ -799,5 +799,5 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 	})
 
 	wg.Wait()
-	log.Printf("🔌 WebSocket proxy connection closed")
+	logger.Debugf("🔌 WebSocket proxy connection closed")
 }
