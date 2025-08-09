@@ -119,7 +119,7 @@ func (s *ClaudeMonitorService) Start() error {
 
 // Stop stops all monitoring
 func (s *ClaudeMonitorService) Stop() {
-	logger.Debugf("🛑 Stopping Claude monitor service")
+	logger.Info("🛑 Stopping Claude monitor service")
 	close(s.stopCh)
 
 	if s.titlesWatcher != nil {
@@ -153,7 +153,7 @@ func (s *ClaudeMonitorService) monitorTitlesLog() {
 	// Watch for changes to the log file
 	dir := filepath.Dir(s.titlesLogPath)
 	if err := s.titlesWatcher.Add(dir); err != nil {
-		logger.Debugf("⚠️  Failed to watch titles log directory: %v", err)
+		logger.Warnf("⚠️  Failed to watch titles log directory: %v", err)
 		return
 	}
 
@@ -170,7 +170,7 @@ func (s *ClaudeMonitorService) monitorTitlesLog() {
 			if !ok {
 				return
 			}
-			logger.Debugf("⚠️  Titles watcher error: %v", err)
+			logger.Warnf("⚠️  Titles watcher error: %v", err)
 		case <-s.stopCh:
 			return
 		}
@@ -182,7 +182,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 	file, err := os.Open(s.titlesLogPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			logger.Debugf("⚠️  Failed to open titles log: %v", err)
+			logger.Warnf("⚠️  Failed to open titles log: %v", err)
 		}
 		return
 	}
@@ -191,7 +191,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 	// Seek to last read position
 	if s.lastLogPosition > 0 {
 		if _, err := file.Seek(s.lastLogPosition, 0); err != nil {
-			logger.Debugf("⚠️  Failed to seek in titles log: %v", err)
+			logger.Warnf("⚠️  Failed to seek in titles log: %v", err)
 			return
 		}
 	}
@@ -206,7 +206,7 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 		// Parse log entry: timestamp|pid|cwd|title
 		parts := strings.Split(line, "|")
 		if len(parts) != 4 {
-			logger.Debugf("⚠️  Invalid log entry format: %s", line)
+			logger.Warnf("⚠️  Invalid log entry format: %s", line)
 			continue
 		}
 
@@ -340,7 +340,7 @@ func (s *ClaudeMonitorService) findWorktreeIDByPath(workDir string) string {
 			return id
 		}
 	}
-	logger.Debugf("⚠️  Failed to find worktree ID for path %s", workDir)
+	logger.Warnf("⚠️  Failed to find worktree ID for path %s", workDir)
 	return ""
 }
 
@@ -376,7 +376,7 @@ func (m *WorktreeCheckpointManager) HandleTitleChange(newTitle string) {
 
 	// Update session service with the new title (no commit hash yet)
 	if err := m.sessionService.UpdateSessionTitle(m.workDir, newTitle, ""); err != nil {
-		logger.Debugf("⚠️  Failed to update session title: %v", err)
+		logger.Warnf("⚠️  Failed to update session title: %v", err)
 	}
 
 	// Update the current title
@@ -411,12 +411,12 @@ func (m *WorktreeCheckpointManager) startCheckpointTimer() {
 		if m.currentTitle != "" {
 			// Check if there are any uncommitted changes using git operations
 			if hasChanges, err := m.gitService.operations.HasUncommittedChanges(m.workDir); err != nil {
-				logger.Debugf("⚠️  Failed to check for uncommitted changes: %v", err)
+				logger.Warnf("⚠️  Failed to check for uncommitted changes: %v", err)
 			} else if hasChanges {
 				if err := m.checkpointManager.CreateCheckpoint(m.currentTitle); err != nil {
-					logger.Debugf("⚠️  Failed to create checkpoint: %v", err)
+					logger.Warnf("⚠️  Failed to create checkpoint: %v", err)
 				} else {
-					logger.Debugf("✅ Created checkpoint for %s: %q", m.workDir, m.currentTitle)
+					logger.Infof("✅ Created checkpoint for %s: %q", m.workDir, m.currentTitle)
 				}
 			}
 			// Skip logging when no changes - this is normal
@@ -449,22 +449,22 @@ func (m *WorktreeCheckpointManager) commitPreviousWork(title string) {
 
 	commitHash, err := m.gitService.GitAddCommitGetHash(m.workDir, title)
 	if err != nil {
-		logger.Debugf("⚠️  Failed to commit previous work: %v", err)
+		logger.Warnf("⚠️  Failed to commit previous work: %v", err)
 		return
 	}
 
 	if commitHash != "" {
-		logger.Debugf("✅ Committed previous work in %s: %q (hash: %s)", m.workDir, title, commitHash)
+		logger.Infof("✅ Committed previous work in %s: %q (hash: %s)", m.workDir, title, commitHash)
 		m.checkpointManager.UpdateLastCommitTime()
 
 		// Update the previous title's commit hash
 		if err := m.sessionService.UpdatePreviousTitleCommitHash(m.workDir, commitHash); err != nil {
-			logger.Debugf("⚠️  Failed to update previous title commit hash: %v", err)
+			logger.Warnf("⚠️  Failed to update previous title commit hash: %v", err)
 		}
 
 		// Refresh worktree status to update commit count in frontend
 		if err := m.gitService.RefreshWorktreeStatus(m.workDir); err != nil {
-			logger.Debugf("⚠️  Failed to refresh worktree status after commit: %v", err)
+			logger.Warnf("⚠️  Failed to refresh worktree status after commit: %v", err)
 		}
 	}
 }
@@ -487,7 +487,7 @@ func (m *WorktreeCheckpointManager) checkAndRenameBranch(title string) {
 	// Get current branch name (full ref) - handle detached HEAD state
 	output, err := m.gitService.operations.ExecuteGit(m.workDir, "rev-parse", "--symbolic-full-name", "HEAD")
 	if err != nil {
-		logger.Debugf("⚠️  Failed to get current branch name: %v", err)
+		logger.Warnf("⚠️  Failed to get current branch name: %v", err)
 		return
 	}
 	currentBranch := strings.TrimSpace(string(output))
@@ -540,15 +540,15 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 	response, err := m.claudeService.CreateCompletion(ctx, req)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			logger.Debugf("⏰ Claude request timed out after 60 seconds for title: %q", title)
+			logger.Warnf("⏰ Claude request timed out after 60 seconds for title: %q", title)
 		} else {
-			logger.Debugf("⚠️  Failed to get branch name suggestion from Claude: %v", err)
+			logger.Warnf("⚠️  Failed to get branch name suggestion from Claude: %v", err)
 		}
 		return
 	}
 
 	if response == nil || response.Response == "" {
-		logger.Debugf("⚠️  Claude returned empty response for branch name")
+		logger.Warnf("⚠️  Claude returned empty response for branch name")
 		return
 	}
 
@@ -556,7 +556,7 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 
 	// Basic validation - just check for valid git branch name
 	if !m.isValidGitBranchName(newBranch) {
-		logger.Debugf("⚠️  Claude suggested invalid branch name: %q", newBranch)
+		logger.Warnf("⚠️  Claude suggested invalid branch name: %q", newBranch)
 		return
 	}
 
@@ -570,7 +570,7 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 		finalBranch = fmt.Sprintf("%s-%d", newBranch, counter)
 		counter++
 		if counter > 100 { // Safety limit to prevent infinite loops
-			logger.Debugf("⚠️  Too many similar branches exist for %q, skipping graduation", newBranch)
+			logger.Warnf("⚠️  Too many similar branches exist for %q, skipping graduation", newBranch)
 			return
 		}
 	}
@@ -583,7 +583,7 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 	// Double-check that the final branch name doesn't exist
 	if m.gitService.branchExists(m.workDir, newBranch, false) ||
 		m.gitService.branchExists(m.workDir, "refs/heads/"+newBranch, false) {
-		logger.Debugf("❌ ERROR: Branch %q still exists after collision detection!", newBranch)
+		logger.Errorf("❌ ERROR: Branch %q still exists after collision detection!", newBranch)
 		return
 	}
 
@@ -593,23 +593,23 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 	// Use cached worktree ID to avoid expensive lookup
 	worktreeID := m.findWorktreeIDByPath()
 	if worktreeID == "" {
-		logger.Debugf("⚠️  Failed to find worktree ID for path %s", m.workDir)
+		logger.Warnf("⚠️  Failed to find worktree ID for path %s", m.workDir)
 		return
 	}
 
 	logger.Debugf("🔄 performBranchRename: calling RenameWorktreeBranch for %s -> %s", worktreeID, newBranch)
 	if err := m.stateManager.RenameWorktreeBranch(worktreeID, newBranch, m.gitService.operations); err != nil {
-		logger.Debugf("⚠️  Failed to rename branch: %v", err)
+		logger.Warnf("⚠️  Failed to rename branch: %v", err)
 		return
 	}
 
-	logger.Debugf("✅ Successfully renamed to branch %q", newBranch)
+	logger.Infof("✅ Successfully renamed to branch %q", newBranch)
 }
 
 // findWorktreeIDByPath returns the cached worktree ID for this checkpoint manager
 func (m *WorktreeCheckpointManager) findWorktreeIDByPath() string {
 	if m.worktreeID == "" {
-		logger.Debugf("⚠️  No cached worktree ID for path %s", m.workDir)
+		logger.Warnf("⚠️  No cached worktree ID for path %s", m.workDir)
 	}
 	return m.worktreeID
 }
@@ -686,7 +686,7 @@ func (m *WorktreeCheckpointManager) isCurrentBranchCatnip() bool {
 				if err := m.stateManager.UpdateWorktree(m.worktreeID, map[string]interface{}{
 					"has_been_renamed": true,
 				}); err != nil {
-					logger.Debugf("⚠️ Failed to update worktree has_been_renamed flag: %v", err)
+					logger.Warnf("⚠️ Failed to update worktree has_been_renamed flag: %v", err)
 				}
 				return false
 			}
@@ -770,7 +770,7 @@ func (s *ClaudeMonitorService) TriggerBranchRename(workDir string, customBranchN
 			return fmt.Errorf("failed to rename branch: %v", err)
 		}
 
-		logger.Debugf("✅ Successfully renamed to custom branch %q", customBranchName)
+		logger.Infof("✅ Successfully renamed to custom branch %q", customBranchName)
 		return nil
 	}
 
@@ -823,7 +823,7 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
-		logger.Debugf("⚠️  No Claude project directory found for %s (expected: %s)", worktreePath, projectDirName)
+		logger.Warnf("⚠️  No Claude project directory found for %s (expected: %s)", worktreePath, projectDirName)
 		return
 	}
 
@@ -898,14 +898,14 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	// Read todos from the end of the file
 	todos, err := m.readTodosFromEnd(latestFile)
 	if err != nil {
-		logger.Debugf("⚠️  Failed to read todos from %s: %v", latestFile, err)
+		logger.Warnf("⚠️  Failed to read todos from %s: %v", latestFile, err)
 		return
 	}
 
 	// Convert todos to JSON for comparison
 	todosJSON, err := json.Marshal(todos)
 	if err != nil {
-		logger.Debugf("⚠️  Failed to marshal todos: %v", err)
+		logger.Warnf("⚠️  Failed to marshal todos: %v", err)
 		return
 	}
 	todosJSONStr := string(todosJSON)
@@ -938,7 +938,7 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	}
 
 	if err := m.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
-		logger.Debugf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
+		logger.Warnf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
 	}
 }
 
@@ -1144,7 +1144,7 @@ func (m *WorktreeTodoMonitor) checkTodoBasedBranchRenaming(todos []models.Todo) 
 	// Get or create a checkpoint manager for this worktree
 	claudeMonitor := m.getClaudeMonitorService()
 	if claudeMonitor == nil {
-		logger.Debugf("⚠️  Claude monitor service not available for todo-based branch renaming")
+		logger.Warnf("⚠️  Claude monitor service not available for todo-based branch renaming")
 		return
 	}
 
@@ -1164,7 +1164,7 @@ func (m *WorktreeTodoMonitor) checkTodoBasedBranchRenaming(todos []models.Todo) 
 		// Check if a nice branch mapping already exists for this catnip branch
 		branchOutput, err := manager.gitService.operations.ExecuteGit(m.workDir, "symbolic-ref", "HEAD")
 		if err != nil {
-			logger.Debugf("⚠️  Failed to get current branch for todo-based renaming: %v", err)
+			logger.Warnf("⚠️  Failed to get current branch for todo-based renaming: %v", err)
 			return
 		}
 		currentBranch := strings.TrimSpace(string(branchOutput))
