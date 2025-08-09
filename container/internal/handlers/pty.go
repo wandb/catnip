@@ -690,10 +690,12 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 					log.Printf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
 				} else {
 					log.Printf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
+					log.Printf("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
 					return nil
 				}
 			} else {
 				log.Printf("❌ Worktree directory does not exist: %s", branchWorktreePath)
+				log.Printf("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
 				return nil
 			}
 		} else {
@@ -708,6 +710,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			log.Printf("📁 Using existing workspace directory: %s", workDir)
 		} else {
 			log.Printf("❌ Workspace directory does not exist: %s", sessionWorkDir)
+			log.Printf("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
 			return nil
 		}
 	}
