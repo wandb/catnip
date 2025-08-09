@@ -121,6 +121,30 @@ RUN apt-get update && apt-get install -y \
     locales \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Playwright system dependencies
+RUN apt-get update && apt-get install -y \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libdbus-1-3 \
+    libatspi2.0-0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libxcb1 \
+    libxkbcommon0 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2t64 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install GitHub CLI
 RUN mkdir -p -m 755 /etc/apt/keyrings && \
     wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && \
@@ -303,11 +327,11 @@ RUN chmod +x /usr/local/bin/generate-banner.sh && \
     touch /home/catnip/.sudo_as_admin_successful && \
     chown catnip:catnip /home/catnip/.sudo_as_admin_successful
 
-# Install Claude Code and Gemini CLI as catnip user (not root)
+# Install Claude Code, Gemini CLI, and Playwright MCP server as catnip user (not root)
 USER catnip
 RUN bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
-    npm install -g @anthropic-ai/claude-code @google/gemini-cli && \
+    npm install -g @anthropic-ai/claude-code @google/gemini-cli @playwright/mcp && \
     VSIX_PATH="$(npm root -g)/@anthropic-ai/claude-code/vendor/claude-code.vsix" && \
     if [ -f "$VSIX_PATH" ]; then \
         echo "Installing Claude Code extension from: $VSIX_PATH" && \
@@ -315,6 +339,11 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
     else \
         echo "Warning: Claude Code VSIX not found at $VSIX_PATH"; \
     fi'
+
+# Install Playwright browsers (chromium) as catnip user
+RUN bash -c 'source /etc/profile.d/catnip.sh && \
+    source "$NVM_DIR/nvm.sh" && \
+    npx playwright install chromium'
 
 # Set global git config for catnip user, these get overridden by the entrypoint script
 RUN git config --global user.name "catnip" && \
@@ -327,9 +356,10 @@ USER root
 
 
 
-# Copy and set up entrypoint script
+# Copy and set up entrypoint script and MCP configuration
 COPY container/setup/entrypoint.sh /entrypoint.sh
 COPY container/setup/setup-truecolor.sh /usr/local/bin/setup-truecolor.sh
+COPY container/setup/.mcp.json /opt/catnip/setup/.mcp.json
 RUN chmod +x /entrypoint.sh && \
     chmod +x /usr/local/bin/setup-truecolor.sh && \
     /usr/local/bin/setup-truecolor.sh
