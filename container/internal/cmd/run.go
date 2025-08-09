@@ -227,7 +227,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("development mode requires a git repository")
 			}
 			if !containerService.ImageExists(ctx, containerImage) || refresh {
-				logger.Infof("Running 'just build-dev' in container directory...")
+				fmt.Printf("Running 'just build-dev' in container directory...\n")
 				if err := runBuildDevDirect(gitRoot); err != nil {
 					return fmt.Errorf("build failed: %w", err)
 				}
@@ -379,7 +379,7 @@ func tailContainerLogs(ctx context.Context, containerService *services.Container
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("\nStopping log tail...")
+			fmt.Println("\nStopping log tail...")
 			return nil
 		case line := <-outputChan:
 			fmt.Println(line) // Keep raw output for log tailing
@@ -440,10 +440,10 @@ func setupSSH() error {
 
 	// Check if SSH key already exists
 	if _, err := os.Stat(privateKeyPath); err == nil {
-		logger.Infof("Using existing SSH key: %s", privateKeyPath)
+		fmt.Printf("Using existing SSH key: %s\n", privateKeyPath)
 	} else {
 		// Generate SSH key pair
-		logger.Info("Generating SSH key pair for Catnip...")
+		fmt.Println("Generating SSH key pair for Catnip...")
 		privateKey, err := rsa.GenerateKey(rand.Reader, 4096)
 		if err != nil {
 			return fmt.Errorf("failed to generate private key: %w", err)
@@ -480,7 +480,7 @@ func setupSSH() error {
 			return fmt.Errorf("failed to write public key: %w", err)
 		}
 
-		logger.Infof("SSH key pair generated: %s", privateKeyPath)
+		fmt.Printf("SSH key pair generated: %s\n", privateKeyPath)
 	}
 
 	// Update SSH config
@@ -538,7 +538,7 @@ Host catnip
 				return fmt.Errorf("failed to write SSH config: %w", err)
 			}
 
-			logger.Info("Updated existing catnip SSH config entry")
+			fmt.Println("Updated existing catnip SSH config entry")
 			return nil
 		}
 	}
@@ -574,6 +574,6 @@ Host catnip
 		return fmt.Errorf("failed to write SSH config: %w", err)
 	}
 
-	logger.Info("Added catnip SSH config entry")
+	fmt.Println("Added catnip SSH config entry")
 	return nil
 }
