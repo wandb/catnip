@@ -100,7 +100,13 @@ export function WorkspaceLeftSidebar() {
         const repo = getRepository(repoId);
         return repo ? { ...repo, worktrees: getWorktreesByRepo(repoId) } : null;
       })
-      .filter((repo): repo is NonNullable<typeof repo> => repo !== null);
+      .filter((repo): repo is NonNullable<typeof repo> => repo !== null)
+      .sort((a, b) => {
+        // Sort repositories by name in lexical order
+        const nameA = a.name || a.id;
+        const nameB = b.name || b.id;
+        return nameA.localeCompare(nameB);
+      });
   }, [worktreesCount, worktrees, getWorktreesByRepo, getRepository]);
 
   // Find current worktree to get its repo_id for expanded state
