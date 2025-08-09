@@ -3,7 +3,6 @@ package services
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // ServiceInfo represents a detected service
@@ -65,14 +65,14 @@ func (pm *PortMonitor) Start() {
 	} else {
 		method = "netstat/lsof (macOS/other)"
 	}
-	log.Printf("🔍 Started real-time port monitoring using %s", method)
+	logger.Debugf("🔍 Started real-time port monitoring using %s", method)
 
 	for {
 		select {
 		case <-ticker.C:
 			pm.checkPortChanges()
 		case <-pm.stopChan:
-			log.Printf("🛑 Stopped port monitoring")
+			logger.Debug("🛑 Stopped port monitoring")
 			pm.stopped = true
 			return
 		}
@@ -111,14 +111,14 @@ func (pm *PortMonitor) checkPortChanges() {
 		// Linux: Use /proc/net/tcp
 		currentPorts, err = pm.parseProcNetTcp()
 		if err != nil {
-			log.Printf("❌ Error parsing /proc/net/tcp: %v", err)
+			logger.Errorf("❌ Error parsing /proc/net/tcp: %v", err)
 			return
 		}
 	} else {
 		// macOS/other: Use netstat + lsof
 		currentPorts, err = pm.parseNetstatPorts()
 		if err != nil {
-			log.Printf("❌ Error parsing netstat output: %v", err)
+			logger.Errorf("❌ Error parsing netstat output: %v", err)
 			return
 		}
 	}
@@ -132,7 +132,7 @@ func (pm *PortMonitor) checkPortChanges() {
 	for port, portInfo := range currentPorts {
 		if !pm.lastTcpState[port] {
 			// New port detected
-			log.Printf("Port detected: %d (PID: %d)", port, portInfo.PID)
+			logger.Debugf("Port detected: %d (PID: %d)", port, portInfo.PID)
 			pm.addService(port, portInfo.PID)
 		}
 	}
@@ -145,18 +145,18 @@ func (pm *PortMonitor) checkPortChanges() {
 				// For terminal-output detected ports, only remove them if they've been unhealthy for more than 30 seconds
 				// This prevents temporary network issues or scanning delays from removing valid ports
 				if service.Health == "unhealthy" && time.Since(service.LastSeen) > 30*time.Second {
-					log.Printf("🔍 [%d] Terminal-output detected port %d removed (unhealthy for >30s), health: %s, lastSeen: %v",
+					logger.Debugf("🔍 [%d] Terminal-output detected port %d removed (unhealthy for >30s), health: %s, lastSeen: %v",
 						checkID, port, service.Health, service.LastSeen)
 					delete(pm.services, port)
 				} else {
 					// Keep the port but try to update its health status
-					log.Printf("🔍 Terminal-output detected port %d not found in TCP scan, re-checking health (current health: %s, lastSeen: %v)",
+					logger.Debugf("🔍 Terminal-output detected port %d not found in TCP scan, re-checking health (current health: %s, lastSeen: %v)",
 						port, service.Health, service.LastSeen)
 					go pm.healthCheckService(service)
 				}
 			} else {
 				// Regular TCP-scanned port removed
-				log.Printf("🔍 [%d] Port removed: %d (detection source: %s)", checkID, port, func() string {
+				logger.Debugf("🔍 [%d] Port removed: %d (detection source: %s)", checkID, port, func() string {
 					if service, exists := pm.services[port]; exists {
 						return service.DetectionSource
 					}
@@ -383,7 +383,7 @@ func (pm *PortMonitor) healthCheckService(service *ServiceInfo) {
 	// Give the service a moment to fully start
 	time.Sleep(100 * time.Millisecond)
 
-	log.Printf("🔍 Health checking port %d (source: %s, current type: %s)",
+	logger.Debugf("🔍 Health checking port %d (source: %s, current type: %s)",
 		service.Port, service.DetectionSource, service.ServiceType)
 
 	// Try HTTP health check
@@ -394,17 +394,17 @@ func (pm *PortMonitor) healthCheckService(service *ServiceInfo) {
 			existingService.ServiceType = "http"
 			if httpResult.IsHealthy {
 				existingService.Health = "healthy"
-				log.Printf("✅ Port %d: HTTP service detected and healthy (source: %s)",
+				logger.Debugf("✅ Port %d: HTTP service detected and healthy (source: %s)",
 					service.Port, existingService.DetectionSource)
 			} else {
 				existingService.Health = "unhealthy"
-				log.Printf("⚠️  Port %d: HTTP service detected but unhealthy (source: %s)",
+				logger.Debugf("⚠️  Port %d: HTTP service detected but unhealthy (source: %s)",
 					service.Port, existingService.DetectionSource)
 			}
 			existingService.LastSeen = time.Now()
 			// Health check complete
 		} else {
-			log.Printf("❌ Port %d not found in services map during health check!", service.Port)
+			logger.Errorf("❌ Port %d not found in services map during health check!", service.Port)
 		}
 		pm.mutex.Unlock()
 		return
@@ -419,7 +419,7 @@ func (pm *PortMonitor) healthCheckService(service *ServiceInfo) {
 			existingService.LastSeen = time.Now()
 		}
 		pm.mutex.Unlock()
-		log.Printf("✅ Port %d: TCP service detected and healthy", service.Port)
+		logger.Debugf("✅ Port %d: TCP service detected and healthy", service.Port)
 		return
 	}
 
@@ -430,7 +430,7 @@ func (pm *PortMonitor) healthCheckService(service *ServiceInfo) {
 		existingService.LastSeen = time.Now()
 	}
 	pm.mutex.Unlock()
-	log.Printf("❌ Port %d: Service detected but unhealthy", service.Port)
+	logger.Debugf("❌ Port %d: Service detected but unhealthy", service.Port)
 }
 
 // HTTPHealthResult contains the result of HTTP health check
@@ -477,7 +477,7 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 
 	// Log the failure reason for better debugging
 	if lastError != nil {
-		log.Printf("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)",
+		logger.Warnf("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)",
 			service.Port, lastError, service.Command, service.WorkingDir)
 	}
 
@@ -491,7 +491,7 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 func (pm *PortMonitor) checkTCPHealth(service *ServiceInfo) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", service.Port), 2*time.Second)
 	if err != nil {
-		log.Printf("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)",
+		logger.Warnf("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)",
 			service.Port, err, service.Command, service.WorkingDir)
 		return false
 	}
@@ -686,7 +686,7 @@ func (pm *PortMonitor) RegisterPortFromTerminalOutput(port int, workingDir strin
 	if existingService, exists := pm.services[port]; exists {
 		// Update working directory if we have more specific info from terminal output
 		if workingDir != "" && existingService.WorkingDir != workingDir {
-			log.Printf("🔍 Port %d already registered, updating working directory: %s -> %s",
+			logger.Debugf("🔍 Port %d already registered, updating working directory: %s -> %s",
 				port, existingService.WorkingDir, workingDir)
 			existingService.WorkingDir = workingDir
 			existingService.LastSeen = time.Now()
@@ -695,7 +695,7 @@ func (pm *PortMonitor) RegisterPortFromTerminalOutput(port int, workingDir strin
 		return
 	}
 
-	log.Printf("Port %d discovered from terminal output in %s", port, workingDir)
+	logger.Debugf("Port %d discovered from terminal output in %s", port, workingDir)
 
 	// Create a service info for this port
 	service := &ServiceInfo{
@@ -711,7 +711,7 @@ func (pm *PortMonitor) RegisterPortFromTerminalOutput(port int, workingDir strin
 
 	// Add to services map immediately
 	pm.services[port] = service
-	log.Printf("✅ Port %d registered in services map", port)
+	logger.Debugf("✅ Port %d registered in services map", port)
 
 	// Also add to lastTcpState to prevent it from being removed by checkPortChanges
 	pm.lastTcpState[port] = true
