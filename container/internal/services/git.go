@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/git/templates"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/recovery"
 )
@@ -46,7 +46,7 @@ func isCatnipBranch(branchName string) bool {
 
 // cleanupUnusedBranches removes catnip branches that have no commits
 func (s *GitService) cleanupUnusedBranches() {
-	log.Printf("🧹 Starting cleanup of unused catnip branches...")
+	logger.Debug("🧹 Starting cleanup of unused catnip branches...")
 
 	s.mu.RLock()
 	reposMap := s.stateManager.GetAllRepositories()
