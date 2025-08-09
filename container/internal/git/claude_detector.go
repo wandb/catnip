@@ -73,7 +73,7 @@ func (d *ClaudeSessionDetector) findClaudeSessionFromFiles() *ClaudeSessionInfo 
 
 	files, err := os.ReadDir(claudeProjectsDir)
 	if err != nil {
-		logger.Debug("⚠️  Failed to read Claude projects directory: %v", err)
+		logger.Debugf("⚠️  Failed to read Claude projects directory: %v", err)
 		return nil
 	}
 

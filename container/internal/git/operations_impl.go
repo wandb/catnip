@@ -212,7 +212,7 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
 				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
-				logger.Debug("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
 				// Don't retry - let the error propagate so the caller can handle it
 			}
 			if err != nil {
@@ -251,7 +251,7 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 			// Auto-pruning during runtime can delete workspaces that are being restored
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
 				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
-				logger.Debug("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
 				// Don't retry - let the error propagate so the caller can handle it
 			}
 		}

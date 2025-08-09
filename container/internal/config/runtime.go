@@ -102,10 +102,10 @@ func DetectRuntime() *RuntimeConfig {
 
 		// Ensure directories exist
 		if err := ensureDir(config.WorkspaceDir); err != nil {
-			logger.Debug("Warning: Failed to create workspace directory %s: %v", config.WorkspaceDir, err)
+			logger.Debugf("Warning: Failed to create workspace directory %s: %v", config.WorkspaceDir, err)
 		}
 		if err := ensureDir(config.VolumeDir); err != nil {
-			logger.Debug("Warning: Failed to create config directory %s: %v", config.VolumeDir, err)
+			logger.Debugf("Warning: Failed to create config directory %s: %v", config.VolumeDir, err)
 		}
 	}
 

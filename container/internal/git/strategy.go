@@ -91,7 +91,7 @@ func (f *FetchExecutor) FetchBranch(repoPath string, strategy FetchStrategy) err
 			fmt.Sprintf("refs/heads/%s", strategy.Branch),
 			fmt.Sprintf("refs/remotes/%s/%s", strategy.RemoteName, strategy.Branch))
 		if err != nil {
-			logger.Debug("⚠️ Could not update local branch ref: %v", err)
+			logger.Debugf("⚠️ Could not update local branch ref: %v", err)
 		}
 	}
 
@@ -183,14 +183,14 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 		// Use git config URL rewriting - works for SSH (converts) and HTTPS (no-op)
 		// This avoids OAuth scope issues and doesn't modify .git/config
 		gitArgs := append([]string{"-c", "url.https://github.com/.insteadOf=git@github.com:"}, args...)
-		logger.Debug("🔄 Executing git push with URL rewriting: %v", gitArgs)
+		logger.Debugf("🔄 Executing git push with URL rewriting: %v", gitArgs)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, gitArgs...)
 	} else {
 		// Normal push execution (native mode or no HTTPS conversion needed)
 		if strategy.ConvertHTTPS && config.Runtime.IsNative() {
 			logger.Debug("🔄 Native mode: skipping URL rewriting, using existing git configuration")
 		}
-		logger.Debug("🔄 Executing git push without URL rewriting: %v", args)
+		logger.Debugf("🔄 Executing git push without URL rewriting: %v", args)
 		output, err = p.executor.ExecuteGitWithWorkingDir(worktreePath, args...)
 	}
 	if err != nil {
@@ -203,6 +203,6 @@ func (p *PushExecutor) PushBranch(worktreePath string, strategy PushStrategy) er
 		return fmt.Errorf("failed to push branch %s to %s: %v\n%s", strategy.Branch, strategy.Remote, err, output)
 	}
 
-	logger.Debug("✅ Pushed branch %s to %s", strategy.Branch, strategy.Remote)
+	logger.Debugf("✅ Pushed branch %s to %s", strategy.Branch, strategy.Remote)
 	return nil
 }
