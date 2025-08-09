@@ -734,7 +734,7 @@ func (css *CommitSyncService) syncFromNiceBranch(worktreePath string, customRef 
 
 	if mergeErr != nil {
 		logger.Warnf("⚠️ Failed to merge %s into %s: %v", niceBranch, customRef, mergeErr)
-		logger.Debugf("💡 Manual intervention may be required to resolve conflicts")
+		logger.Infof("💡 Manual intervention may be required to resolve conflicts")
 		return fmt.Errorf("merge conflict: %v", mergeErr)
 	}
 
