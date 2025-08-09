@@ -507,12 +507,12 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 							// Only replay content up to where alternate screen was entered
 							bufferToReplay = make([]byte, session.LastNonTUIBufferSize)
 							copy(bufferToReplay, session.outputBuffer[:session.LastNonTUIBufferSize])
-							logger.Infof("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
+							logger.Debugf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
 						} else {
 							// Replay entire buffer for non-TUI sessions
 							bufferToReplay = make([]byte, len(session.outputBuffer))
 							copy(bufferToReplay, session.outputBuffer)
-							logger.Infof("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
+							logger.Debugf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
 						}
 						session.bufferMutex.RUnlock()
 
@@ -1224,7 +1224,7 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 
 	// Log broadcasts for debugging (only for multiple connections or very large data)
 	if connectionCount > 1 || len(data) > 10000 {
-		logger.Infof("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
+		logger.Debugf("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
 	}
 
 	s.connMutex.RLock()
