@@ -2,7 +2,6 @@ package services
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -35,28 +35,28 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 	// In native mode, only detect the current repo to avoid scanning all sibling repos
 	if config.Runtime.IsNative() {
 		if config.Runtime.CurrentRepo != "" {
-			log.Printf("📦 Native mode: Running from git repository: %s", config.Runtime.CurrentRepo)
+			logger.Infof("📦 Native mode: Running from git repository: %s", config.Runtime.CurrentRepo)
 			return lrm.detectCurrentRepo()
 		}
-		log.Printf("📁 Native mode: Not running from a git repository, no local repos to detect")
+		logger.Debug("📁 Native mode: Not running from a git repository, no local repos to detect")
 		return repositories
 	}
 
 	// Docker mode: Check if live directory exists
 	if liveDir == "" {
-		log.Printf("📁 No live directory configured, skipping local repo detection")
+		logger.Debug("📁 No live directory configured, skipping local repo detection")
 		return repositories
 	}
 
 	if _, err := os.Stat(liveDir); os.IsNotExist(err) {
-		log.Printf("📁 Live directory does not exist, skipping local repo detection")
+		logger.Debug("📁 Live directory does not exist, skipping local repo detection")
 		return repositories
 	}
 
 	// Read all entries in live directory
 	entries, err := os.ReadDir(liveDir)
 	if err != nil {
-		log.Printf("❌ Failed to read live directory: %v", err)
+		logger.Errorf("❌ Failed to read live directory: %v", err)
 		return repositories
 	}
 
@@ -73,7 +73,7 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 			continue
 		}
 
-		log.Printf("🔍 Detected local repository at %s", repoPath)
+		logger.Debugf("🔍 Detected local repository at %s", repoPath)
 
 		// Create repository object
 		repoID := fmt.Sprintf("local/%s", entry.Name())
@@ -87,7 +87,7 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 		}
 
 		repositories[repoID] = repo
-		log.Printf("✅ Local repository loaded: %s", repoID)
+		logger.Debugf("✅ Local repository loaded: %s", repoID)
 	}
 
 	return repositories
@@ -139,7 +139,7 @@ func (lrm *LocalRepoManager) detectCurrentRepo() map[string]*models.Repository {
 		Description:   fmt.Sprintf("Local repository: %s", repoName),
 	}
 
-	log.Printf("✅ Detected current repository: %s (branch: %s)", repoName, branch)
+	logger.Infof("✅ Detected current repository: %s (branch: %s)", repoName, branch)
 	repositories[repoID] = repo
 
 	return repositories
@@ -150,7 +150,7 @@ func (lrm *LocalRepoManager) CreateWorktreePreview(repo *models.Repository, work
 	// Extract workspace name for preview branch
 	workspaceName := git.ExtractWorkspaceName(worktree.Branch)
 	previewBranchName := fmt.Sprintf("catnip/%s", workspaceName)
-	log.Printf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
+	logger.Debugf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
 
 	// Check if there are uncommitted changes (staged, unstaged, or untracked)
 	hasUncommittedChanges, err := lrm.operations.HasUncommittedChanges(worktree.Path)
@@ -187,7 +187,7 @@ func (lrm *LocalRepoManager) CreateWorktreePreview(repo *models.Repository, work
 	}
 
 	if shouldForceUpdate {
-		log.Printf("🔄 Updating existing preview branch %s", previewBranchName)
+		logger.Debugf("🔄 Updating existing preview branch %s", previewBranchName)
 		// For force updates, we need to use git command directly since PushStrategy doesn't support force
 		output, err := lrm.operations.ExecuteGit(worktree.Path, "push", "--force", repo.Path, fmt.Sprintf("%s:refs/heads/%s", worktree.Branch, previewBranchName))
 		if err != nil {
@@ -206,9 +206,9 @@ func (lrm *LocalRepoManager) CreateWorktreePreview(repo *models.Repository, work
 	}
 
 	if hasUncommittedChanges {
-		log.Printf("✅ Preview branch %s %s with uncommitted changes - you can now checkout this branch outside the container", previewBranchName, action)
+		logger.Infof("✅ Preview branch %s %s with uncommitted changes - you can now checkout this branch outside the container", previewBranchName, action)
 	} else {
-		log.Printf("✅ Preview branch %s %s - you can now checkout this branch outside the container", previewBranchName, action)
+		logger.Infof("✅ Preview branch %s %s - you can now checkout this branch outside the container", previewBranchName, action)
 	}
 	return nil
 }
@@ -225,14 +225,14 @@ func (lrm *LocalRepoManager) ShouldCreateInitialWorktree(repoID string) bool {
 			if entry.IsDir() {
 				// Check if this directory is a valid git worktree
 				if _, err := os.Stat(filepath.Join(repoWorkspaceDir, entry.Name(), ".git")); err == nil {
-					log.Printf("🔍 Found existing worktree for %s: %s", repoID, entry.Name())
+					logger.Debugf("🔍 Found existing worktree for %s: %s", repoID, entry.Name())
 					return false
 				}
 			}
 		}
 	}
 
-	log.Printf("🔍 No existing worktrees found for %s, will create initial worktree", repoID)
+	logger.Debugf("🔍 No existing worktrees found for %s, will create initial worktree", repoID)
 	return true
 }
 
@@ -240,7 +240,7 @@ func (lrm *LocalRepoManager) ShouldCreateInitialWorktree(repoID string) bool {
 func (lrm *LocalRepoManager) getLocalRepoDefaultBranch(repoPath string) string {
 	output, err := lrm.operations.ExecuteGit(repoPath, "branch", "--show-current")
 	if err != nil {
-		log.Printf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
+		logger.Warnf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
 		return "main"
 	}
 
@@ -271,7 +271,7 @@ func (lrm *LocalRepoManager) shouldForceUpdatePreviewBranch(repoPath, previewBra
 	}
 
 	lastCommitMessage := strings.TrimSpace(string(output))
-	log.Printf("🔄 Found existing preview branch %s with commit: '%s' - will force update", previewBranchName, lastCommitMessage)
+	logger.Debugf("🔄 Found existing preview branch %s with commit: '%s' - will force update", previewBranchName, lastCommitMessage)
 	return true, nil
 }
 
@@ -293,6 +293,6 @@ func (lrm *LocalRepoManager) createTemporaryCommit(worktreePath string) (string,
 		return "", fmt.Errorf("failed to get commit hash: %v", err)
 	}
 
-	log.Printf("📝 Created temporary commit %s with uncommitted changes", commitHash[:8])
+	logger.Debugf("📝 Created temporary commit %s with uncommitted changes", commitHash[:8])
 	return commitHash, nil
 }

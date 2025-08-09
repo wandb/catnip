@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"maps"
 	"os"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -255,7 +255,7 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 	ch := make(chan SSEMessage, 100)
 
 	h.addClient(clientID, ch)
-	log.Printf("SSE client connected: %s (%s) from %s", clientID, clientType, c.IP())
+	logger.Infof("SSE client connected: %s (%s) from %s", clientID, clientType, c.IP())
 
 	//--------------------------------------------------------------------
 	// 4.  Stream writer
@@ -322,7 +322,7 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 			select {
 			case msg, ok := <-ch:
 				if !ok {
-					log.Printf("Event client %s is closed somehow!", clientID)
+					logger.Warnf("Event client %s is closed somehow!", clientID)
 				}
 				if !ok || !send(msg) {
 					return
@@ -343,14 +343,14 @@ func (h *EventsHandler) addClient(id string, ch chan SSEMessage) {
 	h.clientsMux.Lock()
 	h.clients[id] = ch
 	h.clientConnectTimes[id] = time.Now()
-	log.Printf("Added event client %s", id)
+	logger.Debugf("Added event client %s", id)
 	h.clientsMux.Unlock()
 }
 
 func (h *EventsHandler) removeClient(id string) {
 	h.clientsMux.Lock()
 	if ch, ok := h.clients[id]; ok {
-		log.Printf("Removing eventclient %s", id)
+		logger.Debugf("Removing eventclient %s", id)
 		close(ch)
 		delete(h.clients, id)
 	}
@@ -457,7 +457,7 @@ func (h *EventsHandler) monitorPorts() {
 			// Check for new ports
 			for portNum, serviceInfo := range currentPorts {
 				if _, exists := lastPorts[portNum]; !exists {
-					log.Printf("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
+					logger.Debugf("Port opened: %d (%s) - %s [PID: %d, Command: %s, Dir: %s]", portNum, serviceInfo.ServiceType, serviceInfo.Title, serviceInfo.PID, serviceInfo.Command, serviceInfo.WorkingDir)
 					h.broadcastEvent(h.makePortOpened(serviceInfo).Event)
 				}
 			}
@@ -465,7 +465,7 @@ func (h *EventsHandler) monitorPorts() {
 			// Check for closed ports
 			for portNum := range lastPorts {
 				if _, exists := currentPorts[portNum]; !exists {
-					log.Printf("Port closed: %d", portNum)
+					logger.Debugf("Port closed: %d", portNum)
 					h.broadcastEvent(AppEvent{
 						Type: PortClosedEvent,
 						Payload: PortPayload{
@@ -485,7 +485,7 @@ func (h *EventsHandler) monitorPorts() {
 func (h *EventsHandler) broadcastEvent(event AppEvent) {
 	// Validate event before broadcasting
 	if event.Type == "" {
-		log.Printf("Warning: Attempting to broadcast event with empty type")
+		logger.Warnf("Attempting to broadcast event with empty type")
 		return
 	}
 
@@ -508,7 +508,7 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 
 			if exists && time.Since(connectTime) < gracePeriod {
 				// Client is in grace period, don't remove yet
-				log.Printf("Client %s in grace period, not removing (connected %v ago)", clientID, time.Since(connectTime))
+				logger.Debugf("Client %s in grace period, not removing (connected %v ago)", clientID, time.Since(connectTime))
 			} else {
 				// Client channel is full or closed, mark for removal
 				clientsToRemove = append(clientsToRemove, clientID)
@@ -715,7 +715,7 @@ func (h *EventsHandler) EmitSessionTitleUpdated(workspaceDir, worktreeID string,
 // Stop stops the events handler and cleans up resources
 func (h *EventsHandler) Stop() {
 	close(h.stopChan)
-	log.Printf("Stopping events handler...")
+	logger.Info("Stopping events handler...")
 	h.clientsMux.Lock()
 	defer h.clientsMux.Unlock()
 

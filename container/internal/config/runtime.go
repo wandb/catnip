@@ -2,12 +2,13 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // RuntimeMode represents the execution environment
@@ -101,10 +102,10 @@ func DetectRuntime() *RuntimeConfig {
 
 		// Ensure directories exist
 		if err := ensureDir(config.WorkspaceDir); err != nil {
-			log.Printf("Warning: Failed to create workspace directory %s: %v", config.WorkspaceDir, err)
+			logger.Debugf("Warning: Failed to create workspace directory %s: %v", config.WorkspaceDir, err)
 		}
 		if err := ensureDir(config.VolumeDir); err != nil {
-			log.Printf("Warning: Failed to create config directory %s: %v", config.VolumeDir, err)
+			logger.Debugf("Warning: Failed to create config directory %s: %v", config.VolumeDir, err)
 		}
 	}
 

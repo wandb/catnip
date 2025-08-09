@@ -2,13 +2,13 @@ package git
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -120,9 +120,9 @@ func (w *WorktreeManager) CreateLocalWorktree(req CreateWorktreeRequest) (*model
 		// Add "catnip-live" remote pointing to the main repository
 		if err := w.operations.AddRemote(worktreePath, "catnip-live", req.Repository.Path); err != nil {
 			// Log warning but don't fail - remote might already exist
-			log.Printf("⚠️ Failed to add catnip-live remote (may already exist): %v", err)
+			logger.Warnf("⚠️ Failed to add catnip-live remote (may already exist): %v", err)
 		} else {
-			log.Printf("✅ Added 'catnip-live' remote pointing to main repository at %s", req.Repository.Path)
+			logger.Debugf("✅ Added 'catnip-live' remote pointing to main repository at %s", req.Repository.Path)
 		}
 	}
 
@@ -171,21 +171,21 @@ func (w *WorktreeManager) CreateLocalWorktree(req CreateWorktreeRequest) (*model
 
 // DeleteWorktree removes a worktree comprehensively
 func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models.Repository) error {
-	log.Printf("🗑️ Starting comprehensive cleanup for worktree %s", worktree.Name)
+	logger.Debugf("🗑️ Starting comprehensive cleanup for worktree %s", worktree.Name)
 
 	// Step 1: Remove the worktree directory
 	if err := w.operations.RemoveWorktree(repo.Path, worktree.Path, true); err != nil {
-		log.Printf("⚠️ Failed to remove worktree directory (continuing with cleanup): %v", err)
+		logger.Warnf("⚠️ Failed to remove worktree directory (continuing with cleanup): %v", err)
 	} else {
-		log.Printf("✅ Removed worktree directory: %s", worktree.Path)
+		logger.Debugf("✅ Removed worktree directory: %s", worktree.Path)
 	}
 
 	// Step 2: Remove the worktree branch
 	if worktree.Branch != "" && worktree.Branch != worktree.SourceBranch {
 		if err := w.operations.DeleteBranch(repo.Path, worktree.Branch, true); err != nil {
-			log.Printf("⚠️ Failed to remove branch %s (may not exist or be in use): %v", worktree.Branch, err)
+			logger.Warnf("⚠️ Failed to remove branch %s (may not exist or be in use): %v", worktree.Branch, err)
 		} else {
-			log.Printf("✅ Removed branch: %s", worktree.Branch)
+			logger.Debugf("✅ Removed branch: %s", worktree.Branch)
 		}
 	}
 
@@ -193,28 +193,28 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 	workspaceName := ExtractWorkspaceName(worktree.Branch)
 	previewBranchName := fmt.Sprintf("catnip/%s", workspaceName)
 	if err := w.operations.DeleteBranch(repo.Path, previewBranchName, true); err != nil {
-		log.Printf("ℹ️ No preview branch to remove: %s", previewBranchName)
+		logger.Debugf("ℹ️ No preview branch to remove: %s", previewBranchName)
 	} else {
-		log.Printf("✅ Removed preview branch: %s", previewBranchName)
+		logger.Debugf("✅ Removed preview branch: %s", previewBranchName)
 	}
 
 	// Step 4: Force remove any remaining files
 	if _, err := os.Stat(worktree.Path); err == nil {
 		if removeErr := os.RemoveAll(worktree.Path); removeErr != nil {
-			log.Printf("⚠️ Failed to force remove worktree directory %s: %v", worktree.Path, removeErr)
+			logger.Warnf("⚠️ Failed to force remove worktree directory %s: %v", worktree.Path, removeErr)
 		} else {
-			log.Printf("✅ Force removed remaining worktree directory: %s", worktree.Path)
+			logger.Debugf("✅ Force removed remaining worktree directory: %s", worktree.Path)
 		}
 	}
 
 	// Step 5: Run garbage collection
 	if err := w.operations.GarbageCollect(repo.Path); err != nil {
-		log.Printf("⚠️ Failed to run garbage collection after worktree deletion: %v", err)
+		logger.Warnf("⚠️ Failed to run garbage collection after worktree deletion: %v", err)
 	} else {
-		log.Printf("✅ Ran garbage collection to clean up dangling objects")
+		logger.Debugf("✅ Ran garbage collection to clean up dangling objects")
 	}
 
-	log.Printf("✅ Completed comprehensive cleanup for worktree %s", worktree.Name)
+	logger.Debugf("✅ Completed comprehensive cleanup for worktree %s", worktree.Name)
 	return nil
 }
 
@@ -248,17 +248,17 @@ func (w *WorktreeManager) UpdateWorktreeStatus(worktree *models.Worktree, getSou
 	// Detect actual worktree state (branch/ref only - source branch is business logic)
 	actualBranch, err := w.detectWorktreeActualState(worktree.Path)
 	if err != nil {
-		log.Printf("⚠️ Failed to detect actual worktree state for %s: %v", worktree.Name, err)
+		logger.Warnf("⚠️ Failed to detect actual worktree state for %s: %v", worktree.Name, err)
 		// Fall back to stored metadata
 	} else {
 		// Only update branch field if worktree hasn't been renamed
 		// If renamed, Branch field shows nice name for UI, git HEAD stays on actual ref
 		if actualBranch != worktree.Branch {
 			if worktree.HasBeenRenamed {
-				log.Printf("🔍 Worktree %s actual git ref (%s) differs from display name (%s), but has_been_renamed=true, keeping display name",
+				logger.Debugf("🔍 Worktree %s actual git ref (%s) differs from display name (%s), but has_been_renamed=true, keeping display name",
 					worktree.Name, actualBranch, worktree.Branch)
 			} else {
-				log.Printf("🔄 Worktree %s actual branch (%s) differs from stored (%s), updating",
+				logger.Debugf("🔄 Worktree %s actual branch (%s) differs from stored (%s), updating",
 					worktree.Name, actualBranch, worktree.Branch)
 				worktree.Branch = actualBranch
 			}
@@ -352,15 +352,15 @@ func (w *WorktreeManager) CleanupMergedWorktrees(req CleanupMergedWorktreesReque
 	var cleanedUp []string
 	var errors []error
 
-	log.Printf("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(req.Worktrees))
+	logger.Debugf("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(req.Worktrees))
 
 	for worktreeID, worktree := range req.Worktrees {
-		log.Printf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
+		logger.Debugf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
 			worktree.Name, worktree.IsDirty, worktree.HasConflicts, worktree.CommitCount, worktree.SourceBranch)
 
 		// Skip if worktree has uncommitted changes or conflicts
 		if worktree.IsDirty || worktree.HasConflicts || worktree.CommitCount > 0 {
-			log.Printf("⏭️ Skipping cleanup of worktree: %s (dirty=%v, conflicts=%v, commits=%d)",
+			logger.Debugf("⏭️ Skipping cleanup of worktree: %s (dirty=%v, conflicts=%v, commits=%d)",
 				worktree.Name, worktree.IsDirty, worktree.HasConflicts, worktree.CommitCount)
 			continue
 		}
@@ -373,7 +373,7 @@ func (w *WorktreeManager) CleanupMergedWorktrees(req CleanupMergedWorktreesReque
 
 		isMerged := w.isWorktreeMerged(worktree, repo, req.IsLocalRepo(worktree.RepoID))
 		if isMerged {
-			log.Printf("🧹 Found merged worktree to cleanup: %s", worktree.Name)
+			logger.Debugf("🧹 Found merged worktree to cleanup: %s", worktree.Name)
 			if cleanupErr := req.DeleteFunc(worktreeID); cleanupErr != nil {
 				errors = append(errors, fmt.Errorf("failed to cleanup worktree %s: %v", worktree.Name, cleanupErr))
 			} else {
@@ -383,7 +383,7 @@ func (w *WorktreeManager) CleanupMergedWorktrees(req CleanupMergedWorktreesReque
 	}
 
 	if len(cleanedUp) > 0 {
-		log.Printf("✅ Cleaned up %d merged worktrees: %s", len(cleanedUp), strings.Join(cleanedUp, ", "))
+		logger.Infof("✅ Cleaned up %d merged worktrees: %s", len(cleanedUp), strings.Join(cleanedUp, ", "))
 	}
 
 	return &CleanupMergedWorktreesResponse{
@@ -398,7 +398,7 @@ func (w *WorktreeManager) isWorktreeMerged(worktree *models.Worktree, repo *mode
 	if isLocal {
 		// For local repos, check if the branch exists in the main repo
 		if !w.operations.BranchExists(repo.Path, worktree.Branch, false) {
-			log.Printf("✅ Branch %s no longer exists in main repo (likely merged and deleted)", worktree.Branch)
+			logger.Debugf("✅ Branch %s no longer exists in main repo (likely merged and deleted)", worktree.Branch)
 			return true
 		}
 	}
@@ -406,7 +406,7 @@ func (w *WorktreeManager) isWorktreeMerged(worktree *models.Worktree, repo *mode
 	// Check if branch is merged into source branch
 	branches, err := w.operations.ListBranches(repo.Path, ListBranchesOptions{Merged: worktree.SourceBranch})
 	if err != nil {
-		log.Printf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
+		logger.Warnf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
 		return false
 	}
 
@@ -417,7 +417,7 @@ func (w *WorktreeManager) isWorktreeMerged(worktree *models.Worktree, repo *mode
 		cleanBranch = strings.TrimPrefix(cleanBranch, "+")
 		cleanBranch = strings.TrimSpace(cleanBranch)
 		if cleanBranch == worktree.Branch {
-			log.Printf("✅ Found %s in merged branches list", worktree.Branch)
+			logger.Debugf("✅ Found %s in merged branches list", worktree.Branch)
 			return true
 		}
 	}
@@ -455,10 +455,10 @@ func (w *WorktreeManager) GetWorktreeDiff(worktree *models.Worktree, sourceRef s
 
 	// If merge base fails, try fetching the latest reference and retry
 	if err != nil {
-		log.Printf("🔄 Merge base not found with existing refs, fetching latest reference for diff")
+		logger.Debugf("🔄 Merge base not found with existing refs, fetching latest reference for diff")
 		if fetchLatestRef != nil {
 			if fetchErr := fetchLatestRef(worktree); fetchErr != nil {
-				log.Printf("⚠️ Failed to fetch latest reference: %v", fetchErr)
+				logger.Warnf("⚠️ Failed to fetch latest reference: %v", fetchErr)
 			}
 		}
 

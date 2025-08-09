@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/vanpelt/catnip/internal/logger"
 	"time"
 
 	"golang.org/x/net/html"
@@ -29,7 +30,7 @@ import (
 func rewriteHTMLAbsolutePaths(htmlContent string, basePath string) string {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
-		log.Printf("❌ Failed to parse HTML: %v", err)
+		logger.Errorf("❌ Failed to parse HTML: %v", err)
 		return htmlContent
 	}
 
@@ -38,7 +39,7 @@ func rewriteHTMLAbsolutePaths(htmlContent string, basePath string) string {
 	var buf bytes.Buffer
 	err = html.Render(&buf, doc)
 	if err != nil {
-		log.Printf("❌ Failed to render modified HTML: %v", err)
+		logger.Errorf("❌ Failed to render modified HTML: %v", err)
 		return htmlContent
 	}
 
@@ -229,7 +230,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Create request
 	req, err := http.NewRequest(string(c.Request().Header.Method()), targetURL, bytes.NewReader(c.Body()))
 	if err != nil {
-		log.Printf("❌ Error creating proxy request: %v", err)
+		logger.Errorf("❌ Error creating proxy request: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to create proxy request",
 		})
@@ -253,7 +254,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	// Make the request
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("❌ Error making proxy request to %s: %v", targetURL, err)
+		logger.Errorf("❌ Error making proxy request to %s: %v", targetURL, err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
 			"error": "Failed to connect to service",
 		})
@@ -287,7 +288,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		gzipReader, err := gzip.NewReader(resp.Body)
 		if err != nil {
-			log.Printf("❌ Error creating gzip reader: %v", err)
+			logger.Errorf("❌ Error creating gzip reader: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"error": "Failed to decompress service response",
 			})
@@ -298,7 +299,7 @@ func (h *ProxyHandler) ProxyToPort(c *fiber.Ctx) error {
 
 	body, err := io.ReadAll(bodyReader)
 	if err != nil {
-		log.Printf("❌ Error reading proxy response: %v", err)
+		logger.Errorf("❌ Error reading proxy response: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to read service response",
 		})
@@ -379,7 +380,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 	// Get the proxy injection script from embedded assets
 	proxyScript, err := assets.GetProxyInjectionScript()
 	if err != nil {
-		log.Printf("❌ Failed to load proxy injection script: %v, falling back to basic injection", err)
+		logger.Warnf("❌ Failed to load proxy injection script: %v, falling back to basic injection", err)
 		// Fallback to minimal script injection
 		jsCode := fmt.Sprintf(`<script>console.log("Catnip proxy active for %s");</script>`, basePath)
 		content += jsCode
@@ -399,7 +400,7 @@ func (h *ProxyHandler) modifyHTMLContent(content string, port int) string {
 		}
 	}
 
-	log.Printf("🔧 Modified HTML response for port %d with base path %s", port, basePath)
+	logger.Debugf("🔧 Modified HTML response for port %d with base path %s", port, basePath)
 	return content
 }
 
@@ -577,7 +578,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 					quote := submatches[1]
 					originalURL := submatches[2]
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting localhost URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting localhost URL: %s -> %s", originalURL, rewrittenURL)
 					return quote + rewrittenURL + quote
 				}
 				return match
@@ -593,7 +594,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 					quote := submatches[1]
 					originalURL := submatches[2]
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting WebSocket localhost URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting WebSocket localhost URL: %s -> %s", originalURL, rewrittenURL)
 					return quote + rewrittenURL + quote
 				}
 				return match
@@ -610,7 +611,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 					originalURL := submatches[2]
 					closingBacktick := submatches[3]
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting template literal WebSocket URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting template literal WebSocket URL: %s -> %s", originalURL, rewrittenURL)
 					return backtick + rewrittenURL + closingBacktick
 				}
 				return match
@@ -624,7 +625,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 				originalURL := match
 				if isLocalhostPortRewritable(originalURL, basePath) {
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting unquoted WebSocket URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting unquoted WebSocket URL: %s -> %s", originalURL, rewrittenURL)
 					return rewrittenURL
 				}
 				return match
@@ -638,7 +639,7 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 				originalURL := match
 				if isLocalhostPortRewritable(originalURL, basePath) {
 					rewrittenURL := rewriteLocalhostPort(originalURL, basePath)
-					log.Printf("🔄 Rewriting unquoted HTTP URL: %s -> %s", originalURL, rewrittenURL)
+					logger.Debugf("🔄 Rewriting unquoted HTTP URL: %s -> %s", originalURL, rewrittenURL)
 					return rewrittenURL
 				}
 				return match
@@ -664,11 +665,11 @@ func (h *ProxyHandler) modifyJavaScriptContent(content string, port int) string 
 	// Only log if we actually made changes and debug is enabled
 	if content != originalContent {
 		if os.Getenv("CATNIP_DEBUG") != "" {
-			log.Printf("🔧 Modified JavaScript response for port %d with base path %s", port, basePath)
+			logger.Debugf("🔧 Modified JavaScript response for port %d with base path %s", port, basePath)
 			// Log first few import/export statements for debugging
 			importMatches := regexp.MustCompile("(?:import|export)[^;{]+[;{]").FindAllString(content, 5)
 			if len(importMatches) > 0 {
-				log.Printf("   Sample imports after rewriting: %v", importMatches)
+				logger.Debugf("   Sample imports after rewriting: %v", importMatches)
 			}
 		}
 	}
@@ -694,7 +695,7 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		targetURL += "?" + string(c.Request().URI().QueryString())
 	}
 
-	log.Printf("🔌 WebSocket proxy request from %s to target: %s", c.Path(), targetURL)
+	logger.Infof("🔌 WebSocket proxy request from %s to target: %s", c.Path(), targetURL)
 
 	// Extract headers from the original request BEFORE entering the WebSocket handler
 	// because the Fiber context becomes invalid inside the handler
@@ -711,7 +712,7 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		// Add panic recovery to prevent container crashes
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("🚨 PANIC recovered in WebSocket proxy: %v", r)
+				logger.Errorf("🚨 PANIC recovered in WebSocket proxy: %v", r)
 				if clientConn != nil {
 					clientConn.Close()
 				}
@@ -719,7 +720,7 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		}()
 
 		defer clientConn.Close()
-		log.Printf("✅ Fiber WebSocket connection established")
+		logger.Debugf("✅ Fiber WebSocket connection established")
 
 		// Create WebSocket dialer to connect to the target
 		dialer := gorilla_websocket.Dialer{
@@ -727,19 +728,19 @@ func (h *ProxyHandler) handleWebSocketProxyWithFiber(c *fiber.Ctx, port int) err
 		}
 
 		// Connect to target WebSocket server
-		log.Printf("🔌 Attempting to dial target WebSocket: %s", targetURL)
+		logger.Debugf("🔌 Attempting to dial target WebSocket: %s", targetURL)
 		targetConn, _, err := dialer.Dial(targetURL, requestHeader)
 		if err != nil {
-			log.Printf("🔌❌ WebSocket dial failed: %v", err)
+			logger.Errorf("🔌❌ WebSocket dial failed: %v", err)
 			if closeErr := clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "Failed to connect to target")); closeErr != nil {
-				log.Printf("❌ Failed to send close message: %v", closeErr)
+				logger.Errorf("❌ Failed to send close message: %v", closeErr)
 			}
 			return
 		}
 		defer targetConn.Close()
-		log.Printf("✅ Successfully connected to target WebSocket")
+		logger.Debugf("✅ Successfully connected to target WebSocket")
 
-		log.Printf("✅ WebSocket proxy established successfully - starting message relay")
+		logger.Debugf("✅ WebSocket proxy established successfully - starting message relay")
 
 		// Start proxying messages between client and target
 		h.proxyWebSocketConnectionsSimple(clientConn, targetConn)
@@ -757,7 +758,7 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 			messageType, data, err := fiberConn.ReadMessage()
 			if err != nil {
 				if os.Getenv("CATNIP_DEBUG") != "" {
-					log.Printf("❌ WebSocket read error from Fiber client: %v", err)
+					logger.Errorf("❌ WebSocket read error from Fiber client: %v", err)
 				}
 				break
 			}
@@ -765,7 +766,7 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 			err = gorillaConn.WriteMessage(messageType, data)
 			if err != nil {
 				if os.Getenv("CATNIP_DEBUG") != "" {
-					log.Printf("❌ WebSocket write error to Gorilla target: %v", err)
+					logger.Errorf("❌ WebSocket write error to Gorilla target: %v", err)
 				}
 				break
 			}
@@ -780,14 +781,14 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 		for {
 			messageType, data, err := gorillaConn.ReadMessage()
 			if err != nil {
-				log.Printf("❌ WebSocket read error from target: %v", err)
+				logger.Errorf("❌ WebSocket read error from target: %v", err)
 				break
 			}
 
 			err = fiberConn.WriteMessage(messageType, data)
 			if err != nil {
 				if os.Getenv("CATNIP_DEBUG") != "" {
-					log.Printf("❌ WebSocket write error to Fiber client: %v", err)
+					logger.Errorf("❌ WebSocket write error to Fiber client: %v", err)
 				}
 				break
 			}
@@ -798,5 +799,5 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 	})
 
 	wg.Wait()
-	log.Printf("🔌 WebSocket proxy connection closed")
+	logger.Debugf("🔌 WebSocket proxy connection closed")
 }

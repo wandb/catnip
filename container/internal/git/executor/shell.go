@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // ShellExecutor implements CommandExecutor using the git binary
@@ -81,7 +81,7 @@ func (e *ShellExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...stri
 	}
 	// Only log non-routine git commands
 	if len(args) > 0 && args[0] != "-C" && (len(args) < 2 || (args[1] != "symbolic-ref" && args[1] != "rev-list" && args[1] != "rev-parse" && !strings.HasPrefix(args[1], "diff"))) {
-		log.Printf("🐚 ShellExecutor: executing git %v", args)
+		logger.Debugf("🐚 ShellExecutor: executing git %v", args)
 	}
 	return e.Execute("", args...)
 }

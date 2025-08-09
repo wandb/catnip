@@ -3,7 +3,6 @@ package executor
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/vanpelt/catnip/internal/logger"
 )
 
 // GitExecutor implements CommandExecutor using go-git library
@@ -84,8 +84,8 @@ func (e *GitExecutor) ExecuteGitWithWorkingDir(workingDir string, args ...string
 	// since go-git doesn't handle -c config flags
 	if commandIndex > 0 {
 		// Has config flags, use shell executor for all operations
-		log.Printf("🔧 GitExecutor: detected config flags, using shell fallback for: %v", args)
-		log.Printf("🔍 GitExecutor: command=%s, commandIndex=%d, workingDir=%s", command, commandIndex, workingDir)
+		logger.Debugf("🔧 GitExecutor: detected config flags, using shell fallback for: %v", args)
+		logger.Debugf("🔍 GitExecutor: command=%s, commandIndex=%d, workingDir=%s", command, commandIndex, workingDir)
 		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, args...)
 	}
 

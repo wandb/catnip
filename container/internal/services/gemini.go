@@ -8,6 +8,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/logger"
+
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -60,7 +62,7 @@ func (s *GeminiService) GetAllWorktreeSessionSummaries() (map[string]*models.Gem
 		logs, err := s.readLogs(logPath)
 		if err != nil {
 			// Log error but continue with other sessions
-			fmt.Printf("Error reading gemini log %s: %v\n", logPath, err)
+			logger.Errorf("Error reading gemini log %s: %v", logPath, err)
 			continue
 		}
 

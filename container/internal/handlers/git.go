@@ -3,11 +3,11 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -117,11 +117,11 @@ func (h *GitHandler) CheckoutRepository(c *fiber.Ctx) error {
 	repo := c.Params("repo")
 	branch := c.Query("branch", "")
 
-	log.Printf("📦 Checkout request: %s/%s (branch: %s)", org, repo, branch)
+	logger.Infof("📦 Checkout request: %s/%s (branch: %s)", org, repo, branch)
 
 	repository, worktree, err := h.gitService.CheckoutRepository(org, repo, branch)
 	if err != nil {
-		log.Printf("❌ Checkout failed: %v", err)
+		logger.Errorf("❌ Checkout failed: %v", err)
 		return c.Status(500).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -544,7 +544,7 @@ func (h *GitHandler) CheckMergeConflicts(c *fiber.Ctx) error {
 
 	conflictErr, err := h.gitService.CheckMergeConflicts(worktreeID)
 	if err != nil {
-		log.Printf("❌ CheckMergeConflicts failed for worktree %s: %v", worktreeID, err)
+		logger.Errorf("❌ CheckMergeConflicts failed for worktree %s: %v", worktreeID, err)
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -752,7 +752,7 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 
 		// Update the worktree branch name in the GitService so the UI reflects the change
 		if err := h.gitService.UpdateWorktreeBranchName(workDir, req.BranchName); err != nil {
-			log.Printf("⚠️  Failed to update worktree branch name in service: %v", err)
+			logger.Warnf("⚠️  Failed to update worktree branch name in service: %v", err)
 			// Don't fail the whole operation for this, but log the error
 		}
 
@@ -761,7 +761,7 @@ func (h *GitHandler) GraduateBranch(c *fiber.Ctx) error {
 			if _, err := h.gitService.ExecuteGit(workDir, "update-ref", "-d", currentBranch); err != nil {
 				// Log but don't fail - the new branch was created successfully
 				// This is just cleanup of the old catnip ref
-				log.Printf("⚠️  Failed to delete old catnip ref %q: %v", currentBranch, err)
+				logger.Warnf("⚠️  Failed to delete old catnip ref %q: %v", currentBranch, err)
 			}
 		}
 	} else {
