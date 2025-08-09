@@ -48,7 +48,10 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogAction,
+  AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { useGitApi } from "@/hooks/useGitApi";
+import { useNavigate } from "@tanstack/react-router";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
@@ -63,7 +66,9 @@ export function WorkspaceLeftSidebar() {
   const [unavailableRepoAlert, setUnavailableRepoAlert] = useState<{
     open: boolean;
     repoName: string;
-  }>({ open: false, repoName: "" });
+    repoId: string;
+    worktrees: Worktree[];
+  }>({ open: false, repoName: "", repoId: "", worktrees: [] });
 
   // Use stable selectors to avoid infinite loops
   const worktreesCount = useAppStore(
