@@ -70,6 +70,15 @@ export function WorkspaceLeftSidebar() {
     worktrees: Worktree[];
   }>({ open: false, repoName: "", repoId: "", worktrees: [] });
 
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
+    open: boolean;
+    worktrees: Worktree[];
+    repoName: string;
+  }>({ open: false, worktrees: [], repoName: "" });
+
+  const { deleteWorktree } = useGitApi();
+  const navigate = useNavigate();
+
   // Use stable selectors to avoid infinite loops
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
@@ -148,6 +157,42 @@ export function WorkspaceLeftSidebar() {
       branch: repo.default_branch || "main",
     });
     setNewWorkspaceDialogOpen(true);
+  };
+
+  const handleDeleteWorkspaces = () => {
+    // Show delete confirmation dialog
+    setDeleteConfirmDialog({
+      open: true,
+      worktrees: unavailableRepoAlert.worktrees,
+      repoName: unavailableRepoAlert.repoName,
+    });
+  };
+
+  const handleDeleteConfirmed = async () => {
+    try {
+      // Delete all worktrees for this repository
+      for (const worktree of deleteConfirmDialog.worktrees) {
+        await deleteWorktree(worktree.id);
+      }
+      setDeleteConfirmDialog({ open: false, worktrees: [], repoName: "" });
+      setUnavailableRepoAlert({
+        open: false,
+        repoName: "",
+        repoId: "",
+        worktrees: [],
+      });
+
+      // Navigate to workspace index if we deleted the current workspace
+      const currentWorkspaceName = `${project}/${workspace}`;
+      const wasCurrentDeleted = deleteConfirmDialog.worktrees.some(
+        (w) => w.name === currentWorkspaceName,
+      );
+      if (wasCurrentDeleted) {
+        void navigate({ to: "/workspace" });
+      }
+    } catch (error) {
+      console.error("Failed to delete workspaces:", error);
+    }
   };
 
   return (
