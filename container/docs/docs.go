@@ -2429,8 +2429,7 @@ const docTemplate = `{
                 "worktree:created",
                 "worktree:deleted",
                 "worktree:todos_updated",
-                "session:title_updated",
-                "claude:activity_state_changed"
+                "session:title_updated"
             ],
             "x-enum-varnames": [
                 "PortOpenedEvent",
@@ -2450,8 +2449,7 @@ const docTemplate = `{
                 "WorktreeCreatedEvent",
                 "WorktreeDeletedEvent",
                 "WorktreeTodosUpdatedEvent",
-                "SessionTitleUpdatedEvent",
-                "ClaudeActivityStateChangedEvent"
+                "SessionTitleUpdatedEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {
