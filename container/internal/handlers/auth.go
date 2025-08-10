@@ -18,10 +18,29 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// GitHubAuthChecker defines the interface for checking GitHub authentication status
+type GitHubAuthChecker interface {
+	CheckGitHubAuthStatus() (*AuthUser, error)
+}
+
+// DefaultGitHubAuthChecker implements GitHubAuthChecker using actual GitHub CLI commands
+type DefaultGitHubAuthChecker struct{}
+
+// CheckGitHubAuthStatus implements the interface
+func (d *DefaultGitHubAuthChecker) CheckGitHubAuthStatus() (*AuthUser, error) {
+	// First try reading the hosts.yml file
+	if user, err := d.readGitHubHosts(); err == nil && user != nil {
+		return user, nil
+	}
+	// Fallback to running gh auth status command
+	return d.runGitHubAuthStatus()
+}
+
 // AuthHandler handles authentication flows
 type AuthHandler struct {
-	activeAuth *AuthProcess
-	authMutex  sync.Mutex
+	activeAuth  *AuthProcess
+	authMutex   sync.Mutex
+	authChecker GitHubAuthChecker
 }
 
 // AuthProcess represents an active authentication process
