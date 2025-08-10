@@ -99,9 +99,18 @@ type GitHubUser struct {
 	OAuthToken string `yaml:"oauth_token"`
 }
 
-// NewAuthHandler creates a new auth handler
+// NewAuthHandler creates a new auth handler with default GitHub auth checker
 func NewAuthHandler() *AuthHandler {
-	return &AuthHandler{}
+	return &AuthHandler{
+		authChecker: &DefaultGitHubAuthChecker{},
+	}
+}
+
+// NewAuthHandlerWithChecker creates a new auth handler with a custom GitHub auth checker (for testing)
+func NewAuthHandlerWithChecker(checker GitHubAuthChecker) *AuthHandler {
+	return &AuthHandler{
+		authChecker: checker,
+	}
 }
 
 // checkGitHubAuthStatus checks if user is authenticated with GitHub CLI
@@ -347,7 +356,7 @@ func (h *AuthHandler) GetAuthStatus(c *fiber.Ctx) error {
 	}
 
 	// Check if user is already authenticated via GitHub CLI
-	user, err := h.checkGitHubAuthStatus()
+	user, err := h.authChecker.CheckGitHubAuthStatus()
 	if err == nil && user != nil {
 		return c.JSON(AuthStatusResponse{
 			Status: "authenticated",
