@@ -12,9 +12,14 @@ if [[ -z "$INPUT_JSON" ]]; then
     exit 0
 fi
 
+# Check if jq is available
+if ! command -v jq &> /dev/null; then
+    exit 0
+fi
+
 # Extract hook_event_name and cwd from the JSON input
-HOOK_EVENT_NAME=$(echo "$INPUT_JSON" | jq -r '.hook_event_name // empty')
-CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty')
+HOOK_EVENT_NAME=$(echo "$INPUT_JSON" | jq -r '.hook_event_name // empty' 2>/dev/null)
+CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 
 # Only handle the events we care about for activity tracking
 case "$HOOK_EVENT_NAME" in
