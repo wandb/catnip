@@ -255,7 +255,8 @@ export function NewWorkspaceDialog({
         repoId = currentRepo.id;
         branches = await gitApi.fetchBranches(repoId);
 
-        // Always prioritize the repo's default branch
+        // Always prioritize the repo's default branch for mounted repos,
+        // ignoring any initialBranch parameter
         if (
           currentRepo.default_branch &&
           branches.includes(currentRepo.default_branch)
