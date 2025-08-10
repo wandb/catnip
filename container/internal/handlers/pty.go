@@ -445,6 +445,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				return
 			}
 
+			// Update Claude activity timestamp when we see output from Claude sessions
+			if session.Agent == "claude" && n > 0 && h.claudeMonitor != nil && h.claudeMonitor.claudeService != nil {
+				h.claudeMonitor.claudeService.UpdateActivity(session.WorkDir)
+			}
+
 			// Add to buffer (unlimited growth for TUI compatibility)
 			session.bufferMutex.Lock()
 			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
