@@ -1300,9 +1300,38 @@ func (s *ClaudeMonitorService) GetClaudeService() *ClaudeService {
 	return s.claudeService
 }
 
-// GetClaudeActivityState returns the Claude activity state based on PTY activity tracking
+// GetClaudeActivityState returns the Claude activity state based on hook events and PTY activity tracking
 func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) models.ClaudeActivityState {
-	// Check activity using the new Claude service tracking
+	now := time.Now()
+
+	// Get hook-based timestamps
+	lastPromptSubmit := s.claudeService.GetLastUserPromptSubmit(worktreePath)
+	lastStopEvent := s.claudeService.GetLastStopEvent(worktreePath)
+	lastGeneralActivity := s.claudeService.GetLastActivity(worktreePath)
+
+	// Use hook events for more precise activity tracking when available
+	if !lastPromptSubmit.IsZero() {
+		// If we have a recent UserPromptSubmit event (within 1 minute), definitely active
+		if now.Sub(lastPromptSubmit) <= 1*time.Minute {
+			return models.ClaudeActive
+		}
+
+		// If we have a Stop event after the last UserPromptSubmit, we're in the "running" phase
+		if !lastStopEvent.IsZero() && lastStopEvent.After(lastPromptSubmit) {
+			// Recent stop event (within 5 minutes) means still running but not actively generating
+			if now.Sub(lastStopEvent) <= 5*time.Minute {
+				return models.ClaudeRunning
+			}
+		} else {
+			// UserPromptSubmit without Stop event - check if it's still recent enough to be "running"
+			if now.Sub(lastPromptSubmit) <= 5*time.Minute {
+				return models.ClaudeRunning
+			}
+		}
+	}
+
+	// Fallback to PTY-based activity tracking for compatibility
+	// Check activity using the general activity tracking
 	if s.claudeService.IsActiveSession(worktreePath, 2*time.Minute) {
 		return models.ClaudeActive
 	}
