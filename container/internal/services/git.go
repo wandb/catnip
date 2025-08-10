@@ -579,7 +579,7 @@ func (s *GitService) handleExistingRepository(repoID, repoURL, barePath, branch 
 
 	// Check if the requested branch exists in the bare repo
 	if !s.branchExists(barePath, branch, true) {
-		logger.Warnf("🔄 Branch %s not found, fetching from remote", branch)
+		logger.Infof("🔄 Branch %s not found, fetching from remote", branch)
 		if err := s.fetchBranch(barePath, git.FetchStrategy{
 			Branch:         branch,
 			Depth:          1,
@@ -1365,7 +1365,7 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 		return fmt.Errorf("local repository %s not found", worktree.RepoID)
 	}
 
-	logger.Warnf("🔄 Merging worktree %s back to main repository", worktree.Name)
+	logger.Infof("🔄 Merging worktree %s back to main repository", worktree.Name)
 
 	// Ensure we have full history for merge operations
 	s.fetchFullHistory(worktree)
@@ -1484,7 +1484,7 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 	pushArgs := []string{"push"}
 	if shouldForceUpdate {
 		pushArgs = append(pushArgs, "--force")
-		logger.Warnf("🔄 Updating existing preview branch %s", previewBranchName)
+		logger.Infof("🔄 Updating existing preview branch %s", previewBranchName)
 	}
 	pushArgs = append(pushArgs, repo.Path, fmt.Sprintf("%s:refs/heads/%s", worktree.Branch, previewBranchName))
 
@@ -1521,7 +1521,7 @@ func (s *GitService) shouldForceUpdatePreviewBranch(repoPath, previewBranchName 
 	}
 
 	lastCommitMessage := strings.TrimSpace(string(output))
-	logger.Warnf("🔄 Found existing preview branch %s with commit: '%s' - will force update", previewBranchName, lastCommitMessage)
+	logger.Infof("🔄 Found existing preview branch %s with commit: '%s' - will force update", previewBranchName, lastCommitMessage)
 	return true, nil
 }
 
@@ -1673,7 +1673,7 @@ func (s *GitService) RefreshWorktreeStatus(workDir string) error {
 			// Trigger cache refresh if available
 			if s.worktreeCache != nil {
 				s.worktreeCache.ForceRefresh(worktree.ID)
-				logger.Warnf("🔄 Triggered worktree status refresh for %s", worktree.Name)
+				logger.Infof("🔄 Triggered worktree status refresh for %s", worktree.Name)
 			}
 			return nil
 		}
@@ -1729,7 +1729,7 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 	}
 
 	// Always fetch the latest state for checkout operations (full history)
-	logger.Warnf("🔄 Fetching latest state for branch %s", branch)
+	logger.Infof("🔄 Fetching latest state for branch %s", branch)
 	if err := s.fetchBranch(repo.Path, git.FetchStrategy{
 		Branch:         branch,
 		UpdateLocalRef: true,
@@ -1897,7 +1897,7 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 	}
 	s.mu.RUnlock()
 
-	logger.Warnf("🔄 Creating pull request for worktree %s", worktree.Name)
+	logger.Infof("🔄 Creating pull request for worktree %s", worktree.Name)
 
 	// Check if base branch exists on remote and push if needed
 	if err := s.ensureBaseBranchOnRemote(worktree, repo); err != nil {
@@ -1951,7 +1951,7 @@ func (s *GitService) UpdatePullRequest(worktreeID, title, body string, forcePush
 	}
 	s.mu.RUnlock()
 
-	logger.Warnf("🔄 Updating pull request for worktree %s", worktree.Name)
+	logger.Infof("🔄 Updating pull request for worktree %s", worktree.Name)
 
 	// Check if base branch exists on remote and push if needed
 	if err := s.ensureBaseBranchOnRemote(worktree, repo); err != nil {
@@ -2007,7 +2007,7 @@ func (s *GitService) ensureBaseBranchOnRemote(worktree *models.Worktree, repo *m
 
 		// Check if base branch exists on remote
 		if err := s.checkBaseBranchOnRemote(worktree, remoteURL); err != nil {
-			logger.Warnf("🔄 Base branch %s not found on remote, pushing it", worktree.SourceBranch)
+			logger.Infof("🔄 Base branch %s not found on remote, pushing it", worktree.SourceBranch)
 			if err := s.pushBaseBranchToRemote(worktree, repo, remoteURL); err != nil {
 				return fmt.Errorf("failed to push base branch to remote: %v", err)
 			}
@@ -2063,7 +2063,7 @@ func (s *GitService) fetchBaseBranchFromOrigin(worktree *models.Worktree) error 
 
 // syncBranchWithUpstream syncs the current branch with upstream when push fails due to being behind
 func (s *GitService) syncBranchWithUpstream(worktree *models.Worktree) error {
-	logger.Warnf("🔄 Syncing branch %s with upstream due to push failure", worktree.Branch)
+	logger.Infof("🔄 Syncing branch %s with upstream due to push failure", worktree.Branch)
 
 	// First, fetch the latest changes from remote
 	if err := s.fetchBranch(worktree.Path, git.FetchStrategy{
@@ -2087,7 +2087,7 @@ func (s *GitService) syncBranchWithUpstream(worktree *models.Worktree) error {
 		return nil
 	}
 
-	logger.Warnf("🔄 Branch %s is %d commits behind remote, syncing", worktree.Branch, behindCount)
+	logger.Infof("🔄 Branch %s is %d commits behind remote, syncing", worktree.Branch, behindCount)
 
 	// Rebase our changes on top of the remote branch
 	output, err = s.runGitCommand(worktree.Path, "rebase", fmt.Sprintf("origin/%s", worktree.Branch))
@@ -2384,7 +2384,7 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 // This method manually restores worktrees by leveraging existing git metadata
 // instead of using `git worktree add` which fails due to registration conflicts
 func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Repository) error {
-	logger.Warnf("🔄 Manually restoring worktree %s at %s (from repo %s)", worktree.Name, worktree.Path, repo.Path)
+	logger.Infof("🔄 Manually restoring worktree %s at %s (from repo %s)", worktree.Name, worktree.Path, repo.Path)
 
 	// Step 1: Create the workspace directory
 	if err := os.MkdirAll(worktree.Path, 0755); err != nil {
@@ -2454,7 +2454,7 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 	logger.Infof("✅ Created .git file pointing to metadata: %s", gitFilePath)
 
 	// Step 4: Restore files from git index
-	logger.Warnf("🔄 Restoring files from git index...")
+	logger.Infof("🔄 Restoring files from git index...")
 	restoreCmd := []string{"restore", "."}
 	if _, err := s.operations.ExecuteGit(worktree.Path, restoreCmd...); err != nil {
 		logger.Warnf("❌ Failed to restore files in %s: %v", worktree.Path, err)
@@ -2474,7 +2474,7 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 
 	// Step 6: Recreate nice branch name for renamed worktrees
 	if worktree.HasBeenRenamed {
-		logger.Warnf("🔄 Worktree has been renamed, recreating nice branch name...")
+		logger.Infof("🔄 Worktree has been renamed, recreating nice branch name...")
 
 		// Get current branch (should be refs/catnip/workspacename)
 		currentBranchOutput, err := s.operations.ExecuteGit(worktree.Path, "rev-parse", "--symbolic-full-name", "HEAD")
