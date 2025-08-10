@@ -912,7 +912,7 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 		return nil, nil, fmt.Errorf("local repository %s not found - it may not be mounted", repoID)
 	}
 
-	// If no branch specified, use current branch
+	// If no branch specified, use repository's default branch
 	if branch == "" {
 		branch = localRepo.DefaultBranch
 	}

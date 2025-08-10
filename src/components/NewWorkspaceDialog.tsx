@@ -75,9 +75,7 @@ export function NewWorkspaceDialog({
       if (initialRepoUrl) {
         // Set initial values when dialog opens with pre-selected repo
         setGithubUrl(initialRepoUrl);
-        if (initialBranch) {
-          setSelectedBranch(initialBranch);
-        }
+        // Don't set initialBranch - let handleRepoChange determine the correct default branch
         // Immediately fetch branches for the initial repo
         void handleRepoChange(initialRepoUrl);
       }
