@@ -15,6 +15,13 @@ The integration works by:
 
 ## Installation
 
+### Prerequisites
+
+- `jq` command-line JSON processor (usually pre-installed on most systems)
+- `curl` for making HTTP requests
+
+### Setup
+
 1. Run the setup script to install the hooks:
 
    ```bash
