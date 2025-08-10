@@ -25,6 +25,7 @@ import (
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
+	"github.com/vanpelt/catnip/internal/tui"
 )
 
 // PTYHandler handles PTY WebSocket connections
@@ -79,6 +80,11 @@ type Session struct {
 	// Alternate screen buffer detection for TUI applications
 	AlternateScreenActive bool
 	LastNonTUIBufferSize  int
+	// Terminal emulator for Claude sessions (server-side terminal state)
+	terminalEmulator  *tui.TerminalEmulator
+	terminalMutex     sync.RWMutex
+	stateVersion      int64  // Version counter for terminal state changes
+	lastRenderedState string // Cache of last rendered state for diff computation
 }
 
 // ResizeMsg represents terminal resize message
@@ -452,36 +458,63 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				}
 			}
 
-			// Add to buffer (unlimited growth for TUI compatibility)
-			session.bufferMutex.Lock()
-			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
-				h.handleTitleUpdate(session, title)
-			}
+			var outputData []byte
 
-			// Check for localhost:XXXX patterns in terminal output and rewrite them
-			outputData := h.processTerminalOutput(buf[:n], session)
+			// For Claude sessions with terminal emulator, process through emulator
+			if session.Agent == "claude" && session.terminalEmulator != nil {
+				session.terminalMutex.Lock()
 
-			// Check for alternate screen buffer sequences (use original data for this)
-			if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
-				// Entering alternate screen - mark position for TUI buffer filtering
-				session.AlternateScreenActive = true
-				session.LastNonTUIBufferSize = len(session.outputBuffer)
-				logger.Infof("🖥️  Detected alternate screen buffer entry at position %d", session.LastNonTUIBufferSize)
-			}
-			if bytes.Contains(buf[:n], []byte("\x1b[?1049l")) {
-				// Exiting alternate screen
-				session.AlternateScreenActive = false
-				logger.Infof("🖥️  Detected alternate screen buffer exit")
-			}
+				// Feed raw PTY data to terminal emulator
+				session.terminalEmulator.Write(buf[:n])
 
-			// Don't buffer output for Claude agent sessions - they have their own session management
-			if session.Agent != "claude" {
+				// Get rendered terminal state
+				rendered := session.terminalEmulator.Render()
+
+				// Only send update if terminal state changed
+				if rendered != session.lastRenderedState {
+					session.stateVersion++
+					session.lastRenderedState = rendered
+					outputData = []byte(rendered)
+					logger.Debugf("🖥️  Terminal state updated (version %d) for Claude session %s", session.stateVersion, session.ID)
+				}
+
+				session.terminalMutex.Unlock()
+
+				// Extract title from original PTY data for Claude sessions
+				if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
+					h.handleTitleUpdate(session, title)
+				}
+			} else {
+				// Non-Claude sessions use traditional buffering approach
+				session.bufferMutex.Lock()
+
+				if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
+					h.handleTitleUpdate(session, title)
+				}
+
+				// Check for localhost:XXXX patterns in terminal output and rewrite them
+				outputData = h.processTerminalOutput(buf[:n], session)
+
+				// Check for alternate screen buffer sequences (use original data for this)
+				if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
+					// Entering alternate screen - mark position for TUI buffer filtering
+					session.AlternateScreenActive = true
+					session.LastNonTUIBufferSize = len(session.outputBuffer)
+					logger.Infof("🖥️  Detected alternate screen buffer entry at position %d", session.LastNonTUIBufferSize)
+				}
+				if bytes.Contains(buf[:n], []byte("\x1b[?1049l")) {
+					// Exiting alternate screen
+					session.AlternateScreenActive = false
+					logger.Infof("🖥️  Detected alternate screen buffer exit")
+				}
+
 				session.outputBuffer = append(session.outputBuffer, outputData...)
 				// Update buffered dimensions to current terminal size
 				session.bufferedCols = session.cols
 				session.bufferedRows = session.rows
+
+				session.bufferMutex.Unlock()
 			}
-			session.bufferMutex.Unlock()
 
 			// Check if connection is still valid before writing
 			select {
@@ -490,8 +523,10 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			default:
 			}
 
-			// Send to all connections (use the processed output with rewritten URLs)
-			session.broadcastToConnections(websocket.BinaryMessage, outputData)
+			// Send to all connections if we have data to send
+			if len(outputData) > 0 {
+				session.broadcastToConnections(websocket.BinaryMessage, outputData)
+			}
 		}
 	}()
 
@@ -516,67 +551,82 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				case "ready":
 					logger.Debugf("🎯 Client ready signal received")
 
-					// Get buffer info
-					session.bufferMutex.RLock()
-					hasBuffer := len(session.outputBuffer) > 0
-					bufferCols := session.bufferedCols
-					bufferRows := session.bufferedRows
-					session.bufferMutex.RUnlock()
+					// For Claude sessions with terminal emulator, send current terminal state
+					if session.Agent == "claude" && session.terminalEmulator != nil {
+						session.terminalMutex.RLock()
+						terminalState := session.terminalEmulator.Render()
+						session.terminalMutex.RUnlock()
 
-					if hasBuffer && bufferCols > 0 && bufferRows > 0 {
-						// First, resize PTY to match buffered dimensions
-						logger.Infof("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
-						_ = h.resizePTY(session.PTY, bufferCols, bufferRows)
-
-						// Tell client what size to use for replay
-						sizeMsg := struct {
-							Type string `json:"type"`
-							Cols uint16 `json:"cols"`
-							Rows uint16 `json:"rows"`
-						}{
-							Type: "buffer-size",
-							Cols: bufferCols,
-							Rows: bufferRows,
-						}
-
-						if data, err := json.Marshal(sizeMsg); err == nil {
-							_ = session.writeToConnection(conn, websocket.TextMessage, data)
-						}
-
-						// Then replay the buffer (filter TUI content if alternate screen is active)
-						session.bufferMutex.RLock()
-						var bufferToReplay []byte
-
-						if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
-							// Only replay content up to where alternate screen was entered
-							bufferToReplay = make([]byte, session.LastNonTUIBufferSize)
-							copy(bufferToReplay, session.outputBuffer[:session.LastNonTUIBufferSize])
-							logger.Debugf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
-						} else {
-							// Replay entire buffer for non-TUI sessions
-							bufferToReplay = make([]byte, len(session.outputBuffer))
-							copy(bufferToReplay, session.outputBuffer)
-							logger.Debugf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
-						}
-						session.bufferMutex.RUnlock()
-
-						if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferToReplay); err != nil {
-							logger.Warnf("❌ Failed to replay buffer: %v", err)
-						}
-
-						// If we filtered TUI content, send a refresh signal to trigger TUI repaint
-						if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
-							go func() {
-								time.Sleep(100 * time.Millisecond)
-								logger.Infof("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
-								if _, err := session.PTY.Write([]byte("\x0c")); err != nil {
-									logger.Warnf("❌ Failed to send refresh signal: %v", err)
-								}
-							}()
+						if terminalState != "" {
+							logger.Infof("🖥️  Sending complete terminal state to reconnected Claude client (%d bytes)", len(terminalState))
+							if err := session.writeToConnection(conn, websocket.BinaryMessage, []byte(terminalState)); err != nil {
+								logger.Warnf("❌ Failed to send terminal state: %v", err)
+							}
 						}
 					} else {
-						logger.Debugf("📋 No buffer to replay or dimensions not captured")
+						// Traditional buffer replay for non-Claude sessions
+						session.bufferMutex.RLock()
+						hasBuffer := len(session.outputBuffer) > 0
+						bufferCols := session.bufferedCols
+						bufferRows := session.bufferedRows
+						session.bufferMutex.RUnlock()
+
+						if hasBuffer && bufferCols > 0 && bufferRows > 0 {
+							// First, resize PTY to match buffered dimensions
+							logger.Infof("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
+							_ = h.resizePTY(session.PTY, bufferCols, bufferRows)
+
+							// Tell client what size to use for replay
+							sizeMsg := struct {
+								Type string `json:"type"`
+								Cols uint16 `json:"cols"`
+								Rows uint16 `json:"rows"`
+							}{
+								Type: "buffer-size",
+								Cols: bufferCols,
+								Rows: bufferRows,
+							}
+
+							if data, err := json.Marshal(sizeMsg); err == nil {
+								_ = session.writeToConnection(conn, websocket.TextMessage, data)
+							}
+
+							// Then replay the buffer (filter TUI content if alternate screen is active)
+							session.bufferMutex.RLock()
+							var bufferToReplay []byte
+
+							if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
+								// Only replay content up to where alternate screen was entered
+								bufferToReplay = make([]byte, session.LastNonTUIBufferSize)
+								copy(bufferToReplay, session.outputBuffer[:session.LastNonTUIBufferSize])
+								logger.Debugf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
+							} else {
+								// Replay entire buffer for non-TUI sessions
+								bufferToReplay = make([]byte, len(session.outputBuffer))
+								copy(bufferToReplay, session.outputBuffer)
+								logger.Debugf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
+							}
+							session.bufferMutex.RUnlock()
+
+							if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferToReplay); err != nil {
+								logger.Warnf("❌ Failed to replay buffer: %v", err)
+							}
+
+							// If we filtered TUI content, send a refresh signal to trigger TUI repaint
+							if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
+								go func() {
+									time.Sleep(100 * time.Millisecond)
+									logger.Infof("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
+									if _, err := session.PTY.Write([]byte("\x0c")); err != nil {
+										logger.Warnf("❌ Failed to send refresh signal: %v", err)
+									}
+								}()
+							}
+						} else {
+							logger.Debugf("📋 No buffer to replay or dimensions not captured")
+						}
 					}
+
 					// Always send buffer complete signal
 					completeMsg := struct {
 						Type string `json:"type"`
@@ -634,6 +684,15 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				session.cols = resizeMsg.Cols
 				session.rows = resizeMsg.Rows
 				_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
+
+				// Also resize terminal emulator for Claude sessions
+				if session.Agent == "claude" && session.terminalEmulator != nil {
+					session.terminalMutex.Lock()
+					session.terminalEmulator.Resize(int(resizeMsg.Cols), int(resizeMsg.Rows))
+					session.terminalMutex.Unlock()
+					logger.Debugf("🖥️  Resized terminal emulator to %dx%d for Claude session", resizeMsg.Cols, resizeMsg.Rows)
+				}
+
 				logger.Debugf("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
 				continue
 			}
@@ -825,6 +884,16 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		// Initialize alternate screen buffer detection
 		AlternateScreenActive: false,
 		LastNonTUIBufferSize:  0,
+		// Initialize terminal emulator for Claude sessions
+		terminalEmulator:  nil, // Will be initialized below for Claude sessions
+		stateVersion:      0,
+		lastRenderedState: "",
+	}
+
+	// Initialize terminal emulator for Claude sessions
+	if agent == "claude" {
+		session.terminalEmulator = tui.NewTerminalEmulator(int(session.cols), int(session.rows))
+		logger.Infof("🖥️  Terminal emulator initialized for Claude session: %s", sessionID)
 	}
 
 	h.sessions[sessionID] = session
@@ -1112,6 +1181,16 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	session.AlternateScreenActive = false
 	session.LastNonTUIBufferSize = 0
 	session.bufferMutex.Unlock()
+
+	// Reinitialize terminal emulator for Claude sessions
+	if session.Agent == "claude" {
+		session.terminalMutex.Lock()
+		session.terminalEmulator = tui.NewTerminalEmulator(int(session.cols), int(session.rows))
+		session.stateVersion = 0
+		session.lastRenderedState = ""
+		session.terminalMutex.Unlock()
+		logger.Infof("🖥️  Terminal emulator reinitialized for Claude session: %s", session.ID)
+	}
 
 	// Preserve the current title from the active session if it exists
 	if session.Agent == "claude" {
