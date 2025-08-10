@@ -142,13 +142,32 @@ func (s *GitService) cleanupUnusedBranches() {
 	}
 }
 
-// cleanupCatnipRefs provides comprehensive cleanup of refs/catnip/ namespace
+// cleanupCatnipRefs provides comprehensive cleanup of refs/catnip/ namespace, checking against state.json
 func (s *GitService) cleanupCatnipRefs() {
 	logger.Debug("🧹 Starting cleanup of catnip refs namespace...")
 
 	s.mu.RLock()
 	reposMap := s.stateManager.GetAllRepositories()
+	worktreesMap := s.stateManager.GetAllWorktrees()
 	s.mu.RUnlock()
+
+	// Build a set of workspace names that should be preserved
+	preservedWorkspaces := make(map[string]bool)
+	for _, worktree := range worktreesMap {
+		// Extract workspace name from display name (e.g., "catnip/mini-milo" -> "mini-milo")
+		if parts := strings.Split(worktree.Name, "/"); len(parts) >= 2 {
+			workspaceName := parts[len(parts)-1]
+			preservedWorkspaces[workspaceName] = true
+		}
+
+		// Also preserve if the branch is already a catnip ref
+		if strings.HasPrefix(worktree.Branch, "refs/catnip/") {
+			refName := strings.TrimPrefix(worktree.Branch, "refs/catnip/")
+			preservedWorkspaces[refName] = true
+		}
+	}
+
+	logger.Debugf("🔍 Preserving %d workspace refs: %v", len(preservedWorkspaces), preservedWorkspaces)
 
 	totalDeleted := 0
 
@@ -173,33 +192,43 @@ func (s *GitService) cleanupCatnipRefs() {
 				continue
 			}
 
-			// Check if there's an active worktree using this ref
+			// Extract workspace name from ref (refs/catnip/workspace-name)
+			refWorkspace := strings.TrimPrefix(ref, "refs/catnip/")
+
+			// Check if this workspace is tracked in state.json
+			if preservedWorkspaces[refWorkspace] {
+				logger.Debugf("🔒 Preserving tracked ref: %s", ref)
+				continue
+			}
+
+			// Double-check if there's an active worktree using this ref (fallback safety)
 			worktrees, err := s.operations.ListWorktrees(repo.Path)
 			if err == nil {
 				var skipRef bool
 				for _, wt := range worktrees {
 					if wt.Branch == ref {
 						skipRef = true
+						logger.Debugf("🔒 Preserving ref with active worktree: %s", ref)
 						break
 					}
 				}
 				if skipRef {
-					continue // Skip if ref is currently checked out in a worktree
+					continue
 				}
 			}
 
-			// Delete the ref using update-ref
+			// Delete the orphaned ref using update-ref
 			if _, err := s.operations.ExecuteGit(repo.Path, "update-ref", "-d", ref); err == nil {
 				deletedInRepo++
 				totalDeleted++
-				logger.Debugf("🗑️  Deleted catnip ref: %s in %s", ref, repo.ID)
+				logger.Debugf("🗑️  Deleted orphaned catnip ref: %s in %s", ref, repo.ID)
 			} else {
 				logger.Warnf("⚠️  Failed to delete catnip ref %s: %v", ref, err)
 			}
 		}
 
 		if deletedInRepo > 0 {
-			logger.Infof("✅ Cleaned up %d catnip refs in %s", deletedInRepo, repo.ID)
+			logger.Infof("✅ Cleaned up %d orphaned catnip refs in %s", deletedInRepo, repo.ID)
 			// Run garbage collection to clean up unreachable objects
 			if err := s.operations.GarbageCollect(repo.Path); err != nil {
 				logger.Warnf("⚠️ Failed to run garbage collection for %s: %v", repo.ID, err)
@@ -208,7 +237,7 @@ func (s *GitService) cleanupCatnipRefs() {
 	}
 
 	if totalDeleted > 0 {
-		logger.Infof("🧹 Catnip refs cleanup complete: removed %d refs", totalDeleted)
+		logger.Infof("🧹 Catnip refs cleanup complete: removed %d orphaned refs", totalDeleted)
 	} else {
 		logger.Debug("✅ No orphaned catnip refs found")
 	}
