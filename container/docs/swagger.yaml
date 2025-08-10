@@ -788,6 +788,7 @@ definitions:
     - worktree:deleted
     - worktree:todos_updated
     - session:title_updated
+    - claude:activity_state_changed
     type: string
     x-enum-varnames:
     - PortOpenedEvent
@@ -808,6 +809,7 @@ definitions:
     - WorktreeDeletedEvent
     - WorktreeTodosUpdatedEvent
     - SessionTitleUpdatedEvent
+    - ClaudeActivityStateChangedEvent
   internal_handlers.GitHubRepository:
     description: GitHub repository information from the GitHub API
     properties:
