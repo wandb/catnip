@@ -1,25 +1,28 @@
-import { createRoot } from 'react-dom/client'
-import { RouterProvider, createRouter } from '@tanstack/react-router'
-import './index.css'
+import { createRoot } from "react-dom/client";
+import { RouterProvider, createRouter } from "@tanstack/react-router";
+import { HelmetProvider } from "react-helmet-async";
+import "./index.css";
 
 // Import the generated route tree
-import { routeTree } from './routeTree.gen'
+import { routeTree } from "./routeTree.gen";
 
 // Create a new router instance with dynamic base path support
-const basePath = (window as any).__PROXY_BASE_PATH__ || '/'
-console.log('🔧 Router basePath detected:', basePath)
-const router = createRouter({ 
+const basePath = (window as any).__PROXY_BASE_PATH__ || "/";
+console.log("🔧 Router basePath detected:", basePath);
+const router = createRouter({
   routeTree,
-  basepath: basePath === '/' ? undefined : basePath.slice(0, -1) // Remove trailing slash for TanStack Router
-})
+  basepath: basePath === "/" ? undefined : basePath.slice(0, -1), // Remove trailing slash for TanStack Router
+});
 
 // Register the router instance for type safety
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router
+    router: typeof router;
   }
 }
 
-createRoot(document.getElementById('root')!).render(
-  <RouterProvider router={router} />
-)
+createRoot(document.getElementById("root")!).render(
+  <HelmetProvider>
+    <RouterProvider router={router} />
+  </HelmetProvider>,
+);

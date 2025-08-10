@@ -3,6 +3,7 @@ import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { Helmet } from "react-helmet-async";
 import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
@@ -550,8 +551,16 @@ export function WorkspaceMainContent({
     setIsTerminalMinimized(!isTerminalMinimized);
   }, [isTerminalMinimized, terminalSize]);
 
+  // Generate page title based on session title
+  const pageTitle = worktree.session_title?.title
+    ? `${worktree.session_title.title} - Catnip`
+    : `${worktree.name} - Catnip`;
+
   return (
     <div className="flex flex-1 flex-col h-screen overflow-hidden">
+      <Helmet>
+        <title>{pageTitle}</title>
+      </Helmet>
       <ResizablePanelGroup
         direction="vertical"
         className="h-full"

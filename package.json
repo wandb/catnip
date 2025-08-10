@@ -64,6 +64,7 @@
     "react-day-picker": "^9.8.1",
     "react-diff-viewer-continued": "^3.4.0",
     "react-dom": "^19.1.1",
+    "react-helmet-async": "^2.0.5",
     "react-hotkeys-hook": "^5.1.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^3.0.4",
