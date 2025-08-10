@@ -114,7 +114,7 @@ func NewAuthHandlerWithChecker(checker GitHubAuthChecker) *AuthHandler {
 }
 
 // readGitHubHosts reads the GitHub CLI hosts.yml file
-func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
+func (d *DefaultGitHubAuthChecker) readGitHubHosts() (*AuthUser, error) {
 	hostsPath := filepath.Join(config.Runtime.HomeDir, ".config", "gh", "hosts.yml")
 
 	data, err := os.ReadFile(hostsPath)
@@ -132,7 +132,7 @@ func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
 	}
 
 	// Get token scopes using gh command
-	scopes := h.getTokenScopes()
+	scopes := d.getTokenScopes()
 
 	return &AuthUser{
 		Username: hosts.GitHubCom.User,
@@ -141,7 +141,7 @@ func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
 }
 
 // runGitHubAuthStatus runs gh auth status command
-func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
+func (d *DefaultGitHubAuthChecker) runGitHubAuthStatus() (*AuthUser, error) {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status --show-token 2>/dev/null")
 
 	// In containerized mode, override HOME for catnip user
@@ -178,7 +178,7 @@ func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
 }
 
 // getTokenScopes gets the token scopes from gh auth status
-func (h *AuthHandler) getTokenScopes() []string {
+func (d *DefaultGitHubAuthChecker) getTokenScopes() []string {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status 2>&1 | grep 'Token scopes'")
 
 	// In containerized mode, override HOME for catnip user
