@@ -99,11 +99,13 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 	homeDir := config.Runtime.HomeDir
 	volumeDir := config.Runtime.VolumeDir
 	return &ClaudeService{
-		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
-		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
-		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
-		subprocessWrapper: wrapper,
-		lastActivity:      make(map[string]time.Time),
+		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
+		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
+		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		subprocessWrapper:    wrapper,
+		lastActivity:         make(map[string]time.Time),
+		lastUserPromptSubmit: make(map[string]time.Time),
+		lastStopEvent:        make(map[string]time.Time),
 	}
 }
 
@@ -977,18 +979,39 @@ func (s *ClaudeService) IsActiveSession(worktreePath string, within time.Duratio
 
 // HandleHookEvent processes Claude Code hook events for activity tracking
 func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
+	s.activityMutex.Lock()
+	defer s.activityMutex.Unlock()
+
+	now := time.Now()
+
 	switch event.EventType {
 	case "UserPromptSubmit":
-		// Mark session as active when user submits a prompt
-		s.UpdateActivity(event.WorkingDirectory)
+		// Track both general activity and specific prompt submit
+		s.lastActivity[event.WorkingDirectory] = now
+		s.lastUserPromptSubmit[event.WorkingDirectory] = now
 		return nil
 	case "Stop":
-		// Update activity but don't mark as inactive - let normal timeout handle transition
-		s.UpdateActivity(event.WorkingDirectory)
+		// Track both general activity and specific stop event
+		s.lastActivity[event.WorkingDirectory] = now
+		s.lastStopEvent[event.WorkingDirectory] = now
 		return nil
 	default:
-		// For other events, just update activity timestamp
-		s.UpdateActivity(event.WorkingDirectory)
+		// For other events, just update general activity timestamp
+		s.lastActivity[event.WorkingDirectory] = now
 		return nil
 	}
+}
+
+// GetLastUserPromptSubmit returns the last UserPromptSubmit event time for a worktree
+func (s *ClaudeService) GetLastUserPromptSubmit(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastUserPromptSubmit[worktreePath]
+}
+
+// GetLastStopEvent returns the last Stop event time for a worktree
+func (s *ClaudeService) GetLastStopEvent(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastStopEvent[worktreePath]
 }
