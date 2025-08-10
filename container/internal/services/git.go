@@ -832,6 +832,21 @@ func (s *GitService) detectLocalRepos() {
 
 	// Add detected repos to our repository map via state manager
 	for repoID, repo := range repos {
+		// Check if repository already exists in state and update default branch if needed
+		if existingRepo, exists := s.stateManager.GetRepository(repoID); exists {
+			// Update default branch if it has changed
+			if existingRepo.DefaultBranch != repo.DefaultBranch {
+				logger.Infof("🔄 Updating default branch for %s: %s -> %s", repoID, existingRepo.DefaultBranch, repo.DefaultBranch)
+				existingRepo.DefaultBranch = repo.DefaultBranch
+				existingRepo.LastAccessed = repo.LastAccessed
+				repo = existingRepo // Use the existing repo with updated default branch
+			} else {
+				// Just update LastAccessed
+				existingRepo.LastAccessed = repo.LastAccessed
+				repo = existingRepo
+			}
+		}
+
 		if err := s.stateManager.AddRepository(repo); err != nil {
 			logger.Warnf("⚠️ Failed to add repository %s to state: %v", repoID, err)
 			continue
@@ -888,20 +903,13 @@ func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
 	return true
 }
 
-// getLocalRepoDefaultBranch gets the current branch of a local repo
+// getLocalRepoDefaultBranch delegates to git helper for determining the actual default branch
 func (s *GitService) getLocalRepoDefaultBranch(repoPath string) string {
-	output, err := s.runGitCommand(repoPath, "branch", "--show-current")
-	if err != nil {
-		logger.Warnf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
-		return "main"
-	}
-
-	branch := strings.TrimSpace(string(output))
-	if branch == "" {
-		return "main"
-	}
-
-	return branch
+	// Use the shared git helper function to determine the default branch
+	// This ensures consistent logic across the codebase
+	defaultBranch := git.GetDefaultBranch(s.operations, repoPath)
+	logger.Debugf("🔍 Determined default branch for %s: %s", repoPath, defaultBranch)
+	return defaultBranch
 }
 
 // handleLocalRepoWorktree creates a worktree for any local repo
@@ -912,7 +920,7 @@ func (s *GitService) handleLocalRepoWorktree(repoID, branch string) (*models.Rep
 		return nil, nil, fmt.Errorf("local repository %s not found - it may not be mounted", repoID)
 	}
 
-	// If no branch specified, use current branch
+	// If no branch specified, use repository's default branch
 	if branch == "" {
 		branch = localRepo.DefaultBranch
 	}

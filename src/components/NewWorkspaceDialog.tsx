@@ -75,9 +75,7 @@ export function NewWorkspaceDialog({
       if (initialRepoUrl) {
         // Set initial values when dialog opens with pre-selected repo
         setGithubUrl(initialRepoUrl);
-        if (initialBranch) {
-          setSelectedBranch(initialBranch);
-        }
+        // Don't set initialBranch - let handleRepoChange determine the correct default branch
         // Immediately fetch branches for the initial repo
         void handleRepoChange(initialRepoUrl);
       }
@@ -230,7 +228,9 @@ export function NewWorkspaceDialog({
   // Handle repo selection change - fetch branches for the selected repo
   const handleRepoChange = async (url: string) => {
     setGithubUrl(url);
-    setSelectedBranch("");
+    // Don't clear selected branch - we'll validate it after fetching branches
+    // This preserves the user's branch selection when switching between repos
+    // that might have the same branch names (e.g., main, master)
     setSelectedRepoBranches([]);
 
     if (!url) return;
@@ -255,18 +255,39 @@ export function NewWorkspaceDialog({
         repoId = currentRepo.id;
         branches = await gitApi.fetchBranches(repoId);
 
-        // Always prioritize the repo's default branch
-        if (
-          currentRepo.default_branch &&
-          branches.includes(currentRepo.default_branch)
-        ) {
-          setSelectedBranch(currentRepo.default_branch);
-        } else if (branches.length > 0) {
-          // Look for common default branch names first
-          const defaultCandidate = branches.find(
-            (branch) => branch === "main" || branch === "master",
-          );
-          setSelectedBranch(defaultCandidate || branches[0]);
+        // Only set default branch if no branch is currently selected
+        // This respects user selections while providing a sensible default
+        if (!selectedBranch) {
+          if (
+            currentRepo.default_branch &&
+            branches.includes(currentRepo.default_branch)
+          ) {
+            setSelectedBranch(currentRepo.default_branch);
+          } else if (branches.length > 0) {
+            // Look for common default branch names first
+            const defaultCandidate = branches.find(
+              (branch) => branch === "main" || branch === "master",
+            );
+            setSelectedBranch(defaultCandidate || branches[0]);
+          }
+        } else {
+          // Verify the selected branch still exists in the new repo's branches
+          if (!branches.includes(selectedBranch)) {
+            // Selected branch doesn't exist in this repo, reset to default
+            if (
+              currentRepo.default_branch &&
+              branches.includes(currentRepo.default_branch)
+            ) {
+              setSelectedBranch(currentRepo.default_branch);
+            } else if (branches.length > 0) {
+              const defaultCandidate = branches.find(
+                (branch) => branch === "main" || branch === "master",
+              );
+              setSelectedBranch(defaultCandidate || branches[0]);
+            } else {
+              setSelectedBranch("");
+            }
+          }
         }
       } else {
         // For remote GitHub repos that haven't been checked out yet
@@ -286,13 +307,23 @@ export function NewWorkspaceDialog({
           repoId = repoPath;
           branches = await gitApi.fetchBranches(repoId);
 
-          // For remote repos, prioritize default branches (main/master)
-          if (branches.length > 0) {
+          // For remote repos, only set default if no branch is selected
+          if (!selectedBranch && branches.length > 0) {
             // Look for common default branch names
             const defaultBranch = branches.find(
               (branch) => branch === "main" || branch === "master",
             );
             setSelectedBranch(defaultBranch || branches[0]);
+          } else if (selectedBranch && !branches.includes(selectedBranch)) {
+            // Selected branch doesn't exist in this repo, reset to default
+            if (branches.length > 0) {
+              const defaultBranch = branches.find(
+                (branch) => branch === "main" || branch === "master",
+              );
+              setSelectedBranch(defaultBranch || branches[0]);
+            } else {
+              setSelectedBranch("");
+            }
           }
         }
       }

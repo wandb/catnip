@@ -17,6 +17,26 @@ definitions:
         additionalProperties: {}
         type: object
     type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeHookEvent:
+    description: Claude Code hook event for activity tracking
+    properties:
+      data:
+        additionalProperties: true
+        description: Additional event-specific data
+        type: object
+      event_type:
+        description: Type of the hook event (UserPromptSubmit, Stop, etc.)
+        example: UserPromptSubmit
+        type: string
+      session_id:
+        description: Session ID if available
+        example: abc123-def456-ghi789
+        type: string
+      working_directory:
+        description: Working directory where the event occurred
+        example: /workspace/my-project
+        type: string
+    type: object
   github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage:
     properties:
       cwd:
@@ -973,6 +993,30 @@ paths:
       summary: Get authentication status
       tags:
       - auth
+  /v1/claude/hooks:
+    post:
+      consumes:
+      - application/json
+      description: Receives hook notifications from Claude Code for activity tracking
+      parameters:
+      - description: Claude hook event
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHookEvent'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Handle Claude hook events
+      tags:
+      - claude
   /v1/claude/messages:
     post:
       consumes:

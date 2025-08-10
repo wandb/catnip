@@ -63,23 +63,30 @@ func Configure(level LogLevel, isDev bool) {
 			},
 			FormatLevel: func(i interface{}) string {
 				var l string
+				var color string
 				if ll, ok := i.(string); ok {
 					switch ll {
 					case "debug":
 						l = "DBG"
+						color = "\033[90m" // Gray
 					case "info":
 						l = "INF"
+						color = "\033[37m" // White
 					case "warn":
 						l = "WRN"
+						color = "\033[33m" // Orange/Yellow
 					case "error":
 						l = "ERR"
+						color = "\033[31m" // Red
 					case "fatal":
 						l = "FTL"
+						color = "\033[1;31m" // Bold Red
 					default:
 						l = strings.ToUpper(ll)
+						color = "\033[37m" // Default to white
 					}
 				}
-				return l
+				return fmt.Sprintf("%s%s\033[0m", color, l)
 			},
 			FormatTimestamp: func(i interface{}) string {
 				if ts, ok := i.(string); ok {
@@ -139,23 +146,30 @@ func ConfigureForTUI(level LogLevel, isDev bool) {
 			},
 			FormatLevel: func(i interface{}) string {
 				var l string
+				var color string
 				if ll, ok := i.(string); ok {
 					switch ll {
 					case "debug":
 						l = "DBG"
+						color = "\033[90m" // Gray
 					case "info":
 						l = "INF"
+						color = "\033[37m" // White
 					case "warn":
 						l = "WRN"
+						color = "\033[33m" // Orange/Yellow
 					case "error":
 						l = "ERR"
+						color = "\033[31m" // Red
 					case "fatal":
 						l = "FTL"
+						color = "\033[1;31m" // Bold Red
 					default:
 						l = strings.ToUpper(ll)
+						color = "\033[37m" // Default to white
 					}
 				}
-				return l
+				return fmt.Sprintf("%s%s\033[0m", color, l)
 			},
 			FormatTimestamp: func(i interface{}) string {
 				if ts, ok := i.(string); ok {

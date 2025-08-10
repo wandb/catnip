@@ -236,20 +236,11 @@ func (lrm *LocalRepoManager) ShouldCreateInitialWorktree(repoID string) bool {
 	return true
 }
 
-// getLocalRepoDefaultBranch gets the current branch of a local repo
+// getLocalRepoDefaultBranch delegates to git helper for determining the actual default branch
 func (lrm *LocalRepoManager) getLocalRepoDefaultBranch(repoPath string) string {
-	output, err := lrm.operations.ExecuteGit(repoPath, "branch", "--show-current")
-	if err != nil {
-		logger.Warnf("⚠️ Could not get current branch for repo at %s, using fallback: main", repoPath)
-		return "main"
-	}
-
-	branch := strings.TrimSpace(string(output))
-	if branch == "" {
-		return "main"
-	}
-
-	return branch
+	// Use the git helper function to determine the default branch
+	// This ensures consistent logic across the codebase
+	return git.GetDefaultBranch(lrm.operations, repoPath)
 }
 
 // shouldForceUpdatePreviewBranch determines if we should force-update an existing preview branch

@@ -417,3 +417,60 @@ func FindGitRoot(startDir string) (string, bool) {
 
 	return "", false
 }
+
+// GetDefaultBranch determines the actual default branch of a repository
+// It tries multiple methods in order of reliability:
+// 1. Check refs/remotes/origin/HEAD
+// 2. Query remote for HEAD branch
+// 3. Check for common default branch names (main, master)
+// 4. Fall back to current branch as last resort
+func GetDefaultBranch(ops Operations, repoPath string) string {
+	// Try to get the default branch from the remote HEAD reference
+	// This gives us the actual default branch of the repository
+	output, err := ops.ExecuteGit(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
+	if err == nil {
+		// Output format: refs/remotes/origin/main
+		branch := strings.TrimSpace(string(output))
+		branch = strings.TrimPrefix(branch, "refs/remotes/origin/")
+		if branch != "" && branch != "HEAD" {
+			return branch
+		}
+	}
+
+	// If no origin/HEAD, try to get it from remote
+	output, err = ops.ExecuteGit(repoPath, "remote", "show", "origin")
+	if err == nil {
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "HEAD branch:") {
+				parts := strings.Split(line, ":")
+				if len(parts) >= 2 {
+					branch := strings.TrimSpace(parts[1])
+					if branch != "" {
+						return branch
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback: Check if main or master exists
+	if ops.BranchExists(repoPath, "main", false) {
+		return "main"
+	}
+	if ops.BranchExists(repoPath, "master", false) {
+		return "master"
+	}
+
+	// Last resort: get the current branch
+	output, err = ops.ExecuteGit(repoPath, "branch", "--show-current")
+	if err == nil {
+		branch := strings.TrimSpace(string(output))
+		if branch != "" {
+			return branch
+		}
+	}
+
+	// Ultimate fallback
+	return "main"
+}

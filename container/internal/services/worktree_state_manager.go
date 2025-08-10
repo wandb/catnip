@@ -490,8 +490,21 @@ func (wsm *WorktreeStateManager) saveStateInternal() error {
 	}
 
 	stateFile := filepath.Join(wsm.stateDir, "state.json")
+	backupFile := filepath.Join(wsm.stateDir, "state.json.backup")
+
 	if err := os.MkdirAll(wsm.stateDir, 0755); err != nil {
 		return err
+	}
+
+	// Create backup of existing state file before writing new one
+	if _, err := os.Stat(stateFile); err == nil {
+		// State file exists, create backup
+		if err := copyFile(stateFile, backupFile); err != nil {
+			logger.Warnf("⚠️ Failed to create state backup: %v", err)
+			// Continue with write anyway - backup failure shouldn't prevent state saving
+		} else {
+			logger.Debugf("📦 Created state backup: %s", backupFile)
+		}
 	}
 
 	return os.WriteFile(stateFile, data, 0644)

@@ -3,6 +3,7 @@ import { useXTerm } from "react-xtermjs";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
+import { Helmet } from "react-helmet-async";
 import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
@@ -159,8 +160,12 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
     isSetup.current = true;
 
-    // Always clear terminal on new connections to ensure clean state
-    instance.clear();
+    // For first connections, clear terminal to ensure clean state
+    // For reconnections, don't clear - we want to preserve state until we get fresh data
+    if (isFirstConnection.current) {
+      instance.clear();
+      isFirstConnection.current = false;
+    }
 
     // Set up WebSocket connection for Claude agent in the workspace directory
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -225,6 +230,8 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
                 instance.write(chunk);
               }
               buffer.length = 0;
+            } else {
+              // For Claude sessions with no buffer data, don't clear - keep existing content
             }
 
             // Reset buffering flag so new data can be written
@@ -239,11 +246,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
                   // Force a full refresh after fit to fix any rendering issues
                   instance.refresh(0, instance.rows - 1);
                 }
-                // Send current dimensions after everything is settled
-                const dims = { cols: instance.cols, rows: instance.rows };
-                wsRef.current?.send(
-                  JSON.stringify({ type: "resize", ...dims }),
-                );
+                // Dimensions will be sent by the resize listener when fit() completes
               });
             }, 50);
             return;
@@ -548,8 +551,16 @@ export function WorkspaceMainContent({
     setIsTerminalMinimized(!isTerminalMinimized);
   }, [isTerminalMinimized, terminalSize]);
 
+  // Generate page title based on session title
+  const pageTitle = worktree.session_title?.title
+    ? `${worktree.session_title.title} - Catnip`
+    : `${worktree.name} - Catnip`;
+
   return (
     <div className="flex flex-1 flex-col h-screen overflow-hidden">
+      <Helmet>
+        <title>{pageTitle}</title>
+      </Helmet>
       <ResizablePanelGroup
         direction="vertical"
         className="h-full"

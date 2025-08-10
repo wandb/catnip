@@ -1,14 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/logger"
-	catniplogger "github.com/vanpelt/catnip/internal/logger"
 )
 
 // SamplingLogger creates a custom logger middleware that samples certain endpoints and filters frontend assets
@@ -16,11 +15,6 @@ func SamplingLogger() fiber.Handler {
 	// Counter for /v1/ports endpoint
 	var portsCounter uint64
 	var counterMu sync.Mutex
-
-	// Default logger for most endpoints
-	defaultLogger := logger.New(logger.Config{
-		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path} | ${error}\n",
-	})
 
 	// Regex patterns for requests we want to keep logging
 	proxyPattern := regexp.MustCompile(`^/\d+/`)           // /1234/anything
@@ -43,8 +37,13 @@ func SamplingLogger() fiber.Handler {
 		return false
 	}
 
-	shouldLogRequest := func(path string) bool {
-		// Always log API endpoints
+	shouldLogRequest := func(c *fiber.Ctx, path string) bool {
+		// Skip /health endpoint unless it's not returning 200
+		if path == "/health" && c.Response().StatusCode() == 200 {
+			return false
+		}
+
+		// Always log API endpoints (except /health which is handled above)
 		if strings.HasPrefix(path, "/v1/") {
 			return true
 		}
@@ -64,12 +63,17 @@ func SamplingLogger() fiber.Handler {
 			return true
 		}
 
+		// Filter out development source files (Vite dev server)
+		if strings.HasPrefix(path, "/src/") || strings.HasPrefix(path, "/node_modules/") || strings.HasPrefix(path, "/@") {
+			return false
+		}
+
 		// Filter out frontend assets
 		if isAssetRequest(path) {
 			return false
 		}
 
-		// Log everything else by default (health checks, root requests, etc.)
+		// Log everything else by default (root requests, etc.)
 		return true
 	}
 
@@ -89,8 +93,9 @@ func SamplingLogger() fiber.Handler {
 				err := c.Next()
 				duration := time.Since(start)
 
-				// Log a summary instead of individual request
-				catniplogger.Debugf("%d | %v | %s | %s | %s | - [sampled: %d calls]",
+				// Log a summary instead of individual request (using direct fmt.Printf for consistency)
+				fmt.Printf("%s | \033[32m%d\033[0m | %v | %s | \033[96m%s\033[0m | %s | - [sampled: %d calls]\n",
+					time.Now().Format("15:04:05"),
 					c.Response().StatusCode(),
 					duration,
 					c.IP(),
@@ -110,13 +115,54 @@ func SamplingLogger() fiber.Handler {
 			return c.Next()
 		}
 
-		// Check if we should log this request
-		if !shouldLogRequest(path) {
-			// Skip logging for frontend assets, just process the request
-			return c.Next()
+		// Capture start time for duration measurement
+		start := time.Now()
+
+		// Process the request
+		err := c.Next()
+
+		// Calculate duration
+		duration := time.Since(start)
+
+		// Check if we should log this request (after we have the response status)
+		if !shouldLogRequest(c, path) {
+			// Skip logging for filtered requests
+			return err
 		}
 
-		// Use default logger for all other endpoints
-		return defaultLogger(c)
+		// Log the request details using Fiber-style format
+		errMsg := "-"
+		if err != nil {
+			errMsg = err.Error()
+		}
+
+		// Format the log message directly without log level prefix for request logs
+		statusCode := c.Response().StatusCode()
+		var statusColor string
+		switch {
+		case statusCode >= 500:
+			statusColor = "\033[31m" // Red for 5xx
+		case statusCode >= 400:
+			statusColor = "\033[33m" // Yellow for 4xx
+		case statusCode >= 300:
+			statusColor = "\033[36m" // Cyan for 3xx
+		case statusCode >= 200:
+			statusColor = "\033[32m" // Green for 2xx
+		default:
+			statusColor = "\033[35m" // Magenta for 1xx
+		}
+
+		// Print directly to match Fiber's format (no log level prefix for request logs)
+		fmt.Printf("%s | %s%d\033[0m | %v | %s | \033[96m%s\033[0m | %s | %s\n",
+			time.Now().Format("15:04:05"),
+			statusColor,
+			statusCode,
+			duration,
+			c.IP(),
+			c.Method(),
+			path,
+			errMsg)
+
+		return err
 	}
 }
