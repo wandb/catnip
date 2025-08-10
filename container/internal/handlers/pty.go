@@ -79,6 +79,8 @@ type Session struct {
 	// Alternate screen buffer detection for TUI applications
 	AlternateScreenActive bool
 	LastNonTUIBufferSize  int
+	// Session-level PTY reading control
+	ptyReadDone chan struct{}
 	// Terminal emulator for Claude sessions (server-side terminal state)
 }
 
@@ -397,119 +399,6 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		// Safe close with error handling
 		if err := conn.Close(); err != nil {
 			logger.Warnf("❌ Error closing websocket connection: %v", err)
-		}
-	}()
-
-	// Start goroutine to read from PTY and send to WebSocket
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				logger.Errorf("❌ Recovered from panic in PTY read goroutine: %v", r)
-			}
-		}()
-
-		buf := make([]byte, 1024)
-		for {
-			select {
-			case <-done:
-				return
-			default:
-			}
-
-			n, err := session.PTY.Read(buf)
-			if err != nil {
-				// Check for various exit conditions
-				if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
-					// For setup sessions, don't recreate - they're meant to exit after showing the log
-					if session.Agent == "setup" {
-						logger.Infof("✅ Setup session completed normally, not recreating: %s", session.ID)
-						return
-					}
-
-					// Rate limit recreation to prevent CPU pegging
-					now := time.Now()
-					if now.Sub(session.LastRecreation) < time.Second {
-						logger.Infof("⏸️ Rate limiting PTY recreation for session %s (last recreation: %v ago)", session.ID, now.Sub(session.LastRecreation))
-						time.Sleep(time.Second)
-						continue
-					}
-					session.LastRecreation = now
-
-					logger.Infof("🔄 PTY closed (shell exited: %v), creating new session...", err)
-
-					// Create new PTY (this will clear the buffer)
-					h.recreateSession(session)
-
-					// Continue reading from new PTY
-					continue
-				}
-				logger.Errorf("❌ PTY read error: %v", err)
-				return
-			}
-
-			// Update Claude activity timestamp when we see output from Claude sessions
-			if session.Agent == "claude" && n > 0 && h.claudeMonitor != nil {
-				if claudeService := h.claudeMonitor.GetClaudeService(); claudeService != nil {
-					claudeService.UpdateActivity(session.WorkDir)
-				}
-			}
-
-			var outputData []byte
-
-			// Extract title from PTY data for Claude sessions
-			if session.Agent == "claude" {
-				if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
-					h.handleTitleUpdate(session, title)
-				}
-			}
-
-			// Process terminal output based on session type
-			if session.Agent != "claude" {
-				// Non-Claude sessions use traditional buffering approach with port detection
-				session.bufferMutex.Lock()
-
-				if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
-					h.handleTitleUpdate(session, title)
-				}
-
-				// Check for localhost:XXXX patterns in terminal output and register ports
-				outputData = h.processTerminalOutput(buf[:n], session)
-
-				// Check for alternate screen buffer sequences (use original data for this)
-				if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
-					// Entering alternate screen - mark position for TUI buffer filtering
-					session.AlternateScreenActive = true
-					session.LastNonTUIBufferSize = len(session.outputBuffer)
-					logger.Infof("🖥️  Detected alternate screen buffer entry at position %d", session.LastNonTUIBufferSize)
-				}
-				if bytes.Contains(buf[:n], []byte("\x1b[?1049l")) {
-					// Exiting alternate screen
-					session.AlternateScreenActive = false
-					logger.Infof("🖥️  Detected alternate screen buffer exit")
-				}
-
-				session.outputBuffer = append(session.outputBuffer, outputData...)
-				// Update buffered dimensions to current terminal size
-				session.bufferedCols = session.cols
-				session.bufferedRows = session.rows
-
-				session.bufferMutex.Unlock()
-			} else {
-				// Claude sessions: send raw data with no processing or buffering
-				outputData = buf[:n]
-			}
-
-			// Check if connection is still valid before writing
-			select {
-			case <-done:
-				return
-			default:
-			}
-
-			// Send to all connections if we have data to send
-			if len(outputData) > 0 {
-				session.broadcastToConnections(websocket.BinaryMessage, outputData)
-			}
 		}
 	}()
 
@@ -874,6 +763,8 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		// Initialize alternate screen buffer detection
 		AlternateScreenActive: false,
 		LastNonTUIBufferSize:  0,
+		// Initialize session-level PTY reading control
+		ptyReadDone: make(chan struct{}),
 	}
 
 	h.sessions[sessionID] = session
@@ -919,7 +810,120 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Start checkpoint monitoring for all sessions
 	go h.monitorCheckpoints(session)
 
+	// Start session-level PTY reading to prevent Claude from being blocked
+	go h.readPTYContinuously(session)
+
 	return session
+}
+
+// readPTYContinuously continuously reads from the PTY to prevent blocking Claude
+// even when no WebSocket connections are active
+func (h *PTYHandler) readPTYContinuously(session *Session) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("❌ Recovered from panic in continuous PTY reader: %v", r)
+		}
+	}()
+
+	logger.Debugf("🔄 Starting continuous PTY reader for session: %s", session.ID)
+	buf := make([]byte, 1024)
+
+	for {
+		select {
+		case <-session.ptyReadDone:
+			logger.Debugf("🛑 Stopping continuous PTY reader for session: %s", session.ID)
+			return
+		default:
+		}
+
+		n, err := session.PTY.Read(buf)
+		if err != nil {
+			// Check for various exit conditions
+			if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
+				// For setup sessions, don't recreate - they're meant to exit after showing the log
+				if session.Agent == "setup" {
+					logger.Infof("✅ Setup session completed normally, stopping continuous reader: %s", session.ID)
+					return
+				}
+
+				// Rate limit recreation to prevent CPU pegging
+				now := time.Now()
+				if now.Sub(session.LastRecreation) < time.Second {
+					logger.Infof("⏸️ Rate limiting PTY recreation for session %s (last recreation: %v ago)", session.ID, now.Sub(session.LastRecreation))
+					time.Sleep(time.Second)
+					continue
+				}
+				session.LastRecreation = now
+
+				logger.Infof("🔄 PTY closed (shell exited: %v), creating new session...", err)
+
+				// Create new PTY (this will clear the buffer)
+				h.recreateSession(session)
+
+				// Continue reading from new PTY
+				continue
+			}
+			logger.Errorf("❌ PTY read error in continuous reader: %v", err)
+			return
+		}
+
+		// Update Claude activity timestamp when we see output from Claude sessions
+		if session.Agent == "claude" && n > 0 && h.claudeMonitor != nil {
+			if claudeService := h.claudeMonitor.GetClaudeService(); claudeService != nil {
+				claudeService.UpdateActivity(session.WorkDir)
+			}
+		}
+
+		var outputData []byte
+
+		// Extract title from PTY data for Claude sessions
+		if session.Agent == "claude" {
+			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
+				h.handleTitleUpdate(session, title)
+			}
+		}
+
+		// Process terminal output based on session type
+		if session.Agent != "claude" {
+			// Non-Claude sessions use traditional buffering approach with port detection
+			session.bufferMutex.Lock()
+
+			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
+				h.handleTitleUpdate(session, title)
+			}
+
+			// Check for localhost:XXXX patterns in terminal output and register ports
+			outputData = h.processTerminalOutput(buf[:n], session)
+
+			// Check for alternate screen buffer sequences (use original data for this)
+			if bytes.Contains(buf[:n], []byte("\x1b[?1049h")) {
+				// Entering alternate screen - mark position for TUI buffer filtering
+				session.AlternateScreenActive = true
+				session.LastNonTUIBufferSize = len(session.outputBuffer)
+				logger.Infof("🖥️  Detected alternate screen buffer entry at position %d", session.LastNonTUIBufferSize)
+			}
+			if bytes.Contains(buf[:n], []byte("\x1b[?1049l")) {
+				// Exiting alternate screen
+				session.AlternateScreenActive = false
+				logger.Infof("🖥️  Detected alternate screen buffer exit")
+			}
+
+			session.outputBuffer = append(session.outputBuffer, outputData...)
+			// Update buffered dimensions to current terminal size
+			session.bufferedCols = session.cols
+			session.bufferedRows = session.rows
+
+			session.bufferMutex.Unlock()
+		} else {
+			// Claude sessions: send raw data with no processing or buffering
+			outputData = buf[:n]
+		}
+
+		// Send to all connections if we have data to send
+		if len(outputData) > 0 {
+			session.broadcastToConnections(websocket.BinaryMessage, outputData)
+		}
+	}
 }
 
 func (h *PTYHandler) resizePTY(ptmx *os.File, cols, rows uint16) error {
@@ -1147,9 +1151,15 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		return
 	}
 
+	// Stop the old continuous reader
+	close(session.ptyReadDone)
+
 	// Update session with new PTY and command
 	session.PTY = ptmx
 	session.Cmd = cmd
+
+	// Create new done channel for the new PTY reader
+	session.ptyReadDone = make(chan struct{})
 
 	// Clear the output buffer on shell restart - no history between restarts
 	// (only for non-Claude sessions since Claude sessions don't buffer)
@@ -1175,6 +1185,9 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	// Resize to match previous size
 	_ = h.resizePTY(ptmx, session.cols, session.rows)
 
+	// Restart the continuous PTY reader for the new PTY
+	go h.readPTYContinuously(session)
+
 	logger.Infof("✅ PTY recreated successfully for session: %s", session.ID)
 }
 
@@ -1183,6 +1196,9 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 	defer h.sessionMutex.Unlock()
 
 	logger.Infof("🧹 Cleaning up idle session: %s", session.ID)
+
+	// Stop the continuous PTY reader
+	close(session.ptyReadDone)
 
 	// Perform final git add to catch any uncommitted changes before cleanup
 	if h.gitService != nil {
