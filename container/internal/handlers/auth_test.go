@@ -167,7 +167,7 @@ func TestAuthHandler_ResetAuthState(t *testing.T) {
 }
 
 func TestAuthHandler_readGitHubHosts(t *testing.T) {
-	handler := NewAuthHandler()
+	checker := &DefaultGitHubAuthChecker{}
 
 	t.Run("no hosts file", func(t *testing.T) {
 		// Set up a temporary home directory without hosts file

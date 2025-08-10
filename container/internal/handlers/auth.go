@@ -169,7 +169,7 @@ func (d *DefaultGitHubAuthChecker) runGitHubAuthStatus() (*AuthUser, error) {
 	}
 
 	// Get token scopes
-	scopes := h.getTokenScopes()
+	scopes := d.getTokenScopes()
 
 	return &AuthUser{
 		Username: usernameMatches[1],
