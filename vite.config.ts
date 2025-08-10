@@ -39,6 +39,10 @@ export default defineConfig({
       // Use WebSocket for HMR in containers
       protocol: "ws",
     },
+    watch: {
+      // Ignore .pnpm-store to prevent ENOSPC errors
+      ignored: ["**/node_modules/**", "**/.pnpm-store/**", "**/dist/**"],
+    },
   },
   clearScreen: false,
   // Might need this for the proxy to work...

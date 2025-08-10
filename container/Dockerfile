@@ -95,7 +95,10 @@ RUN apt-get update && apt-get install -y \
     liblzma-dev \
     zlib1g-dev \
     sudo \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "fs.inotify.max_user_watches=524288" >> /etc/sysctl.conf \
+    && echo "catnip soft nofile 65536" >> /etc/security/limits.conf \
+    && echo "catnip hard nofile 65536" >> /etc/security/limits.conf
 
 # Install additional development tools
 RUN apt-get update && apt-get install -y \
@@ -238,13 +241,17 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 ENV COREPACK_DEFAULT_TO_LATEST=0
 ENV COREPACK_ENABLE_AUTO_PIN=0
 ENV COREPACK_ENABLE_STRICT=0
-RUN bash -c 'source /etc/profile.d/catnip.sh && \
+RUN mkdir -p ${CATNIP_ROOT}/pnpm && \
+    chown -R catnip:catnip ${CATNIP_ROOT}/pnpm && \
+    bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
     nvm install ${NODE_VERSION} && \
     nvm use ${NODE_VERSION} && \
     nvm alias default ${NODE_VERSION} && \
     corepack enable && \
-    corepack install -g yarn pnpm npm'
+    corepack install -g yarn pnpm npm && \
+    pnpm config set global-dir ${CATNIP_ROOT}/pnpm && \
+    pnpm config set global-bin-dir ${CATNIP_ROOT}/pnpm'
 
 # Install cursor tunnel
 ENV CURSOR_URL_AMD64="https://api2.cursor.sh/updates/download-latest?os=cli-linux-x64" \
@@ -307,8 +314,8 @@ RUN chmod +x /usr/local/bin/generate-banner.sh && \
 USER catnip
 RUN bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
-    npm install -g @anthropic-ai/claude-code @google/gemini-cli && \
-    VSIX_PATH="$(npm root -g)/@anthropic-ai/claude-code/vendor/claude-code.vsix" && \
+    pnpm add -g @anthropic-ai/claude-code @google/gemini-cli && \
+    VSIX_PATH="${PNPM_HOME}/@anthropic-ai/claude-code/vendor/claude-code.vsix" && \
     if [ -f "$VSIX_PATH" ]; then \
         echo "Installing Claude Code extension from: $VSIX_PATH" && \
         ${CATNIP_ROOT}/bin/cursor --install-extension "$VSIX_PATH" || true; \
@@ -320,7 +327,8 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
 RUN git config --global user.name "catnip" && \
     git config --global user.email "catnip@catnip.run" && \
     git config --global init.defaultBranch main && \
-    git config --global --add safe.directory /workspace
+    git config --global --add safe.directory /workspace && \
+    git config --global url."https://github.com/".insteadOf git@github.com:
 
 # Switch back to root for final setup
 USER root

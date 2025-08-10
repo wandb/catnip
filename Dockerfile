@@ -124,7 +124,10 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     pipx \
     sudo \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "fs.inotify.max_user_watches=524288" >> /etc/sysctl.conf \
+    && echo "catnip soft nofile 65536" >> /etc/security/limits.conf \
+    && echo "catnip hard nofile 65536" >> /etc/security/limits.conf
 
 # Install GitHub CLI
 RUN mkdir -p -m 755 /etc/apt/keyrings && \
@@ -195,7 +198,8 @@ RUN echo '#!/bin/bash' > /etc/profile.d/catnip.sh && \
     echo 'export NVM_DIR="${CATNIP_ROOT}/nvm"' >> /etc/profile.d/catnip.sh && \
     echo 'export GOROOT="${CATNIP_ROOT}/go"' >> /etc/profile.d/catnip.sh && \
     echo 'export GOPATH="${CATNIP_ROOT}/go-workspace"' >> /etc/profile.d/catnip.sh && \
-    echo 'export PATH="${CATNIP_ROOT}/go/bin:${GOPATH}/bin:${CATNIP_ROOT}/bin:${PATH}"' >> /etc/profile.d/catnip.sh && \
+    echo 'export PNPM_HOME="${CATNIP_ROOT}/pnpm"' >> /etc/profile.d/catnip.sh && \
+    echo 'export PATH="${CATNIP_ROOT}/go/bin:${GOPATH}/bin:${CATNIP_ROOT}/bin:${PNPM_HOME}:${PATH}"' >> /etc/profile.d/catnip.sh && \
     echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> /etc/profile.d/catnip.sh && \
     echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> /etc/profile.d/catnip.sh && \
     chmod +x /etc/profile.d/catnip.sh
@@ -205,13 +209,17 @@ ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 ENV COREPACK_DEFAULT_TO_LATEST=0
 ENV COREPACK_ENABLE_AUTO_PIN=0
 ENV COREPACK_ENABLE_STRICT=0
-RUN bash -c 'source /etc/profile.d/catnip.sh && \
+RUN mkdir -p ${CATNIP_ROOT}/pnpm && \
+    chown -R catnip:catnip ${CATNIP_ROOT}/pnpm && \
+    bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
     nvm install ${NODE_VERSION} && \
     nvm use ${NODE_VERSION} && \
     nvm alias default ${NODE_VERSION} && \
     corepack enable && \
-    corepack install -g yarn pnpm npm'
+    corepack install -g yarn pnpm npm && \
+    pnpm config set global-dir ${CATNIP_ROOT}/pnpm && \
+    pnpm config set global-bin-dir ${CATNIP_ROOT}/pnpm'
 
 ENV GOSU_VERSION 1.17
 RUN set -eux; \
@@ -262,8 +270,8 @@ USER catnip
 
 RUN bash -c 'source /etc/profile.d/catnip.sh && \
     source "$NVM_DIR/nvm.sh" && \
-    npm install -g @anthropic-ai/claude-code && \
-    rm -rf $(npm root -g)/@anthropic-ai/claude-code/vendor'
+    pnpm add -g @anthropic-ai/claude-code && \
+    rm -rf ${PNPM_HOME}/@anthropic-ai/claude-code/vendor 2>/dev/null || true'
 
 # Switch back to root for entrypoint
 USER root
