@@ -75,9 +75,7 @@ export function NewWorkspaceDialog({
       if (initialRepoUrl) {
         // Set initial values when dialog opens with pre-selected repo
         setGithubUrl(initialRepoUrl);
-        if (initialBranch) {
-          setSelectedBranch(initialBranch);
-        }
+        // Don't set initialBranch - let handleRepoChange determine the correct default branch
         // Immediately fetch branches for the initial repo
         void handleRepoChange(initialRepoUrl);
       }
@@ -255,7 +253,8 @@ export function NewWorkspaceDialog({
         repoId = currentRepo.id;
         branches = await gitApi.fetchBranches(repoId);
 
-        // Always prioritize the repo's default branch
+        // Always prioritize the repo's default branch for mounted repos,
+        // ignoring any initialBranch parameter
         if (
           currentRepo.default_branch &&
           branches.includes(currentRepo.default_branch)
