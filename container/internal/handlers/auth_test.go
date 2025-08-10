@@ -25,12 +25,11 @@ func TestNewAuthHandler(t *testing.T) {
 }
 
 func TestAuthHandler_GetAuthStatus(t *testing.T) {
-	app := fiber.New()
-
 	t.Run("no active auth - not authenticated", func(t *testing.T) {
 		// Create handler with mock that returns no user (not authenticated)
 		mockChecker := NewMockGitHubAuthChecker(nil, fmt.Errorf("not authenticated"))
 		handler := NewAuthHandlerWithChecker(mockChecker)
+		app := fiber.New()
 		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
 
 		req := httptest.NewRequest("GET", "/v1/auth/github/status", nil)
@@ -55,6 +54,7 @@ func TestAuthHandler_GetAuthStatus(t *testing.T) {
 		}
 		mockChecker := NewMockGitHubAuthChecker(testUser, nil)
 		handler := NewAuthHandlerWithChecker(mockChecker)
+		app := fiber.New()
 		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
 
 		req := httptest.NewRequest("GET", "/v1/auth/github/status", nil)
@@ -78,6 +78,7 @@ func TestAuthHandler_GetAuthStatus(t *testing.T) {
 		// Create handler with mock (won't be called since activeAuth is set)
 		mockChecker := NewMockGitHubAuthChecker(nil, fmt.Errorf("not authenticated"))
 		handler := NewAuthHandlerWithChecker(mockChecker)
+		app := fiber.New()
 		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
 
 		// Set up an active auth process
@@ -104,6 +105,7 @@ func TestAuthHandler_GetAuthStatus(t *testing.T) {
 		// Create handler with mock (won't be called since activeAuth is set)
 		mockChecker := NewMockGitHubAuthChecker(nil, fmt.Errorf("not authenticated"))
 		handler := NewAuthHandlerWithChecker(mockChecker)
+		app := fiber.New()
 		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
 
 		// Set up an active auth process with error
