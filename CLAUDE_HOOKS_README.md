@@ -30,10 +30,12 @@ The integration works by:
 
 ### Hook Script
 
-The hook script (`claude-hooks.sh`) is called by Claude Code with environment variables:
+The hook script (`claude-hooks.sh`) is called by Claude Code with JSON data via stdin containing:
 
-- `EVENT_TYPE`: Type of event (UserPromptSubmit, Stop, etc.)
-- `PWD`: Current working directory
+- `hook_event_name`: Type of event (UserPromptSubmit, Stop, etc.)
+- `cwd`: Current working directory
+- `session_id`: Unique session identifier
+- Additional event-specific data
 
 ### API Endpoint
 
