@@ -247,6 +247,7 @@ func startServer(cmd *cobra.Command) {
 	v1.Post("/claude/messages", claudeHandler.CreateCompletion)
 	v1.Get("/claude/settings", claudeHandler.GetClaudeSettings)
 	v1.Put("/claude/settings", claudeHandler.UpdateClaudeSettings)
+	v1.Post("/claude/hooks", claudeHandler.HandleClaudeHook)
 
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)

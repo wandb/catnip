@@ -969,3 +969,21 @@ func (s *ClaudeService) IsActiveSession(worktreePath string, within time.Duratio
 	}
 	return time.Since(lastActivity) <= within
 }
+
+// HandleHookEvent processes Claude Code hook events for activity tracking
+func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
+	switch event.EventType {
+	case "UserPromptSubmit":
+		// Mark session as active when user submits a prompt
+		s.UpdateActivity(event.WorkingDirectory)
+		return nil
+	case "Stop":
+		// Update activity but don't mark as inactive - let normal timeout handle transition
+		s.UpdateActivity(event.WorkingDirectory)
+		return nil
+	default:
+		// For other events, just update activity timestamp
+		s.UpdateActivity(event.WorkingDirectory)
+		return nil
+	}
+}
