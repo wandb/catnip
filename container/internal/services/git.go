@@ -810,7 +810,7 @@ func (s *GitService) detectLocalRepos() {
 
 		// Check if any worktrees exist for this repo
 		if s.shouldCreateInitialWorktree(repoID) {
-			logger.Warnf("🌱 Creating initial worktree for %s", repoID)
+			logger.Infof("🌱 Creating initial worktree for %s", repoID)
 
 			// Don't proactively prune during runtime - it can delete workspaces being restored
 			// Pruning should only happen on explicit user request or during shutdown
@@ -939,12 +939,12 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 
 	// Execute setup.sh if it exists in the newly created worktree
 	if s.setupExecutor != nil {
-		logger.Warnf("🚀 Scheduling setup.sh execution for local worktree: %s", worktree.Path)
+		logger.Infof("🚀 Scheduling setup.sh execution for local worktree: %s", worktree.Path)
 		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
 		recovery.SafeGo("setup-script-local-"+worktree.Path, func() {
 			// Wait a moment to ensure the worktree is fully ready
 			time.Sleep(2 * time.Second)
-			logger.Warnf("⏰ Starting setup.sh execution for local worktree: %s", worktree.Path)
+			logger.Infof("⏰ Starting setup.sh execution for local worktree: %s", worktree.Path)
 			s.setupExecutor.ExecuteSetupScript(worktree.Path)
 		})
 	} else {
@@ -1093,7 +1093,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 	var cleanedUp []string
 	var errors []error
 
-	logger.Warnf("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(s.stateManager.GetAllWorktrees()))
+	logger.Infof("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(s.stateManager.GetAllWorktrees()))
 
 	for _, worktree := range s.stateManager.GetAllWorktrees() {
 		logger.Debugf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
@@ -1162,7 +1162,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 			}
 
 			// Check if our branch appears in the merged branches list
-			logger.Warnf("📋 Merged branches into %s: %d branches found", worktree.SourceBranch, len(branches))
+			logger.Infof("📋 Merged branches into %s: %d branches found", worktree.SourceBranch, len(branches))
 
 			for _, branch := range branches {
 				// Handle both regular branches and worktree branches (marked with +)
@@ -1180,7 +1180,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 		}
 
 		if isMerged {
-			logger.Warnf("🧹 Found merged worktree to cleanup: %s", worktree.Name)
+			logger.Infof("🧹 Found merged worktree to cleanup: %s", worktree.Name)
 
 			// Use the existing deletion logic but don't hold the mutex
 			s.mu.Unlock()
@@ -1211,7 +1211,7 @@ func (s *GitService) cleanupActiveSessions(worktreePath string) {
 	cmd := s.execCommand("pkill", "-f", worktreePath)
 	if err := cmd.Run(); err != nil {
 		// Don't log this as an error since it's common for no processes to be found
-		logger.Warnf("ℹ️ No active processes found for worktree path: %s", worktreePath)
+		logger.Infof("ℹ️ No active processes found for worktree path: %s", worktreePath)
 	} else {
 		logger.Infof("✅ Terminated processes for worktree: %s", worktreePath)
 	}
@@ -1802,12 +1802,12 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 
 	// Execute setup.sh if it exists in the newly created worktree
 	if s.setupExecutor != nil {
-		logger.Warnf("🚀 Scheduling setup.sh execution for worktree: %s", worktree.Path)
+		logger.Infof("🚀 Scheduling setup.sh execution for worktree: %s", worktree.Path)
 		// Run setup.sh execution in a goroutine to avoid blocking worktree creation
 		recovery.SafeGo("setup-script-"+worktree.Path, func() {
 			// Wait a moment to ensure the worktree is fully ready
 			time.Sleep(2 * time.Second)
-			logger.Warnf("⏰ Starting setup.sh execution for worktree: %s", worktree.Path)
+			logger.Infof("⏰ Starting setup.sh execution for worktree: %s", worktree.Path)
 			s.setupExecutor.ExecuteSetupScript(worktree.Path)
 		})
 	} else {
@@ -2362,7 +2362,7 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	}
 
 	// Create an initial worktree for the template project so the user can immediately start working
-	logger.Warnf("🌱 Creating initial worktree for template project %s", projectName)
+	logger.Infof("🌱 Creating initial worktree for template project %s", projectName)
 
 	// Generate a unique session name for the initial worktree
 	funName := s.generateUniqueSessionName(repo.Path)
