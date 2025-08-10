@@ -26,6 +26,7 @@ The integration works by:
 Claude hooks are automatically installed and configured in the catnip container. No manual setup required!
 
 **For Manual Installation**
+
 1. Run the setup script to install the hooks:
 
    ```bash
@@ -41,7 +42,7 @@ Claude hooks are automatically installed and configured in the catnip container.
 
 ### Hook Script
 
-The hook script (`claude-hooks.sh`) is called by Claude Code with JSON data via stdin containing:
+The hook script (`container/scripts/claude-hooks.sh`) is called by Claude Code with JSON data via stdin containing:
 
 - `hook_event_name`: Type of event (UserPromptSubmit, Stop, etc.)
 - `cwd`: Current working directory
@@ -100,7 +101,8 @@ The system maintains backward compatibility:
 
 ## Files Created
 
-- `claude-hooks.sh`: The actual hook script that gets installed
-- `setup-claude-hooks.sh`: Installation script
+- `container/scripts/claude-hooks.sh`: The actual hook script that gets installed
+- `container/scripts/setup-claude-hooks.sh`: Installation script
+- `docs/CLAUDE_HOOKS.md`: This documentation
 - New HTTP endpoint: `POST /v1/claude/hooks`
 - Enhanced activity tracking in `ClaudeService` and `ClaudeMonitorService`
