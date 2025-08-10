@@ -833,7 +833,7 @@ func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
 	allWorktrees := s.stateManager.GetAllWorktrees()
 	for _, worktree := range allWorktrees {
 		if worktree.RepoID == repoID {
-			logger.Warnf("🔍 Found existing worktree in state for %s: %s", repoID, worktree.Name)
+			logger.Debugf("🔍 Found existing worktree in state for %s: %s", repoID, worktree.Name)
 			return false
 		}
 	}
@@ -848,14 +848,14 @@ func (s *GitService) shouldCreateInitialWorktree(repoID string) bool {
 			if entry.IsDir() {
 				// Check if this directory is a valid git worktree
 				if _, err := os.Stat(filepath.Join(repoWorkspaceDir, entry.Name(), ".git")); err == nil {
-					logger.Warnf("🔍 Found existing worktree for %s: %s", repoID, entry.Name())
+					logger.Debugf("🔍 Found existing worktree for %s: %s", repoID, entry.Name())
 					return false
 				}
 			}
 		}
 	}
 
-	logger.Warnf("🔍 No existing worktrees found for %s, will create initial worktree", repoID)
+	logger.Debugf("🔍 No existing worktrees found for %s, will create initial worktree", repoID)
 	return true
 }
 
