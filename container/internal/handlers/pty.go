@@ -460,25 +460,25 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 			var outputData []byte
 
-			// For Claude sessions with terminal emulator, process through emulator
+			// For Claude sessions with terminal emulator, maintain server-side state but send raw PTY data
 			if session.Agent == "claude" && session.terminalEmulator != nil {
 				session.terminalMutex.Lock()
 
-				// Feed raw PTY data to terminal emulator
+				// Feed raw PTY data to terminal emulator for state tracking
 				session.terminalEmulator.Write(buf[:n])
 
-				// Get rendered terminal state
+				// Track that terminal state has been updated (for reconnection)
 				rendered := session.terminalEmulator.Render()
-
-				// Only send update if terminal state changed
 				if rendered != session.lastRenderedState {
 					session.stateVersion++
 					session.lastRenderedState = rendered
-					outputData = []byte(rendered)
 					logger.Debugf("🖥️  Terminal state updated (version %d) for Claude session %s", session.stateVersion, session.ID)
 				}
 
 				session.terminalMutex.Unlock()
+
+				// Send raw PTY data to client (not rendered state) for proper incremental rendering
+				outputData = h.processTerminalOutput(buf[:n], session)
 
 				// Extract title from original PTY data for Claude sessions
 				if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
