@@ -24,11 +24,14 @@ func TestNewAuthHandler(t *testing.T) {
 }
 
 func TestAuthHandler_GetAuthStatus(t *testing.T) {
-	handler := NewAuthHandler()
 	app := fiber.New()
-	app.Get("/v1/auth/github/status", handler.GetAuthStatus)
 
-	t.Run("no active auth - check status", func(t *testing.T) {
+	t.Run("no active auth - not authenticated", func(t *testing.T) {
+		// Create handler with mock that returns no user (not authenticated)
+		mockChecker := NewMockGitHubAuthChecker(nil, fmt.Errorf("not authenticated"))
+		handler := NewAuthHandlerWithChecker(mockChecker)
+		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
+
 		req := httptest.NewRequest("GET", "/v1/auth/github/status", nil)
 		resp, err := app.Test(req)
 		require.NoError(t, err)
@@ -38,16 +41,36 @@ func TestAuthHandler_GetAuthStatus(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		json.Unmarshal(body, &result)
 
-		// Status should be either "none" (not authenticated) or "authenticated" (already authenticated)
-		assert.Contains(t, []string{"none", "authenticated"}, result.Status)
+		assert.Equal(t, "none", result.Status)
+		assert.Empty(t, result.Error)
+		assert.Nil(t, result.User)
+	})
 
-		if result.Status == "authenticated" {
-			assert.NotNil(t, result.User)
-			assert.NotEmpty(t, result.User.Username)
-		} else {
-			assert.Empty(t, result.Error)
-			assert.Nil(t, result.User)
+	t.Run("no active auth - authenticated", func(t *testing.T) {
+		// Create handler with mock that returns an authenticated user
+		testUser := &AuthUser{
+			Username: "testuser",
+			Scopes:   []string{"repo", "read:org"},
 		}
+		mockChecker := NewMockGitHubAuthChecker(testUser, nil)
+		handler := NewAuthHandlerWithChecker(mockChecker)
+		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
+
+		req := httptest.NewRequest("GET", "/v1/auth/github/status", nil)
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		assert.Equal(t, 200, resp.StatusCode)
+
+		var result AuthStatusResponse
+		body, _ := io.ReadAll(resp.Body)
+		json.Unmarshal(body, &result)
+
+		assert.Equal(t, "authenticated", result.Status)
+		assert.Empty(t, result.Error)
+		assert.NotNil(t, result.User)
+		assert.Equal(t, "testuser", result.User.Username)
+		assert.Contains(t, result.User.Scopes, "repo")
+		assert.Contains(t, result.User.Scopes, "read:org")
 	})
 
 	t.Run("active auth process", func(t *testing.T) {
@@ -302,4 +325,23 @@ func TestAuthUser_struct(t *testing.T) {
 	assert.Contains(t, user.Scopes, "repo")
 	assert.Contains(t, user.Scopes, "read:org")
 	assert.Contains(t, user.Scopes, "workflow")
+}
+
+// MockGitHubAuthChecker is a mock implementation for testing
+type MockGitHubAuthChecker struct {
+	user *AuthUser
+	err  error
+}
+
+// CheckGitHubAuthStatus implements the interface for mocking
+func (m *MockGitHubAuthChecker) CheckGitHubAuthStatus() (*AuthUser, error) {
+	return m.user, m.err
+}
+
+// NewMockGitHubAuthChecker creates a new mock with specified behavior
+func NewMockGitHubAuthChecker(user *AuthUser, err error) *MockGitHubAuthChecker {
+	return &MockGitHubAuthChecker{
+		user: user,
+		err:  err,
+	}
 }
