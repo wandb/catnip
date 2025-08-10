@@ -25,7 +25,6 @@ import (
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
-	"github.com/vanpelt/catnip/internal/tui"
 )
 
 // PTYHandler handles PTY WebSocket connections
@@ -81,10 +80,6 @@ type Session struct {
 	AlternateScreenActive bool
 	LastNonTUIBufferSize  int
 	// Terminal emulator for Claude sessions (server-side terminal state)
-	terminalEmulator  *tui.TerminalEmulator
-	terminalMutex     sync.RWMutex
-	stateVersion      int64  // Version counter for terminal state changes
-	lastRenderedState string // Cache of last rendered state for diff computation
 }
 
 // ResizeMsg represents terminal resize message
@@ -329,6 +324,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		if data, err := json.Marshal(writeAccessMsg); err == nil {
 			_ = session.writeToConnection(conn, websocket.TextMessage, data)
 		}
+
 	}
 
 	// Don't replay buffer immediately - wait for client ready signal
@@ -460,39 +456,23 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 			var outputData []byte
 
-			// For Claude sessions with terminal emulator, maintain server-side state but send raw PTY data
-			if session.Agent == "claude" && session.terminalEmulator != nil {
-				session.terminalMutex.Lock()
-
-				// Feed raw PTY data to terminal emulator for state tracking
-				session.terminalEmulator.Write(buf[:n])
-
-				// Track that terminal state has been updated (for reconnection)
-				rendered := session.terminalEmulator.Render()
-				if rendered != session.lastRenderedState {
-					session.stateVersion++
-					session.lastRenderedState = rendered
-					logger.Debugf("🖥️  Terminal state updated (version %d) for Claude session %s", session.stateVersion, session.ID)
-				}
-
-				session.terminalMutex.Unlock()
-
-				// Send raw PTY data to client (not rendered state) for proper incremental rendering
-				outputData = h.processTerminalOutput(buf[:n], session)
-
-				// Extract title from original PTY data for Claude sessions
+			// Extract title from PTY data for Claude sessions
+			if session.Agent == "claude" {
 				if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
 					h.handleTitleUpdate(session, title)
 				}
-			} else {
-				// Non-Claude sessions use traditional buffering approach
+			}
+
+			// Process terminal output based on session type
+			if session.Agent != "claude" {
+				// Non-Claude sessions use traditional buffering approach with port detection
 				session.bufferMutex.Lock()
 
 				if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
 					h.handleTitleUpdate(session, title)
 				}
 
-				// Check for localhost:XXXX patterns in terminal output and rewrite them
+				// Check for localhost:XXXX patterns in terminal output and register ports
 				outputData = h.processTerminalOutput(buf[:n], session)
 
 				// Check for alternate screen buffer sequences (use original data for this)
@@ -514,6 +494,9 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				session.bufferedRows = session.rows
 
 				session.bufferMutex.Unlock()
+			} else {
+				// Claude sessions: send raw data with no processing or buffering
+				outputData = buf[:n]
 			}
 
 			// Check if connection is still valid before writing
@@ -551,17 +534,19 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 				case "ready":
 					logger.Debugf("🎯 Client ready signal received")
 
-					// For Claude sessions with terminal emulator, send current terminal state
-					if session.Agent == "claude" && session.terminalEmulator != nil {
-						session.terminalMutex.RLock()
-						terminalState := session.terminalEmulator.Render()
-						session.terminalMutex.RUnlock()
+					// For Claude sessions, just send buffer-complete and let frontend resize trigger redraw
+					if session.Agent == "claude" {
+						logger.Debugf("🔄 Claude session reconnected - frontend resize will trigger redraw")
 
-						if terminalState != "" {
-							logger.Infof("🖥️  Sending complete terminal state to reconnected Claude client (%d bytes)", len(terminalState))
-							if err := session.writeToConnection(conn, websocket.BinaryMessage, []byte(terminalState)); err != nil {
-								logger.Warnf("❌ Failed to send terminal state: %v", err)
-							}
+						// Just send buffer-complete - frontend will send resize which triggers SIGWINCH at right time
+						completeMsg := struct {
+							Type string `json:"type"`
+						}{
+							Type: "buffer-complete",
+						}
+
+						if data, err := json.Marshal(completeMsg); err == nil {
+							_ = session.writeToConnection(conn, websocket.TextMessage, data)
 						}
 					} else {
 						// Traditional buffer replay for non-Claude sessions
@@ -681,19 +666,24 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			// Try to parse as JSON for resize messages
 			var resizeMsg ResizeMsg
 			if err := json.Unmarshal(data, &resizeMsg); err == nil && resizeMsg.Cols > 0 && resizeMsg.Rows > 0 {
+				// For Claude sessions, always force dimension change to ensure SIGWINCH triggers redraw
+				if session.Agent == "claude" {
+					// First resize to slightly different dimensions to force a change
+					_ = h.resizePTY(session.PTY, resizeMsg.Cols-1, resizeMsg.Rows-1)
+					// Small delay to ensure the change is processed
+					time.Sleep(10 * time.Millisecond)
+					// Then resize to the target dimensions
+					_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
+					logger.Debugf("📐 Resized Claude PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
+				} else {
+					// For non-Claude sessions, only resize if dimensions actually changed
+					if session.cols != resizeMsg.Cols || session.rows != resizeMsg.Rows {
+						_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
+						logger.Debugf("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
+					}
+				}
 				session.cols = resizeMsg.Cols
 				session.rows = resizeMsg.Rows
-				_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
-
-				// Also resize terminal emulator for Claude sessions
-				if session.Agent == "claude" && session.terminalEmulator != nil {
-					session.terminalMutex.Lock()
-					session.terminalEmulator.Resize(int(resizeMsg.Cols), int(resizeMsg.Rows))
-					session.terminalMutex.Unlock()
-					logger.Debugf("🖥️  Resized terminal emulator to %dx%d for Claude session", resizeMsg.Cols, resizeMsg.Rows)
-				}
-
-				logger.Debugf("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
 				continue
 			}
 		}
@@ -740,7 +730,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			session.Agent = agent
 			h.recreateSession(session)
 		} else {
-			logger.Infof("🔄 Reusing existing session %s with agent: %s", sessionID, session.Agent)
+			logger.Infof("🔄 Reusing existing session %s with agent: '%s'", sessionID, session.Agent)
 		}
 		return session
 	}
@@ -884,20 +874,10 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		// Initialize alternate screen buffer detection
 		AlternateScreenActive: false,
 		LastNonTUIBufferSize:  0,
-		// Initialize terminal emulator for Claude sessions
-		terminalEmulator:  nil, // Will be initialized below for Claude sessions
-		stateVersion:      0,
-		lastRenderedState: "",
-	}
-
-	// Initialize terminal emulator for Claude sessions
-	if agent == "claude" {
-		session.terminalEmulator = tui.NewTerminalEmulator(int(session.cols), int(session.rows))
-		logger.Infof("🖥️  Terminal emulator initialized for Claude session: %s", sessionID)
 	}
 
 	h.sessions[sessionID] = session
-	logger.Debugf("✅ Created new PTY session: %s in %s", sessionID, workDir)
+	logger.Debugf("✅ Created new PTY session: %s in %s with agent: %s", sessionID, workDir, agent)
 
 	// Track active session for this workspace
 	if agent == "claude" {
@@ -1181,16 +1161,6 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	session.AlternateScreenActive = false
 	session.LastNonTUIBufferSize = 0
 	session.bufferMutex.Unlock()
-
-	// Reinitialize terminal emulator for Claude sessions
-	if session.Agent == "claude" {
-		session.terminalMutex.Lock()
-		session.terminalEmulator = tui.NewTerminalEmulator(int(session.cols), int(session.rows))
-		session.stateVersion = 0
-		session.lastRenderedState = ""
-		session.terminalMutex.Unlock()
-		logger.Infof("🖥️  Terminal emulator reinitialized for Claude session: %s", session.ID)
-	}
 
 	// Preserve the current title from the active session if it exists
 	if session.Agent == "claude" {
@@ -1714,13 +1684,14 @@ func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte
 
 	// Regex to match localhost:XXXX patterns (various formats)
 	// Matches: localhost:3000, http://localhost:3000, https://localhost:3000, etc.
-	localhostRegex := regexp.MustCompile(`(https?://)?localhost:(\d{4,5})(/[^\s\x1b]*)?`)
+	// More restrictive to avoid false positives from numbers in terminal output
+	localhostRegex := regexp.MustCompile(`(?:^|\s|>)((?:https?://)?localhost:(\d{4,5})(?:/[^\s\x1b]*)?)`)
 
 	// Find all matches and register ports
 	matches := localhostRegex.FindAllStringSubmatch(output, -1)
 	for _, match := range matches {
-		if len(match) >= 3 {
-			portStr := match[2]
+		if len(match) >= 4 {
+			portStr := match[3] // Port is now in group 3 due to outer capture group
 			if port, err := strconv.Atoi(portStr); err == nil {
 				// Skip port 8080 (our own proxy port)
 				if port != 8080 && port >= 1024 && port <= 65535 {

@@ -50,8 +50,8 @@ func init() {
 // @schemes http ws
 func startServer(cmd *cobra.Command) {
 	// Configure logging with formatted output (always use console formatting to match Fiber)
-	debugEnv := os.Getenv("DEBUG")
-	isDevMode := debugEnv == "true" || debugEnv == "1"
+	// Check CATNIP_DEV which is set by the run command in dev mode
+	isDevMode := os.Getenv("CATNIP_DEV") == "true"
 	logLevel := logger.GetLogLevelFromEnv(isDevMode)
 	logger.Configure(logLevel, true) // Always use formatted output
 

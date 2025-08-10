@@ -49,8 +49,18 @@ func (te *TerminalEmulator) Resize(cols, rows int) {
 	te.terminal.Resize(cols, rows)
 }
 
+// RenderForReconnection returns a clean terminal view for reconnection without cursor positioning
+func (te *TerminalEmulator) RenderForReconnection() string {
+	return te.renderInternal(false)
+}
+
 // Render returns the current terminal view as a string with ANSI color codes
 func (te *TerminalEmulator) Render() string {
+	return te.renderInternal(true)
+}
+
+// renderInternal does the actual rendering with optional cursor positioning
+func (te *TerminalEmulator) renderInternal(includeCursor bool) string {
 	var buf bytes.Buffer
 
 	// Get cursor information
@@ -135,7 +145,7 @@ func (te *TerminalEmulator) Render() string {
 			}
 
 			// Handle cursor position
-			if cursorVisible && row == cursor.Y && col == cursor.X {
+			if includeCursor && cursorVisible && row == cursor.Y && col == cursor.X {
 				// Use reverse video for cursor
 				buf.WriteString("\033[7m")
 				if cell.Char == 0 || cell.Char == ' ' {
@@ -179,6 +189,15 @@ func (te *TerminalEmulator) Render() string {
 	if lastNonEmpty >= 0 {
 		lines = lines[:lastNonEmpty+1]
 		output = strings.Join(lines, "\n")
+	}
+
+	// Only add cursor positioning if requested and cursor is not at the end of content
+	// This prevents issues with reconnection where cursor positioning might conflict
+	if includeCursor {
+		cursorRow, cursorCol := cursor.Y+1, cursor.X+1 // Convert 0-based to 1-based
+		if cursorVisible && (cursor.Y < lastNonEmpty || (cursor.Y == lastNonEmpty && cursor.X > 0)) {
+			output += fmt.Sprintf("\033[%d;%dH", cursorRow, cursorCol)
+		}
 	}
 
 	return output
