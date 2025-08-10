@@ -189,8 +189,16 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 		}
 	}
 
-	// Step 3: Remove preview branch if it exists
+	// Step 3: Remove catnip ref if it exists
 	workspaceName := ExtractWorkspaceName(worktree.Branch)
+	catnipRef := fmt.Sprintf("refs/catnip/%s", workspaceName)
+	if _, err := w.operations.ExecuteGit(repo.Path, "update-ref", "-d", catnipRef); err == nil {
+		logger.Debugf("✅ Removed catnip ref: %s", catnipRef)
+	} else {
+		logger.Debugf("ℹ️ No catnip ref to remove: %s", catnipRef)
+	}
+
+	// Step 4: Remove preview branch if it exists
 	previewBranchName := fmt.Sprintf("catnip/%s", workspaceName)
 	if err := w.operations.DeleteBranch(repo.Path, previewBranchName, true); err != nil {
 		logger.Debugf("ℹ️ No preview branch to remove: %s", previewBranchName)
@@ -198,7 +206,7 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 		logger.Debugf("✅ Removed preview branch: %s", previewBranchName)
 	}
 
-	// Step 4: Force remove any remaining files
+	// Step 5: Force remove any remaining files
 	if _, err := os.Stat(worktree.Path); err == nil {
 		if removeErr := os.RemoveAll(worktree.Path); removeErr != nil {
 			logger.Warnf("⚠️ Failed to force remove worktree directory %s: %v", worktree.Path, removeErr)
@@ -207,7 +215,7 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 		}
 	}
 
-	// Step 5: Run garbage collection
+	// Step 6: Run garbage collection
 	if err := w.operations.GarbageCollect(repo.Path); err != nil {
 		logger.Warnf("⚠️ Failed to run garbage collection after worktree deletion: %v", err)
 	} else {
