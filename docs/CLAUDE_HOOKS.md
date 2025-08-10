@@ -22,16 +22,20 @@ The integration works by:
 
 ### Setup
 
+**For Container Users (Recommended)**
+Claude hooks are automatically installed and configured in the catnip container. No manual setup required!
+
+**For Manual Installation**
 1. Run the setup script to install the hooks:
 
    ```bash
-   ./setup-claude-hooks.sh
+   ./container/scripts/setup-claude-hooks.sh
    ```
 
 2. The script will:
-   - Create `~/.claude/hooks/hook.sh`
-   - Make it executable
-   - Configure it to send events to catnip server
+   - Create `~/.claude/catnip-activity-hook.sh`
+   - Configure `~/.claude/settings.json` with hook definitions
+   - Set up automatic event sending to catnip server
 
 ## How it Works
 
