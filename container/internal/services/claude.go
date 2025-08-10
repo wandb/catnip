@@ -28,6 +28,9 @@ type ClaudeService struct {
 	// Activity tracking for PTY sessions
 	activityMutex sync.RWMutex
 	lastActivity  map[string]time.Time // Map of worktree path to last activity time
+	// Hook-based activity tracking
+	lastUserPromptSubmit map[string]time.Time // Map of worktree path to last UserPromptSubmit time
+	lastStopEvent        map[string]time.Time // Map of worktree path to last Stop event time
 }
 
 // readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
@@ -80,11 +83,13 @@ func NewClaudeService() *ClaudeService {
 	homeDir := config.Runtime.HomeDir
 	volumeDir := config.Runtime.VolumeDir
 	return &ClaudeService{
-		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
-		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
-		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
-		subprocessWrapper: NewClaudeSubprocessWrapper(),
-		lastActivity:      make(map[string]time.Time),
+		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
+		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
+		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		subprocessWrapper:    NewClaudeSubprocessWrapper(),
+		lastActivity:         make(map[string]time.Time),
+		lastUserPromptSubmit: make(map[string]time.Time),
+		lastStopEvent:        make(map[string]time.Time),
 	}
 }
 
