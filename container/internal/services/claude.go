@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
@@ -83,6 +84,7 @@ func NewClaudeService() *ClaudeService {
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
 		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 		subprocessWrapper: NewClaudeSubprocessWrapper(),
+		lastActivity:      make(map[string]time.Time),
 	}
 }
 
@@ -96,6 +98,7 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
 		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 		subprocessWrapper: wrapper,
+		lastActivity:      make(map[string]time.Time),
 	}
 }
 
@@ -942,4 +945,27 @@ func (s *ClaudeService) UpdateClaudeSettings(req *models.ClaudeSettingsUpdateReq
 
 	// Return updated settings
 	return s.GetClaudeSettings()
+}
+
+// UpdateActivity records activity for a Claude session in a specific worktree
+func (s *ClaudeService) UpdateActivity(worktreePath string) {
+	s.activityMutex.Lock()
+	s.lastActivity[worktreePath] = time.Now()
+	s.activityMutex.Unlock()
+}
+
+// GetLastActivity returns the last activity time for a worktree, or zero time if no activity
+func (s *ClaudeService) GetLastActivity(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastActivity[worktreePath]
+}
+
+// IsActiveSession returns true if the session has been active within the specified duration
+func (s *ClaudeService) IsActiveSession(worktreePath string, within time.Duration) bool {
+	lastActivity := s.GetLastActivity(worktreePath)
+	if lastActivity.IsZero() {
+		return false
+	}
+	return time.Since(lastActivity) <= within
 }
