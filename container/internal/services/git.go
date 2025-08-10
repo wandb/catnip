@@ -1096,7 +1096,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 	logger.Warnf("🧹 Starting cleanup of merged worktrees, checking %d worktrees", len(s.stateManager.GetAllWorktrees()))
 
 	for _, worktree := range s.stateManager.GetAllWorktrees() {
-		logger.Warnf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
+		logger.Debugf("🔍 Checking worktree %s: dirty=%v, conflicts=%v, commits_ahead=%d, source=%s",
 			worktree.Name, worktree.IsDirty, worktree.HasConflicts, worktree.CommitCount, worktree.SourceBranch)
 
 		// Skip if worktree has uncommitted changes or conflicts
@@ -1126,7 +1126,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 		var isMerged bool
 
 		if isLocal {
-			logger.Warnf("🔍 Checking local worktree %s: branch=%s, source=%s", worktree.Name, worktree.Branch, worktree.SourceBranch)
+			logger.Debugf("🔍 Checking local worktree %s: branch=%s, source=%s", worktree.Name, worktree.Branch, worktree.SourceBranch)
 
 			// For local repos, check if the branch exists in the main repo
 			// If it doesn't exist, it was likely deleted after merge
@@ -1154,7 +1154,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 			}
 		} else {
 			// Regular repo logic (existing code)
-			logger.Warnf("🔍 Checking if branch %s is merged into %s in repo %s", worktree.Branch, worktree.SourceBranch, repo.Path)
+			logger.Debugf("🔍 Checking if branch %s is merged into %s in repo %s", worktree.Branch, worktree.SourceBranch, repo.Path)
 			branches, err := s.operations.ListBranches(repo.Path, git.ListBranchesOptions{Merged: worktree.SourceBranch})
 			if err != nil {
 				logger.Warnf("⚠️ Failed to check merged status for %s: %v", worktree.Name, err)
@@ -1451,7 +1451,7 @@ func (s *GitService) CreateWorktreePreview(worktreeID string) error {
 	}
 
 	previewBranchName := fmt.Sprintf("catnip/%s", git.ExtractWorkspaceName(worktree.Branch))
-	logger.Warnf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
+	logger.Debugf("🔍 Creating preview branch %s for worktree %s", previewBranchName, worktree.Name)
 
 	// Check if there are uncommitted changes (staged, unstaged, or untracked)
 	hasUncommittedChanges, err := s.hasUncommittedChanges(worktree.Path)
@@ -2027,7 +2027,7 @@ func (s *GitService) ensureBaseBranchOnRemote(worktree *models.Worktree, repo *m
 func (s *GitService) checkBaseBranchOnRemote(worktree *models.Worktree, remoteURL string) error {
 	// Convert SSH URLs to HTTPS to avoid authentication issues
 	httpsURL := git.ConvertSSHToHTTPS(remoteURL)
-	logger.Warnf("🔍 Checking base branch on remote: %s -> %s", remoteURL, httpsURL)
+	logger.Debugf("🔍 Checking base branch on remote: %s -> %s", remoteURL, httpsURL)
 
 	// Use git ls-remote to check if the base branch exists on remote
 	output, err := s.runGitCommand("", "ls-remote", "--heads", httpsURL, worktree.SourceBranch)
@@ -2418,7 +2418,7 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 			parts := strings.Split(worktree.Name, "/")
 			workspaceName := parts[len(parts)-1]
 			branchRef = fmt.Sprintf("refs/catnip/%s", workspaceName)
-			logger.Warnf("🔍 Using catnip ref %s for recreating renamed worktree %s", branchRef, worktree.Name)
+			logger.Debugf("🔍 Using catnip ref %s for recreating renamed worktree %s", branchRef, worktree.Name)
 		}
 
 		// Use existing CreateWorktree logic
@@ -2482,14 +2482,14 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 			logger.Warnf("⚠️ Failed to get current branch for renamed worktree %s: %v", worktree.Name, err)
 		} else {
 			currentBranch := strings.TrimSpace(string(currentBranchOutput))
-			logger.Warnf("🔍 Current branch: %s", currentBranch)
+			logger.Debugf("🔍 Current branch: %s", currentBranch)
 
 			// Look up the nice branch name from git config
 			configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(currentBranch, "/", "."))
 			niceBranchName, err := s.operations.GetConfig(worktree.Path, configKey)
 			if err == nil && strings.TrimSpace(niceBranchName) != "" {
 				niceBranchName = strings.TrimSpace(niceBranchName)
-				logger.Warnf("🔍 Found nice branch mapping: %s -> %s", currentBranch, niceBranchName)
+				logger.Debugf("🔍 Found nice branch mapping: %s -> %s", currentBranch, niceBranchName)
 
 				// Get current commit hash
 				currentCommit, err := s.operations.GetCommitHash(worktree.Path, "HEAD")
