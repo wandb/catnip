@@ -1073,6 +1073,11 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 		logger.Warnf("⚠️ Failed to delete worktree from state: %v", err)
 	}
 
+	// Notify Claude monitor service to clean up checkpoint managers and todo monitors
+	if s.claudeMonitor != nil {
+		s.claudeMonitor.OnWorktreeDeleted(worktreeID, worktree.Path)
+	}
+
 	// Save state
 	// State persistence handled by state manager
 
