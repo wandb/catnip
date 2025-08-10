@@ -19,6 +19,11 @@ import (
 	"github.com/vanpelt/catnip/internal/models"
 )
 
+// EventEmitter interface for emitting Claude activity state changes
+type EventEmitter interface {
+	EmitClaudeActivityStateChanged(worktreePath string, state models.ClaudeActivityState)
+}
+
 // ClaudeMonitorService monitors all worktrees for Claude sessions and manages checkpoints
 type ClaudeMonitorService struct {
 	gitService         *GitService
@@ -37,6 +42,10 @@ type ClaudeMonitorService struct {
 	activityMutex      sync.RWMutex
 	todoMonitors       map[string]*WorktreeTodoMonitor // Map of worktree path to todo monitor
 	todoMonitorsMutex  sync.RWMutex
+	// Event emission for state changes
+	eventEmitter    EventEmitter
+	lastStates      map[string]models.ClaudeActivityState // Track last known states to detect changes
+	lastStatesMutex sync.RWMutex
 }
 
 // titleEvent represents a title change event with timestamp
@@ -94,7 +103,13 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 		recentTitles:       make(map[string]titleEvent),
 		lastActivityTimes:  make(map[string]time.Time),
 		todoMonitors:       make(map[string]*WorktreeTodoMonitor),
+		lastStates:         make(map[string]models.ClaudeActivityState),
 	}
+}
+
+// SetEventEmitter sets the event emitter for Claude activity state changes
+func (s *ClaudeMonitorService) SetEventEmitter(emitter EventEmitter) {
+	s.eventEmitter = emitter
 }
 
 // Start begins monitoring all worktrees
@@ -924,9 +939,13 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	logger.Debugf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
 
 	// Update activity time to prevent session cleanup
+	now := time.Now()
 	m.claudeMonitor.activityMutex.Lock()
-	m.claudeMonitor.lastActivityTimes[m.workDir] = time.Now()
+	m.claudeMonitor.lastActivityTimes[m.workDir] = now
 	m.claudeMonitor.activityMutex.Unlock()
+
+	// Also update the Claude service activity tracking
+	m.claudeMonitor.claudeService.UpdateActivity(m.workDir)
 
 	// Update state
 	m.lastModTime = modTime
@@ -1271,4 +1290,20 @@ func (s *ClaudeMonitorService) RefreshTodoMonitoring() {
 // GetClaudeService returns the claude service instance (used by PTY handler)
 func (s *ClaudeMonitorService) GetClaudeService() *ClaudeService {
 	return s.claudeService
+}
+
+// GetClaudeActivityState returns the Claude activity state based on PTY activity tracking
+func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) models.ClaudeActivityState {
+	// Check activity using the new Claude service tracking
+	if s.claudeService.IsActiveSession(worktreePath, 2*time.Minute) {
+		return models.ClaudeActive
+	}
+
+	// Check if there's any recent activity (within 10 minutes) to determine if "running"
+	if s.claudeService.IsActiveSession(worktreePath, 10*time.Minute) {
+		return models.ClaudeRunning
+	}
+
+	// No recent activity
+	return models.ClaudeInactive
 }
