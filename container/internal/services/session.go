@@ -192,6 +192,16 @@ func (s *SessionService) FindSessionByDirectory(workDir string) (*SessionState, 
 
 // GetClaudeActivityState determines the Claude activity state for a workspace directory
 func (s *SessionService) GetClaudeActivityState(workDir string) models.ClaudeActivityState {
+	// Use the new ClaudeMonitorService method if available
+	s.mu.RLock()
+	monitor := s.claudeMonitor
+	s.mu.RUnlock()
+
+	if monitor != nil {
+		return monitor.GetClaudeActivityState(workDir)
+	}
+
+	// Fallback to old method if ClaudeMonitorService is not available
 	// Check if PTY session exists for this workspace
 	hasPTYSession := s.hasPTYSession(workDir)
 
