@@ -18,10 +18,29 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// GitHubAuthChecker defines the interface for checking GitHub authentication status
+type GitHubAuthChecker interface {
+	CheckGitHubAuthStatus() (*AuthUser, error)
+}
+
+// DefaultGitHubAuthChecker implements GitHubAuthChecker using actual GitHub CLI commands
+type DefaultGitHubAuthChecker struct{}
+
+// CheckGitHubAuthStatus implements the interface
+func (d *DefaultGitHubAuthChecker) CheckGitHubAuthStatus() (*AuthUser, error) {
+	// First try reading the hosts.yml file
+	if user, err := d.readGitHubHosts(); err == nil && user != nil {
+		return user, nil
+	}
+	// Fallback to running gh auth status command
+	return d.runGitHubAuthStatus()
+}
+
 // AuthHandler handles authentication flows
 type AuthHandler struct {
-	activeAuth *AuthProcess
-	authMutex  sync.Mutex
+	activeAuth  *AuthProcess
+	authMutex   sync.Mutex
+	authChecker GitHubAuthChecker
 }
 
 // AuthProcess represents an active authentication process
@@ -80,24 +99,22 @@ type GitHubUser struct {
 	OAuthToken string `yaml:"oauth_token"`
 }
 
-// NewAuthHandler creates a new auth handler
+// NewAuthHandler creates a new auth handler with default GitHub auth checker
 func NewAuthHandler() *AuthHandler {
-	return &AuthHandler{}
+	return &AuthHandler{
+		authChecker: &DefaultGitHubAuthChecker{},
+	}
 }
 
-// checkGitHubAuthStatus checks if user is authenticated with GitHub CLI
-func (h *AuthHandler) checkGitHubAuthStatus() (*AuthUser, error) {
-	// First try reading the hosts.yml file
-	if user, err := h.readGitHubHosts(); err == nil && user != nil {
-		return user, nil
+// NewAuthHandlerWithChecker creates a new auth handler with a custom GitHub auth checker (for testing)
+func NewAuthHandlerWithChecker(checker GitHubAuthChecker) *AuthHandler {
+	return &AuthHandler{
+		authChecker: checker,
 	}
-
-	// Fallback to running gh auth status command
-	return h.runGitHubAuthStatus()
 }
 
 // readGitHubHosts reads the GitHub CLI hosts.yml file
-func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
+func (d *DefaultGitHubAuthChecker) readGitHubHosts() (*AuthUser, error) {
 	hostsPath := filepath.Join(config.Runtime.HomeDir, ".config", "gh", "hosts.yml")
 
 	data, err := os.ReadFile(hostsPath)
@@ -115,7 +132,7 @@ func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
 	}
 
 	// Get token scopes using gh command
-	scopes := h.getTokenScopes()
+	scopes := d.getTokenScopes()
 
 	return &AuthUser{
 		Username: hosts.GitHubCom.User,
@@ -124,7 +141,7 @@ func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
 }
 
 // runGitHubAuthStatus runs gh auth status command
-func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
+func (d *DefaultGitHubAuthChecker) runGitHubAuthStatus() (*AuthUser, error) {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status --show-token 2>/dev/null")
 
 	// In containerized mode, override HOME for catnip user
@@ -152,7 +169,7 @@ func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
 	}
 
 	// Get token scopes
-	scopes := h.getTokenScopes()
+	scopes := d.getTokenScopes()
 
 	return &AuthUser{
 		Username: usernameMatches[1],
@@ -161,7 +178,7 @@ func (h *AuthHandler) runGitHubAuthStatus() (*AuthUser, error) {
 }
 
 // getTokenScopes gets the token scopes from gh auth status
-func (h *AuthHandler) getTokenScopes() []string {
+func (d *DefaultGitHubAuthChecker) getTokenScopes() []string {
 	cmd := exec.Command("bash", "--login", "-c", "gh auth status 2>&1 | grep 'Token scopes'")
 
 	// In containerized mode, override HOME for catnip user
@@ -328,7 +345,7 @@ func (h *AuthHandler) GetAuthStatus(c *fiber.Ctx) error {
 	}
 
 	// Check if user is already authenticated via GitHub CLI
-	user, err := h.checkGitHubAuthStatus()
+	user, err := h.authChecker.CheckGitHubAuthStatus()
 	if err == nil && user != nil {
 		return c.JSON(AuthStatusResponse{
 			Status: "authenticated",

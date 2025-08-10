@@ -242,7 +242,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	// Get or create session
 	session := h.getOrCreateSession(sessionID, agent, reset)
 	if session == nil {
-		logger.Infof("❌ Failed to create session: %s", sessionID)
+		logger.Errorf("❌ Failed to create session: %s", sessionID)
 
 		// Send error message to client before closing
 		errorMsg := struct {
@@ -335,7 +335,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	defer func() {
 		// Recover from any panics in this connection handler
 		if r := recover(); r != nil {
-			logger.Infof("❌ Recovered from panic in PTY connection handler: %v", r)
+			logger.Errorf("❌ Recovered from panic in PTY connection handler: %v", r)
 		}
 
 		close(done) // Signal goroutines to stop
@@ -394,7 +394,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 		// Safe close with error handling
 		if err := conn.Close(); err != nil {
-			logger.Infof("❌ Error closing websocket connection: %v", err)
+			logger.Warnf("❌ Error closing websocket connection: %v", err)
 		}
 	}()
 
@@ -402,7 +402,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Infof("❌ Recovered from panic in PTY read goroutine: %v", r)
+				logger.Errorf("❌ Recovered from panic in PTY read goroutine: %v", r)
 			}
 		}()
 
@@ -441,7 +441,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					// Continue reading from new PTY
 					continue
 				}
-				logger.Infof("❌ PTY read error: %v", err)
+				logger.Errorf("❌ PTY read error: %v", err)
 				return
 			}
 
@@ -499,7 +499,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
-			logger.Infof("❌ WebSocket read error: %v", err)
+			logger.Errorf("❌ WebSocket read error: %v", err)
 			break
 		}
 
@@ -561,7 +561,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 						session.bufferMutex.RUnlock()
 
 						if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferToReplay); err != nil {
-							logger.Infof("❌ Failed to replay buffer: %v", err)
+							logger.Warnf("❌ Failed to replay buffer: %v", err)
 						}
 
 						// If we filtered TUI content, send a refresh signal to trigger TUI repaint
@@ -570,7 +570,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 								time.Sleep(100 * time.Millisecond)
 								logger.Infof("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
 								if _, err := session.PTY.Write([]byte("\x0c")); err != nil {
-									logger.Infof("❌ Failed to send refresh signal: %v", err)
+									logger.Warnf("❌ Failed to send refresh signal: %v", err)
 								}
 							}()
 						}
@@ -593,7 +593,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					if controlMsg.Data != "" {
 						logger.Infof("📝 Injecting prompt into PTY: %q (submit: %v)", controlMsg.Data, controlMsg.Submit)
 						if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
-							logger.Infof("❌ Failed to write prompt to PTY: %v", err)
+							logger.Warnf("❌ Failed to write prompt to PTY: %v", err)
 						}
 
 						// If submit is true, send a carriage return after a small delay
@@ -604,7 +604,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 								time.Sleep(100 * time.Millisecond)
 								logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
 								if _, err := session.PTY.Write([]byte("\r")); err != nil {
-									logger.Infof("❌ Failed to write carriage return to PTY: %v", err)
+									logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
 								}
 							}()
 						}
@@ -656,7 +656,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 		// Write data to PTY (only from write-enabled connections)
 		if _, err := session.PTY.Write(data); err != nil {
-			logger.Infof("❌ PTY write error: %v", err)
+			logger.Errorf("❌ PTY write error: %v", err)
 			break
 		}
 
@@ -715,11 +715,11 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 				workDir = target
 				logger.Infof("📁 Using current workspace symlink for default session: %s", workDir)
 			} else {
-				logger.Infof("❌ Current workspace symlink target is invalid: %s", target)
+				logger.Errorf("❌ Current workspace symlink target is invalid: %s", target)
 				return nil
 			}
 		} else {
-			logger.Infof("❌ Default session requested but current symlink does not exist at %s", currentSymlinkPath)
+			logger.Errorf("❌ Default session requested but current symlink does not exist at %s", currentSymlinkPath)
 			return nil
 		}
 	} else if strings.Contains(baseSessionID, "/") {
@@ -737,17 +737,17 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 					workDir = branchWorktreePath
 					logger.Debugf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
 				} else {
-					logger.Infof("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
-					logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
+					logger.Errorf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
+					logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
 					return nil
 				}
 			} else {
-				logger.Infof("❌ Worktree directory does not exist: %s", branchWorktreePath)
+				logger.Errorf("❌ Worktree directory does not exist: %s", branchWorktreePath)
 				logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
 				return nil
 			}
 		} else {
-			logger.Infof("❌ Invalid session format: %s", baseSessionID)
+			logger.Errorf("❌ Invalid session format: %s", baseSessionID)
 			return nil
 		}
 	} else {
@@ -757,15 +757,15 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			workDir = sessionWorkDir
 			logger.Infof("📁 Using existing workspace directory: %s", workDir)
 		} else {
-			logger.Infof("❌ Workspace directory does not exist: %s", sessionWorkDir)
-			logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
+			logger.Errorf("❌ Workspace directory does not exist: %s", sessionWorkDir)
+			logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
 			return nil
 		}
 	}
 
 	// workDir should be set at this point or we would have returned nil
 	if workDir == "" {
-		logger.Infof("❌ Failed to determine valid workspace directory for session: %s", baseSessionID)
+		logger.Errorf("❌ Failed to determine valid workspace directory for session: %s", baseSessionID)
 		return nil
 	}
 
@@ -783,7 +783,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Allocate ports for this session
 	ports, err := h.portService.AllocatePortsForSession(sessionID)
 	if err != nil {
-		logger.Infof("❌ Failed to allocate ports for session %s: %v", sessionID, err)
+		logger.Errorf("❌ Failed to allocate ports for session %s: %v", sessionID, err)
 		return nil
 	}
 	logger.Debugf("🔗 Allocated ports for session %s: PORT=%d, PORTZ=%v", sessionID, ports.PORT, ports.PORTZ)
@@ -796,7 +796,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Start PTY for all session types including setup
 	ptmx, err = pty.Start(cmd)
 	if err != nil {
-		logger.Infof("❌ Failed to start PTY: %v", err)
+		logger.Errorf("❌ Failed to start PTY: %v", err)
 		return nil
 	}
 	// Set initial size
@@ -1083,7 +1083,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		var err error
 		ports, err = h.portService.AllocatePortsForSession(session.ID)
 		if err != nil {
-			logger.Infof("❌ Failed to allocate ports for session %s during recreation: %v", session.ID, err)
+			logger.Errorf("❌ Failed to allocate ports for session %s during recreation: %v", session.ID, err)
 			return
 		}
 	}
@@ -1094,7 +1094,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	// Start new PTY
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		logger.Infof("❌ Failed to recreate PTY: %v", err)
+		logger.Errorf("❌ Failed to recreate PTY: %v", err)
 		return
 	}
 
@@ -1280,7 +1280,7 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 
 	for conn, connInfo := range s.connections {
 		if err := conn.WriteMessage(messageType, data); err != nil {
-			logger.Infof("❌ WebSocket write error for connection [%s] in session %s: %v", connInfo.ConnID, s.ID, err)
+			logger.Warnf("❌ WebSocket write error for connection [%s] in session %s: %v", connInfo.ConnID, s.ID, err)
 			// Mark connection for removal
 			disconnectedConns = append(disconnectedConns, conn)
 		}
@@ -1569,7 +1569,7 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 
 	requestingConnInfo, exists := session.connections[requestingConn]
 	if !exists {
-		logger.Infof("❌ Requesting connection not found in session connections")
+		logger.Warnf("❌ Requesting connection not found in session connections")
 		return
 	}
 
@@ -1663,7 +1663,7 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 
 	connInfo, exists := session.connections[conn]
 	if !exists {
-		logger.Infof("❌ Connection not found in session connections for focus change")
+		logger.Warnf("❌ Connection not found in session connections for focus change")
 		return
 	}
 
