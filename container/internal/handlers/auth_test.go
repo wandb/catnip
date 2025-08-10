@@ -176,7 +176,7 @@ func TestAuthHandler_readGitHubHosts(t *testing.T) {
 		config.Runtime.HomeDir = tmpDir
 		defer func() { config.Runtime.HomeDir = originalHomeDir }()
 
-		user, err := handler.readGitHubHosts()
+		user, err := checker.readGitHubHosts()
 		assert.Error(t, err)
 		assert.Nil(t, user)
 	})
@@ -211,7 +211,7 @@ func TestAuthHandler_readGitHubHosts(t *testing.T) {
 		hostsPath := filepath.Join(ghDir, "hosts.yml")
 		require.NoError(t, os.WriteFile(hostsPath, hostsData, 0644))
 
-		user, err := handler.readGitHubHosts()
+		user, err := checker.readGitHubHosts()
 		assert.NoError(t, err)
 		assert.NotNil(t, user)
 		assert.Equal(t, "testuser", user.Username)
@@ -234,7 +234,7 @@ func TestAuthHandler_readGitHubHosts(t *testing.T) {
 		hostsPath := filepath.Join(ghDir, "hosts.yml")
 		require.NoError(t, os.WriteFile(hostsPath, []byte("invalid: yaml: content:"), 0644))
 
-		user, err := handler.readGitHubHosts()
+		user, err := checker.readGitHubHosts()
 		assert.Error(t, err)
 		assert.Nil(t, user)
 	})
@@ -263,7 +263,7 @@ func TestAuthHandler_readGitHubHosts(t *testing.T) {
 		hostsPath := filepath.Join(ghDir, "hosts.yml")
 		require.NoError(t, os.WriteFile(hostsPath, hostsData, 0644))
 
-		user, err := handler.readGitHubHosts()
+		user, err := checker.readGitHubHosts()
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no authenticated user found")
 		assert.Nil(t, user)
