@@ -94,13 +94,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 		recentTitles:       make(map[string]titleEvent),
 		lastActivityTimes:  make(map[string]time.Time),
 		todoMonitors:       make(map[string]*WorktreeTodoMonitor),
-		lastStates:         make(map[string]models.ClaudeActivityState),
 	}
-}
-
-// SetEventEmitter sets the event emitter for Claude activity state changes
-func (s *ClaudeMonitorService) SetEventEmitter(emitter EventEmitter) {
-	s.eventEmitter = emitter
 }
 
 // Start begins monitoring all worktrees
@@ -298,9 +292,6 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 
 	// Also update the Claude service activity tracking
 	s.claudeService.UpdateActivity(workDir)
-
-	// Check and emit state change events
-	s.checkAndEmitStateChange(workDir)
 
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
@@ -940,9 +931,6 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 
 	// Also update the Claude service activity tracking
 	m.claudeMonitor.claudeService.UpdateActivity(m.workDir)
-
-	// Check and emit state change events
-	m.claudeMonitor.checkAndEmitStateChange(m.workDir)
 
 	// Update state
 	m.lastModTime = modTime
