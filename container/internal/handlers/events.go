@@ -132,11 +132,6 @@ type SessionTitleUpdatedPayload struct {
 	SessionTitleHistory []models.TitleEntry `json:"session_title_history"`
 }
 
-type ClaudeActivityStateChangedPayload struct {
-	WorktreePath string                     `json:"worktree_path"`
-	State        models.ClaudeActivityState `json:"state"`
-}
-
 type SSEMessage struct {
 	Event     AppEvent `json:"event"`
 	Timestamp int64    `json:"timestamp"`
@@ -713,17 +708,6 @@ func (h *EventsHandler) EmitSessionTitleUpdated(workspaceDir, worktreeID string,
 			WorktreeID:          worktreeID,
 			SessionTitle:        sessionTitle,
 			SessionTitleHistory: sessionTitleHistory,
-		},
-	})
-}
-
-// EmitClaudeActivityStateChanged broadcasts a Claude activity state changed event to all connected clients
-func (h *EventsHandler) EmitClaudeActivityStateChanged(worktreePath string, state models.ClaudeActivityState) {
-	h.broadcastEvent(AppEvent{
-		Type: ClaudeActivityStateChangedEvent,
-		Payload: ClaudeActivityStateChangedPayload{
-			WorktreePath: worktreePath,
-			State:        state,
 		},
 	})
 }

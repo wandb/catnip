@@ -19,11 +19,6 @@ import (
 	"github.com/vanpelt/catnip/internal/models"
 )
 
-// EventEmitter interface for emitting Claude activity state changes
-type EventEmitter interface {
-	EmitClaudeActivityStateChanged(worktreePath string, state models.ClaudeActivityState)
-}
-
 // ClaudeMonitorService monitors all worktrees for Claude sessions and manages checkpoints
 type ClaudeMonitorService struct {
 	gitService         *GitService
@@ -42,10 +37,6 @@ type ClaudeMonitorService struct {
 	activityMutex      sync.RWMutex
 	todoMonitors       map[string]*WorktreeTodoMonitor // Map of worktree path to todo monitor
 	todoMonitorsMutex  sync.RWMutex
-	// Event emission for state changes
-	eventEmitter    EventEmitter
-	lastStates      map[string]models.ClaudeActivityState // Track last known states to detect changes
-	lastStatesMutex sync.RWMutex
 }
 
 // titleEvent represents a title change event with timestamp
