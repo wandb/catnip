@@ -308,6 +308,9 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 	// Also update the Claude service activity tracking
 	s.claudeService.UpdateActivity(workDir)
 
+	// Check and emit state change events
+	s.checkAndEmitStateChange(workDir)
+
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
 	if !exists {
@@ -947,6 +950,9 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	// Also update the Claude service activity tracking
 	m.claudeMonitor.claudeService.UpdateActivity(m.workDir)
 
+	// Check and emit state change events
+	m.claudeMonitor.checkAndEmitStateChange(m.workDir)
+
 	// Update state
 	m.lastModTime = modTime
 	m.lastTodos = todos
@@ -1306,4 +1312,24 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 
 	// No recent activity
 	return models.ClaudeInactive
+}
+
+// checkAndEmitStateChange checks if the Claude state has changed and emits an event if so
+func (s *ClaudeMonitorService) checkAndEmitStateChange(worktreePath string) {
+	if s.eventEmitter == nil {
+		return
+	}
+
+	currentState := s.GetClaudeActivityState(worktreePath)
+
+	s.lastStatesMutex.Lock()
+	lastState, exists := s.lastStates[worktreePath]
+	s.lastStates[worktreePath] = currentState
+	s.lastStatesMutex.Unlock()
+
+	// Emit event if state changed or this is the first time we're seeing this worktree
+	if !exists || lastState != currentState {
+		logger.Debugf("🔄 Claude activity state changed for %s: %v -> %v", worktreePath, lastState, currentState)
+		s.eventEmitter.EmitClaudeActivityStateChanged(worktreePath, currentState)
+	}
 }
