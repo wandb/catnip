@@ -189,8 +189,16 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 		}
 	}
 
-	// Step 3: Remove preview branch if it exists
+	// Step 3: Remove catnip ref if it exists
 	workspaceName := ExtractWorkspaceName(worktree.Branch)
+	catnipRef := fmt.Sprintf("refs/catnip/%s", workspaceName)
+	if _, err := w.operations.ExecuteGit(repo.Path, "update-ref", "-d", catnipRef); err == nil {
+		logger.Debugf("✅ Removed catnip ref: %s", catnipRef)
+	} else {
+		logger.Debugf("ℹ️ No catnip ref to remove: %s", catnipRef)
+	}
+
+	// Step 4: Remove preview branch if it exists
 	previewBranchName := fmt.Sprintf("catnip/%s", workspaceName)
 	if err := w.operations.DeleteBranch(repo.Path, previewBranchName, true); err != nil {
 		logger.Debugf("ℹ️ No preview branch to remove: %s", previewBranchName)
