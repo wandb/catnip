@@ -167,6 +167,10 @@ func startServer(cmd *cobra.Command) {
 		logger.Debugf("⚠️  Failed to restore state: %v", err)
 	}
 
+	// Clean up orphaned catnip refs on startup
+	logger.Debugf("🧹 Running startup cleanup of orphaned catnip refs")
+	gitService.CleanupAllCatnipRefs()
+
 	// Now initialize local repositories with setup executor properly configured
 	gitService.InitializeLocalRepos()
 	if err := claudeMonitor.Start(); err != nil {
