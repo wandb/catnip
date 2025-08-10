@@ -192,7 +192,7 @@ func GetLogLevelFromEnv(isDev bool) LogLevel {
 		return LevelDebug
 	}
 
-	return LevelInfo
+	return LevelWarn
 }
 
 // Debug logs a message at debug level

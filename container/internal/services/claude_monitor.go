@@ -1266,6 +1266,29 @@ func (s *ClaudeMonitorService) OnWorktreeCreated(worktreeID, worktreePath string
 	s.startWorktreeTodoMonitor(worktreeID, worktreePath)
 }
 
+// OnWorktreeDeleted removes checkpoint manager and todo monitor for the deleted worktree
+func (s *ClaudeMonitorService) OnWorktreeDeleted(worktreeID, worktreePath string) {
+	logger.Infof("📂 Worktree deleted: %s -> %s", worktreeID, worktreePath)
+
+	// Clean up checkpoint manager
+	s.managersMutex.Lock()
+	if manager, exists := s.checkpointManagers[worktreePath]; exists {
+		manager.Stop()
+		delete(s.checkpointManagers, worktreePath)
+		logger.Debugf("📂 Removed checkpoint manager for: %s", worktreePath)
+	}
+	s.managersMutex.Unlock()
+
+	// Clean up todo monitor
+	s.todoMonitorsMutex.Lock()
+	if monitor, exists := s.todoMonitors[worktreeID]; exists {
+		monitor.Stop()
+		delete(s.todoMonitors, worktreeID)
+		logger.Debugf("📂 Removed todo monitor for: %s", worktreeID)
+	}
+	s.todoMonitorsMutex.Unlock()
+}
+
 // RefreshTodoMonitoring manually refreshes todo monitoring for all worktrees
 func (s *ClaudeMonitorService) RefreshTodoMonitoring() {
 	logger.Debugf("🔄 Manually refreshing Todo monitoring for all worktrees")

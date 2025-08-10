@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -556,7 +557,7 @@ func (s *SessionService) AddToSessionHistory(workspaceDir, title, commitHash str
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	fmt.Printf("📝 Adding to session history: %s for workspace: %s\n", title, workspaceDir)
+	logger.Infof("📝 Adding to session history: %s for workspace: %s", title, workspaceDir)
 
 	session, exists := s.activeSessions[workspaceDir]
 	if !exists {
