@@ -284,10 +284,14 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 	}
 	s.recentTitlesMutex.Unlock()
 
-	// Update activity time for title changes
+	// Update activity time for title changes and also update Claude service activity
+	now := time.Now()
 	s.activityMutex.Lock()
-	s.lastActivityTimes[workDir] = time.Now()
+	s.lastActivityTimes[workDir] = now
 	s.activityMutex.Unlock()
+
+	// Also update the Claude service activity tracking
+	s.claudeService.UpdateActivity(workDir)
 
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
