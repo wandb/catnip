@@ -194,6 +194,10 @@ func startServer(cmd *cobra.Command) {
 	sessionService.SetEventsHandler(eventsHandler)
 	logger.Debugf("✅ EventsHandler connected to SessionService for session title events")
 
+	// Connect events handler to ClaudeMonitorService for Claude activity state events
+	claudeMonitor.SetEventEmitter(eventsHandler)
+	logger.Debugf("✅ EventsHandler connected to ClaudeMonitorService for Claude activity state events")
+
 	// Connect SessionService to GitService for Claude activity state tracking
 	gitService.SetSessionService(sessionService)
 	logger.Debugf("✅ SessionService connected to GitService for Claude activity state tracking")
