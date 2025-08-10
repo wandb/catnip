@@ -188,3 +188,16 @@ type ClaudeSettingsUpdateRequest struct {
 	// Theme to set (must be one of the valid theme values)
 	Theme string `json:"theme" example:"dark" enums:"dark,light,dark-daltonized,light-daltonized,dark-ansi,light-ansi"`
 }
+
+// ClaudeHookEvent represents a hook event from Claude Code
+// @Description Claude Code hook event for activity tracking
+type ClaudeHookEvent struct {
+	// Type of the hook event (UserPromptSubmit, Stop, etc.)
+	EventType string `json:"event_type" example:"UserPromptSubmit"`
+	// Working directory where the event occurred
+	WorkingDirectory string `json:"working_directory" example:"/workspace/my-project"`
+	// Session ID if available
+	SessionID string `json:"session_id,omitempty" example:"abc123-def456-ghi789"`
+	// Additional event-specific data
+	Data map[string]interface{} `json:"data,omitempty"`
+}

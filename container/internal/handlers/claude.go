@@ -263,3 +263,50 @@ func (h *ClaudeHandler) UpdateClaudeSettings(c *fiber.Ctx) error {
 
 	return c.JSON(settings)
 }
+
+// HandleClaudeHook handles Claude Code hook notifications
+// @Summary Handle Claude hook events
+// @Description Receives hook notifications from Claude Code for activity tracking
+// @Tags claude
+// @Accept json
+// @Produce json
+// @Param request body models.ClaudeHookEvent true "Claude hook event"
+// @Success 200 {object} map[string]string
+// @Router /v1/claude/hooks [post]
+func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
+	var req models.ClaudeHookEvent
+
+	// Parse the request body
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Validate required fields
+	if req.EventType == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "event_type is required",
+		})
+	}
+
+	if req.WorkingDirectory == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "working_directory is required",
+		})
+	}
+
+	// Handle the hook event
+	err := h.claudeService.HandleHookEvent(&req)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error":   "Failed to handle hook event",
+			"details": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "success",
+		"message": "Hook event processed successfully",
+	})
+}
