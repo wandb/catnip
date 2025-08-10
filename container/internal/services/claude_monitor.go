@@ -1263,3 +1263,8 @@ func (s *ClaudeMonitorService) RefreshTodoMonitoring() {
 	logger.Debugf("🔄 Manually refreshing Todo monitoring for all worktrees")
 	s.startTodoMonitoring()
 }
+
+// GetClaudeService returns the claude service instance (used by PTY handler)
+func (s *ClaudeMonitorService) GetClaudeService() *ClaudeService {
+	return s.claudeService
+}
