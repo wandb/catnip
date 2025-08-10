@@ -109,10 +109,10 @@ If you run `catnip` from within a git repo, we mount the repo into the container
 
 ### Ports
 
-Catnip detects any ports that are bound within the container. Each workspace also has the `PORT` environment variable set to a known free port. When a port is opened we notify you in the UI and make the port accessible at `http://localhost:8080/$PORT`. Your application should not need to know it's running under a sub-path. We do a bunch of hacky stuff to make links and fetch request do the right thing.
+Catnip forwards ports directly to the host system. When a service starts within the container, Catnip automatically detects and forwards the port, making it accessible at `http://localhost:$PORT`. Each workspace also has the `PORT` environment variable set to a known free port. For convenience, services can also be accessed through the Catnip UI proxy at `http://localhost:8080/$PORT`.
 
-> [!CAUTION]
-> We're doing some terrible hacky awful stuff to make our proxy work currently. It's likely brittle and may miss more complex scenarios. If you're having issues with our proxy, you can forward ports directly to your host with ssh `ssh -L 3000:localhost:3000 catnip` or use the built in port forwarding of VSCode or Cursor.
+> [!NOTE]
+> If a port isn't bindable on the host (e.g., already in use), Catnip will automatically find and use the first available port instead. The UI will notify you of the actual port being used.
 
 ## 🗺️ Roadmap
 
