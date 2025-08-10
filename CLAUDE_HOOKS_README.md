@@ -77,7 +77,7 @@ To test the hook manually:
 
 ```bash
 cd ~/.claude/hooks
-EVENT_TYPE="UserPromptSubmit" PWD="/workspace/test" ./hook.sh
+echo '{"hook_event_name":"UserPromptSubmit","cwd":"/workspace/test","session_id":"test-123"}' | ./hook.sh
 ```
 
 ## Fallback Behavior
