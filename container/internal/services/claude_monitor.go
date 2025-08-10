@@ -284,10 +284,14 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 	}
 	s.recentTitlesMutex.Unlock()
 
-	// Update activity time for title changes
+	// Update activity time for title changes and also update Claude service activity
+	now := time.Now()
 	s.activityMutex.Lock()
-	s.lastActivityTimes[workDir] = time.Now()
+	s.lastActivityTimes[workDir] = now
 	s.activityMutex.Unlock()
+
+	// Also update the Claude service activity tracking
+	s.claudeService.UpdateActivity(workDir)
 
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
@@ -920,9 +924,13 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	logger.Debugf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
 
 	// Update activity time to prevent session cleanup
+	now := time.Now()
 	m.claudeMonitor.activityMutex.Lock()
-	m.claudeMonitor.lastActivityTimes[m.workDir] = time.Now()
+	m.claudeMonitor.lastActivityTimes[m.workDir] = now
 	m.claudeMonitor.activityMutex.Unlock()
+
+	// Also update the Claude service activity tracking
+	m.claudeMonitor.claudeService.UpdateActivity(m.workDir)
 
 	// Update state
 	m.lastModTime = modTime
@@ -1262,4 +1270,25 @@ func (s *ClaudeMonitorService) OnWorktreeCreated(worktreeID, worktreePath string
 func (s *ClaudeMonitorService) RefreshTodoMonitoring() {
 	logger.Debugf("🔄 Manually refreshing Todo monitoring for all worktrees")
 	s.startTodoMonitoring()
+}
+
+// GetClaudeService returns the claude service instance (used by PTY handler)
+func (s *ClaudeMonitorService) GetClaudeService() *ClaudeService {
+	return s.claudeService
+}
+
+// GetClaudeActivityState returns the Claude activity state based on PTY activity tracking
+func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) models.ClaudeActivityState {
+	// Check activity using the new Claude service tracking
+	if s.claudeService.IsActiveSession(worktreePath, 2*time.Minute) {
+		return models.ClaudeActive
+	}
+
+	// Check if there's any recent activity (within 10 minutes) to determine if "running"
+	if s.claudeService.IsActiveSession(worktreePath, 10*time.Minute) {
+		return models.ClaudeRunning
+	}
+
+	// No recent activity
+	return models.ClaudeInactive
 }
