@@ -1292,23 +1292,3 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 	// No recent activity
 	return models.ClaudeInactive
 }
-
-// checkAndEmitStateChange checks if the Claude state has changed and emits an event if so
-func (s *ClaudeMonitorService) checkAndEmitStateChange(worktreePath string) {
-	if s.eventEmitter == nil {
-		return
-	}
-
-	currentState := s.GetClaudeActivityState(worktreePath)
-
-	s.lastStatesMutex.Lock()
-	lastState, exists := s.lastStates[worktreePath]
-	s.lastStates[worktreePath] = currentState
-	s.lastStatesMutex.Unlock()
-
-	// Emit event if state changed or this is the first time we're seeing this worktree
-	if !exists || lastState != currentState {
-		logger.Debugf("🔄 Claude activity state changed for %s: %v -> %v", worktreePath, lastState, currentState)
-		s.eventEmitter.EmitClaudeActivityStateChanged(worktreePath, currentState)
-	}
-}
