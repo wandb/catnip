@@ -1307,7 +1307,6 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 	// Get hook-based timestamps
 	lastPromptSubmit := s.claudeService.GetLastUserPromptSubmit(worktreePath)
 	lastStopEvent := s.claudeService.GetLastStopEvent(worktreePath)
-	lastGeneralActivity := s.claudeService.GetLastActivity(worktreePath)
 
 	// Use hook events for more precise activity tracking when available
 	if !lastPromptSubmit.IsZero() {
