@@ -1176,7 +1176,7 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 		}
 
 		if !isMerged {
-			logger.Warnf("❌ Branch %s not eligible for cleanup", worktree.Branch)
+			logger.Debugf("❌ Branch %s not eligible for cleanup", worktree.Branch)
 		}
 
 		if isMerged {
