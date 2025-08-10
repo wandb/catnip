@@ -113,17 +113,6 @@ func NewAuthHandlerWithChecker(checker GitHubAuthChecker) *AuthHandler {
 	}
 }
 
-// checkGitHubAuthStatus checks if user is authenticated with GitHub CLI
-func (h *AuthHandler) checkGitHubAuthStatus() (*AuthUser, error) {
-	// First try reading the hosts.yml file
-	if user, err := h.readGitHubHosts(); err == nil && user != nil {
-		return user, nil
-	}
-
-	// Fallback to running gh auth status command
-	return h.runGitHubAuthStatus()
-}
-
 // readGitHubHosts reads the GitHub CLI hosts.yml file
 func (h *AuthHandler) readGitHubHosts() (*AuthUser, error) {
 	hostsPath := filepath.Join(config.Runtime.HomeDir, ".config", "gh", "hosts.yml")
