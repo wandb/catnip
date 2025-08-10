@@ -16,6 +16,10 @@ export PATH="${HOME}/.local/bin:${PATH}"
 export PIPX_BIN_DIR="${CATNIP_ROOT}/bin"
 export PIPX_HOME="${CATNIP_ROOT}/pipx"
 
+# pnpm configuration
+export PNPM_HOME="${CATNIP_ROOT}/pnpm"
+export PATH="${PNPM_HOME}:${PATH}"
+
 # Enable Node.js PTY title interceptor for Claude detection
 # Set CATNIP_DISABLE_PTY_INTERCEPTOR=1 to disable if it causes issues
 if [ "$CATNIP_DISABLE_PTY_INTERCEPTOR" != "1" ] && [ "$CATNIP_DISABLE_PTY_INTERCEPTOR" != "true" ]; then
