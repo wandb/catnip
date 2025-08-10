@@ -66,6 +66,43 @@
                 }
             }
         },
+        "/v1/claude/hooks": {
+            "post": {
+                "description": "Receives hook notifications from Claude Code for activity tracking",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Handle Claude hook events",
+                "parameters": [
+                    {
+                        "description": "Claude hook event",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeHookEvent"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/messages": {
             "post": {
                 "description": "Creates a completion using the claude CLI tool as a subprocess, supporting both streaming and non-streaming responses, with resume functionality",
@@ -1404,6 +1441,32 @@
                 "pastedContents": {
                     "type": "object",
                     "additionalProperties": {}
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.ClaudeHookEvent": {
+            "description": "Claude Code hook event for activity tracking",
+            "type": "object",
+            "properties": {
+                "data": {
+                    "description": "Additional event-specific data",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "event_type": {
+                    "description": "Type of the hook event (UserPromptSubmit, Stop, etc.)",
+                    "type": "string",
+                    "example": "UserPromptSubmit"
+                },
+                "session_id": {
+                    "description": "Session ID if available",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "working_directory": {
+                    "description": "Working directory where the event occurred",
+                    "type": "string",
+                    "example": "/workspace/my-project"
                 }
             }
         },

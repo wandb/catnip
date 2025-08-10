@@ -28,6 +28,9 @@ type ClaudeService struct {
 	// Activity tracking for PTY sessions
 	activityMutex sync.RWMutex
 	lastActivity  map[string]time.Time // Map of worktree path to last activity time
+	// Hook-based activity tracking
+	lastUserPromptSubmit map[string]time.Time // Map of worktree path to last UserPromptSubmit time
+	lastStopEvent        map[string]time.Time // Map of worktree path to last Stop event time
 }
 
 // readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
@@ -80,11 +83,13 @@ func NewClaudeService() *ClaudeService {
 	homeDir := config.Runtime.HomeDir
 	volumeDir := config.Runtime.VolumeDir
 	return &ClaudeService{
-		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
-		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
-		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
-		subprocessWrapper: NewClaudeSubprocessWrapper(),
-		lastActivity:      make(map[string]time.Time),
+		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
+		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
+		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		subprocessWrapper:    NewClaudeSubprocessWrapper(),
+		lastActivity:         make(map[string]time.Time),
+		lastUserPromptSubmit: make(map[string]time.Time),
+		lastStopEvent:        make(map[string]time.Time),
 	}
 }
 
@@ -94,11 +99,13 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 	homeDir := config.Runtime.HomeDir
 	volumeDir := config.Runtime.VolumeDir
 	return &ClaudeService{
-		claudeConfigPath:  filepath.Join(homeDir, ".claude.json"),
-		claudeProjectsDir: filepath.Join(homeDir, ".claude", "projects"),
-		volumeProjectsDir: filepath.Join(volumeDir, ".claude", ".claude", "projects"),
-		subprocessWrapper: wrapper,
-		lastActivity:      make(map[string]time.Time),
+		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
+		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
+		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		subprocessWrapper:    wrapper,
+		lastActivity:         make(map[string]time.Time),
+		lastUserPromptSubmit: make(map[string]time.Time),
+		lastStopEvent:        make(map[string]time.Time),
 	}
 }
 
@@ -968,4 +975,43 @@ func (s *ClaudeService) IsActiveSession(worktreePath string, within time.Duratio
 		return false
 	}
 	return time.Since(lastActivity) <= within
+}
+
+// HandleHookEvent processes Claude Code hook events for activity tracking
+func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
+	s.activityMutex.Lock()
+	defer s.activityMutex.Unlock()
+
+	now := time.Now()
+
+	switch event.EventType {
+	case "UserPromptSubmit":
+		// Track both general activity and specific prompt submit
+		s.lastActivity[event.WorkingDirectory] = now
+		s.lastUserPromptSubmit[event.WorkingDirectory] = now
+		return nil
+	case "Stop":
+		// Track both general activity and specific stop event
+		s.lastActivity[event.WorkingDirectory] = now
+		s.lastStopEvent[event.WorkingDirectory] = now
+		return nil
+	default:
+		// For other events, just update general activity timestamp
+		s.lastActivity[event.WorkingDirectory] = now
+		return nil
+	}
+}
+
+// GetLastUserPromptSubmit returns the last UserPromptSubmit event time for a worktree
+func (s *ClaudeService) GetLastUserPromptSubmit(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastUserPromptSubmit[worktreePath]
+}
+
+// GetLastStopEvent returns the last Stop event time for a worktree
+func (s *ClaudeService) GetLastStopEvent(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastStopEvent[worktreePath]
 }
