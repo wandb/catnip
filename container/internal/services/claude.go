@@ -24,6 +24,9 @@ type ClaudeService struct {
 	claudeProjectsDir string
 	volumeProjectsDir string
 	subprocessWrapper ClaudeSubprocessInterface
+	// Activity tracking for PTY sessions
+	activityMutex sync.RWMutex
+	lastActivity  map[string]time.Time // Map of worktree path to last activity time
 }
 
 // readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
