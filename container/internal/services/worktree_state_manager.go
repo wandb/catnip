@@ -510,24 +510,6 @@ func (wsm *WorktreeStateManager) saveStateInternal() error {
 	return os.WriteFile(stateFile, data, 0644)
 }
 
-// copyFile copies a file from src to dst
-func copyFile(src, dst string) error {
-	sourceFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	destFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer destFile.Close()
-
-	_, err = destFile.ReadFrom(sourceFile)
-	return err
-}
-
 // loadState loads state from disk
 func (wsm *WorktreeStateManager) loadState() error {
 	stateFile := filepath.Join(wsm.stateDir, "state.json")
