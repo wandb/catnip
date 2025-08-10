@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -74,6 +75,11 @@ func TestAuthHandler_GetAuthStatus(t *testing.T) {
 	})
 
 	t.Run("active auth process", func(t *testing.T) {
+		// Create handler with mock (won't be called since activeAuth is set)
+		mockChecker := NewMockGitHubAuthChecker(nil, fmt.Errorf("not authenticated"))
+		handler := NewAuthHandlerWithChecker(mockChecker)
+		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
+
 		// Set up an active auth process
 		handler.activeAuth = &AuthProcess{
 			Status: "waiting",
@@ -92,12 +98,14 @@ func TestAuthHandler_GetAuthStatus(t *testing.T) {
 
 		assert.Equal(t, "waiting", result.Status)
 		assert.Empty(t, result.Error)
-
-		// Clean up
-		handler.activeAuth = nil
 	})
 
 	t.Run("active auth process with error", func(t *testing.T) {
+		// Create handler with mock (won't be called since activeAuth is set)
+		mockChecker := NewMockGitHubAuthChecker(nil, fmt.Errorf("not authenticated"))
+		handler := NewAuthHandlerWithChecker(mockChecker)
+		app.Get("/v1/auth/github/status", handler.GetAuthStatus)
+
 		// Set up an active auth process with error
 		handler.activeAuth = &AuthProcess{
 			Status: "error",
@@ -115,9 +123,6 @@ func TestAuthHandler_GetAuthStatus(t *testing.T) {
 
 		assert.Equal(t, "error", result.Status)
 		assert.Equal(t, "authentication failed", result.Error)
-
-		// Clean up
-		handler.activeAuth = nil
 	})
 }
 
