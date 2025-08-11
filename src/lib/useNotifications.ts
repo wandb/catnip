@@ -2,6 +2,12 @@ import { useState, useEffect } from "react";
 
 export type NotificationPermission = "default" | "granted" | "denied";
 
+interface NotificationPayload {
+  title: string;
+  body: string;
+  subtitle?: string;
+}
+
 export function useNotifications() {
   const [permission, setPermission] =
     useState<NotificationPermission>("default");
@@ -31,7 +37,48 @@ export function useNotifications() {
     }
   };
 
-  const showNotification = (title: string, options?: NotificationOptions) => {
+  const sendNativeNotification = async (
+    payload: NotificationPayload,
+  ): Promise<boolean> => {
+    try {
+      const response = await fetch("/v1/notifications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      console.log("Native notification sent successfully");
+      return true;
+    } catch (error) {
+      console.warn("Failed to send native notification:", error);
+      return false;
+    }
+  };
+
+  const showNotification = async (
+    title: string,
+    options?: NotificationOptions,
+  ) => {
+    const payload: NotificationPayload = {
+      title,
+      body: options?.body || "",
+      subtitle: options?.tag,
+    };
+
+    // Try native notification first (will work when TUI is connected)
+    const nativeSent = await sendNativeNotification(payload);
+
+    if (nativeSent) {
+      return null; // Native notification was sent
+    }
+
+    // Fallback to browser notification
     if (!isSupported) {
       throw new Error("Notifications are not supported in this browser");
     }
@@ -48,6 +95,7 @@ export function useNotifications() {
     isSupported,
     requestPermission,
     showNotification,
+    sendNativeNotification,
     canShowNotifications: isSupported && permission === "granted",
   };
 }

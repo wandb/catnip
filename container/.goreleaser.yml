@@ -15,9 +15,12 @@ git:
 
 # Build configuration
 builds:
-  - id: catnip
+  # Linux and FreeBSD builds without CGO
+  - id: catnip-no-cgo
     main: ./cmd/cli/main.go
     binary: catnip
+    env:
+      - CGO_ENABLED=0
 
     # Build flags and ldflags for version injection
     flags:
@@ -29,29 +32,44 @@ builds:
       - -X main.date={{.Date}}
       - -X main.builtBy=goreleaser
 
-    # Target platforms
+    # Target platforms for CGO-disabled builds
     goos:
       - linux
-      - darwin
       - freebsd
 
     goarch:
       - amd64
       - arm64
 
-    # ARM variants
-    # goarm:
-
     # Ignore combinations that don't make sense
     ignore:
-      - goos: darwin
-        goarch: "386"
-      - goos: darwin
-        goarch: arm
       - goos: freebsd
         goarch: arm64
-      - goos: freebsd
-        goarch: arm
+        
+  # macOS builds with CGO for native notifications
+  - id: catnip-macos
+    main: ./cmd/cli/main.go
+    binary: catnip
+    env:
+      - CGO_ENABLED=1
+
+    # Build flags and ldflags for version injection
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+      - -X main.builtBy=goreleaser
+
+    # Target platforms for CGO-enabled builds (macOS only)
+    goos:
+      - darwin
+
+    goarch:
+      - amd64
+      - arm64
 
 # Code signing and notarization for macOS binaries
 notarize:
@@ -72,7 +90,7 @@ notarize:
 archives:
   - id: default
     # Modern v2 syntax: use ids instead of builds
-    ids: [catnip]
+    ids: [catnip-no-cgo, catnip-macos]
 
     # Archive name template
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
@@ -261,6 +279,5 @@ before:
     - go generate ./...
 
 # Build environment
-env:
-  - CGO_ENABLED=0
+# CGO settings are per-build now - see builds section
 # Git tag configuration moved to top git section
