@@ -4,79 +4,79 @@ package tui
 
 /*
 #cgo CFLAGS: -x objective-c -mmacosx-version-min=10.14
-#cgo LDFLAGS: -framework Foundation -framework UserNotifications
+#cgo LDFLAGS: -framework Foundation -framework Cocoa
 
 #import <Foundation/Foundation.h>
-#import <UserNotifications/UserNotifications.h>
-#import <dispatch/dispatch.h>
+#import <Cocoa/Cocoa.h>
 
-static int notificationPermissionGranted = 0;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
-void requestNotificationPermission() {
+// Clean, simple notification implementation based on terminal-notifier pattern
+void sendNotification(const char* title, const char* body, const char* subtitle) {
     @autoreleasepool {
-        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        NSLog(@"[Catnip] Sending notification: %s", title);
 
-        UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
-        [center requestAuthorizationWithOptions:(UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge)
-            completionHandler:^(BOOL granted, NSError * _Nullable error) {
-                notificationPermissionGranted = granted ? 1 : 0;
-                dispatch_semaphore_signal(semaphore);
-            }];
+        // Initialize NSApplication - required for notifications
+        NSApplication *app = [NSApplication sharedApplication];
+        [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
 
-        dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);
+        // Check bundle identifier to ensure we're running from app bundle
+        NSBundle *bundle = [NSBundle mainBundle];
+        NSString *bundleId = [bundle bundleIdentifier];
+        NSLog(@"[Catnip] Bundle ID: %@", bundleId);
+        NSLog(@"[Catnip] Bundle path: %@", [bundle bundlePath]);
+
+        if (!bundleId || [bundleId isEqualToString:@""]) {
+            NSLog(@"[Catnip] ERROR: No bundle identifier - notifications may not work properly");
+        }
+
+        // Create notification
+        NSUserNotificationCenter *center = [NSUserNotificationCenter defaultUserNotificationCenter];
+        if (!center) {
+            NSLog(@"[Catnip] ERROR: Could not get NSUserNotificationCenter");
+            return;
+        }
+
+        NSUserNotification *notification = [[NSUserNotification alloc] init];
+        notification.title = [NSString stringWithUTF8String:title];
+        notification.informativeText = [NSString stringWithUTF8String:body];
+
+        if (subtitle && strlen(subtitle) > 0) {
+            notification.subtitle = [NSString stringWithUTF8String:subtitle];
+        }
+
+        notification.soundName = NSUserNotificationDefaultSoundName;
+
+        // Deliver notification
+        [center deliverNotification:notification];
+
+        // CRITICAL: Run event loop briefly to let notification system process
+        // This is the key missing piece that makes notifications work reliably
+        NSDate *timeout = [NSDate dateWithTimeIntervalSinceNow:0.1];
+        [[NSRunLoop currentRunLoop] runUntilDate:timeout];
+
+        NSLog(@"[Catnip] Notification delivered successfully");
     }
 }
 
-void sendNotification(const char* title, const char* body, const char* subtitle) {
-    @autoreleasepool {
-        if (!notificationPermissionGranted) {
-            requestNotificationPermission();
-        }
-
-        UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
-        content.title = [NSString stringWithUTF8String:title];
-        content.body = [NSString stringWithUTF8String:body];
-        if (subtitle && strlen(subtitle) > 0) {
-            content.subtitle = [NSString stringWithUTF8String:subtitle];
-        }
-        content.sound = [UNNotificationSound defaultSound];
-
-        // Create trigger (immediate delivery)
-        UNTimeIntervalNotificationTrigger *trigger =
-            [UNTimeIntervalNotificationTrigger triggerWithTimeInterval:0.1 repeats:NO];
-
-        // Create unique identifier
-        NSString *identifier = [[NSUUID UUID] UUIDString];
-
-        // Create request
-        UNNotificationRequest *request =
-            [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:trigger];
-
-        // Add notification request
-        [[UNUserNotificationCenter currentNotificationCenter]
-            addNotificationRequest:request withCompletionHandler:^(NSError * _Nullable error) {
-                if (error) {
-                    NSLog(@"Error sending notification: %@", error.localizedDescription);
-                }
-            }];
-    }
+// No-op for permission requests - NSUserNotification doesn't need explicit permissions
+void requestNotificationPermission() {
+    NSLog(@"[Catnip] NSUserNotification doesn't require permission requests");
 }
 
 int isNotificationPermissionGranted() {
-    return notificationPermissionGranted;
+    return 1; // NSUserNotification works without explicit permission for app bundles
 }
+
+#pragma clang diagnostic pop
 */
 import "C"
 import (
 	"unsafe"
 )
 
-func init() {
-	// Request permission on startup
-	C.requestNotificationPermission()
-}
-
-// SendNativeNotification sends a native macOS notification
+// SendNativeNotification sends a native macOS notification using the clean, simple approach
 func SendNativeNotification(title, body, subtitle string) error {
 	cTitle := C.CString(title)
 	cBody := C.CString(body)
@@ -95,7 +95,7 @@ func IsNotificationSupported() bool {
 	return true
 }
 
-// HasNotificationPermission checks if notification permission is granted
+// HasNotificationPermission always returns true for NSUserNotification
 func HasNotificationPermission() bool {
 	return C.isNotificationPermissionGranted() == 1
 }

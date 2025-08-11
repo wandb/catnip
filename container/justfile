@@ -26,12 +26,25 @@ build: swagger build-frontend build-scripts
 
 	echo "Building catnip ${VERSION} (commit: ${COMMIT})"
 
+	# Enable CGO on macOS for native notifications
+	if [[ "$(uname)" == "Darwin" ]]; then
+		export CGO_ENABLED=1
+		echo "CGO enabled for macOS native notifications"
+	else
+		export CGO_ENABLED=0
+	fi
+
 	go build -ldflags "\
 		-X main.version=${VERSION} \
 		-X main.commit=${COMMIT} \
 		-X main.date=${DATE} \
 		-X main.builtBy=just" \
 		-o bin/catnip cmd/cli/main.go
+
+	# Create app bundle on macOS
+	if [[ "$(uname)" == "Darwin" ]]; then
+		just create-app-bundle "${VERSION}"
+	fi
 
 	# Restore placeholder frontend assets after building
 	just restore-placeholder
@@ -165,6 +178,45 @@ restore-placeholder:
 	find internal/assets/dist -name "assets" -type d -exec rm -rf {} + 2>/dev/null || true
 	
 	echo "✅ Placeholder assets restored"
+
+# Create macOS app bundle using static structure
+create-app-bundle VERSION:
+	#!/usr/bin/env bash
+	set -euo pipefail
+	
+	if [[ "$(uname)" != "Darwin" ]]; then
+		echo "App bundle creation is only supported on macOS"
+		exit 1
+	fi
+	
+	VERSION="{{VERSION}}"
+	echo "Creating macOS app bundle for version ${VERSION} using static structure"
+	
+	# Use static app bundle structure
+	STATIC_APP="build/Catnip.app"
+	APP_DIR="bin/Catnip.app"
+	
+	# Remove old dynamic bundle and copy static structure
+	rm -rf "${APP_DIR}"
+	cp -R "${STATIC_APP}" "${APP_DIR}"
+	
+	# Copy binary to app bundle
+	cp "bin/catnip" "${APP_DIR}/Contents/MacOS/catnip"
+	
+	# Process Info.plist template to set version
+	sed "s/__VERSION__/${VERSION}/g" "${STATIC_APP}/Contents/Info.plist" > "${APP_DIR}/Contents/Info.plist"
+	
+	# Create a wrapper script for CLI usage
+	cat > "bin/catnip-cli" << 'EOF'
+	#!/bin/bash
+	# Catnip CLI wrapper - calls the binary inside the app bundle
+	DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	exec "${DIR}/Catnip.app/Contents/MacOS/catnip" "$@"
+	EOF
+	chmod +x "bin/catnip-cli"
+	
+	echo "✅ Static app bundle deployed to ${APP_DIR}"
+	echo "✅ CLI wrapper created at bin/catnip-cli"
 
 # Show available commands
 default:

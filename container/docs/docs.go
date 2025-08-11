@@ -2521,7 +2521,6 @@ const docTemplate = `{
         "internal_handlers.EventType": {
             "type": "string",
             "enum": [
-                "notification:show",
                 "port:opened",
                 "port:closed",
                 "git:dirty",
@@ -2540,10 +2539,10 @@ const docTemplate = `{
                 "worktree:deleted",
                 "worktree:todos_updated",
                 "session:title_updated",
-                "session:stopped"
+                "session:stopped",
+                "notification:show"
             ],
             "x-enum-varnames": [
-                "NotificationEvent",
                 "PortOpenedEvent",
                 "PortClosedEvent",
                 "GitDirtyEvent",
@@ -2562,7 +2561,8 @@ const docTemplate = `{
                 "WorktreeDeletedEvent",
                 "WorktreeTodosUpdatedEvent",
                 "SessionTitleUpdatedEvent",
-                "SessionStoppedEvent"
+                "SessionStoppedEvent",
+                "NotificationEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {
