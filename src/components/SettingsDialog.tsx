@@ -42,6 +42,7 @@ import {
 const settingsNav = [
   { name: "Authentication", icon: Key, id: "authentication" },
   { name: "Appearance", icon: Paintbrush, id: "appearance" },
+  { name: "Notifications", icon: Bell, id: "notifications" },
   { name: "API", icon: Globe, id: "api" },
 ];
 
@@ -111,6 +112,10 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     React.useState<GitHubAuthStatus | null>(null);
   const [catnipVersion, setCatnipVersion] =
     React.useState<CatnipVersion | null>(null);
+  const [notificationPermission, setNotificationPermission] =
+    React.useState<NotificationPermission>("default");
+  const [notificationSupported, setNotificationSupported] =
+    React.useState(false);
 
   // Fetch swagger data when component mounts
   React.useEffect(() => {
