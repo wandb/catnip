@@ -106,10 +106,21 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	logsViewport := viewport.New(80, 20)
 	shellViewport := viewport.New(80, 24)
 
+	// Determine the actual port from customPorts
+	mainPort := "8080"
+	for _, p := range customPorts {
+		// Parse port mapping (e.g., "8181:8080" or "8080:8080")
+		parts := strings.Split(p, ":")
+		if len(parts) >= 1 {
+			mainPort = parts[0]
+			break
+		}
+	}
+
 	// Initialize SSE client
-	sseClient := NewSSEClient("http://localhost:8080/v1/events", nil)
-	// Initialize port forwarder (uses backend on 8080)
-	a.portForwarder = NewPortForwardManager("http://localhost:8080")
+	sseClient := NewSSEClient(fmt.Sprintf("http://localhost:%s/v1/events", mainPort), nil)
+	// Initialize port forwarder (uses backend on mainPort)
+	a.portForwarder = NewPortForwardManager(fmt.Sprintf("http://localhost:%s", mainPort))
 	// Start forwarding when ports open (only if SSH enabled)
 	sseClient.onEvent = func(ev AppEvent) {
 		if !a.sshEnabled || a.portForwarder == nil {

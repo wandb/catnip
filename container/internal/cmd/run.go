@@ -6,8 +6,11 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -15,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vanpelt/catnip/internal/git"
@@ -214,38 +218,65 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		containerImage = fmt.Sprintf("wandb/catnip:%s", cleanVersion)
 	}
 
+	// Check if another catnip container is using port 8080
+	// If so, find an available port
+	if runningName, _, ok := containerService.FindRunningCatnipContainer(ctx); ok && runningName != name {
+		// Another catnip container is running with a different name
+		logger.Debugf("Found running catnip container: %s, finding alternative port", runningName)
+		availablePort, err := findAvailablePort(ctx, containerService)
+		if err != nil {
+			return fmt.Errorf("failed to find available port: %w", err)
+		}
+		fmt.Printf("Another Catnip container is running. Using port %s instead of 8080.\n", availablePort)
+
+		// Update ports array to use the new port
+		for i, p := range ports {
+			if strings.HasPrefix(p, "8080:") || p == "8080:8080" {
+				ports[i] = fmt.Sprintf("%s:8080", availablePort)
+			}
+		}
+	}
+
 	// For non-TTY mode, handle initialization directly
-	if !isTTY() && !containerService.IsContainerRunning(ctx, name) {
-		// Check if we need to build/pull image
-		if dev {
-			if !isGitRepo {
-				return fmt.Errorf("development mode requires a git repository")
-			}
-			if !containerService.ImageExists(ctx, containerImage) || refresh {
-				fmt.Printf("Running 'just build-dev' in container directory...\n")
-				if err := runBuildDevDirect(gitRoot); err != nil {
-					return fmt.Errorf("build failed: %w", err)
-				}
-			}
-		} else {
-			if !containerService.ImageExists(ctx, containerImage) || refresh {
-				fmt.Printf("Running 'docker pull %s'...\n", containerImage)
-				if err := runDockerPullDirect(ctx, containerService, containerImage); err != nil {
-					return fmt.Errorf("pull failed: %w", err)
-				}
-			}
+	if !isTTY() {
+		// Validate existing container compatibility first
+		if err := validateExistingContainer(ctx, containerService, name, gitRoot, isGitRepo, dev); err != nil {
+			return err
 		}
 
-		// Start the container
-		fmt.Printf("Starting container '%s'...\n", name)
-		workDirForContainer := workDir
-		if isGitRepo {
-			workDirForContainer = gitRoot
+		// Only proceed with setup if container is not running
+		if !containerService.IsContainerRunning(ctx, name) {
+			// Check if we need to build/pull image
+			if dev {
+				if !isGitRepo {
+					return fmt.Errorf("development mode requires a git repository")
+				}
+				if !containerService.ImageExists(ctx, containerImage) || refresh {
+					fmt.Printf("Running 'just build-dev' in container directory...\n")
+					if err := runBuildDevDirect(gitRoot); err != nil {
+						return fmt.Errorf("build failed: %w", err)
+					}
+				}
+			} else {
+				if !containerService.ImageExists(ctx, containerImage) || refresh {
+					fmt.Printf("Running 'docker pull %s'...\n", containerImage)
+					if err := runDockerPullDirect(ctx, containerService, containerImage); err != nil {
+						return fmt.Errorf("pull failed: %w", err)
+					}
+				}
+			}
+
+			// Start the container
+			fmt.Printf("Starting container '%s'...\n", name)
+			workDirForContainer := workDir
+			if isGitRepo {
+				workDirForContainer = gitRoot
+			}
+			if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB, processedEnvVars); err != nil {
+				return fmt.Errorf("failed to run %s: %w", cmd, err)
+			}
+			fmt.Printf("Container started successfully!\n")
 		}
-		if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB, processedEnvVars); err != nil {
-			return fmt.Errorf("failed to run %s: %w", cmd, err)
-		}
-		fmt.Printf("Container started successfully!\n")
 	}
 
 	// If detached mode, just exit
@@ -266,6 +297,11 @@ func runContainer(cmd *cobra.Command, args []string) error {
 		fmt.Printf("No TTY detected, falling back to log tailing mode...\n")
 		fmt.Printf("Tailing logs for container '%s' (press Ctrl+C to stop)...\n", name)
 		return tailContainerLogs(ctx, containerService, name)
+	}
+
+	// Before starting TUI, check for incompatible existing containers
+	if err := validateExistingContainer(ctx, containerService, name, gitRoot, isGitRepo, dev); err != nil {
+		return err
 	}
 
 	// Start the TUI - it will handle all initialization and container management
@@ -571,4 +607,148 @@ Host catnip
 
 	fmt.Println("Added catnip SSH config entry")
 	return nil
+}
+
+// validateExistingContainer checks if an existing container is compatible with the current repository and CLI version
+func validateExistingContainer(ctx context.Context, containerService *services.ContainerService, containerName, gitRoot string, isGitRepo, devMode bool) error {
+	// Check if the target container exists
+	if !containerService.ContainerExists(ctx, containerName) {
+		return nil // No existing container, nothing to validate
+	}
+
+	// If we're in a git repo, validate the container name matches the repo
+	if isGitRepo {
+		expectedBasename := filepath.Base(gitRoot)
+		// Expected container name format: catnip-{repo} or catnip-{repo}-dev
+		var expectedName string
+		if expectedBasename == "catnip" {
+			expectedName = "catnip"
+		} else {
+			expectedName = fmt.Sprintf("catnip-%s", expectedBasename)
+		}
+
+		// Check if container name matches expected pattern (ignoring -dev suffix)
+		containerBaseName := strings.TrimSuffix(containerName, "-dev")
+		expectedBaseName := strings.TrimSuffix(expectedName, "-dev")
+
+		if containerBaseName != expectedBaseName {
+			logger.Debugf("Container name mismatch: expected %s, got %s", expectedBaseName, containerBaseName)
+			// Container exists but doesn't match current repo - remove it
+			if containerService.IsContainerRunning(ctx, containerName) {
+				fmt.Printf("Stopping container '%s' (wrong repository)...\n", containerName)
+				if err := containerService.StopContainer(ctx, containerName); err != nil {
+					logger.Debugf("Failed to stop container %s: %v", containerName, err)
+				}
+			}
+			fmt.Printf("Removing container '%s' (wrong repository)...\n", containerName)
+			if err := containerService.RemoveContainer(ctx, containerName); err != nil {
+				logger.Debugf("Failed to remove container %s: %v", containerName, err)
+			}
+			return nil
+		}
+	}
+
+	// Check version compatibility for both running and stopped containers
+	if containerService.IsContainerRunning(ctx, containerName) {
+		// For running containers, check via API
+		if err := checkContainerVersionCompatibility(containerName); err != nil {
+			logger.Debugf("Version compatibility check failed: %v", err)
+			// Stop and remove incompatible container
+			fmt.Printf("Stopping container '%s' (version incompatibility)...\n", containerName)
+			if err := containerService.StopContainer(ctx, containerName); err != nil {
+				logger.Debugf("Failed to stop container %s: %v", containerName, err)
+			}
+			fmt.Printf("Removing container '%s' (version incompatibility)...\n", containerName)
+			if err := containerService.RemoveContainer(ctx, containerName); err != nil {
+				logger.Debugf("Failed to remove container %s: %v", containerName, err)
+			}
+		}
+	} else {
+		// For stopped containers, check the image tag
+		if existingImage, err := containerService.GetContainerImageForName(ctx, containerName); err == nil {
+			cliVersion := GetVersion()
+			cleanCLIVersion := cleanVersionForProduction(cliVersion)
+
+			// Extract tag from image (e.g., "wandb/catnip:0.8.1" -> "0.8.1")
+			parts := strings.Split(existingImage, ":")
+			if len(parts) > 1 {
+				containerTag := parts[len(parts)-1]
+				// For dev images, the tag is "dev", which we consider always incompatible with production
+				if containerTag == "dev" && !devMode {
+					logger.Debugf("Stopped container has dev image, but not in dev mode")
+					fmt.Printf("Removing container '%s' (dev/production mismatch)...\n", containerName)
+					if err := containerService.RemoveContainer(ctx, containerName); err != nil {
+						logger.Debugf("Failed to remove container %s: %v", containerName, err)
+					}
+				} else if containerTag != "dev" && containerTag != cleanCLIVersion {
+					logger.Debugf("Stopped container version mismatch: CLI=%s, Container tag=%s", cleanCLIVersion, containerTag)
+					fmt.Printf("Removing container '%s' (version mismatch: %s != %s)...\n", containerName, cleanCLIVersion, containerTag)
+					if err := containerService.RemoveContainer(ctx, containerName); err != nil {
+						logger.Debugf("Failed to remove container %s: %v", containerName, err)
+					}
+				}
+			}
+		} else {
+			logger.Debugf("Could not get image for container %s: %v", containerName, err)
+		}
+	}
+
+	return nil
+}
+
+// checkContainerVersionCompatibility checks if the running container version is compatible with CLI
+func checkContainerVersionCompatibility(containerName string) error {
+	// Try to fetch container version via API
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:8080/v1/info")
+	if err != nil {
+		// Can't reach container API, assume it needs restart
+		return fmt.Errorf("cannot reach container API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("container API returned status %d", resp.StatusCode)
+	}
+
+	var versionInfo struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&versionInfo); err != nil {
+		return fmt.Errorf("failed to decode version response: %w", err)
+	}
+
+	// Compare CLI version with container version
+	cliVersion := GetVersion()
+	containerVersion := versionInfo.Version
+
+	// Clean versions for comparison (remove v prefix and -dev suffix)
+	cleanCLIVersion := cleanVersionForProduction(cliVersion)
+	cleanContainerVersion := cleanVersionForProduction(containerVersion)
+
+	if cleanCLIVersion != cleanContainerVersion {
+		return fmt.Errorf("version mismatch: CLI=%s, Container=%s", cleanCLIVersion, cleanContainerVersion)
+	}
+
+	return nil
+}
+
+// findAvailablePort finds an available port starting from 8080, then trying 8181, 8282, etc.
+func findAvailablePort(ctx context.Context, containerService *services.ContainerService) (string, error) {
+	basePort := 8080
+	for i := 0; i < 10; i++ {
+		port := basePort + (i * 101) // 8080, 8181, 8282, 8383, etc.
+		portStr := fmt.Sprintf("%d", port)
+
+		// Check if port is available by trying to listen on it
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			listener.Close()
+			// Port is available
+			logger.Debugf("Found available port: %d", port)
+			return portStr, nil
+		}
+		logger.Debugf("Port %d is in use, trying next...", port)
+	}
+	return "", fmt.Errorf("no available ports found in range 8080-8989")
 }
