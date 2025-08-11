@@ -1171,14 +1171,17 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	}
 
 	// Stop the old continuous reader
-	close(session.ptyReadDone)
+	session.safeClosePTYReadDone()
 
 	// Update session with new PTY and command
 	session.PTY = ptmx
 	session.Cmd = cmd
 
 	// Create new done channel for the new PTY reader
+	session.ptyReadMutex.Lock()
 	session.ptyReadDone = make(chan struct{})
+	session.ptyReadClosed = false
+	session.ptyReadMutex.Unlock()
 
 	// Clear the output buffer on shell restart - no history between restarts
 	// (only for non-Claude sessions since Claude sessions don't buffer)
@@ -1217,7 +1220,7 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 	logger.Infof("🧹 Cleaning up idle session: %s", session.ID)
 
 	// Stop the continuous PTY reader
-	close(session.ptyReadDone)
+	session.safeClosePTYReadDone()
 
 	// Perform final git add to catch any uncommitted changes before cleanup
 	if h.gitService != nil {
