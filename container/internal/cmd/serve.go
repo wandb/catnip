@@ -278,6 +278,10 @@ func startServer(cmd *cobra.Command) {
 	// Events routes
 	v1.Get("/events", eventsHandler.HandleSSE)
 
+	// Notification routes
+	notificationHandler := handlers.NewNotificationHandler(eventsHandler)
+	v1.Post("/notifications", notificationHandler.HandleNotification)
+
 	// Proxy routes for detected services (must be before dev middleware)
 	// Will validate port numbers in handler and call Next() if invalid
 	app.All("/:port", proxyHandler.ProxyToPort)
