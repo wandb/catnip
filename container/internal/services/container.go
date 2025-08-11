@@ -78,14 +78,14 @@ func NewContainerServiceWithRuntime(preferredRuntime string) (*ContainerService,
 }
 
 func detectContainerRuntime() (ContainerRuntime, error) {
-	// Check for Apple Container SDK first (preferred)
-	if commandExists("container") {
-		return RuntimeApple, nil
-	}
-
-	// Check for Docker as fallback
+	// Check for Docker first (preferred)
 	if commandExists("docker") {
 		return RuntimeDocker, nil
+	}
+
+	// Check for Apple Container SDK as fallback
+	if commandExists("container") {
+		return RuntimeApple, nil
 	}
 
 	return "", fmt.Errorf("no container runtime found. Please install Docker or Apple Container SDK:\n\n" +
