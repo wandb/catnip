@@ -639,6 +639,145 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           </div>
         );
 
+      case "notifications":
+        return (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-medium mb-4">
+                Notification Settings
+              </h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Receive browser notifications when Claude sessions end to stay
+                informed about your workflow progress.
+              </p>
+
+              <div className="space-y-4">
+                {!notificationSupported ? (
+                  <div className="p-4 border rounded-lg bg-muted/20">
+                    <div className="flex items-center gap-3">
+                      <Bell className="h-5 w-5 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium text-muted-foreground">
+                          Notifications Not Supported
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Your browser doesn't support notifications. Please use
+                          a modern browser like Chrome, Firefox, or Safari.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Bell className="h-5 w-5" />
+                      <div>
+                        <p className="font-medium">
+                          Claude Session Notifications
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Get notified when your Claude sessions end with
+                          context about your last todo and branch.
+                        </p>
+                        <div className="text-xs text-muted-foreground mt-2">
+                          {notificationPermission === "granted" && (
+                            <span className="text-green-600">
+                              ✓ Notifications are enabled
+                            </span>
+                          )}
+                          {notificationPermission === "denied" && (
+                            <span className="text-red-600">
+                              ✗ Notifications are blocked - check browser
+                              settings
+                            </span>
+                          )}
+                          {notificationPermission === "default" && (
+                            <span className="text-amber-600">
+                              ⚠ Notifications permission not requested
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {notificationPermission === "granted" ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={disableNotifications}
+                        >
+                          Disable
+                        </Button>
+                      ) : notificationPermission === "denied" ? (
+                        <div className="text-right">
+                          <Badge
+                            variant="outline"
+                            className="text-red-600 border-red-300"
+                          >
+                            Blocked
+                          </Badge>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Enable in browser settings
+                          </p>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={requestNotificationPermission}
+                        >
+                          Enable Notifications
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-4 border rounded-lg bg-muted/10">
+                  <h4 className="font-medium mb-2 flex items-center gap-2">
+                    <span>📋</span>
+                    Notification Preview
+                  </h4>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Here's what notifications will look like:
+                  </p>
+                  <div className="bg-background border rounded-lg p-3 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src="/favicon.ico"
+                        alt="Catnip"
+                        className="w-6 h-6 rounded"
+                      />
+                      <div>
+                        <p className="font-medium text-sm">
+                          Fix authentication bug (feature/auth-fix)
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Session ended - Last todo: Update password validation
+                          logic
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20">
+                  <h4 className="font-medium mb-2 flex items-center gap-2 text-blue-700 dark:text-blue-300">
+                    <span>ℹ️</span>
+                    How It Works
+                  </h4>
+                  <ul className="text-sm space-y-1 text-blue-600 dark:text-blue-400">
+                    <li>• Notifications appear when Claude sessions end</li>
+                    <li>• Includes session title and current branch name</li>
+                    <li>• Shows your last active todo for context</li>
+                    <li>• Only appears when browser tab is in background</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
       case "api":
         return (
           <div className="space-y-6">
