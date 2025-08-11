@@ -5,13 +5,13 @@ version: '3'
 
 # This information is used to generate the build assets.
 info:
-  companyName: "My Company" # The name of the company
-  productName: "My Product" # The name of the application
-  productIdentifier: "com.mycompany.myproduct" # The unique product identifier
-  description: "A program that does X" # The application description
-  copyright: "(c) 2025, My Company" # Copyright text
-  comments: "Some Product Comments" # Comments
-  version: "0.0.1" # The application version
+  companyName: "Catnip" # The name of the company
+  productName: "Catnip Desktop" # The name of the application
+  productIdentifier: "com.catnip.desktop" # The unique product identifier
+  description: "Agentic Coding Environment - Desktop Edition" # The application description
+  copyright: "(c) 2025, Catnip" # Copyright text
+  comments: "Desktop application for AI-assisted development" # Comments
+  version: "1.0.0" # The application version
 
 # Dev mode configuration
 dev_mode:
@@ -22,8 +22,12 @@ dev_mode:
     dir:
       - .git
       - node_modules
-      - frontend
+      - container/bin
+      - container/test
+      - dist
       - bin
+      - catnip-desktop
+      - worker
     file:
       - .DS_Store
       - .gitignore
@@ -32,9 +36,9 @@ dev_mode:
       - "*.go"
     git_ignore: true
   executes:
-    - cmd: wails3 task common:install:frontend:deps
+    - cmd: pnpm install
       type: once
-    - cmd: wails3 task common:dev:frontend
+    - cmd: pnpm dev
       type: background
     - cmd: go mod tidy
       type: blocking

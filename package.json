@@ -20,7 +20,13 @@
     "cf-typegen": "wrangler types",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "wails:dev": "wails3 dev",
+    "wails:build": "wails3 build",
+    "wails:package": "wails3 package",
+    "wails:doctor": "wails3 doctor",
+    "desktop": "wails3 dev",
+    "desktop:build": "wails3 build"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.0.22",
