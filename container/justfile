@@ -218,6 +218,85 @@ create-app-bundle VERSION:
 	echo "✅ Static app bundle deployed to ${APP_DIR}"
 	echo "✅ CLI wrapper created at bin/catnip-cli"
 
+# Install catnip locally (macOS only, uses built assets)
+install: build
+	#!/usr/bin/env bash
+	set -euo pipefail
+	
+	if [[ "$(uname)" != "Darwin" ]]; then
+		echo "❌ Local install is currently only supported on macOS"
+		exit 1
+	fi
+	
+	echo "📦 Installing catnip locally..."
+	
+	# Configuration
+	INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
+	APP_SUPPORT_DIR="${HOME}/Library/Application Support/catnip"
+	APP_BUNDLE_PATH="${APP_SUPPORT_DIR}/Catnip.app"
+	
+	# Check if app bundle was built
+	if [[ ! -d "bin/Catnip.app" ]]; then
+		echo "❌ App bundle not found at bin/Catnip.app"
+		echo "   Run 'just build' first"
+		exit 1
+	fi
+	
+	# Create directories
+	echo "📁 Creating directories..."
+	mkdir -p "$INSTALL_DIR"
+	mkdir -p "$APP_SUPPORT_DIR"
+	
+	# Clean up old installations
+	if [[ -d "$APP_BUNDLE_PATH" ]]; then
+		echo "🧹 Removing existing app bundle..."
+		rm -rf "$APP_BUNDLE_PATH"
+	fi
+	
+	# Clean up old app bundle from incorrect location (if it exists)
+	OLD_APP_LOCATION="$INSTALL_DIR/Catnip.app"
+	if [[ -d "$OLD_APP_LOCATION" ]]; then
+		echo "🧹 Cleaning up old app bundle from $INSTALL_DIR..."
+		rm -rf "$OLD_APP_LOCATION"
+	fi
+	
+	# Install app bundle to Application Support
+	echo "📱 Installing app bundle to Application Support..."
+	cp -R "bin/Catnip.app" "$APP_BUNDLE_PATH"
+	
+	# Create CLI wrapper in install directory
+	echo "🔧 Creating CLI wrapper..."
+	cat > "$INSTALL_DIR/catnip" << EOF
+	#!/bin/bash
+	# Catnip CLI wrapper - calls the binary inside the app bundle
+	exec "${APP_BUNDLE_PATH}/Contents/MacOS/catnip" "\$@"
+	EOF
+	
+	chmod +x "$INSTALL_DIR/catnip"
+	
+	# Verify installation
+	echo "✅ Installation complete!"
+	echo ""
+	echo "📍 App bundle: $APP_BUNDLE_PATH"
+	echo "📍 CLI wrapper: $INSTALL_DIR/catnip"
+	
+	# Check if install directory is in PATH
+	if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+		echo ""
+		echo "⚠️  $INSTALL_DIR is not in your PATH"
+		echo "   Add it by adding this line to your shell profile:"
+		echo "   export PATH=\"$INSTALL_DIR:\$PATH\""
+	else
+		echo ""
+		echo "🎉 You can now run: catnip --help"
+		
+		# Try to get version
+		if command -v catnip >/dev/null 2>&1; then
+			VERSION=$(catnip --version 2>/dev/null || catnip version 2>/dev/null || echo "unknown")
+			echo "   Installed version: $VERSION"
+		fi
+	fi
+
 # Show available commands
 default:
 	@just --list

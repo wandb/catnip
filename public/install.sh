@@ -236,23 +236,96 @@ install_catnip() {
         fatal "Failed to extract tar.gz archive"
     fi
     
-    local extracted_binary="$temp_dir/$BINARY_NAME"
-    if [[ ! -f "$extracted_binary" ]]; then
-        fatal "Binary not found in archive: $BINARY_NAME"
+    # Handle macOS app bundle vs standard binary
+    if [[ "$os" == "darwin" ]]; then
+        # macOS: Look for app bundle structure
+        if [[ -d "$temp_dir/Catnip.app" ]]; then
+            log "Installing macOS app bundle..."
+            
+            # Use ~/Library/Application Support for the app bundle (standard location for CLI support files)
+            local app_support_dir="${HOME}/Library/Application Support/catnip"
+            local app_bundle_path="${app_support_dir}/Catnip.app"
+            
+            # Clean up old app bundle from incorrect location (if it exists)
+            local old_app_location="$INSTALL_DIR/Catnip.app"
+            if [[ -d "$old_app_location" ]]; then
+                log "Cleaning up old app bundle from $INSTALL_DIR..."
+                rm -rf "$old_app_location"
+            fi
+            
+            # Create Application Support directory if needed
+            if [[ ! -d "$app_support_dir" ]]; then
+                log "Creating Application Support directory..."
+                if ! mkdir -p "$app_support_dir"; then
+                    fatal "Failed to create Application Support directory: $app_support_dir"
+                fi
+            fi
+            
+            # Remove existing app bundle if present
+            if [[ -d "$app_bundle_path" ]]; then
+                log "Removing existing app bundle..."
+                rm -rf "$app_bundle_path"
+            fi
+            
+            # Copy app bundle to Application Support
+            if ! cp -R "$temp_dir/Catnip.app" "$app_bundle_path"; then
+                fatal "Failed to install app bundle to $app_bundle_path"
+            fi
+            
+            # Create CLI wrapper in the install directory that calls the app bundle
+            local install_path="$INSTALL_DIR/$BINARY_NAME"
+            cat > "$install_path" << EOF
+#!/bin/bash
+# Catnip CLI wrapper - calls the binary inside the app bundle
+exec "${app_bundle_path}/Contents/MacOS/catnip" "\$@"
+EOF
+            
+            # Make wrapper executable
+            if ! chmod +x "$install_path"; then
+                fatal "Failed to make CLI wrapper executable"
+            fi
+            
+            success "macOS app bundle installed to Application Support with CLI wrapper in $INSTALL_DIR"
+        else
+            # Fallback: Look for standalone binary (older releases)
+            local extracted_binary="$temp_dir/$BINARY_NAME"
+            if [[ ! -f "$extracted_binary" ]]; then
+                fatal "Neither app bundle nor standalone binary found in archive"
+            fi
+            
+            # Install standalone binary
+            local install_path="$INSTALL_DIR/$BINARY_NAME"
+            if ! cp "$extracted_binary" "$install_path"; then
+                fatal "Failed to install binary to $install_path"
+            fi
+            
+            # Make executable
+            if ! chmod +x "$install_path"; then
+                fatal "Failed to make binary executable"
+            fi
+            
+            warn "Installed standalone binary (older release without native notifications)"
+        fi
+    else
+        # Linux/FreeBSD: Standard binary installation
+        local extracted_binary="$temp_dir/$BINARY_NAME"
+        if [[ ! -f "$extracted_binary" ]]; then
+            fatal "Binary not found in archive: $BINARY_NAME"
+        fi
+        
+        # Install binary
+        local install_path="$INSTALL_DIR/$BINARY_NAME"
+        if ! cp "$extracted_binary" "$install_path"; then
+            fatal "Failed to install binary to $install_path"
+        fi
+        
+        # Make executable
+        if ! chmod +x "$install_path"; then
+            fatal "Failed to make binary executable"
+        fi
     fi
     
-    # Install binary
-    local install_path="$INSTALL_DIR/$BINARY_NAME"
-    if ! cp "$extracted_binary" "$install_path"; then
-        fatal "Failed to install binary to $install_path"
-    fi
-    
-    # Make executable
-    if ! chmod +x "$install_path"; then
-        fatal "Failed to make binary executable"
-    fi
-    
-    success "catnip installed successfully to $install_path"
+    success "catnip installed successfully to $INSTALL_DIR"
     
     # Verify installation
     if command_exists "$BINARY_NAME"; then
