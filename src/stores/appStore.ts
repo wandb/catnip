@@ -503,6 +503,14 @@ export const useAppStore = create<AppState>()(
 
         case "session:stopped": {
           const { notifications } = get();
+          console.log(
+            "🔔 session:stopped - notifications object:",
+            notifications,
+          );
+          console.log(
+            "🔔 session:stopped - canShowNotifications:",
+            notifications?.canShowNotifications,
+          );
           if (notifications?.canShowNotifications) {
             // Find the worktree for this session
             const worktreeEntry = Array.from(worktrees.entries()).find(
@@ -511,6 +519,8 @@ export const useAppStore = create<AppState>()(
 
             if (worktreeEntry) {
               const [_, worktree] = worktreeEntry;
+              console.log("🔔 Found worktree for notification:", worktree);
+
               const title =
                 event.payload.session_title ||
                 worktree.session_title?.title ||
@@ -526,15 +536,26 @@ export const useAppStore = create<AppState>()(
               const notificationTitle = `${title} (${branchName})`;
               const notificationBody = `Session ended - Last todo: ${lastTodo}`;
 
+              console.log("🔔 Attempting to show notification:", {
+                title: notificationTitle,
+                body: notificationBody,
+              });
+
               try {
                 notifications.showNotification(notificationTitle, {
                   body: notificationBody,
-                  icon: "/favicon.ico",
+                  icon: "/favicon.png",
                   tag: `session-stopped-${worktree.id}`,
                 });
+                console.log("🔔 Notification sent successfully!");
               } catch (error) {
-                console.error("Failed to show notification:", error);
+                console.error("🔔 Failed to show notification:", error);
               }
+            } else {
+              console.log(
+                "🔔 No worktree found for workspace_dir:",
+                event.payload.workspace_dir,
+              );
             }
           }
           break;

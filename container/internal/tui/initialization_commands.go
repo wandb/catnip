@@ -3,9 +3,11 @@ package tui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -347,15 +349,23 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 			ports = []string{"8080:8080"}
 		}
 
-		// If another Catnip container is already running (possibly under a different name), avoid port conflicts
+		// Check for existing containers and validate compatibility
 		if containerService.IsContainerRunning(ctx, name) {
 			// Current target container is running; proceed
 		} else {
-			if runningName, _, ok := containerService.FindRunningCatnipContainer(ctx); ok {
-				// If a catnip container is already running, connect to it instead of starting a new one
-				return ContainerStartedMsg{
-					ContainerName:    runningName,
-					ContainerService: containerService,
+			if runningName, runningImage, ok := containerService.FindRunningCatnipContainer(ctx); ok {
+				// Found another catnip container running - validate it's compatible
+				if isContainerCompatible(runningName, name, runningImage, cliVersion) {
+					// Compatible container found, connect to it
+					return ContainerStartedMsg{
+						ContainerName:    runningName,
+						ContainerService: containerService,
+					}
+				} else {
+					// Incompatible container found - stop it and create new one
+					debugLog("Found incompatible running container %s, stopping it", runningName)
+					_ = containerService.StopContainer(ctx, runningName)
+					_ = containerService.RemoveContainer(ctx, runningName)
 				}
 			}
 		}
@@ -372,8 +382,12 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 					_, desiredTag := parseImageAndTag(image)
 					_, existingTag := parseImageAndTag(existingImage)
 
-					// If tags differ and desired is newer (or non-equal), force remove
-					if desiredTag != existingTag {
+					// Check for dev/production mismatch
+					if (existingTag == "dev" && !devMode) || (existingTag != "dev" && devMode) {
+						debugLog("Dev/production mode mismatch: existing=%s, devMode=%v", existingTag, devMode)
+						rmEffective = true
+					} else if desiredTag != existingTag {
+						// If tags differ and desired is newer (or non-equal), force remove
 						// Try semantic compare; if not comparable, prefer desired
 						switch semverCompare(desiredTag, existingTag) {
 						case 1:
@@ -802,4 +816,73 @@ func extractOutput(errStr string) string {
 		return strings.TrimSpace(parts[0])
 	}
 	return strings.TrimSpace(errStr)
+}
+
+// isContainerCompatible checks if a running container is compatible with the desired container
+func isContainerCompatible(runningName, desiredName, runningImage, cliVersion string) bool {
+	// Extract base names (without -dev suffix) for comparison
+	runningBaseName := strings.TrimSuffix(runningName, "-dev")
+	desiredBaseName := strings.TrimSuffix(desiredName, "-dev")
+
+	// Names must match (ignoring -dev suffix)
+	if runningBaseName != desiredBaseName {
+		debugLog("Container name mismatch: running=%s, desired=%s", runningBaseName, desiredBaseName)
+		return false
+	}
+
+	// Check version compatibility if we can reach the container API
+	if err := checkRunningContainerVersion(cliVersion); err != nil {
+		debugLog("Container version incompatible: %v", err)
+		return false
+	}
+
+	debugLog("Container %s is compatible", runningName)
+	return true
+}
+
+// checkRunningContainerVersion checks if the running container version matches CLI version
+func checkRunningContainerVersion(cliVersion string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://localhost:8080/v1/info")
+	if err != nil {
+		// If we can't reach the API, assume incompatible
+		return fmt.Errorf("cannot reach container API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("container API returned status %d", resp.StatusCode)
+	}
+
+	var versionInfo struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&versionInfo); err != nil {
+		return fmt.Errorf("failed to decode version response: %w", err)
+	}
+
+	// Compare versions using the same logic as in run.go
+	containerVersion := versionInfo.Version
+
+	// Clean versions for comparison
+	cleanCLIVersion := cleanVersionForProduction(cliVersion)
+	cleanContainerVersion := cleanVersionForProduction(containerVersion)
+
+	if cleanCLIVersion != cleanContainerVersion {
+		return fmt.Errorf("version mismatch: CLI=%s, Container=%s", cleanCLIVersion, cleanContainerVersion)
+	}
+
+	return nil
+}
+
+// cleanVersionForProduction removes the -dev suffix and v prefix from version string
+// This duplicates the function from run.go to avoid import cycles
+func cleanVersionForProduction(version string) string {
+	// Remove v prefix if present
+	version = strings.TrimPrefix(version, "v")
+
+	// Remove -dev suffix if present
+	version = strings.TrimSuffix(version, "-dev")
+
+	return version
 }

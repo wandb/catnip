@@ -220,7 +220,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         // Show a test notification
         new Notification("Notifications Enabled", {
           body: "You'll now receive notifications when Claude sessions end.",
-          icon: "/logo@2x.webp",
+          icon: "/favicon.png",
         });
       }
     } catch (error) {

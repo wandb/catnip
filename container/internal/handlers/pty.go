@@ -886,12 +886,7 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 			return
 		}
 
-		// Update Claude activity timestamp when we see output from Claude sessions
-		if session.Agent == "claude" && n > 0 && h.claudeMonitor != nil {
-			if claudeService := h.claudeMonitor.GetClaudeService(); claudeService != nil {
-				claudeService.UpdateActivity(session.WorkDir)
-			}
-		}
+		// PTY output alone doesn't indicate Claude activity - rely on hooks and JSONL activity instead
 
 		var outputData []byte
 

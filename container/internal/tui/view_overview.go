@@ -78,6 +78,17 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 	// Main UI section
 	sections = append(sections, components.SubHeaderStyle.Render("🖥️  Catnip UI"))
 
+	// Determine the actual port from customPorts
+	mainPort := "8080"
+	for _, p := range m.customPorts {
+		// Parse port mapping (e.g., "8181:8080" or "8080:8080")
+		parts := strings.Split(p, ":")
+		if len(parts) >= 1 {
+			mainPort = parts[0]
+			break
+		}
+	}
+
 	// Show booting animation if not healthy
 	if !m.appHealthy {
 		dots := strings.Repeat(".", m.bootingAnimDots)
@@ -91,7 +102,7 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 			sections = append(sections, fmt.Sprintf("  %s %s", components.KeyHighlightStyle.Render("0."), bootingText))
 		}
 	} else {
-		sections = append(sections, fmt.Sprintf("  %s Main UI → http://localhost:8080", components.KeyHighlightStyle.Render("0.")))
+		sections = append(sections, fmt.Sprintf("  %s Main UI → http://localhost:%s", components.KeyHighlightStyle.Render("0."), mainPort))
 	}
 	sections = append(sections, "")
 

@@ -479,7 +479,16 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		var url string
 		if m.selectedPortIndex == 0 {
 			// Main app selected (first item)
-			url = "http://localhost:8080"
+			// Determine the actual port from customPorts
+			mainPort := "8080"
+			for _, p := range m.customPorts {
+				parts := strings.Split(p, ":")
+				if len(parts) >= 1 {
+					mainPort = parts[0]
+					break
+				}
+			}
+			url = fmt.Sprintf("http://localhost:%s", mainPort)
 		} else {
 			// Find the corresponding port (skip index 0 which is main app)
 			portIndex := 0

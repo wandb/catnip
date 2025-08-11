@@ -99,10 +99,25 @@ export function WorkspaceLeftSidebar() {
       .map((repoId) => {
         const repo = getRepository(repoId);
         const worktrees = getWorktreesByRepo(repoId);
-        // Sort worktrees by name in lexical order
-        const sortedWorktrees = worktrees.sort((a, b) =>
-          a.name.localeCompare(b.name),
-        );
+        // Sort worktrees by created_at (descending), fallback to last_accessed (descending), then name
+        const sortedWorktrees = worktrees.sort((a, b) => {
+          // Primary sort: created_at (descending - most recent first)
+          const aCreated = new Date(a.created_at).getTime();
+          const bCreated = new Date(b.created_at).getTime();
+          if (aCreated !== bCreated) {
+            return bCreated - aCreated;
+          }
+
+          // Secondary sort: last_accessed (descending - most recent first)
+          const aAccessed = new Date(a.last_accessed).getTime();
+          const bAccessed = new Date(b.last_accessed).getTime();
+          if (aAccessed !== bAccessed) {
+            return bAccessed - aAccessed;
+          }
+
+          // Tertiary sort: name (lexical)
+          return a.name.localeCompare(b.name);
+        });
         return repo ? { ...repo, worktrees: sortedWorktrees } : null;
       })
       .filter((repo): repo is NonNullable<typeof repo> => repo !== null)

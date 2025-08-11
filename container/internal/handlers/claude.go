@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -283,12 +284,20 @@ func (h *ClaudeHandler) UpdateClaudeSettings(c *fiber.Ctx) error {
 func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 	var req models.ClaudeHookEvent
 
+	// Log the raw request body for debugging
+	bodyBytes := c.Body()
+	logger.Debugf("🔔 Claude hook received - Raw body: %s", string(bodyBytes))
+
 	// Parse the request body
 	if err := c.BodyParser(&req); err != nil {
+		logger.Debugf("❌ Hook parsing error: %v", err)
 		return c.Status(400).JSON(fiber.Map{
 			"error": "Invalid request body",
 		})
 	}
+
+	// Log the parsed hook event
+	logger.Debugf("🔔 Parsed hook event - Type: %s, WorkDir: %s", req.EventType, req.WorkingDirectory)
 
 	// Validate required fields
 	if req.EventType == "" {
@@ -313,7 +322,9 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 	}
 
 	// Handle special events that should broadcast to frontend
+	logger.Debugf("🔔 Hook processing - EventType: %s, EventsHandler nil: %t", req.EventType, h.eventsHandler == nil)
 	if h.eventsHandler != nil && req.EventType == "Stop" {
+		logger.Debugf("🔔 Emitting session stopped event for %s", req.WorkingDirectory)
 		// Get session information for this worktree
 		summary, _ := h.claudeService.GetWorktreeSessionSummary(req.WorkingDirectory)
 		todos, _ := h.claudeService.GetLatestTodos(req.WorkingDirectory)
