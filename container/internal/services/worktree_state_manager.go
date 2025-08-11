@@ -502,8 +502,6 @@ func (wsm *WorktreeStateManager) saveStateInternal() error {
 		if err := copyFile(stateFile, backupFile); err != nil {
 			logger.Warnf("⚠️ Failed to create state backup: %v", err)
 			// Continue with write anyway - backup failure shouldn't prevent state saving
-		} else {
-			logger.Debugf("📦 Created state backup: %s", backupFile)
 		}
 	}
 
