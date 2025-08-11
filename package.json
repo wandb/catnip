@@ -81,6 +81,8 @@
     "@eslint/js": "^9.32.0",
     "@inquirer/prompts": "^7.8.0",
     "@tanstack/router-plugin": "^1.130.12",
+    "@tauri-apps/api": "^2.0.1",
+    "@tauri-apps/cli": "2.0.0-rc.18",
     "@testing-library/jest-dom": "^6.6.4",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
