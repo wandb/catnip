@@ -55,32 +55,49 @@ type GitDesktopService struct {
 
 // GetAllWorktrees gets all git worktrees
 func (g *GitDesktopService) GetAllWorktrees() ([]*models.Worktree, error) {
-	return g.git.GetAllWorktrees()
+	worktrees := g.git.ListWorktrees()
+	return worktrees, nil
 }
 
 // GetWorktree gets a specific worktree by ID
 func (g *GitDesktopService) GetWorktree(worktreeID string) (*models.Worktree, error) {
-	return g.git.GetWorktree(worktreeID)
+	worktree, found := g.git.GetWorktree(worktreeID)
+	if !found {
+		return nil, fmt.Errorf("worktree not found: %s", worktreeID)
+	}
+	return worktree, nil
 }
 
 // GetGitStatus gets overall git status
 func (g *GitDesktopService) GetGitStatus() (*models.GitStatus, error) {
-	return g.git.GetGitStatus()
+	status := g.git.GetStatus()
+	return status, nil
 }
 
 // CreateWorktree creates a new git worktree
 func (g *GitDesktopService) CreateWorktree(repoID, branch, directory string) (*models.Worktree, error) {
-	return g.git.CreateWorktree(repoID, branch, directory)
+	// Use the CheckoutRepository method which creates worktrees
+	_, worktree, err := g.git.CheckoutRepository("", repoID, branch)
+	if err != nil {
+		return nil, err
+	}
+	return worktree, nil
 }
 
 // DeleteWorktree deletes a git worktree
 func (g *GitDesktopService) DeleteWorktree(worktreeID string) error {
-	return g.git.DeleteWorktree(worktreeID)
+	// TODO: Implement worktree deletion - not currently available in GitService
+	return fmt.Errorf("worktree deletion not implemented yet")
 }
 
 // GetRepositories gets all repositories
 func (g *GitDesktopService) GetRepositories() ([]*models.Repository, error) {
-	return g.git.GetRepositories()
+	status := g.git.GetStatus()
+	repos := make([]*models.Repository, 0, len(status.Repositories))
+	for _, repo := range status.Repositories {
+		repos = append(repos, repo)
+	}
+	return repos, nil
 }
 
 // SessionDesktopService wraps the existing Session service for Wails exposure
@@ -94,7 +111,7 @@ func (s *SessionDesktopService) StartActiveSession(workspaceDir, claudeSessionUU
 }
 
 // GetActiveSession gets current active session
-func (s *SessionDesktopService) GetActiveSession(workspaceDir string) (*models.ActiveSessionInfo, bool) {
+func (s *SessionDesktopService) GetActiveSession(workspaceDir string) (*services.ActiveSessionInfo, bool) {
 	return s.session.GetActiveSession(workspaceDir)
 }
 

@@ -3,7 +3,6 @@ package main
 import (
 	"embed"
 	"log"
-	"path/filepath"
 
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -43,13 +42,11 @@ func main() {
 
 	// Create the main application window
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "Catnip - Agentic Coding Environment",
-		Width:  1400,
-		Height: 900,
-		Min: application.Size{
-			Width:  800,
-			Height: 600,
-		},
+		Title:     "Catnip - Agentic Coding Environment",
+		Width:     1400,
+		Height:    900,
+		MinWidth:  800,
+		MinHeight: 600,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
