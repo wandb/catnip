@@ -827,7 +827,7 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
-		logger.Warnf("⚠️  No Claude project directory found for %s (expected: %s)", worktreePath, projectDirName)
+		logger.Debugf("⚠️  No Claude project directory found for %s (expected: %s)", worktreePath, projectDirName)
 		return
 	}
 

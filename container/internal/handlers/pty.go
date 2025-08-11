@@ -80,7 +80,9 @@ type Session struct {
 	AlternateScreenActive bool
 	LastNonTUIBufferSize  int
 	// Session-level PTY reading control
-	ptyReadDone chan struct{}
+	ptyReadDone   chan struct{}
+	ptyReadClosed bool
+	ptyReadMutex  sync.Mutex
 	// Terminal emulator for Claude sessions (server-side terminal state)
 }
 
@@ -95,6 +97,17 @@ type ControlMsg struct {
 	Type   string `json:"type"`
 	Data   string `json:"data,omitempty"`
 	Submit bool   `json:"submit,omitempty"`
+}
+
+// safeClosePTYReadDone safely closes the ptyReadDone channel, preventing double-close panics
+func (s *Session) safeClosePTYReadDone() {
+	s.ptyReadMutex.Lock()
+	defer s.ptyReadMutex.Unlock()
+
+	if !s.ptyReadClosed && s.ptyReadDone != nil {
+		close(s.ptyReadDone)
+		s.ptyReadClosed = true
+	}
 }
 
 // sanitizeTitle ensures the extracted title is safe and conforms to expected formats
@@ -406,7 +419,12 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
-			logger.Errorf("❌ WebSocket read error: %v", err)
+			// Don't log normal WebSocket close conditions as errors
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
+				logger.Debugf("🔌 WebSocket connection closed normally: %v", err)
+			} else {
+				logger.Errorf("❌ WebSocket read error: %v", err)
+			}
 			break
 		}
 
@@ -764,7 +782,8 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		AlternateScreenActive: false,
 		LastNonTUIBufferSize:  0,
 		// Initialize session-level PTY reading control
-		ptyReadDone: make(chan struct{}),
+		ptyReadDone:   make(chan struct{}),
+		ptyReadClosed: false,
 	}
 
 	h.sessions[sessionID] = session
@@ -1152,14 +1171,17 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	}
 
 	// Stop the old continuous reader
-	close(session.ptyReadDone)
+	session.safeClosePTYReadDone()
 
 	// Update session with new PTY and command
 	session.PTY = ptmx
 	session.Cmd = cmd
 
 	// Create new done channel for the new PTY reader
+	session.ptyReadMutex.Lock()
 	session.ptyReadDone = make(chan struct{})
+	session.ptyReadClosed = false
+	session.ptyReadMutex.Unlock()
 
 	// Clear the output buffer on shell restart - no history between restarts
 	// (only for non-Claude sessions since Claude sessions don't buffer)
@@ -1198,7 +1220,7 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 	logger.Infof("🧹 Cleaning up idle session: %s", session.ID)
 
 	// Stop the continuous PTY reader
-	close(session.ptyReadDone)
+	session.safeClosePTYReadDone()
 
 	// Perform final git add to catch any uncommitted changes before cleanup
 	if h.gitService != nil {

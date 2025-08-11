@@ -781,7 +781,9 @@ func (h *ProxyHandler) proxyWebSocketConnectionsSimple(fiberConn *websocket.Conn
 		for {
 			messageType, data, err := gorillaConn.ReadMessage()
 			if err != nil {
-				logger.Errorf("❌ WebSocket read error from target: %v", err)
+				if os.Getenv("CATNIP_DEBUG") != "" {
+					logger.Errorf("❌ WebSocket read error from target: %v", err)
+				}
 				break
 			}
 

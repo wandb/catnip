@@ -477,7 +477,7 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 
 	// Log the failure reason for better debugging
 	if lastError != nil {
-		logger.Warnf("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)",
+		logger.Infof("⚠️  Port %d HTTP health check failed: %v (command: %s, working dir: %s)",
 			service.Port, lastError, service.Command, service.WorkingDir)
 	}
 
@@ -491,7 +491,7 @@ func (pm *PortMonitor) checkHTTPHealth(service *ServiceInfo) HTTPHealthResult {
 func (pm *PortMonitor) checkTCPHealth(service *ServiceInfo) bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", service.Port), 2*time.Second)
 	if err != nil {
-		logger.Warnf("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)",
+		logger.Infof("⚠️  Port %d TCP health check failed: %v (command: %s, working dir: %s)",
 			service.Port, err, service.Command, service.WorkingDir)
 		return false
 	}

@@ -117,12 +117,19 @@ func (w *WorktreeManager) CreateLocalWorktree(req CreateWorktreeRequest) (*model
 	// This allows us to push nice branches back to the main repo for external access
 	// Local repos are identified by repo IDs starting with "local/"
 	if strings.HasPrefix(req.Repository.ID, "local/") {
-		// Add "catnip-live" remote pointing to the main repository
-		if err := w.operations.AddRemote(worktreePath, "catnip-live", req.Repository.Path); err != nil {
-			// Log warning but don't fail - remote might already exist
-			logger.Warnf("⚠️ Failed to add catnip-live remote (may already exist): %v", err)
+		// Check if catnip-live remote already exists
+		remotes, err := w.operations.GetRemotes(worktreePath)
+		if err != nil {
+			logger.Debugf("🔍 Could not check existing remotes: %v", err)
+		} else if _, exists := remotes["catnip-live"]; exists {
+			logger.Debugf("📍 Remote 'catnip-live' already exists, skipping add")
 		} else {
-			logger.Debugf("✅ Added 'catnip-live' remote pointing to main repository at %s", req.Repository.Path)
+			// Add "catnip-live" remote pointing to the main repository
+			if err := w.operations.AddRemote(worktreePath, "catnip-live", req.Repository.Path); err != nil {
+				logger.Warnf("⚠️ Failed to add catnip-live remote: %v", err)
+			} else {
+				logger.Debugf("✅ Added 'catnip-live' remote pointing to main repository at %s", req.Repository.Path)
+			}
 		}
 	}
 
