@@ -70,6 +70,7 @@ var (
 	cpus       float64
 	memoryGB   float64
 	envVars    []string
+	dind       bool
 )
 
 func init() {
@@ -88,6 +89,7 @@ func init() {
 	runCmd.Flags().Float64Var(&cpus, "cpus", 4.0, "Number of CPUs to allocate to the container (default: 4.0)")
 	runCmd.Flags().Float64Var(&memoryGB, "memory", 4.0, "Amount of memory in GB to allocate to the container (default: 4.0)")
 	runCmd.Flags().StringSliceVarP(&envVars, "env", "e", nil, "Set environment variables (e.g., -e FOO=bar or -e VAR to forward from host)")
+	runCmd.Flags().BoolVar(&dind, "dind", false, "Mount the docker socket into the container for Docker in Docker")
 }
 
 // cleanVersionForProduction removes the -dev suffix and v prefix from version string
@@ -116,6 +118,14 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	// No flag validation needed for --refresh as it works with both dev and production modes
+
+	// Validate Docker socket if Docker in Docker is requested
+	if dind {
+		if err := validateDockerSocket(); err != nil {
+			return fmt.Errorf("docker in Docker requested but %w", err)
+		}
+		logger.Debug("Docker socket validation passed for Docker in Docker support")
+	}
 
 	// Check if SSH command is available
 	if !disableSSH {
@@ -272,7 +282,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 			if isGitRepo {
 				workDirForContainer = gitRoot
 			}
-			if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB, processedEnvVars); err != nil {
+			if cmd, err := containerService.RunContainer(ctx, containerImage, name, workDirForContainer, ports, dev, !disableSSH, rmFlag, cpus, memoryGB, processedEnvVars, dind); err != nil {
 				return fmt.Errorf("failed to run %s: %w", cmd, err)
 			}
 			fmt.Printf("Container started successfully!\n")
@@ -731,6 +741,29 @@ func checkContainerVersionCompatibility(containerName string) error {
 	}
 
 	return nil
+}
+
+// validateDockerSocket checks if the Docker socket exists for Docker in Docker support
+func validateDockerSocket() error {
+	// Common Docker socket locations
+	dockerSockets := []string{
+		"/var/run/docker.sock",   // Linux/macOS standard
+		"/run/docker.sock",       // Some Linux distributions
+		"//./pipe/docker_engine", // Windows named pipe
+	}
+
+	for _, socketPath := range dockerSockets {
+		if _, err := os.Stat(socketPath); err == nil {
+			logger.Debugf("Found Docker socket at: %s", socketPath)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("docker socket not found. Ensure Docker is running and the socket is accessible.\n" +
+		"Common locations checked:\n" +
+		"  - /var/run/docker.sock (Linux/macOS)\n" +
+		"  - /run/docker.sock (Linux)\n" +
+		"  - //./pipe/docker_engine (Windows)")
 }
 
 // findAvailablePort finds an available port starting from 8080, then trying 8181, 8282, etc.

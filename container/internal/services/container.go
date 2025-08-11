@@ -102,7 +102,7 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool, rmFlag bool, cpus float64, memoryGB float64, envVars []string) ([]string, error) {
+func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workDir string, ports []string, isDevMode bool, sshEnabled bool, rmFlag bool, cpus float64, memoryGB float64, envVars []string, dindEnabled bool) ([]string, error) {
 	// Check if container already exists
 	if cs.ContainerExists(ctx, name) {
 		if cs.IsContainerRunning(ctx, name) {
@@ -176,6 +176,22 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	claudeIDEPath := expandPath("~/.claude/ide")
 	if _, err := os.Stat(claudeIDEPath); err == nil {
 		args = append(args, "-v", fmt.Sprintf("%s:/volume/.claude/ide", claudeIDEPath))
+	}
+
+	// Mount Docker socket for Docker in Docker support
+	if dindEnabled {
+		// Find and mount Docker socket
+		dockerSockets := []string{
+			"/var/run/docker.sock", // Linux/macOS standard
+			"/run/docker.sock",     // Some Linux distributions
+		}
+		for _, socketPath := range dockerSockets {
+			if _, err := os.Stat(socketPath); err == nil {
+				args = append(args, "-v", fmt.Sprintf("%s:/var/run/docker.sock", socketPath))
+				break
+			}
+		}
+		// Note: Windows named pipes are handled differently and would need special handling
 	}
 
 	// Environment variables
