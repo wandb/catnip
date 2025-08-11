@@ -169,6 +169,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }, [open, activeSection, catnipVersion]);
 
+  // Check notification support and permission status
+  React.useEffect(() => {
+    if (open && activeSection === "notifications") {
+      const isSupported = "Notification" in window;
+      setNotificationSupported(isSupported);
+      if (isSupported) {
+        setNotificationPermission(Notification.permission);
+      }
+    }
+  }, [open, activeSection]);
+
   // Function to update Claude theme setting
   const updateClaudeTheme = async (theme: string) => {
     setIsUpdatingClaudeSettings(true);
@@ -192,6 +203,41 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     } finally {
       setIsUpdatingClaudeSettings(false);
     }
+  };
+
+  // Function to request notification permission
+  const requestNotificationPermission = async () => {
+    if (!notificationSupported) {
+      console.warn("Notifications are not supported in this browser");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+
+      if (permission === "granted") {
+        // Show a test notification
+        new Notification("Notifications Enabled", {
+          body: "You'll now receive notifications when Claude sessions end.",
+          icon: "/favicon.ico",
+        });
+      }
+    } catch (error) {
+      console.error("Failed to request notification permission:", error);
+    }
+  };
+
+  // Function to disable notifications (guide user to browser settings)
+  const disableNotifications = () => {
+    // We can't programmatically disable notifications, so guide the user
+    const instructions = window.navigator.userAgent.includes("Chrome")
+      ? "Go to Settings > Privacy and security > Site Settings > Notifications, find this site, and select 'Block'"
+      : window.navigator.userAgent.includes("Firefox")
+        ? "Click the shield icon in the address bar and select 'Block' for notifications"
+        : "Check your browser settings to disable notifications for this site";
+
+    alert(`To disable notifications:\n\n${instructions}`);
   };
 
   // Function to resolve $ref references in swagger spec
