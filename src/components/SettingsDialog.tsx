@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Key, Paintbrush, User, Globe, ExternalLink, Bell } from "lucide-react";
+import { wailsApi, isWailsEnvironment, wailsCall } from "@/lib/wails-api";
 
 import {
   Breadcrumb,
@@ -136,12 +137,24 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       (activeSection === "authentication" || activeSection === "appearance") &&
       !claudeSettings
     ) {
-      fetch("/v1/claude/settings")
-        .then((response) => response.json())
-        .then((data) => setClaudeSettings(data))
-        .catch((error) =>
-          console.error("Failed to fetch Claude settings:", error),
-        );
+      if (isWailsEnvironment()) {
+        wailsCall(() => wailsApi.claude.getSettings())
+          .then((data) => setClaudeSettings(data))
+          .catch((error) =>
+            console.error(
+              "Failed to fetch Claude settings from Wails API:",
+              error,
+            ),
+          );
+      } else {
+        // Fallback to HTTP for development
+        fetch("/v1/claude/settings")
+          .then((response) => response.json())
+          .then((data) => setClaudeSettings(data))
+          .catch((error) =>
+            console.error("Failed to fetch Claude settings:", error),
+          );
+      }
     }
   }, [open, activeSection, claudeSettings]);
 
@@ -160,12 +173,24 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   // Fetch catnip version when component mounts or when switching to authentication
   React.useEffect(() => {
     if (open && activeSection === "authentication" && !catnipVersion) {
-      fetch("/v1/info")
-        .then((response) => response.json())
-        .then((data) => setCatnipVersion(data))
-        .catch((error) =>
-          console.error("Failed to fetch catnip version:", error),
-        );
+      if (isWailsEnvironment()) {
+        wailsCall(() => wailsApi.settings.getAppInfo())
+          .then((data) => setCatnipVersion(data))
+          .catch((error) =>
+            console.error(
+              "Failed to fetch catnip version from Wails API:",
+              error,
+            ),
+          );
+      } else {
+        // Fallback to HTTP for development
+        fetch("/v1/info")
+          .then((response) => response.json())
+          .then((data) => setCatnipVersion(data))
+          .catch((error) =>
+            console.error("Failed to fetch catnip version:", error),
+          );
+      }
     }
   }, [open, activeSection, catnipVersion]);
 
@@ -184,20 +209,28 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const updateClaudeTheme = async (theme: string) => {
     setIsUpdatingClaudeSettings(true);
     try {
-      const response = await fetch("/v1/claude/settings", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ theme }),
-      });
+      if (isWailsEnvironment()) {
+        const updatedSettings = await wailsCall(() =>
+          wailsApi.claude.updateSettings({ theme }),
+        );
+        setClaudeSettings(updatedSettings);
+      } else {
+        // Fallback to HTTP for development
+        const response = await fetch("/v1/claude/settings", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ theme }),
+        });
 
-      if (!response.ok) {
-        throw new Error("Failed to update Claude settings");
+        if (!response.ok) {
+          throw new Error("Failed to update Claude settings");
+        }
+
+        const updatedSettings = await response.json();
+        setClaudeSettings(updatedSettings);
       }
-
-      const updatedSettings = await response.json();
-      setClaudeSettings(updatedSettings);
     } catch (error) {
       console.error("Failed to update Claude settings:", error);
     } finally {
