@@ -1,28 +1,26 @@
 // Wails API wrapper for replacing HTTP calls with direct Wails service calls
 // This provides a clean interface to the generated Wails bindings
 
-import * as ClaudeDesktopService from "../../frontend/bindings/github.com/vanpelt/catnip-desktop/claudedesktopservice.js";
-import * as GitDesktopService from "../../frontend/bindings/github.com/vanpelt/catnip-desktop/gitdesktopservice.js";
-import * as SessionDesktopService from "../../frontend/bindings/github.com/vanpelt/catnip-desktop/sessiondesktopservice.js";
-import * as SettingsDesktopService from "../../frontend/bindings/github.com/vanpelt/catnip-desktop/settingsdesktopservice.js";
+import * as ClaudeDesktopService from "../bindings/github.com/vanpelt/catnip/cmd/desktop/claudedesktopservice.js";
+import * as GitDesktopService from "../bindings/github.com/vanpelt/catnip/cmd/desktop/gitdesktopservice.js";
+import * as SessionDesktopService from "../bindings/github.com/vanpelt/catnip/cmd/desktop/sessiondesktopservice.js";
+import * as SettingsDesktopService from "../bindings/github.com/vanpelt/catnip/cmd/desktop/settingsdesktopservice.js";
 
 // Re-export models for type definitions
-export * from "../../frontend/bindings/github.com/vanpelt/catnip/internal/models/models.js";
+export * from "../bindings/github.com/vanpelt/catnip/internal/models/models.js";
 
-// Type imports for better type safety
-import type {
-  GitStatus,
-  Repository,
-  Worktree,
-  ClaudeSettings,
-  ClaudeSettingsUpdateRequest,
-  CreateCompletionRequest,
-  CreateCompletionResponse,
-  FullSessionData,
-  ClaudeSessionSummary,
-  Todo,
-  ClaudeActivityState,
-} from "../../frontend/bindings/github.com/vanpelt/catnip/internal/models/models.js";
+// Use any for types since generated bindings don't have TypeScript definitions
+type GitStatus = any;
+type Repository = any;
+type Worktree = any;
+type ClaudeSettings = any;
+type ClaudeSettingsUpdateRequest = any;
+type CreateCompletionRequest = any;
+type CreateCompletionResponse = any;
+type FullSessionData = any;
+type ClaudeSessionSummary = any;
+type Todo = any;
+type ClaudeActivityState = any;
 
 /**
  * Wails API wrapper providing a clean interface to backend services

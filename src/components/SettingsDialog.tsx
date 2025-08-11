@@ -175,7 +175,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (open && activeSection === "authentication" && !catnipVersion) {
       if (isWailsEnvironment()) {
         wailsCall(() => wailsApi.settings.getAppInfo())
-          .then((data) => setCatnipVersion(data))
+          .then((data) =>
+            setCatnipVersion({
+              version: data.version || "1.0.0",
+              build: data.description || "Desktop Edition",
+            }),
+          )
           .catch((error) =>
             console.error(
               "Failed to fetch catnip version from Wails API:",

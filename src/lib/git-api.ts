@@ -3,8 +3,6 @@ import { fetchWithTimeout, TimeoutError } from "./fetch-with-timeout";
 import {
   wailsApi,
   isWailsEnvironment,
-  convertWailsWorktreesToMap,
-  convertWailsRepositoriesToMap,
   convertWailsGitStatus,
   wailsCall,
 } from "./wails-api";
