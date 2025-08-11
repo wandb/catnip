@@ -1,0 +1,37 @@
+{
+  "version": "3",
+  "info": {
+    "companyName": "Catnip",
+    "productName": "Catnip Desktop",
+    "productIdentifier": "com.catnip.desktop",
+    "description": "Agentic Coding Environment - Desktop Edition",
+    "copyright": "(c) 2025, Catnip",
+    "comments": "Desktop application for AI-assisted development",
+    "version": "1.0.0"
+  },
+  "dev_mode": {
+    "root_path": ".",
+    "log_level": "info",
+    "debounce": 1000,
+    "ignore": {
+      "dir": [".git", "node_modules", "bin", "assets"],
+      "file": [".DS_Store", ".gitignore", ".gitkeep"],
+      "watched_extension": ["*.go"],
+      "git_ignore": true
+    },
+    "executes": [
+      {
+        "cmd": "go mod tidy",
+        "type": "blocking"
+      },
+      {
+        "cmd": "go build -o desktop .",
+        "type": "blocking"
+      },
+      {
+        "cmd": "./desktop",
+        "type": "primary"
+      }
+    ]
+  }
+}
