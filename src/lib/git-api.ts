@@ -1,5 +1,13 @@
 import { toast } from "sonner";
 import { fetchWithTimeout, TimeoutError } from "./fetch-with-timeout";
+import {
+  wailsApi,
+  isWailsEnvironment,
+  convertWailsWorktreesToMap,
+  convertWailsRepositoriesToMap,
+  convertWailsGitStatus,
+  wailsCall,
+} from "./wails-api";
 
 export interface GitStatus {
   repositories?: Record<string, LocalRepository>;
