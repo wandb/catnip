@@ -1054,6 +1054,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/notifications": {
+            "post": {
+                "description": "Sends a notification event to all connected SSE clients, including the TUI app which can display native macOS notifications",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Send notification",
+                "parameters": [
+                    {
+                        "description": "Notification details",
+                        "name": "notification",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.NotificationPayload"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/ports": {
             "get": {
                 "description": "Returns a list of all currently detected ports with their service information",
@@ -2475,6 +2521,7 @@ const docTemplate = `{
         "internal_handlers.EventType": {
             "type": "string",
             "enum": [
+                "notification:show",
                 "port:opened",
                 "port:closed",
                 "git:dirty",
@@ -2496,6 +2543,7 @@ const docTemplate = `{
                 "session:stopped"
             ],
             "x-enum-varnames": [
+                "NotificationEvent",
                 "PortOpenedEvent",
                 "PortClosedEvent",
                 "GitDirtyEvent",
@@ -2565,6 +2613,20 @@ const docTemplate = `{
                     "description": "Optional custom branch name to graduate to",
                     "type": "string",
                     "example": "feature/add-auth"
+                }
+            }
+        },
+        "internal_handlers.NotificationPayload": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "subtitle": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },

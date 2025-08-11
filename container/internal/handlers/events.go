@@ -42,6 +42,7 @@ const (
 	WorktreeTodosUpdatedEvent  EventType = "worktree:todos_updated"
 	SessionTitleUpdatedEvent   EventType = "session:title_updated"
 	SessionStoppedEvent        EventType = "session:stopped"
+	NotificationEvent          EventType = "notification:show"
 )
 
 type AppEvent struct {

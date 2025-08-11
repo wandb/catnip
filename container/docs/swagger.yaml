@@ -790,6 +790,7 @@ definitions:
     type: object
   internal_handlers.EventType:
     enum:
+    - notification:show
     - port:opened
     - port:closed
     - git:dirty
@@ -811,6 +812,7 @@ definitions:
     - session:stopped
     type: string
     x-enum-varnames:
+    - NotificationEvent
     - PortOpenedEvent
     - PortClosedEvent
     - GitDirtyEvent
@@ -867,6 +869,15 @@ definitions:
       branch_name:
         description: Optional custom branch name to graduate to
         example: feature/add-auth
+        type: string
+    type: object
+  internal_handlers.NotificationPayload:
+    properties:
+      body:
+        type: string
+      subtitle:
+        type: string
+      title:
         type: string
     type: object
   internal_handlers.SSEMessage:
@@ -1707,6 +1718,37 @@ paths:
       summary: Cleanup merged worktrees
       tags:
       - git
+  /v1/notifications:
+    post:
+      consumes:
+      - application/json
+      description: Sends a notification event to all connected SSE clients, including
+        the TUI app which can display native macOS notifications
+      parameters:
+      - description: Notification details
+        in: body
+        name: notification
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.NotificationPayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send notification
+      tags:
+      - notifications
   /v1/ports:
     get:
       consumes:
