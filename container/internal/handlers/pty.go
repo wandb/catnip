@@ -406,7 +406,12 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
-			logger.Errorf("❌ WebSocket read error: %v", err)
+			// Don't log normal WebSocket close conditions as errors
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
+				logger.Debugf("🔌 WebSocket connection closed normally: %v", err)
+			} else {
+				logger.Errorf("❌ WebSocket read error: %v", err)
+			}
 			break
 		}
 
