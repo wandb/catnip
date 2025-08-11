@@ -220,7 +220,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         // Show a test notification
         new Notification("Notifications Enabled", {
           body: "You'll now receive notifications when Claude sessions end.",
-          icon: "/favicon.ico",
+          icon: "/logo@2x.webp",
         });
       }
     } catch (error) {
@@ -744,7 +744,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   <div className="bg-background border rounded-lg p-3 shadow-sm">
                     <div className="flex items-center gap-3">
                       <img
-                        src="/favicon.ico"
+                        src="/logo@2x.webp"
                         alt="Catnip"
                         className="w-6 h-6 rounded"
                       />
