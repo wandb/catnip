@@ -176,6 +176,17 @@ export interface SessionTitleUpdatedEvent {
   };
 }
 
+export interface SessionStoppedEvent {
+  type: "session:stopped";
+  payload: {
+    workspace_dir: string;
+    worktree_id?: string;
+    session_title?: string;
+    branch_name?: string;
+    last_todo?: string;
+  };
+}
+
 export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
@@ -194,7 +205,8 @@ export type AppEvent =
   | WorktreeCreatedEvent
   | WorktreeDeletedEvent
   | WorktreeTodosUpdatedEvent
-  | SessionTitleUpdatedEvent;
+  | SessionTitleUpdatedEvent
+  | SessionStoppedEvent;
 
 export interface SSEMessage {
   event: AppEvent;

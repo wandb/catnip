@@ -14,6 +14,7 @@ import { GitHubAuthProvider } from "@/lib/github-auth-context";
 import { useGitHubAuth } from "@/lib/hooks";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { NotificationProvider } from "@/components/NotificationProvider";
 
 function RootLayout() {
   const location = useLocation();
@@ -106,7 +107,9 @@ function RootComponent() {
     <AuthProvider>
       <WebSocketProvider>
         <GitHubAuthProvider>
-          <RootLayout />
+          <NotificationProvider>
+            <RootLayout />
+          </NotificationProvider>
         </GitHubAuthProvider>
       </WebSocketProvider>
     </AuthProvider>
