@@ -9,6 +9,7 @@ import { TranscriptMessage } from "./TranscriptMessage";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { ErrorDisplay } from "./ErrorDisplay";
+import { wailsApi, isWailsEnvironment, wailsCall } from "@/lib/wails-api";
 
 interface TranscriptViewerProps {
   sessionId?: string;
@@ -147,13 +148,23 @@ export function TranscriptViewer({
     setError(null);
 
     try {
-      const response = await fetch(`/v1/claude/session/${id}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch transcript: ${response.statusText}`);
-      }
+      if (isWailsEnvironment()) {
+        // For Wails, we need to use the session path/workspace directory instead of session ID
+        // This is a limitation of the current Wails API design
+        const sessionData = await wailsCall(() =>
+          wailsApi.claude.getFullSessionData(id, true),
+        );
+        setData(sessionData);
+      } else {
+        // Fallback to HTTP for development
+        const response = await fetch(`/v1/claude/session/${id}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch transcript: ${response.statusText}`);
+        }
 
-      const sessionData = await response.json();
-      setData(sessionData);
+        const sessionData = await response.json();
+        setData(sessionData);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to fetch transcript",
