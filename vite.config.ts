@@ -28,7 +28,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: process.env.TAURI_DEV_HOST || "0.0.0.0", // Support Tauri mobile dev
+    host: "0.0.0.0", // Allow external connections
     port: parseInt(process.env.VITE_PORT || "5173"),
     strictPort: true, // Don't try other ports if configured port is busy
     hmr: {
