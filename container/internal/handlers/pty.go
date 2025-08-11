@@ -80,7 +80,9 @@ type Session struct {
 	AlternateScreenActive bool
 	LastNonTUIBufferSize  int
 	// Session-level PTY reading control
-	ptyReadDone chan struct{}
+	ptyReadDone   chan struct{}
+	ptyReadClosed bool
+	ptyReadMutex  sync.Mutex
 	// Terminal emulator for Claude sessions (server-side terminal state)
 }
 
@@ -95,6 +97,17 @@ type ControlMsg struct {
 	Type   string `json:"type"`
 	Data   string `json:"data,omitempty"`
 	Submit bool   `json:"submit,omitempty"`
+}
+
+// safeClosePTYReadDone safely closes the ptyReadDone channel, preventing double-close panics
+func (s *Session) safeClosePTYReadDone() {
+	s.ptyReadMutex.Lock()
+	defer s.ptyReadMutex.Unlock()
+
+	if !s.ptyReadClosed && s.ptyReadDone != nil {
+		close(s.ptyReadDone)
+		s.ptyReadClosed = true
+	}
 }
 
 // sanitizeTitle ensures the extracted title is safe and conforms to expected formats
@@ -769,7 +782,8 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		AlternateScreenActive: false,
 		LastNonTUIBufferSize:  0,
 		// Initialize session-level PTY reading control
-		ptyReadDone: make(chan struct{}),
+		ptyReadDone:   make(chan struct{}),
+		ptyReadClosed: false,
 	}
 
 	h.sessions[sessionID] = session
