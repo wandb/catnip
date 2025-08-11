@@ -41,6 +41,7 @@ const (
 	WorktreeDeletedEvent       EventType = "worktree:deleted"
 	WorktreeTodosUpdatedEvent  EventType = "worktree:todos_updated"
 	SessionTitleUpdatedEvent   EventType = "session:title_updated"
+	SessionStoppedEvent        EventType = "session:stopped"
 )
 
 type AppEvent struct {
@@ -130,6 +131,14 @@ type SessionTitleUpdatedPayload struct {
 	WorktreeID          string              `json:"worktree_id,omitempty"`
 	SessionTitle        *models.TitleEntry  `json:"session_title"`
 	SessionTitleHistory []models.TitleEntry `json:"session_title_history"`
+}
+
+type SessionStoppedPayload struct {
+	WorkspaceDir string  `json:"workspace_dir"`
+	WorktreeID   *string `json:"worktree_id,omitempty"`
+	SessionTitle *string `json:"session_title,omitempty"`
+	BranchName   *string `json:"branch_name,omitempty"`
+	LastTodo     *string `json:"last_todo,omitempty"`
 }
 
 type SSEMessage struct {
@@ -708,6 +717,20 @@ func (h *EventsHandler) EmitSessionTitleUpdated(workspaceDir, worktreeID string,
 			WorktreeID:          worktreeID,
 			SessionTitle:        sessionTitle,
 			SessionTitleHistory: sessionTitleHistory,
+		},
+	})
+}
+
+// EmitSessionStopped broadcasts a session stopped event to all connected clients
+func (h *EventsHandler) EmitSessionStopped(workspaceDir string, worktreeID *string, sessionTitle *string, branchName *string, lastTodo *string) {
+	h.broadcastEvent(AppEvent{
+		Type: SessionStoppedEvent,
+		Payload: SessionStoppedPayload{
+			WorkspaceDir: workspaceDir,
+			WorktreeID:   worktreeID,
+			SessionTitle: sessionTitle,
+			BranchName:   branchName,
+			LastTodo:     lastTodo,
 		},
 	})
 }

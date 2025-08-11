@@ -11,6 +11,7 @@ import (
 // ClaudeHandler handles Claude Code session-related API endpoints
 type ClaudeHandler struct {
 	claudeService *services.ClaudeService
+	eventsHandler *EventsHandler
 }
 
 // NewClaudeHandler creates a new Claude handler
@@ -18,6 +19,12 @@ func NewClaudeHandler(claudeService *services.ClaudeService) *ClaudeHandler {
 	return &ClaudeHandler{
 		claudeService: claudeService,
 	}
+}
+
+// WithEvents adds events handler for broadcasting events
+func (h *ClaudeHandler) WithEvents(eventsHandler *EventsHandler) *ClaudeHandler {
+	h.eventsHandler = eventsHandler
+	return h
 }
 
 // GetWorktreeSessionSummary returns Claude session information for a specific worktree
@@ -303,6 +310,48 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 			"error":   "Failed to handle hook event",
 			"details": err.Error(),
 		})
+	}
+
+	// Handle special events that should broadcast to frontend
+	if h.eventsHandler != nil && req.EventType == "Stop" {
+		// Get session information for this worktree
+		summary, _ := h.claudeService.GetWorktreeSessionSummary(req.WorkingDirectory)
+		todos, _ := h.claudeService.GetLatestTodos(req.WorkingDirectory)
+
+		var sessionTitle *string
+		var lastTodo *string
+		var worktreeID *string
+
+		if summary != nil && summary.Header != nil {
+			sessionTitle = summary.Header
+		}
+
+		if len(todos) > 0 {
+			// Find the last incomplete todo
+			for i := len(todos) - 1; i >= 0; i-- {
+				if todos[i].Status != "completed" {
+					lastTodo = &todos[i].Content
+					break
+				}
+			}
+			// If all todos are completed, use the last one
+			if lastTodo == nil {
+				lastTodo = &todos[len(todos)-1].Content
+			}
+		}
+
+		// For now, we don't have direct access to git info here,
+		// but we could extend this to get branch name
+		var branchName *string
+
+		// Emit the session stopped event
+		h.eventsHandler.EmitSessionStopped(
+			req.WorkingDirectory,
+			worktreeID,
+			sessionTitle,
+			branchName,
+			lastTodo,
+		)
 	}
 
 	return c.JSON(fiber.Map{
