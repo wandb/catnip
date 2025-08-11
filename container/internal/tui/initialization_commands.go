@@ -406,7 +406,7 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 		}
 
 		// Start the container
-		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmEffective, 4.0, 4.0, []string{}); err != nil {
+		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmEffective, 4.0, 4.0, []string{}, false); err != nil {
 			// Parse the error to extract the base error and output
 			errStr := err.Error()
 			cmdStr := strings.Join(cmd, " ")
@@ -438,7 +438,7 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 					time.Sleep(500 * time.Millisecond)
 
 					// Try to create a new container
-					if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag, 4.0, 4.0, []string{}); err != nil {
+					if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag, 4.0, 4.0, []string{}, false); err != nil {
 						// Still failed after cleanup, report the error
 						errStr = err.Error()
 						cmdStr = strings.Join(cmd, " ")
