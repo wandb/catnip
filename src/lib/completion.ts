@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
+import { wailsApi, isWailsEnvironment, wailsCall } from "./wails-api";
 
 // TypeScript interfaces matching the Go models
 export interface CompletionMessage {
@@ -48,7 +49,7 @@ export interface UseCompletionResult {
 }
 
 // Cache utility functions
-const CACHE_PREFIX = 'catnip_completion_';
+const CACHE_PREFIX = "catnip_completion_";
 const CACHE_EXPIRY = 1 * 60 * 60 * 1000; // 1 hour
 
 interface CacheEntry {
@@ -56,20 +57,23 @@ interface CacheEntry {
   timestamp: number;
 }
 
-function generateCacheKey(request: CompletionRequest, customKey?: string): string {
+function generateCacheKey(
+  request: CompletionRequest,
+  customKey?: string,
+): string {
   if (customKey) {
     return `${CACHE_PREFIX}${customKey}`;
   }
-  
+
   // Generate a key based on request content
   const keyData = {
     message: request.message,
     max_tokens: request.max_tokens,
     model: request.model,
     system: request.system,
-    context: request.context
+    context: request.context,
   };
-  
+
   return `${CACHE_PREFIX}${btoa(JSON.stringify(keyData))}`;
 }
 
@@ -77,19 +81,19 @@ function getCachedResponse(cacheKey: string): CompletionResponse | null {
   try {
     const cached = localStorage.getItem(cacheKey);
     if (!cached) return null;
-    
+
     const entry: CacheEntry = JSON.parse(cached) as CacheEntry;
     const now = Date.now();
-    
+
     // Check if cache is expired
     if (now - entry.timestamp > CACHE_EXPIRY) {
       localStorage.removeItem(cacheKey);
       return null;
     }
-    
+
     return entry.data;
   } catch (error) {
-    console.error('Error reading from cache:', error);
+    console.error("Error reading from cache:", error);
     return null;
   }
 }
@@ -98,31 +102,33 @@ function setCachedResponse(cacheKey: string, data: CompletionResponse): void {
   try {
     const entry: CacheEntry = {
       data,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
     localStorage.setItem(cacheKey, JSON.stringify(entry));
   } catch (error) {
-    console.error('Error writing to cache:', error);
+    console.error("Error writing to cache:", error);
   }
 }
 
 function clearCompletionCache(): void {
   try {
     const keys = Object.keys(localStorage);
-    keys.forEach(key => {
+    keys.forEach((key) => {
       if (key.startsWith(CACHE_PREFIX)) {
         localStorage.removeItem(key);
       }
     });
   } catch (error) {
-    console.error('Error clearing cache:', error);
+    console.error("Error clearing cache:", error);
   }
 }
 
 // Direct usage function
-export async function getCompletion(config: CompletionConfig): Promise<CompletionResponse> {
+export async function getCompletion(
+  config: CompletionConfig,
+): Promise<CompletionResponse> {
   const { request, ignoreCache = false, cacheKey } = config;
-  
+
   // Check cache first (unless ignored)
   if (!ignoreCache) {
     const key = generateCacheKey(request, cacheKey);
@@ -131,58 +137,96 @@ export async function getCompletion(config: CompletionConfig): Promise<Completio
       return cached;
     }
   }
-  
+
   // Create abort controller for request timeout
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();
   }, 10000); // 10 seconds
-  
+
   try {
-    // Make API request with timeout
-    const response = await fetch('/v1/claude/completion', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (!response.ok) {
-      let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-      try {
-        const errorData: CompletionError = await response.json() as CompletionError;
-        errorMessage = errorData.error || errorMessage;
-      } catch (parseError) {
-        // If we can't parse the error response, use the status message
-        console.warn('Failed to parse error response:', parseError);
+    let data: CompletionResponse;
+
+    if (isWailsEnvironment()) {
+      // Use Wails API for completion
+      const wailsRequest = {
+        prompt: request.message,
+        stream: false,
+        system_prompt: request.system,
+        model: request.model,
+        max_turns: 1,
+        working_directory: undefined,
+        resume: false,
+      };
+
+      const wailsResponse = await wailsCall(() =>
+        wailsApi.claude.createCompletion(wailsRequest),
+      );
+
+      if (!wailsResponse) {
+        throw new Error("No response from Claude API");
       }
-      throw new Error(errorMessage);
+
+      // Convert Wails response to our expected format
+      data = {
+        response: wailsResponse.response || "",
+        usage: {
+          input_tokens: 0, // Wails API doesn't provide token counts
+          output_tokens: 0,
+          total_tokens: 0,
+        },
+        model: request.model || "claude-3-5-sonnet-20241022",
+        truncated: false,
+      };
+    } else {
+      // Fallback to HTTP for development
+      const response = await fetch("/v1/claude/completion", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(request),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData: CompletionError =
+            (await response.json()) as CompletionError;
+          errorMessage = errorData.error || errorMessage;
+        } catch (parseError) {
+          // If we can't parse the error response, use the status message
+          console.warn("Failed to parse error response:", parseError);
+        }
+        throw new Error(errorMessage);
+      }
+
+      data = (await response.json()) as CompletionResponse;
     }
-    
-    const data: CompletionResponse = await response.json() as CompletionResponse;
-    
+
     // Cache the response (unless cache is ignored)
     if (!ignoreCache) {
       const key = generateCacheKey(request, cacheKey);
       setCachedResponse(key, data);
     }
-    
+
     return data;
   } catch (error) {
     clearTimeout(timeoutId);
-    
+
     if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout: The server did not respond within 10 seconds');
+      if (error.name === "AbortError") {
+        throw new Error(
+          "Request timeout: The server did not respond within 10 seconds",
+        );
       }
       throw error;
     }
-    
-    throw new Error('Unknown error occurred during completion request');
+
+    throw new Error("Unknown error occurred during completion request");
   }
 }
 
@@ -191,33 +235,34 @@ export function useCompletion(): UseCompletionResult {
   const [data, setData] = useState<CompletionResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const execute = useCallback(async (config: CompletionConfig) => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const result = await getCompletion(config);
       setData(result);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+      const errorMessage =
+        err instanceof Error ? err.message : "Unknown error occurred";
       setError(errorMessage);
       setData(null);
     } finally {
       setLoading(false);
     }
   }, []);
-  
+
   const clearCache = useCallback(() => {
     clearCompletionCache();
   }, []);
-  
+
   return {
     data,
     loading,
     error,
     execute,
-    clearCache
+    clearCache,
   };
 }
 
@@ -232,9 +277,9 @@ export function createCompletionRequest(config: {
   return {
     message: config.message,
     max_tokens: config.maxTokens ?? 1024,
-    model: config.model ?? 'claude-3-5-sonnet-20241022',
+    model: config.model ?? "claude-3-5-sonnet-20241022",
     system: config.system,
-    context: config.context
+    context: config.context,
   };
 }
 
@@ -242,22 +287,22 @@ export function createCompletionRequest(config: {
 export function getCacheStats(): { count: number; totalSize: number } {
   try {
     const keys = Object.keys(localStorage);
-    const completionKeys = keys.filter(key => key.startsWith(CACHE_PREFIX));
-    
+    const completionKeys = keys.filter((key) => key.startsWith(CACHE_PREFIX));
+
     let totalSize = 0;
-    completionKeys.forEach(key => {
+    completionKeys.forEach((key) => {
       const value = localStorage.getItem(key);
       if (value) {
         totalSize += value.length;
       }
     });
-    
+
     return {
       count: completionKeys.length,
-      totalSize
+      totalSize,
     };
   } catch (error) {
-    console.error('Error getting cache stats:', error);
+    console.error("Error getting cache stats:", error);
     return { count: 0, totalSize: 0 };
   }
-} 
+}

@@ -1,5 +1,11 @@
 import { toast } from "sonner";
 import { fetchWithTimeout, TimeoutError } from "./fetch-with-timeout";
+import {
+  wailsApi,
+  isWailsEnvironment,
+  convertWailsGitStatus,
+  wailsCall,
+} from "./wails-api";
 
 export interface GitStatus {
   repositories?: Record<string, LocalRepository>;
@@ -127,62 +133,101 @@ export const gitApi = {
   // Components should use the zustand store (useAppStore) directly for state access.
 
   async fetchGitStatus(): Promise<GitStatus> {
-    try {
-      const response = await fetchWithTimeout("/v1/git/status", {
-        timeout: 30000,
-      });
-      if (response.ok) {
-        return await response.json();
+    if (isWailsEnvironment()) {
+      try {
+        const gitStatus = await wailsCall(() => wailsApi.git.getStatus());
+        return convertWailsGitStatus(gitStatus);
+      } catch (error) {
+        console.error("Wails git status request failed:", error);
+        throw new Error("Failed to fetch git status from Wails API");
       }
-      throw new Error("Failed to fetch git status");
-    } catch (error) {
-      if (error instanceof TimeoutError) {
-        console.error("Git status request timed out");
-        throw new Error(
-          "Request timed out. The backend server may be unavailable.",
-        );
+    } else {
+      // Fallback to HTTP for development
+      try {
+        const response = await fetchWithTimeout("/v1/git/status", {
+          timeout: 30000,
+        });
+        if (response.ok) {
+          return await response.json();
+        }
+        throw new Error("Failed to fetch git status");
+      } catch (error) {
+        if (error instanceof TimeoutError) {
+          console.error("Git status request timed out");
+          throw new Error(
+            "Request timed out. The backend server may be unavailable.",
+          );
+        }
+        throw error;
       }
-      throw error;
     }
   },
 
   async fetchWorktrees(): Promise<Worktree[]> {
-    try {
-      const response = await fetchWithTimeout("/v1/git/worktrees", {
-        timeout: 30000,
-      });
-      if (response.ok) {
-        return await response.json();
-      }
-      throw new Error("Failed to fetch worktrees");
-    } catch (error) {
-      if (error instanceof TimeoutError) {
-        console.error("Worktrees request timed out");
-        throw new Error(
-          "Request timed out. The backend server may be unavailable.",
+    if (isWailsEnvironment()) {
+      try {
+        const worktrees = await wailsCall(
+          () => wailsApi.git.getWorktrees(),
+          [],
         );
+        return worktrees.filter((w): w is Worktree => w !== null);
+      } catch (error) {
+        console.error("Wails worktrees request failed:", error);
+        throw new Error("Failed to fetch worktrees from Wails API");
       }
-      throw error;
+    } else {
+      // Fallback to HTTP for development
+      try {
+        const response = await fetchWithTimeout("/v1/git/worktrees", {
+          timeout: 30000,
+        });
+        if (response.ok) {
+          return await response.json();
+        }
+        throw new Error("Failed to fetch worktrees");
+      } catch (error) {
+        if (error instanceof TimeoutError) {
+          console.error("Worktrees request timed out");
+          throw new Error(
+            "Request timed out. The backend server may be unavailable.",
+          );
+        }
+        throw error;
+      }
     }
   },
 
   async fetchRepositories(): Promise<Repository[]> {
-    try {
-      const response = await fetchWithTimeout("/v1/git/github/repos", {
-        timeout: 30000,
-      });
-      if (response.ok) {
-        return await response.json();
-      }
-      throw new Error("Failed to fetch repositories");
-    } catch (error) {
-      if (error instanceof TimeoutError) {
-        console.error("Repositories request timed out");
-        throw new Error(
-          "Request timed out. The backend server may be unavailable.",
+    if (isWailsEnvironment()) {
+      try {
+        const repositories = await wailsCall(
+          () => wailsApi.git.getRepositories(),
+          [],
         );
+        return repositories.filter((r): r is Repository => r !== null);
+      } catch (error) {
+        console.error("Wails repositories request failed:", error);
+        throw new Error("Failed to fetch repositories from Wails API");
       }
-      throw error;
+    } else {
+      // Fallback to HTTP for development
+      try {
+        const response = await fetchWithTimeout("/v1/git/github/repos", {
+          timeout: 30000,
+        });
+        if (response.ok) {
+          return await response.json();
+        }
+        throw new Error("Failed to fetch repositories");
+      } catch (error) {
+        if (error instanceof TimeoutError) {
+          console.error("Repositories request timed out");
+          throw new Error(
+            "Request timed out. The backend server may be unavailable.",
+          );
+        }
+        throw error;
+      }
     }
   },
 
@@ -197,15 +242,28 @@ export const gitApi = {
   },
 
   async fetchClaudeSessions(): Promise<Record<string, any>> {
-    try {
-      const response = await fetch("/v1/claude/sessions");
-      if (response.ok) {
-        return (await response.json()) || {};
+    if (isWailsEnvironment()) {
+      try {
+        return await wailsCall(
+          () => wailsApi.claude.getAllSessionSummaries(),
+          {},
+        );
+      } catch (error) {
+        console.error("Failed to fetch Claude sessions from Wails API:", error);
+        return {};
       }
-      return {};
-    } catch (error) {
-      console.error("Failed to fetch Claude sessions:", error);
-      return {};
+    } else {
+      // Fallback to HTTP for development
+      try {
+        const response = await fetch("/v1/claude/sessions");
+        if (response.ok) {
+          return (await response.json()) || {};
+        }
+        return {};
+      } catch (error) {
+        console.error("Failed to fetch Claude sessions:", error);
+        return {};
+      }
     }
   },
 
@@ -259,11 +317,21 @@ export const gitApi = {
   // These methods perform server-side operations and are used by the useGitApi hook.
 
   async deleteWorktree(id: string): Promise<void> {
-    const response = await fetch(`/v1/git/worktrees/${id}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      throw new Error("Failed to delete worktree");
+    if (isWailsEnvironment()) {
+      try {
+        await wailsCall(() => wailsApi.git.deleteWorktree(id));
+      } catch (error) {
+        console.error("Failed to delete worktree via Wails API:", error);
+        throw new Error("Failed to delete worktree");
+      }
+    } else {
+      // Fallback to HTTP for development
+      const response = await fetch(`/v1/git/worktrees/${id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to delete worktree");
+      }
     }
   },
 
