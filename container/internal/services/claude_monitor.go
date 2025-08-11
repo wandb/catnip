@@ -1329,13 +1329,10 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 		}
 	}
 
-	// Fallback to PTY-based activity tracking for compatibility
-	// Check activity using the general activity tracking
-	if s.claudeService.IsActiveSession(worktreePath, 2*time.Minute) {
-		return models.ClaudeActive
-	}
+	// Without UserPromptSubmit hook events, we should be more conservative about "active" state
+	// Only PTY connection doesn't mean Claude is actively generating - wait for UserPromptSubmit
 
-	// Check if there's any recent activity (within 10 minutes) to determine if "running"
+	// Check if there's any recent PTY activity (within 10 minutes) to determine if "running"
 	if s.claudeService.IsActiveSession(worktreePath, 10*time.Minute) {
 		return models.ClaudeRunning
 	}
