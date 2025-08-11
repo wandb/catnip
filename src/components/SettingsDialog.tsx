@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Key, Paintbrush, User, Globe, ExternalLink } from "lucide-react";
+import { Key, Paintbrush, User, Globe, ExternalLink, Bell } from "lucide-react";
 
 import {
   Breadcrumb,
