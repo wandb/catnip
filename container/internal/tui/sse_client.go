@@ -43,6 +43,7 @@ const (
 	ContainerStatusEvent = "container:status"
 	PortMappedEvent      = "port:mapped"
 	HeartbeatEvent       = "heartbeat"
+	NotificationEvent    = "notification:show"
 )
 
 // SSE event messages are defined in messages.go
@@ -260,6 +261,22 @@ func (c *SSEClient) processEvent(data string) {
 		// Heartbeat confirms connection is still alive
 		// No need to log every heartbeat to avoid spam
 		// debugLog("SSE heartbeat received")
+
+	case NotificationEvent:
+		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
+			title, _ := payload["title"].(string)
+			body, _ := payload["body"].(string)
+			subtitle, _ := payload["subtitle"].(string)
+
+			// Send native notification if supported
+			if IsNotificationSupported() {
+				if err := SendNativeNotification(title, body, subtitle); err != nil {
+					debugLog("TUI SSE: Failed to send notification: %v", err)
+				} else {
+					debugLog("TUI SSE: Sent notification: %s", title)
+				}
+			}
+		}
 
 	default:
 		// Log other event types for now
