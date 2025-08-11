@@ -438,7 +438,6 @@ func (s *GitService) fetchBranch(repoPath string, strategy git.FetchStrategy) er
 
 // NewGitService creates a new Git service instance
 func NewGitService() *GitService {
-	fmt.Println("🐛 [DEBUG] NewGitService called - debug logging is active!")
 	return NewGitServiceWithOperations(git.NewOperations())
 }
 

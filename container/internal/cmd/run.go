@@ -187,19 +187,9 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	processedEnvVars := make([]string, 0, len(envVars)+1)
 
 	// Always pass DEBUG environment variable to container
-	// In dev mode, default to DEBUG=true unless explicitly set to false
-	// In production mode, forward from host environment
+	// Forward DEBUG value from host environment (don't auto-enable in dev mode)
 	debugValue := os.Getenv("DEBUG")
-	if dev {
-		if debugValue == "" || (strings.ToLower(debugValue) != "false" && debugValue != "0") {
-			processedEnvVars = append(processedEnvVars, "DEBUG=true")
-		} else {
-			processedEnvVars = append(processedEnvVars, "DEBUG=false")
-		}
-	} else {
-		// Always forward DEBUG value from host (even if empty)
-		processedEnvVars = append(processedEnvVars, fmt.Sprintf("DEBUG=%s", debugValue))
-	}
+	processedEnvVars = append(processedEnvVars, fmt.Sprintf("DEBUG=%s", debugValue))
 
 	for _, envVar := range envVars {
 		if strings.Contains(envVar, "=") {
