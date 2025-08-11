@@ -11,7 +11,7 @@ import (
 // Wails uses Go's `embed` package to embed the frontend files into the binary.
 // We embed the built React frontend from the dist directory.
 //
-//go:embed all:dist
+//go:embed all:../../internal/assets/dist
 var assets embed.FS
 
 func main() {
