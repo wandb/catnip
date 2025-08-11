@@ -282,8 +282,17 @@ func (h *EventsHandler) HandleSSE(c *fiber.Ctx) error {
 			if msg.Event.Type == "" { // guard against empty events
 				return true
 			}
+
+			// Debug session:stopped events specifically
+			if msg.Event.Type == SessionStoppedEvent {
+				logger.Debugf("🔔 Sending session:stopped event to client %s via SSE", clientID)
+			}
+
 			b, _ := json.Marshal(msg)
 			if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
+				if msg.Event.Type == SessionStoppedEvent {
+					logger.Errorf("🔔 Failed to write session:stopped event to client %s: %v", clientID, err)
+				}
 				return false
 			}
 			return flushOrDie()
@@ -497,11 +506,22 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 		logger.Warnf("Attempting to broadcast event with empty type")
 		return
 	}
+	logger.Debugf("🔔 Broadcasting event - Type: %s", event.Type)
 
 	message := SSEMessage{
 		Event:     event,
 		Timestamp: time.Now().UnixMilli(),
 		ID:        uuid.New().String(),
+	}
+
+	// Debug JSON serialization for session:stopped events
+	if event.Type == SessionStoppedEvent {
+		jsonData, err := json.Marshal(message)
+		if err != nil {
+			logger.Errorf("🔔 Failed to marshal session:stopped event: %v", err)
+		} else {
+			logger.Debugf("🔔 Serialized session:stopped event: %s", string(jsonData))
+		}
 	}
 
 	h.clientsMux.RLock()
@@ -510,7 +530,16 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 	for clientID, clientChan := range h.clients {
 		select {
 		case clientChan <- message:
+			// Debug session:stopped events specifically
+			if message.Event.Type == SessionStoppedEvent {
+				logger.Debugf("🔔 Successfully sent session:stopped event to client %s", clientID)
+			}
 		default:
+			// Debug session:stopped events that fail to send
+			if message.Event.Type == SessionStoppedEvent {
+				logger.Warnf("🔔 Failed to send session:stopped event to client %s (channel full/closed)", clientID)
+			}
+
 			// Check if client is in grace period (first 2 seconds after connection)
 			connectTime, exists := h.clientConnectTimes[clientID]
 			gracePeriod := 2 * time.Second
@@ -723,6 +752,7 @@ func (h *EventsHandler) EmitSessionTitleUpdated(workspaceDir, worktreeID string,
 
 // EmitSessionStopped broadcasts a session stopped event to all connected clients
 func (h *EventsHandler) EmitSessionStopped(workspaceDir string, worktreeID *string, sessionTitle *string, branchName *string, lastTodo *string) {
+	logger.Debugf("🔔 EmitSessionStopped called - WorkspaceDir: %s, WorktreeID: %v, SessionTitle: %v, BranchName: %v, LastTodo: %v", workspaceDir, worktreeID, sessionTitle, branchName, lastTodo)
 	h.broadcastEvent(AppEvent{
 		Type: SessionStoppedEvent,
 		Payload: SessionStoppedPayload{
