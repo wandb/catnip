@@ -5,8 +5,7 @@ import (
 	"github.com/vanpelt/catnip/internal/logger"
 )
 
-// NotificationEvent constant for SSE
-const NotificationEvent EventType = "notification:show"
+// NotificationEvent is already defined in events.go
 
 // NotificationPayload represents a notification request
 type NotificationPayload struct {
