@@ -25,5 +25,9 @@
     <!-- Allow outbound network connections -->
     <key>com.apple.security.network.server</key>
     <true/>
+    
+    <!-- User Notifications entitlement for native macOS notifications -->
+    <key>com.apple.developer.usernotifications.communication</key>
+    <true/>
 </dict>
 </plist>
