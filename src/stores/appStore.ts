@@ -8,6 +8,7 @@ import type {
   LocalRepository,
 } from "../lib/git-api";
 import { gitApi } from "../lib/git-api";
+import { useNotifications } from "../lib/useNotifications";
 
 interface Port {
   port: number;
@@ -42,6 +43,12 @@ interface AppState {
   containerStatus: "running" | "stopped" | "error";
   containerMessage?: string;
   sshEnabled: boolean;
+
+  // Notifications
+  notifications: ReturnType<typeof useNotifications> | null;
+  setNotifications: (
+    notifications: ReturnType<typeof useNotifications>,
+  ) => void;
 
   // Loading states
   initialLoading: boolean;
@@ -96,6 +103,10 @@ export const useAppStore = create<AppState>()(
     gitStatus: {},
     containerStatus: "stopped",
     sshEnabled: false,
+
+    // Notifications
+    notifications: null,
+    setNotifications: (notifications) => set({ notifications }),
 
     // Loading states
     initialLoading: false,
@@ -486,6 +497,45 @@ export const useAppStore = create<AppState>()(
               session_title_history: event.payload.session_title_history,
             });
             set({ worktrees: updatedWorktrees });
+          }
+          break;
+        }
+
+        case "session:stopped": {
+          const { notifications } = get();
+          if (notifications?.canShowNotifications) {
+            // Find the worktree for this session
+            const worktreeEntry = Array.from(worktrees.entries()).find(
+              ([_, worktree]) => worktree.path === event.payload.workspace_dir,
+            );
+
+            if (worktreeEntry) {
+              const [_, worktree] = worktreeEntry;
+              const title =
+                event.payload.session_title ||
+                worktree.session_title?.title ||
+                "Claude Session";
+              const branchName =
+                event.payload.branch_name || worktree.branch || "main";
+              const lastTodo =
+                event.payload.last_todo ||
+                (worktree.todos && worktree.todos.length > 0
+                  ? worktree.todos[worktree.todos.length - 1].content
+                  : "No active todos");
+
+              const notificationTitle = `${title} (${branchName})`;
+              const notificationBody = `Session ended - Last todo: ${lastTodo}`;
+
+              try {
+                notifications.showNotification(notificationTitle, {
+                  body: notificationBody,
+                  icon: "/favicon.ico",
+                  tag: `session-stopped-${worktree.id}`,
+                });
+              } catch (error) {
+                console.error("Failed to show notification:", error);
+              }
+            }
           }
           break;
         }
