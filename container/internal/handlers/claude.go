@@ -229,9 +229,9 @@ func (h *ClaudeHandler) GetClaudeSettings(c *fiber.Ctx) error {
 	return c.JSON(settings)
 }
 
-// UpdateClaudeSettings updates Claude configuration settings in ~/.claude.json
+// UpdateClaudeSettings updates Claude configuration settings in ~/.claude.json and volume settings.json
 // @Summary Update Claude settings
-// @Description Updates Claude Code configuration settings (currently only theme is supported)
+// @Description Updates Claude Code configuration settings (theme and notifications)
 // @Tags claude
 // @Accept json
 // @Produce json
@@ -248,18 +248,27 @@ func (h *ClaudeHandler) UpdateClaudeSettings(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validate theme
-	validThemes := []string{"dark", "light", "dark-daltonized", "light-daltonized", "dark-ansi", "light-ansi"}
-	valid := false
-	for _, theme := range validThemes {
-		if req.Theme == theme {
-			valid = true
-			break
+	// Validate theme if provided
+	if req.Theme != "" {
+		validThemes := []string{"dark", "light", "dark-daltonized", "light-daltonized", "dark-ansi", "light-ansi"}
+		valid := false
+		for _, theme := range validThemes {
+			if req.Theme == theme {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return c.Status(400).JSON(fiber.Map{
+				"error": "Invalid theme value. Must be one of: dark, light, dark-daltonized, light-daltonized, dark-ansi, light-ansi",
+			})
 		}
 	}
-	if !valid {
+
+	// Validate that at least one field is provided
+	if req.Theme == "" && req.NotificationsEnabled == nil {
 		return c.Status(400).JSON(fiber.Map{
-			"error": "Invalid theme value. Must be one of: dark, light, dark-daltonized, light-daltonized, dark-ansi, light-ansi",
+			"error": "At least one setting must be provided (theme or notificationsEnabled)",
 		})
 	}
 
