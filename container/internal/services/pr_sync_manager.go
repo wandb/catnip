@@ -243,7 +243,7 @@ func (pm *PRSyncManager) parseBatchPRResponse(output []byte, repoID string, prNu
 	states := make(map[string]*models.PullRequestState)
 	now := time.Now()
 
-	for alias, pr := range response.Data.Repository {
+	for _, pr := range response.Data.Repository {
 		if pr.Number == 0 {
 			continue // PR not found or error
 		}
