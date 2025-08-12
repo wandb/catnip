@@ -178,13 +178,11 @@ export function NewWorkspaceDialog({
     setError(null);
     try {
       let result: { success: boolean; worktreeName?: string };
-      let repoId: string;
 
       // Check if this is a local repository (starts with "local/")
       if (url.startsWith("local/")) {
         // For local repos, extract the repo name
         const repoName = url.split("/")[1];
-        repoId = `local/${repoName}`;
         result = await checkoutRepository("local", repoName, branch);
       } else {
         // For GitHub URLs, parse the org and repo name
@@ -200,7 +198,6 @@ export function NewWorkspaceDialog({
         if (match) {
           const org = match[1];
           const repo = match[2];
-          repoId = `${org}/${repo}`;
           result = await checkoutRepository(org, repo, branch);
         } else {
           setError(
@@ -215,14 +212,17 @@ export function NewWorkspaceDialog({
 
         // Navigate to the newly created workspace
         if (result.worktreeName) {
-          // Navigate to /workspace/project/workspace
-          void navigate({
-            to: "/workspace/$project/$workspace",
-            params: {
-              project: repoId.replace("/", "_"),
-              workspace: result.worktreeName,
-            },
-          });
+          // Split the worktree name (format: "projectName/workspaceName")
+          const parts = result.worktreeName.split("/");
+          if (parts.length >= 2) {
+            void navigate({
+              to: "/workspace/$project/$workspace",
+              params: {
+                project: parts[0],
+                workspace: parts[1],
+              },
+            });
+          }
         }
       } else {
         setError(
