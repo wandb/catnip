@@ -540,6 +540,7 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 		MaxTurns:         1,
 		WorkingDirectory: m.workDir,
 		Resume:           true,
+		SuppressEvents:   true, // Suppress notifications during automated branch renaming
 	}
 
 	response, err := m.claudeService.CreateCompletion(ctx, req)

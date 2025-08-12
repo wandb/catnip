@@ -796,6 +796,15 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		workingDir = filepath.Join(config.Runtime.WorkspaceDir, "current")
 	}
 
+	// Default SuppressEvents to true for all internal calls
+	// This prevents duplicate notifications during automated tasks like branch renaming
+	// Since Go's zero value for bool is false, if SuppressEvents is not set in the request,
+	// we'll default it to true to avoid spurious notifications from internal Claude calls
+	suppressEvents := true
+	// Note: Currently all internal calls (like branch renaming) don't set SuppressEvents,
+	// so they'll use the default of true. External API calls can explicitly set it to false
+	// if they want notifications.
+
 	// Set up subprocess options
 	opts := &ClaudeSubprocessOptions{
 		Prompt:           req.Prompt,
@@ -804,11 +813,11 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
-		SuppressEvents:   req.SuppressEvents,
+		SuppressEvents:   suppressEvents,
 	}
 
 	// Enable event suppression for automated operations
-	if req.SuppressEvents {
+	if suppressEvents {
 		s.SetSuppressEvents(workingDir, true)
 		defer func() {
 			s.SetSuppressEvents(workingDir, false)
@@ -841,6 +850,15 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		workingDir = filepath.Join(config.Runtime.WorkspaceDir, "current")
 	}
 
+	// Default SuppressEvents to true for all internal calls
+	// This prevents duplicate notifications during automated tasks like branch renaming
+	// Since Go's zero value for bool is false, if SuppressEvents is not set in the request,
+	// we'll default it to true to avoid spurious notifications from internal Claude calls
+	suppressEvents := true
+	// Note: Currently all internal calls (like branch renaming) don't set SuppressEvents,
+	// so they'll use the default of true. External API calls can explicitly set it to false
+	// if they want notifications.
+
 	// Set up subprocess options for streaming
 	opts := &ClaudeSubprocessOptions{
 		Prompt:           req.Prompt,
@@ -849,11 +867,11 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
-		SuppressEvents:   req.SuppressEvents,
+		SuppressEvents:   suppressEvents,
 	}
 
 	// Enable event suppression for automated operations
-	if req.SuppressEvents {
+	if suppressEvents {
 		s.SetSuppressEvents(workingDir, true)
 		defer func() {
 			s.SetSuppressEvents(workingDir, false)
