@@ -742,19 +742,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </div>
                   </div>
                 </div>
-
-                <div className="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20">
-                  <h4 className="font-medium mb-2 flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                    <span>ℹ️</span>
-                    How It Works
-                  </h4>
-                  <ul className="text-sm space-y-1 text-blue-600 dark:text-blue-400">
-                    <li>• Notifications appear when Claude sessions end</li>
-                    <li>• Includes session title and current branch name</li>
-                    <li>• Shows your last active todo for context</li>
-                    <li>• Only appears when browser tab is in background</li>
-                  </ul>
-                </div>
               </div>
             </div>
           </div>
