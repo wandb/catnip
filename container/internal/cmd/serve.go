@@ -266,6 +266,11 @@ func startServer(cmd *cobra.Command) {
 	v1.Post("/ports/mappings", portsHandler.SetPortMapping)
 	v1.Delete("/ports/mappings/:port", portsHandler.DeletePortMapping)
 
+	// Power management routes
+	v1.Get("/power/status", func(c *fiber.Ctx) error {
+		return c.JSON(powerManager.GetStatus())
+	})
+
 	// Server info route
 	v1.Get("/info", func(c *fiber.Ctx) error {
 		commit, date, builtBy := GetBuildInfo()
