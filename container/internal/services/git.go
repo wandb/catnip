@@ -605,6 +605,22 @@ func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitS
 	return s
 }
 
+// Stop properly shuts down the git service and its components
+func (s *GitService) Stop() {
+	if s.commitSync != nil {
+		s.commitSync.Stop()
+	}
+
+	if s.stateManager != nil {
+		s.stateManager.Stop()
+	}
+
+	// Stop PR sync manager
+	if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
+		prSyncManager.Stop()
+	}
+}
+
 // CheckoutRepository clones a GitHub repository as a bare repo and creates initial worktree
 func (s *GitService) CheckoutRepository(org, repo, branch string) (*models.Repository, *models.Worktree, error) {
 	s.mu.Lock()
