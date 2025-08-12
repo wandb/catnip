@@ -970,54 +970,144 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 	return settings, nil
 }
 
-// UpdateClaudeSettings updates Claude configuration settings in ~/.claude.json
+// UpdateClaudeSettings updates Claude configuration settings in ~/.claude.json and volume settings.json
 func (s *ClaudeService) UpdateClaudeSettings(req *models.ClaudeSettingsUpdateRequest) (*models.ClaudeSettings, error) {
-	// Read current config
-	var config map[string]interface{}
+	// Handle theme updates (update ~/.claude.json)
+	if req.Theme != "" {
+		// Read current config
+		var config map[string]interface{}
 
-	data, err := os.ReadFile(s.claudeConfigPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Create new config if file doesn't exist
-			config = make(map[string]interface{})
+		data, err := os.ReadFile(s.claudeConfigPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// Create new config if file doesn't exist
+				config = make(map[string]interface{})
+			} else {
+				return nil, fmt.Errorf("failed to read claude config file: %w", err)
+			}
 		} else {
-			return nil, fmt.Errorf("failed to read claude config file: %w", err)
+			if err := json.Unmarshal(data, &config); err != nil {
+				return nil, fmt.Errorf("failed to parse claude config: %w", err)
+			}
 		}
-	} else {
-		if err := json.Unmarshal(data, &config); err != nil {
-			return nil, fmt.Errorf("failed to parse claude config: %w", err)
+
+		// Update theme
+		config["theme"] = req.Theme
+
+		// Write back to file with proper formatting
+		updatedData, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal config: %w", err)
+		}
+
+		// Create a temporary file first (atomic write)
+		tempFile := s.claudeConfigPath + ".tmp"
+		if err := os.WriteFile(tempFile, updatedData, 0644); err != nil {
+			return nil, fmt.Errorf("failed to write temp config file: %w", err)
+		}
+
+		// Atomically rename temp file to final destination
+		if err := os.Rename(tempFile, s.claudeConfigPath); err != nil {
+			os.Remove(tempFile) // Clean up temp file on error
+			return nil, fmt.Errorf("failed to update config file: %w", err)
+		}
+
+		// Set proper ownership for catnip user
+		if err := os.Chown(s.claudeConfigPath, 1000, 1000); err != nil {
+			// Log but don't fail
+			fmt.Printf("Warning: Failed to chown %s: %v\n", s.claudeConfigPath, err)
 		}
 	}
 
-	// Update theme
-	config["theme"] = req.Theme
-
-	// Write back to file with proper formatting
-	updatedData, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	// Create a temporary file first (atomic write)
-	tempFile := s.claudeConfigPath + ".tmp"
-	if err := os.WriteFile(tempFile, updatedData, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write temp config file: %w", err)
-	}
-
-	// Atomically rename temp file to final destination
-	if err := os.Rename(tempFile, s.claudeConfigPath); err != nil {
-		os.Remove(tempFile) // Clean up temp file on error
-		return nil, fmt.Errorf("failed to update config file: %w", err)
-	}
-
-	// Set proper ownership for catnip user
-	if err := os.Chown(s.claudeConfigPath, 1000, 1000); err != nil {
-		// Log but don't fail
-		fmt.Printf("Warning: Failed to chown %s: %v\n", s.claudeConfigPath, err)
+	// Handle notifications updates (update volume settings.json)
+	if req.NotificationsEnabled != nil {
+		if err := s.setNotificationsEnabled(*req.NotificationsEnabled); err != nil {
+			return nil, fmt.Errorf("failed to update notifications setting: %w", err)
+		}
 	}
 
 	// Return updated settings
 	return s.GetClaudeSettings()
+}
+
+// getNotificationsEnabled reads notifications setting from volume settings.json
+func (s *ClaudeService) getNotificationsEnabled() (bool, error) {
+	data, err := os.ReadFile(s.settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Default to enabled if file doesn't exist
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to read settings file: %w", err)
+	}
+
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return false, fmt.Errorf("failed to parse settings file: %w", err)
+	}
+
+	if notifications, exists := settings["notificationsEnabled"]; exists {
+		if notificationsBool, ok := notifications.(bool); ok {
+			return notificationsBool, nil
+		}
+	}
+
+	// Default to enabled if setting doesn't exist
+	return true, nil
+}
+
+// setNotificationsEnabled writes notifications setting to volume settings.json
+func (s *ClaudeService) setNotificationsEnabled(enabled bool) error {
+	// Read current settings or create new ones
+	var settings map[string]interface{}
+
+	data, err := os.ReadFile(s.settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Create new settings if file doesn't exist
+			settings = make(map[string]interface{})
+		} else {
+			return fmt.Errorf("failed to read settings file: %w", err)
+		}
+	} else {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("failed to parse settings file: %w", err)
+		}
+	}
+
+	// Update notifications setting
+	settings["notificationsEnabled"] = enabled
+
+	// Write back to file with proper formatting
+	updatedData, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal settings: %w", err)
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(s.settingsPath), 0755); err != nil {
+		return fmt.Errorf("failed to create settings directory: %w", err)
+	}
+
+	// Create a temporary file first (atomic write)
+	tempFile := s.settingsPath + ".tmp"
+	if err := os.WriteFile(tempFile, updatedData, 0644); err != nil {
+		return fmt.Errorf("failed to write temp settings file: %w", err)
+	}
+
+	// Atomically rename temp file to final destination
+	if err := os.Rename(tempFile, s.settingsPath); err != nil {
+		os.Remove(tempFile) // Clean up temp file on error
+		return fmt.Errorf("failed to update settings file: %w", err)
+	}
+
+	// Set proper ownership for catnip user
+	if err := os.Chown(s.settingsPath, 1000, 1000); err != nil {
+		// Log but don't fail
+		fmt.Printf("Warning: Failed to chown %s: %v\n", s.settingsPath, err)
+	}
+
+	return nil
 }
 
 // UpdateActivity records activity for a Claude session in a specific worktree
