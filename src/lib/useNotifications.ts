@@ -12,6 +12,7 @@ export function useNotifications() {
   const [permission, setPermission] =
     useState<NotificationPermission>("default");
   const [isSupported, setIsSupported] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   useEffect(() => {
     const supported = "Notification" in window;
@@ -20,6 +21,18 @@ export function useNotifications() {
     if (supported) {
       setPermission(Notification.permission);
     }
+
+    // Fetch notifications setting from the API
+    fetch("/v1/claude/settings")
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.notificationsEnabled !== undefined) {
+          setNotificationsEnabled(data.notificationsEnabled);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to fetch notifications setting:", error);
+      });
   }, []);
 
   const requestPermission = async (): Promise<NotificationPermission> => {
@@ -36,6 +49,29 @@ export function useNotifications() {
       throw error;
     }
   };
+
+  // For explicit permission requests (e.g., from settings UI)
+  const requestBrowserPermission =
+    async (): Promise<NotificationPermission> => {
+      if (!isSupported) {
+        throw new Error("Notifications are not supported in this browser");
+      }
+
+      try {
+        const result = await requestPermission();
+        if (result === "granted") {
+          // Show a test notification
+          new Notification("Notifications Enabled", {
+            body: "You'll now receive notifications when Claude sessions end.",
+            icon: "/favicon.png",
+          });
+        }
+        return result;
+      } catch (error) {
+        console.error("Failed to request notification permission:", error);
+        throw error;
+      }
+    };
 
   const sendNativeNotification = async (
     payload: NotificationPayload,
@@ -65,6 +101,12 @@ export function useNotifications() {
     title: string,
     options?: NotificationOptions,
   ) => {
+    // Check if notifications are enabled in settings
+    if (!notificationsEnabled) {
+      console.log("Notifications are disabled in settings");
+      return null;
+    }
+
     const payload: NotificationPayload = {
       title,
       body: options?.body || "",
@@ -78,24 +120,44 @@ export function useNotifications() {
       return null; // Native notification was sent
     }
 
-    // Fallback to browser notification
+    // Native notification failed, fall back to browser notification
     if (!isSupported) {
-      throw new Error("Notifications are not supported in this browser");
+      console.warn("Notifications are not supported in this browser");
+      return null;
     }
 
+    // If we don't have permission, request it first
     if (permission !== "granted") {
-      throw new Error("Notification permission not granted");
+      console.log(
+        "Browser notification permission not granted, requesting permission...",
+      );
+      try {
+        const newPermission = await requestPermission();
+        if (newPermission !== "granted") {
+          console.warn("Browser notification permission denied");
+          return null;
+        }
+      } catch (error) {
+        console.error(
+          "Failed to request browser notification permission:",
+          error,
+        );
+        return null;
+      }
     }
 
+    // Show browser notification
     return new Notification(title, options);
   };
 
   return {
     permission,
     isSupported,
+    notificationsEnabled,
     requestPermission,
+    requestBrowserPermission,
     showNotification,
     sendNativeNotification,
-    canShowNotifications: isSupported && permission === "granted",
+    canShowNotifications: notificationsEnabled,
   };
 }

@@ -38,6 +38,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { useNotifications } from "@/lib/useNotifications";
 
 const settingsNav = [
   { name: "Authentication", icon: Key, id: "authentication" },
@@ -57,6 +58,7 @@ interface ClaudeSettings {
   version?: string;
   hasCompletedOnboarding: boolean;
   numStartups: number;
+  notificationsEnabled: boolean;
 }
 
 interface GitHubAuthStatus {
@@ -112,10 +114,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     React.useState<GitHubAuthStatus | null>(null);
   const [catnipVersion, setCatnipVersion] =
     React.useState<CatnipVersion | null>(null);
-  const [notificationPermission, setNotificationPermission] =
-    React.useState<NotificationPermission>("default");
-  const [notificationSupported, setNotificationSupported] =
-    React.useState(false);
+  const {
+    permission: notificationPermission,
+    isSupported: notificationSupported,
+    requestBrowserPermission,
+  } = useNotifications();
 
   // Fetch swagger data when component mounts
   React.useEffect(() => {
@@ -129,11 +132,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }, [activeSection, swaggerData]);
 
-  // Fetch Claude settings when component mounts or when switching to authentication/appearance
+  // Fetch Claude settings when component mounts or when switching to authentication/appearance/notifications
   React.useEffect(() => {
     if (
       open &&
-      (activeSection === "authentication" || activeSection === "appearance") &&
+      (activeSection === "authentication" ||
+        activeSection === "appearance" ||
+        activeSection === "notifications") &&
       !claudeSettings
     ) {
       fetch("/v1/claude/settings")
@@ -169,17 +174,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }, [open, activeSection, catnipVersion]);
 
-  // Check notification support and permission status
-  React.useEffect(() => {
-    if (open && activeSection === "notifications") {
-      const isSupported = "Notification" in window;
-      setNotificationSupported(isSupported);
-      if (isSupported) {
-        setNotificationPermission(Notification.permission);
-      }
-    }
-  }, [open, activeSection]);
-
   // Function to update Claude theme setting
   const updateClaudeTheme = async (theme: string) => {
     setIsUpdatingClaudeSettings(true);
@@ -205,39 +199,29 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
-  // Function to request notification permission
-  const requestNotificationPermission = async () => {
-    if (!notificationSupported) {
-      console.warn("Notifications are not supported in this browser");
-      return;
-    }
-
+  // Function to update notifications setting
+  const updateNotificationsSetting = async (enabled: boolean) => {
+    setIsUpdatingClaudeSettings(true);
     try {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
+      const response = await fetch("/v1/claude/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ notificationsEnabled: enabled }),
+      });
 
-      if (permission === "granted") {
-        // Show a test notification
-        new Notification("Notifications Enabled", {
-          body: "You'll now receive notifications when Claude sessions end.",
-          icon: "/favicon.png",
-        });
+      if (!response.ok) {
+        throw new Error("Failed to update notifications setting");
       }
+
+      const updatedSettings = await response.json();
+      setClaudeSettings(updatedSettings);
     } catch (error) {
-      console.error("Failed to request notification permission:", error);
+      console.error("Failed to update notifications setting:", error);
+    } finally {
+      setIsUpdatingClaudeSettings(false);
     }
-  };
-
-  // Function to disable notifications (guide user to browser settings)
-  const disableNotifications = () => {
-    // We can't programmatically disable notifications, so guide the user
-    const instructions = window.navigator.userAgent.includes("Chrome")
-      ? "Go to Settings > Privacy and security > Site Settings > Notifications, find this site, and select 'Block'"
-      : window.navigator.userAgent.includes("Firefox")
-        ? "Click the shield icon in the address bar and select 'Block' for notifications"
-        : "Check your browser settings to disable notifications for this site";
-
-    alert(`To disable notifications:\n\n${instructions}`);
   };
 
   // Function to resolve $ref references in swagger spec
@@ -701,13 +685,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </div>
                     <div className="flex items-center gap-2">
                       {notificationPermission === "granted" ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={disableNotifications}
-                        >
-                          Disable
-                        </Button>
+                        <Switch
+                          checked={claudeSettings?.notificationsEnabled ?? true}
+                          onCheckedChange={updateNotificationsSetting}
+                          disabled={isUpdatingClaudeSettings}
+                        />
                       ) : notificationPermission === "denied" ? (
                         <div className="text-right">
                           <Badge
@@ -724,7 +706,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         <Button
                           variant="default"
                           size="sm"
-                          onClick={requestNotificationPermission}
+                          onClick={requestBrowserPermission}
                         >
                           Enable Notifications
                         </Button>
@@ -749,9 +731,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         className="w-6 h-6 rounded"
                       />
                       <div>
-                        <p className="font-medium text-sm">
-                          Fix authentication bug (feature/auth-fix)
-                        </p>
+                        <p className="font-medium text-sm">feature/auth-fix</p>
                         <p className="text-xs text-muted-foreground">
                           Session ended - Last todo: Update password validation
                           logic
@@ -759,19 +739,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       </div>
                     </div>
                   </div>
-                </div>
-
-                <div className="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20">
-                  <h4 className="font-medium mb-2 flex items-center gap-2 text-blue-700 dark:text-blue-300">
-                    <span>ℹ️</span>
-                    How It Works
-                  </h4>
-                  <ul className="text-sm space-y-1 text-blue-600 dark:text-blue-400">
-                    <li>• Notifications appear when Claude sessions end</li>
-                    <li>• Includes session title and current branch name</li>
-                    <li>• Shows your last active todo for context</li>
-                    <li>• Only appears when browser tab is in background</li>
-                  </ul>
                 </div>
               </div>
             </div>
