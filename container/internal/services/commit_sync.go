@@ -613,10 +613,15 @@ func (css *CommitSyncService) syncToNiceBranch(commitInfo *CommitInfo) error {
 		return nil
 	}
 
-	// Check if the nice branch exists
+	// Check if the nice branch exists, create it if it doesn't
 	if !css.operations.BranchExists(commitInfo.WorktreePath, niceBranch, false) {
-		logger.Warnf("⚠️ Nice branch %s doesn't exist, skipping sync", niceBranch)
-		return nil
+		logger.Infof("🌟 Creating missing nice branch %s from %s at commit %s", niceBranch, commitInfo.Branch, commitInfo.CommitHash[:8])
+		// Create the nice branch pointing to the same commit as the custom ref
+		_, err := css.operations.ExecuteGit(commitInfo.WorktreePath, "branch", niceBranch, commitInfo.CommitHash)
+		if err != nil {
+			return fmt.Errorf("failed to create nice branch %s: %v", niceBranch, err)
+		}
+		logger.Infof("✅ Created nice branch %s", niceBranch)
 	}
 
 	// Update the nice branch to point to the same commit as the custom ref
@@ -806,15 +811,17 @@ func (css *CommitSyncService) hasUnsyncedNiceBranch(commitInfo *CommitInfo) bool
 		return false
 	}
 
-	// Check if the nice branch exists
+	// Check if the nice branch exists - if not, it needs syncing (creation)
 	if !css.operations.BranchExists(commitInfo.WorktreePath, niceBranch, false) {
-		return false
+		logger.Debugf("🔍 Nice branch %s doesn't exist, needs syncing", niceBranch)
+		return true
 	}
 
 	// Get commit hash of the nice branch
 	niceBranchHash, err := css.operations.GetCommitHash(commitInfo.WorktreePath, niceBranch)
 	if err != nil {
-		return false
+		logger.Debugf("🔍 Failed to get commit hash for nice branch %s, needs syncing", niceBranch)
+		return true
 	}
 
 	// Compare commit hashes - if they're different, nice branch needs syncing

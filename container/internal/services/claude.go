@@ -810,13 +810,22 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 	// Enable event suppression for automated operations
 	if req.SuppressEvents {
 		s.SetSuppressEvents(workingDir, true)
-		defer s.SetSuppressEvents(workingDir, false)
+		defer func() {
+			s.SetSuppressEvents(workingDir, false)
+		}()
 	}
 
 	// Resume logic is handled by claude CLI's --continue flag
 
 	// Call the subprocess wrapper
-	return s.subprocessWrapper.CreateCompletion(ctx, opts)
+	result, err := s.subprocessWrapper.CreateCompletion(ctx, opts)
+
+	// Ensure suppression is cleared even on error
+	if req.SuppressEvents {
+		s.SetSuppressEvents(workingDir, false)
+	}
+
+	return result, err
 }
 
 // CreateStreamingCompletion creates a streaming completion using the claude CLI subprocess
@@ -846,13 +855,22 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 	// Enable event suppression for automated operations
 	if req.SuppressEvents {
 		s.SetSuppressEvents(workingDir, true)
-		defer s.SetSuppressEvents(workingDir, false)
+		defer func() {
+			s.SetSuppressEvents(workingDir, false)
+		}()
 	}
 
 	// Resume logic is handled by claude CLI's --continue flag
 
 	// Call the subprocess wrapper for streaming
-	return s.subprocessWrapper.CreateStreamingCompletion(ctx, opts, responseWriter)
+	err := s.subprocessWrapper.CreateStreamingCompletion(ctx, opts, responseWriter)
+
+	// Ensure suppression is cleared even on error
+	if req.SuppressEvents {
+		s.SetSuppressEvents(workingDir, false)
+	}
+
+	return err
 }
 
 // GetClaudeSettings reads Claude configuration settings from ~/.claude.json
