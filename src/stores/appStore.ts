@@ -167,23 +167,50 @@ export const useAppStore = create<AppState>()(
       };
 
       eventSource.onerror = (error) => {
-        console.error("SSE error:", error);
-        console.log("SSE readyState:", eventSource?.readyState);
-        set({
-          sseConnected: false,
-          sseError: "Connection lost. Attempting to reconnect...",
-        });
+        try {
+          console.error("SSE error:", error);
+          console.log("SSE readyState:", eventSource?.readyState);
 
-        // Auto-reconnect after 3 seconds, but only if not already connected
-        setTimeout(() => {
-          const currentState = get();
-          if (
-            !currentState.sseConnected &&
-            (!eventSource || eventSource.readyState === EventSource.CLOSED)
-          ) {
-            currentState.connectSSE();
+          // Handle different error scenarios gracefully
+          const readyState = eventSource?.readyState;
+          let errorMessage = "Connection lost. Attempting to reconnect...";
+
+          if (readyState === EventSource.CONNECTING) {
+            errorMessage = "Connecting to server...";
+          } else if (readyState === EventSource.CLOSED) {
+            errorMessage = "Connection closed. Will retry shortly.";
           }
-        }, 3000);
+
+          set({
+            sseConnected: false,
+            sseError: errorMessage,
+          });
+
+          // Auto-reconnect after 3 seconds, but only if not already connected
+          // Wrap in try-catch to prevent any reconnection errors from crashing
+          setTimeout(() => {
+            try {
+              const currentState = get();
+              if (
+                !currentState.sseConnected &&
+                (!eventSource || eventSource.readyState === EventSource.CLOSED)
+              ) {
+                console.log("Attempting SSE reconnection...");
+                currentState.connectSSE();
+              }
+            } catch (reconnectError) {
+              console.error("SSE reconnection failed:", reconnectError);
+              // Don't crash the app, just log the error
+            }
+          }, 3000);
+        } catch (handleError) {
+          console.error("Error in SSE error handler:", handleError);
+          // Fallback: just set basic error state without crashing
+          set({
+            sseConnected: false,
+            sseError: "Connection error occurred",
+          });
+        }
       };
     },
 

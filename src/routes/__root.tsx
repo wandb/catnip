@@ -92,7 +92,13 @@ function RootLayout() {
       <Toaster />
 
       {/* Login Modal */}
-      <LoginModal open={showLoginModal} />
+      <LoginModal
+        open={showLoginModal}
+        onOpenChange={() => {
+          // Login modal should only be dismissed by successful auth
+          // or by navigating away, not by user interaction
+        }}
+      />
 
       {/* GitHub Auth Modal */}
       <GitHubAuthModal open={showAuthModal} onOpenChange={setShowAuthModal} />
