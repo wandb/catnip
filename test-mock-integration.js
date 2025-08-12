@@ -29,14 +29,12 @@ async function testEndpoint(path, method = "GET", body = null) {
 }
 
 async function testSSE(path) {
-  const { default: EventSource } = await import("eventsource");
+  const { EventSource } = await import("eventsource");
 
   return new Promise((resolve) => {
     console.log(`📡 Testing SSE ${path}...`);
 
-    // EventSource might be the default export or named export
-    const ES = EventSource.default || EventSource;
-    const eventSource = new ES(`${baseUrl}${path}`);
+    const eventSource = new EventSource(`${baseUrl}${path}`);
     let eventCount = 0;
 
     eventSource.onmessage = (event) => {
