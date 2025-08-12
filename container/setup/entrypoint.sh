@@ -103,6 +103,103 @@ fi
 # Ensure workspace has proper ownership
 chown -R 1000:1000 "${WORKSPACE}" 2>/dev/null || true
 
+# Handle Docker socket permissions if mounted
+if [ -S "/var/run/docker-host.sock" ] || [ -S "/var/run/docker.sock" ]; then
+    echo "🐳 Docker socket detected, configuring access..."
+    
+    # Determine which socket exists and strategy
+    if [ -S "/var/run/docker-host.sock" ]; then
+        # Host socket is mounted at alternative location - create proxy at standard location
+        DOCKER_SOCKET="/var/run/docker-host.sock"
+        CREATE_PROXY=true
+    elif [ -S "/var/run/docker.sock" ]; then
+        # Socket is already at standard location - check if we need to proxy
+        DOCKER_SOCKET="/var/run/docker.sock"
+        # Only create proxy if we can't access it directly
+        DOCKER_GID=$(stat -c '%g' $DOCKER_SOCKET)
+        if [ "$DOCKER_GID" = "0" ] || [ "$DOCKER_GID" = "1" ]; then
+            # Create proxy with different name to avoid conflict
+            CREATE_PROXY=true
+            PROXY_PATH="/var/run/docker-catnip.sock"
+        else
+            CREATE_PROXY=false
+        fi
+    else
+        echo "   ❌ No Docker socket found"
+        return 0
+    fi
+    
+    # Get the GID of the docker socket
+    DOCKER_GID=$(stat -c '%g' $DOCKER_SOCKET)
+    echo "   Docker socket at $DOCKER_SOCKET with GID: ${DOCKER_GID}"
+    
+    if [ "$CREATE_PROXY" = "true" ]; then
+        echo "   Creating accessible proxy socket..."
+        
+        # Install socat if not present (should be in our Dockerfile)
+        if ! command -v socat &> /dev/null; then
+            apt-get update && apt-get install -y socat
+        fi
+        
+        # Ensure docker group exists with GID 999 (common docker group ID)
+        if ! getent group 999 >/dev/null 2>&1; then
+            groupadd -g 999 docker 2>/dev/null || true
+        fi
+        
+        # Determine proxy socket path
+        if [ -S "/var/run/docker-host.sock" ]; then
+            PROXY_PATH="/var/run/docker.sock"
+        else
+            PROXY_PATH="/var/run/docker-catnip.sock"
+        fi
+        
+        # Remove any existing proxy socket
+        rm -f "$PROXY_PATH" 2>/dev/null || true
+        
+        # Start socat in background to proxy the socket with proper permissions
+        socat "UNIX-LISTEN:$PROXY_PATH,fork,mode=660,user=1000,group=999" "UNIX-CONNECT:$DOCKER_SOCKET" &
+        SOCAT_PID=$!
+        
+        # Give socat a moment to create the socket
+        sleep 0.5
+        
+        # Verify the new socket exists
+        if [ -S "$PROXY_PATH" ]; then
+            echo "   ✅ Docker proxy socket created at $PROXY_PATH"
+            echo $SOCAT_PID > /var/run/docker-proxy.pid
+            
+            # If we created an alternative socket, set up docker command wrapper
+            if [ "$PROXY_PATH" = "/var/run/docker-catnip.sock" ]; then
+                echo '#!/bin/bash' > /usr/local/bin/docker
+                echo 'exec /usr/bin/docker -H unix:///var/run/docker-catnip.sock "$@"' >> /usr/local/bin/docker
+                chmod +x /usr/local/bin/docker
+                echo "   ✅ Docker command wrapper created"
+            fi
+        else
+            echo "   ⚠️  Failed to create proxy socket, falling back to sudo"
+            echo "catnip ALL=(ALL) NOPASSWD: /usr/bin/docker" >> /etc/sudoers
+        fi
+    else
+        # Socket has a non-root GID, configure group access
+        echo "   Configuring group access for GID ${DOCKER_GID}..."
+        
+        # Create or update docker group to match
+        if getent group docker >/dev/null 2>&1; then
+            groupmod -g ${DOCKER_GID} docker 2>/dev/null || true
+        else
+            groupadd -g ${DOCKER_GID} docker 2>/dev/null || true
+        fi
+        
+        # Add users to docker group
+        usermod -aG docker catnip 2>/dev/null || true
+        if [ -n "$CATNIP_USERNAME" ] && [ "$CATNIP_USERNAME" != "catnip" ]; then
+            usermod -aG docker "$CATNIP_USERNAME" 2>/dev/null || true
+        fi
+    fi
+    
+    echo "✅ Docker access configured for catnip user"
+fi
+
 # Configure and start SSH server if enabled
 if [ "$CATNIP_SSH_ENABLED" = "true" ] && [ -f "/home/catnip/.ssh/catnip_remote.pub" ]; then
     echo "🔑 Configuring SSH server..."

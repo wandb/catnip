@@ -70,10 +70,12 @@ type App struct {
 	version        string
 	runtime        string
 	rmFlag         bool
+	envVars        []string
+	dind           bool
 }
 
 // NewApp creates a new application instance
-func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool) *App {
+func NewApp(containerService *services.ContainerService, containerName, workDir, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool, envVars []string, dind bool) *App {
 	// Get runtime information from container service
 	runtime := string(containerService.GetRuntime())
 
@@ -87,6 +89,8 @@ func NewApp(containerService *services.ContainerService, containerName, workDir,
 		version:          version,
 		runtime:          runtime,
 		rmFlag:           rmFlag,
+		envVars:          envVars,
+		dind:             dind,
 	}
 }
 
@@ -146,7 +150,7 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	}
 
 	// Create the model - always with initialization
-	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag)
+	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag, a.envVars, a.dind)
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport

@@ -68,6 +68,8 @@ type Model struct {
 	version        string
 	runtime        string
 	rmFlag         bool
+	envVars        []string
+	dind           bool
 
 	// Current state
 	currentView      ViewType
@@ -127,12 +129,12 @@ type Model struct {
 }
 
 // NewModel creates a new application model with initialized views
-func NewModel(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool) *Model {
-	return NewModelWithInitialization(containerService, containerName, gitRoot, containerImage, devMode, refreshFlag, customPorts, sshEnabled, version, rmFlag)
+func NewModel(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool, envVars []string, dind bool) *Model {
+	return NewModelWithInitialization(containerService, containerName, gitRoot, containerImage, devMode, refreshFlag, customPorts, sshEnabled, version, rmFlag, envVars, dind)
 }
 
 // NewModelWithInitialization creates a new application model with initialization parameters
-func NewModelWithInitialization(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool) *Model {
+func NewModelWithInitialization(containerService *services.ContainerService, containerName, gitRoot, containerImage string, devMode, refreshFlag bool, customPorts []string, sshEnabled bool, version string, rmFlag bool, envVars []string, dind bool) *Model {
 	// Get runtime information from container service
 	runtime := string(containerService.GetRuntime())
 
@@ -148,6 +150,8 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 		version:          version,
 		runtime:          runtime,
 		rmFlag:           rmFlag,
+		envVars:          envVars,
+		dind:             dind,
 		currentView:      InitializationView,
 		containerInfo:    make(map[string]interface{}),
 		repositoryInfo:   make(map[string]interface{}),

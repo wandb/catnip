@@ -319,7 +319,7 @@ func runContainer(cmd *cobra.Command, args []string) error {
 	if isGitRepo {
 		workDirForTUI = gitRoot
 	}
-	tuiApp := tui.NewApp(containerService, name, workDirForTUI, containerImage, dev, refresh, ports, !disableSSH, GetVersion(), rmFlag)
+	tuiApp := tui.NewApp(containerService, name, workDirForTUI, containerImage, dev, refresh, ports, !disableSSH, GetVersion(), rmFlag, processedEnvVars, dind)
 	finalContainerName, err := tuiApp.Run(ctx, workDirForTUI, ports)
 	if err != nil {
 		// Clean up container on TUI error

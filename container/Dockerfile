@@ -122,6 +122,7 @@ RUN apt-get update && apt-get install -y \
     gosu \
     psmisc \
     locales \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub CLI
@@ -143,7 +144,8 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
 # Remove default ubuntu user if it exists and create catnip user with UID 1000
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi && \
     useradd -m -s /bin/bash -u 1000 catnip && \
-    usermod -aG sudo catnip && \
+    groupadd -f docker && \
+    usermod -aG sudo,docker catnip && \
     echo '#1000 ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Create global workspace directory

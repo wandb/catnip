@@ -182,12 +182,15 @@ func (cs *ContainerService) RunContainer(ctx context.Context, image, name, workD
 	if dindEnabled {
 		// Find and mount Docker socket
 		dockerSockets := []string{
-			"/var/run/docker.sock", // Linux/macOS standard
-			"/run/docker.sock",     // Some Linux distributions
+			"/var/run/docker.sock",                 // Linux standard
+			"/run/docker.sock",                     // Some Linux distributions
+			"/run/host-services/docker.proxy.sock", // Docker Desktop on macOS
 		}
 		for _, socketPath := range dockerSockets {
 			if _, err := os.Stat(socketPath); err == nil {
-				args = append(args, "-v", fmt.Sprintf("%s:/var/run/docker.sock", socketPath))
+				// Mount the socket at an alternative location so we can create a proxy
+				// The entrypoint will create a catnip-accessible socket at /var/run/docker.sock
+				args = append(args, "-v", fmt.Sprintf("%s:/var/run/docker-host.sock:rw", socketPath))
 				break
 			}
 		}

@@ -67,14 +67,14 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		v.completed = true
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
+		return m, StartContainerCmd(m)
 
 	case InitializationCompleteWithOutputMsg:
 		v.completed = true
 		v.output = append(v.output, msg.Output...)
 		v.status = "Initialization complete!"
 		// Trigger container start
-		return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
+		return m, StartContainerCmd(m)
 
 	case InitializationFailedMsg:
 		v.failed = true
@@ -96,7 +96,7 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 
 		if msg.StartContainer {
 			// Need to start container
-			return m, StartContainerCmd(m.containerService, m.containerImage, m.containerName, m.gitRoot, m.devMode, m.customPorts, m.sshEnabled, m.rmFlag, m.version)
+			return m, StartContainerCmd(m)
 		}
 
 		// Trigger the appropriate streaming command based on the action
@@ -335,11 +335,8 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 			v.viewport.Width = width
 		}
 
-		outputStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(components.ColorBorder))
-
-		content.WriteString(outputStyle.Render(v.viewport.View()))
+		// Display viewport content directly without border
+		content.WriteString(v.viewport.View())
 	}
 
 	return content.String()

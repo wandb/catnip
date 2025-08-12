@@ -339,9 +339,19 @@ func streamReader(reader io.Reader, outputChan chan<- string) {
 }
 
 // StartContainerCmd starts the container after initialization
-func StartContainerCmd(containerService *services.ContainerService, image, name, gitRoot string, devMode bool, customPorts []string, sshEnabled bool, rmFlag bool, cliVersion string) tea.Cmd {
+func StartContainerCmd(m *Model) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
+
+		containerService := m.containerService
+		image := m.containerImage
+		name := m.containerName
+		gitRoot := m.gitRoot
+		devMode := m.devMode
+		customPorts := m.customPorts
+		sshEnabled := m.sshEnabled
+		rmFlag := m.rmFlag
+		cliVersion := m.version
 
 		// Use custom ports if provided, otherwise use default
 		ports := customPorts
@@ -406,7 +416,7 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 		}
 
 		// Start the container
-		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmEffective, 4.0, 4.0, []string{}, false); err != nil {
+		if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmEffective, 4.0, 4.0, m.envVars, m.dind); err != nil {
 			// Parse the error to extract the base error and output
 			errStr := err.Error()
 			cmdStr := strings.Join(cmd, " ")
@@ -438,7 +448,7 @@ func StartContainerCmd(containerService *services.ContainerService, image, name,
 					time.Sleep(500 * time.Millisecond)
 
 					// Try to create a new container
-					if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag, 4.0, 4.0, []string{}, false); err != nil {
+					if cmd, err := containerService.RunContainer(ctx, image, name, gitRoot, ports, devMode, sshEnabled, rmFlag, 4.0, 4.0, m.envVars, m.dind); err != nil {
 						// Still failed after cleanup, report the error
 						errStr = err.Error()
 						cmdStr = strings.Join(cmd, " ")
