@@ -155,6 +155,27 @@ export function WorkspaceTerminal({
     ws.onerror = (error) => {
       console.error("❌ Workspace Terminal WebSocket error:", error);
       setIsConnected(false);
+
+      // Handle WebSocket errors gracefully - don't crash the app
+      // Check if we're running against mock server (VITE_USE_MOCK=true)
+      const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
+      if (isMockMode) {
+        // In mock mode, show helpful message instead of crashing
+        setError({
+          title: "Terminal Not Available",
+          message:
+            "Terminal functionality is not available in mock mode. This is expected when running without the Catnip backend.",
+        });
+        // Don't throw or cause app crash
+        return;
+      }
+
+      // For real backend errors, set appropriate error state
+      setError({
+        title: "Terminal Connection Failed",
+        message:
+          "Unable to connect to terminal. Please check your connection and try again.",
+      });
     };
 
     ws.onmessage = async (event) => {
