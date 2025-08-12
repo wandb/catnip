@@ -125,6 +125,17 @@ export function WorkspaceTerminal({
     isSetup.current = true;
     instance.clear();
 
+    // Check if we're running against mock server - skip WebSocket if so
+    const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
+    if (isMockMode) {
+      setError({
+        title: "Terminal Not Available",
+        message:
+          "Terminal functionality is not available in mock mode. This is expected when running without the Catnip backend.",
+      });
+      return;
+    }
+
     // Set up WebSocket connection for bash terminal in the workspace directory
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const urlParams = new URLSearchParams();

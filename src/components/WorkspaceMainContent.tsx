@@ -225,6 +225,20 @@ function ClaudeTerminal({
     ws.onerror = (error) => {
       console.error("❌ Claude WebSocket error:", error);
       setIsConnected(false);
+
+      // Handle WebSocket errors gracefully - don't crash the app
+      // Check if we're running against mock server (VITE_USE_MOCK=true)
+      const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
+      if (isMockMode) {
+        // In mock mode, this is expected - don't show error or crash
+        console.log(
+          "📝 Claude terminal WebSocket failed in mock mode - this is expected",
+        );
+        return;
+      }
+
+      // For real backend errors, we could set error state here if needed
+      // For now, just log and continue gracefully
     };
 
     ws.onmessage = async (event) => {
