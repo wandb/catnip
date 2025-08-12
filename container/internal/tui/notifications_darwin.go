@@ -15,7 +15,7 @@ package tui
 // Clean, simple notification implementation based on terminal-notifier pattern
 void sendNotification(const char* title, const char* body, const char* subtitle) {
     @autoreleasepool {
-        NSLog(@"[Catnip] Sending notification: %s", title);
+        // Debug: NSLog(@"[Catnip] Sending notification: %s", title);
 
         // Initialize NSApplication - required for notifications
         NSApplication *app = [NSApplication sharedApplication];
@@ -24,8 +24,8 @@ void sendNotification(const char* title, const char* body, const char* subtitle)
         // Check bundle identifier to ensure we're running from app bundle
         NSBundle *bundle = [NSBundle mainBundle];
         NSString *bundleId = [bundle bundleIdentifier];
-        NSLog(@"[Catnip] Bundle ID: %@", bundleId);
-        NSLog(@"[Catnip] Bundle path: %@", [bundle bundlePath]);
+        // Debug: NSLog(@"[Catnip] Bundle ID: %@", bundleId);
+        // Debug: NSLog(@"[Catnip] Bundle path: %@", [bundle bundlePath]);
 
         if (!bundleId || [bundleId isEqualToString:@""]) {
             NSLog(@"[Catnip] ERROR: No bundle identifier - notifications may not work properly");
@@ -56,7 +56,7 @@ void sendNotification(const char* title, const char* body, const char* subtitle)
         NSDate *timeout = [NSDate dateWithTimeIntervalSinceNow:0.1];
         [[NSRunLoop currentRunLoop] runUntilDate:timeout];
 
-        NSLog(@"[Catnip] Notification delivered successfully");
+        // Debug: NSLog(@"[Catnip] Notification delivered successfully");
     }
 }
 

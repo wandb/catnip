@@ -1718,6 +1718,11 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "suppress_events": {
+                    "description": "Whether to suppress stop events for this automated operation",
+                    "type": "boolean",
+                    "example": true
+                },
                 "system_prompt": {
                     "description": "Optional system prompt override",
                     "type": "string",

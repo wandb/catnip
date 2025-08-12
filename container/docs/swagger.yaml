@@ -191,6 +191,10 @@ definitions:
         description: Whether to stream the response
         example: true
         type: boolean
+      suppress_events:
+        description: Whether to suppress stop events for this automated operation
+        example: true
+        type: boolean
       system_prompt:
         description: Optional system prompt override
         example: You are a helpful coding assistant

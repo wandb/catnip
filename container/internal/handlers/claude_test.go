@@ -17,7 +17,7 @@ import (
 func TestNewClaudeHandler(t *testing.T) {
 	mockWrapper := services.NewMockClaudeSubprocessWrapper()
 	service := services.NewClaudeServiceWithWrapper(mockWrapper)
-	handler := NewClaudeHandler(service)
+	handler := NewClaudeHandler(service, nil)
 
 	require.NotNil(t, handler)
 	assert.NotNil(t, handler.claudeService)
@@ -26,7 +26,7 @@ func TestNewClaudeHandler(t *testing.T) {
 func TestClaudeHandler_CreateCompletion_InvalidJSON(t *testing.T) {
 	mockWrapper := services.NewMockClaudeSubprocessWrapper()
 	service := services.NewClaudeServiceWithWrapper(mockWrapper)
-	handler := NewClaudeHandler(service)
+	handler := NewClaudeHandler(service, nil)
 
 	app := fiber.New()
 	app.Post("/test", handler.CreateCompletion)
@@ -43,7 +43,7 @@ func TestClaudeHandler_CreateCompletion_InvalidJSON(t *testing.T) {
 func TestClaudeHandler_CreateCompletion_EmptyPrompt(t *testing.T) {
 	mockWrapper := services.NewMockClaudeSubprocessWrapper()
 	service := services.NewClaudeServiceWithWrapper(mockWrapper)
-	handler := NewClaudeHandler(service)
+	handler := NewClaudeHandler(service, nil)
 
 	app := fiber.New()
 	app.Post("/test", handler.CreateCompletion)
@@ -73,7 +73,7 @@ func TestClaudeHandler_CreateCompletion_EmptyPrompt(t *testing.T) {
 func TestClaudeHandler_CreateCompletion_ValidRequest(t *testing.T) {
 	mockWrapper := services.NewMockClaudeSubprocessWrapper()
 	service := services.NewClaudeServiceWithWrapper(mockWrapper)
-	handler := NewClaudeHandler(service)
+	handler := NewClaudeHandler(service, nil)
 
 	app := fiber.New()
 	app.Post("/test", handler.CreateCompletion)
@@ -114,7 +114,7 @@ func TestClaudeHandler_CreateCompletion_ValidRequest(t *testing.T) {
 func TestClaudeHandler_CreateCompletion_StreamingRequest(t *testing.T) {
 	mockWrapper := services.NewMockClaudeSubprocessWrapper()
 	service := services.NewClaudeServiceWithWrapper(mockWrapper)
-	handler := NewClaudeHandler(service)
+	handler := NewClaudeHandler(service, nil)
 
 	app := fiber.New()
 	app.Post("/test", handler.CreateCompletion)
@@ -146,7 +146,7 @@ func TestClaudeHandler_CreateCompletion_StreamingRequest(t *testing.T) {
 func TestClaudeHandler_CreateCompletion_ResumeRequest(t *testing.T) {
 	mockWrapper := services.NewMockClaudeSubprocessWrapper()
 	service := services.NewClaudeServiceWithWrapper(mockWrapper)
-	handler := NewClaudeHandler(service)
+	handler := NewClaudeHandler(service, nil)
 
 	app := fiber.New()
 	app.Post("/test", handler.CreateCompletion)
@@ -173,7 +173,7 @@ func TestClaudeHandler_CreateCompletion_ResumeRequest(t *testing.T) {
 func TestClaudeHandler_CreateCompletion_MissingContentType(t *testing.T) {
 	mockWrapper := services.NewMockClaudeSubprocessWrapper()
 	service := services.NewClaudeServiceWithWrapper(mockWrapper)
-	handler := NewClaudeHandler(service)
+	handler := NewClaudeHandler(service, nil)
 
 	app := fiber.New()
 	app.Post("/test", handler.CreateCompletion)

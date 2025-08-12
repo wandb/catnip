@@ -507,7 +507,7 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 		logger.Warnf("Attempting to broadcast event with empty type")
 		return
 	}
-	logger.Debugf("🔔 Broadcasting event - Type: %s", event.Type)
+	// Remove noisy broadcasting log - too frequent and not helpful
 
 	message := SSEMessage{
 		Event:     event,

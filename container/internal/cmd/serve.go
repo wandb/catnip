@@ -185,7 +185,7 @@ func startServer(cmd *cobra.Command) {
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService, claudeMonitor)
 	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
-	claudeHandler := handlers.NewClaudeHandler(claudeService).WithEvents(eventsHandler)
+	claudeHandler := handlers.NewClaudeHandler(claudeService, gitService).WithEvents(eventsHandler)
 	defer eventsHandler.Stop()
 	portsHandler := handlers.NewPortsHandler(portMonitor).WithEvents(eventsHandler)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)

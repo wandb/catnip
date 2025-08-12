@@ -964,6 +964,26 @@ func (h *PTYHandler) resizePTY(ptmx *os.File, cols, rows uint16) error {
 	return nil
 }
 
+// hasFocusedConnection checks if any connection in the session is currently focused
+// This function expects the session.connMutex to already be held by the caller
+func (h *PTYHandler) hasFocusedConnection(session *Session) bool {
+	focusedCount := 0
+	totalConnections := len(session.connections)
+
+	for _, connInfo := range session.connections {
+		if connInfo.IsFocused {
+			focusedCount++
+		}
+	}
+
+	// Add debug logging to understand focus state
+	if totalConnections > 0 {
+		logger.Debugf("🔍 Focus check for %s: %d/%d connections focused", session.ID, focusedCount, totalConnections)
+	}
+
+	return focusedCount > 0
+}
+
 func (h *PTYHandler) monitorSession(session *Session) {
 	// Monitor session and clean up when idle
 	ticker := time.NewTicker(1 * time.Minute)
@@ -972,15 +992,35 @@ func (h *PTYHandler) monitorSession(session *Session) {
 	for range ticker.C {
 		session.connMutex.RLock()
 		connectionCount := len(session.connections)
+		hasFocusedConnection := h.hasFocusedConnection(session)
 		session.connMutex.RUnlock()
 
 		// Use Claude activity-based cleanup logic for Claude sessions
 		if session.Agent == "claude" {
+			// NEVER cleanup Claude sessions that have focused connections
+			if hasFocusedConnection {
+				logger.Infof("🎯 Claude session has focused connection, keeping PTY alive: %s", session.ID)
+				continue
+			}
+
 			// Check Claude session log modification time instead of just connection status
 			claudeLogModTime := h.getClaudeSessionLogModTime(session.WorkDir)
 
-			// If Claude log was modified recently (within 5 minutes), keep session alive
-			if !claudeLogModTime.IsZero() && time.Since(claudeLogModTime) <= 5*time.Minute {
+			// If there are active connections (even unfocused), be more lenient with timeout
+			var timeoutDuration time.Duration
+			if connectionCount > 0 {
+				// With active connections: give 15 minutes grace period for background tabs
+				timeoutDuration = 15 * time.Minute
+				if connectionCount > 0 && !hasFocusedConnection {
+					logger.Debugf("⚠️ Claude session %s has %d unfocused connections, using extended timeout", session.ID, connectionCount)
+				}
+			} else {
+				// No connections: use standard 5 minute timeout
+				timeoutDuration = 5 * time.Minute
+			}
+
+			// If Claude log was modified recently (within timeout), keep session alive
+			if !claudeLogModTime.IsZero() && time.Since(claudeLogModTime) <= timeoutDuration {
 				logger.Infof("🤖 Claude session has recent activity (log modified %v ago), keeping PTY alive: %s", time.Since(claudeLogModTime), session.ID)
 				continue
 			}
@@ -988,10 +1028,10 @@ func (h *PTYHandler) monitorSession(session *Session) {
 			claudeActivityState := h.sessionService.GetClaudeActivityState(session.WorkDir)
 
 			// Cleanup logic based on Claude activity state:
-			// 1. ClaudeInactive: No PTY session or very old activity - cleanup immediately
+			// 1. ClaudeInactive: No PTY session or very old activity - cleanup immediately (unless focused)
 			// 2. ClaudeRunning: PTY exists but no recent activity - this state means it's been
 			//    inactive for more than 2 minutes already, so we can cleanup after it's been
-			//    in this state for 5 minutes to give some buffer time
+			//    in this state for 5 minutes to give some buffer time (unless focused)
 			// 3. ClaudeActive: Recent activity - keep alive regardless of WebSocket connections
 			switch claudeActivityState {
 			case models.ClaudeInactive:
@@ -1134,6 +1174,21 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		_ = session.Cmd.Process.Kill()
 		_ = session.Cmd.Wait()
 	}
+
+	// Close all WebSocket connections to force frontend reconnection and terminal clear
+	session.connMutex.Lock()
+	connectionCount := len(session.connections)
+	if connectionCount > 0 {
+		logger.Infof("🔌 Closing %d WebSocket connections to force frontend reconnection", connectionCount)
+		for conn := range session.connections {
+			if err := conn.Close(); err != nil {
+				logger.Warnf("❌ Error closing WebSocket connection during recreation: %v", err)
+			}
+		}
+		// Clear the connections map
+		session.connections = make(map[*websocket.Conn]*ConnectionInfo)
+	}
+	session.connMutex.Unlock()
 
 	// Check for existing Claude session to resume (for recreated sessions)
 	var resumeSessionID string
@@ -1746,7 +1801,9 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 
 	connInfo, exists := session.connections[conn]
 	if !exists {
-		logger.Warnf("❌ Connection not found in session connections for focus change")
+		// This can happen during session recreation when WebSocket connections are in transition
+		// Just log at debug level instead of warning and skip the focus update
+		logger.Debugf("🔍 Connection not found in session connections for focus change (likely during reconnection)")
 		return
 	}
 

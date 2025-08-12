@@ -181,6 +181,7 @@ type ClaudeSubprocessOptions struct {
 	MaxTurns         int
 	WorkingDirectory string
 	Resume           bool
+	SuppressEvents   bool
 }
 
 // CreateCompletion executes claude CLI and returns the response (always uses streaming internally)
