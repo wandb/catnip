@@ -24,6 +24,7 @@ type ClaudeService struct {
 	claudeConfigPath  string
 	claudeProjectsDir string
 	volumeProjectsDir string
+	settingsPath      string // Path to volume settings.json
 	subprocessWrapper ClaudeSubprocessInterface
 	// Activity tracking for PTY sessions
 	activityMutex sync.RWMutex
@@ -89,6 +90,7 @@ func NewClaudeService() *ClaudeService {
 		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
 		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		settingsPath:         filepath.Join(volumeDir, "settings.json"),
 		subprocessWrapper:    NewClaudeSubprocessWrapper(),
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
