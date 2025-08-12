@@ -242,6 +242,39 @@ export function WorkspaceLeftSidebar() {
     }
   };
 
+  // Handle delete single workspace with confirmation
+  const handleSingleWorkspaceDelete = (worktree: Worktree) => {
+    setSingleWorkspaceDeleteDialog({
+      open: true,
+      worktreeId: worktree.id,
+      worktreeName: worktree.name,
+      hasChanges: worktree.is_dirty,
+      commitCount: worktree.commit_count,
+    });
+  };
+
+  const handleSingleWorkspaceDeleteConfirmed = async () => {
+    try {
+      await deleteWorktree(singleWorkspaceDeleteDialog.worktreeId);
+      setSingleWorkspaceDeleteDialog({
+        open: false,
+        worktreeId: "",
+        worktreeName: "",
+        hasChanges: false,
+        commitCount: 0,
+      });
+
+      // Navigate to workspace index if we deleted the current workspace
+      const currentWorkspaceName = `${project}/${workspace}`;
+      if (singleWorkspaceDeleteDialog.worktreeName === currentWorkspaceName) {
+        void navigate({ to: "/workspace" });
+      }
+    } catch (error) {
+      console.error("Failed to delete workspace:", error);
+      // Keep dialog open on error so user can retry
+    }
+  };
+
   return (
     <>
       <Sidebar className="border-r-0">
