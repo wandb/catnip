@@ -96,7 +96,7 @@ func (pm *PowerManager) shouldMaintainAssertion() (bool, []string) {
 	var activeWorkspaces []string
 
 	// Get all active sessions from the session service
-	activeSessions := pm.sessionService.GetActiveSessions()
+	activeSessions := pm.sessionService.GetAllActiveSessions()
 
 	for workspacePath := range activeSessions {
 		activityState := pm.sessionService.GetClaudeActivityState(workspacePath)
