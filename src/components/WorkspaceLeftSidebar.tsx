@@ -600,6 +600,57 @@ export function WorkspaceLeftSidebar() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Single Workspace Delete Confirmation Dialog */}
+      <AlertDialog
+        open={singleWorkspaceDeleteDialog.open}
+        onOpenChange={(open) =>
+          setSingleWorkspaceDeleteDialog({
+            ...singleWorkspaceDeleteDialog,
+            open,
+          })
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const changesList = [];
+                if (singleWorkspaceDeleteDialog.hasChanges)
+                  changesList.push("uncommitted changes");
+                if (singleWorkspaceDeleteDialog.commitCount > 0)
+                  changesList.push(
+                    `${singleWorkspaceDeleteDialog.commitCount} commits`,
+                  );
+
+                return changesList.length > 0 ? (
+                  <>
+                    Delete workspace "{singleWorkspaceDeleteDialog.worktreeName}
+                    "? This workspace has{" "}
+                    <strong>{changesList.join(" and ")}</strong>. This action
+                    cannot be undone.
+                  </>
+                ) : (
+                  <>
+                    Delete workspace "{singleWorkspaceDeleteDialog.worktreeName}
+                    "? This action cannot be undone.
+                  </>
+                );
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleSingleWorkspaceDeleteConfirmed}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Workspace
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
