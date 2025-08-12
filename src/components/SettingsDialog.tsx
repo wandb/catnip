@@ -664,11 +664,16 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                           context about your last todo and branch.
                         </p>
                         <div className="text-xs text-muted-foreground mt-2">
-                          {notificationPermission === "granted" && (
-                            <span className="text-green-600">
-                              ✓ Notifications are enabled
-                            </span>
-                          )}
+                          {notificationPermission === "granted" &&
+                            (claudeSettings?.notificationsEnabled ? (
+                              <span className="text-green-600">
+                                ✓ Notifications are enabled
+                              </span>
+                            ) : (
+                              <span className="text-red-600">
+                                ✗ Notifications are disabled
+                              </span>
+                            ))}
                           {notificationPermission === "denied" && (
                             <span className="text-red-600">
                               ✗ Notifications are blocked - check browser
