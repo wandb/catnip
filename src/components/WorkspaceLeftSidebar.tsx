@@ -6,6 +6,7 @@ import {
   Plus,
   Settings,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import {
   Collapsible,
@@ -34,6 +35,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import { useState, useMemo, useEffect } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
@@ -75,6 +82,21 @@ export function WorkspaceLeftSidebar() {
     worktrees: Worktree[];
     repoName: string;
   }>({ open: false, worktrees: [], repoName: "" });
+
+  const [singleWorkspaceDeleteDialog, setSingleWorkspaceDeleteDialog] =
+    useState<{
+      open: boolean;
+      worktreeId: string;
+      worktreeName: string;
+      hasChanges: boolean;
+      commitCount: number;
+    }>({
+      open: false,
+      worktreeId: "",
+      worktreeName: "",
+      hasChanges: false,
+      commitCount: 0,
+    });
 
   const { deleteWorktree } = useGitApi();
   const navigate = useNavigate();
@@ -218,6 +240,39 @@ export function WorkspaceLeftSidebar() {
       }
     } catch (error) {
       console.error("Failed to delete workspaces:", error);
+    }
+  };
+
+  // Handle delete single workspace with confirmation
+  const handleSingleWorkspaceDelete = (worktree: Worktree) => {
+    setSingleWorkspaceDeleteDialog({
+      open: true,
+      worktreeId: worktree.id,
+      worktreeName: worktree.name,
+      hasChanges: worktree.is_dirty,
+      commitCount: worktree.commit_count,
+    });
+  };
+
+  const handleSingleWorkspaceDeleteConfirmed = async () => {
+    try {
+      await deleteWorktree(singleWorkspaceDeleteDialog.worktreeId);
+      setSingleWorkspaceDeleteDialog({
+        open: false,
+        worktreeId: "",
+        worktreeName: "",
+        hasChanges: false,
+        commitCount: 0,
+      });
+
+      // Navigate to workspace index if we deleted the current workspace
+      const currentWorkspaceName = `${project}/${workspace}`;
+      if (singleWorkspaceDeleteDialog.worktreeName === currentWorkspaceName) {
+        void navigate({ to: "/workspace" });
+      }
+    } catch (error) {
+      console.error("Failed to delete workspace:", error);
+      // Keep dialog open on error so user can retry
     }
   };
 
@@ -368,24 +423,46 @@ export function WorkspaceLeftSidebar() {
                                             worktree.name}
                                         </span>
                                         {worktree.branch && (
-                                          <Tooltip>
-                                            <TooltipTrigger asChild>
-                                              <div className="ml-auto flex items-center gap-0.5">
+                                          <Popover>
+                                            <PopoverTrigger asChild>
+                                              <div className="ml-auto flex items-center gap-0.5 cursor-pointer hover:bg-accent rounded px-1">
                                                 <GitBranch className="h-3 w-3 text-muted-foreground/70" />
                                                 <span className="text-xs text-muted-foreground truncate max-w-24">
                                                   {worktree.branch}
                                                 </span>
                                               </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent
+                                            </PopoverTrigger>
+                                            <PopoverContent
                                               side="right"
                                               align="center"
+                                              className="w-auto p-3"
                                             >
-                                              <div className="text-xs">
-                                                {worktree.branch}
+                                              <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                  <div className="text-sm font-medium">
+                                                    {worktree.branch}
+                                                  </div>
+                                                  <div className="text-xs text-muted-foreground">
+                                                    {worktree.name}
+                                                  </div>
+                                                </div>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleSingleWorkspaceDelete(
+                                                      worktree,
+                                                    );
+                                                  }}
+                                                  title="Delete workspace"
+                                                >
+                                                  <Trash2 className="h-4 w-4" />
+                                                </Button>
                                               </div>
-                                            </TooltipContent>
-                                          </Tooltip>
+                                            </PopoverContent>
+                                          </Popover>
                                         )}
                                       </Link>
                                     ) : (
@@ -519,6 +596,57 @@ export function WorkspaceLeftSidebar() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete All Workspaces
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Single Workspace Delete Confirmation Dialog */}
+      <AlertDialog
+        open={singleWorkspaceDeleteDialog.open}
+        onOpenChange={(open) =>
+          setSingleWorkspaceDeleteDialog({
+            ...singleWorkspaceDeleteDialog,
+            open,
+          })
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const changesList = [];
+                if (singleWorkspaceDeleteDialog.hasChanges)
+                  changesList.push("uncommitted changes");
+                if (singleWorkspaceDeleteDialog.commitCount > 0)
+                  changesList.push(
+                    `${singleWorkspaceDeleteDialog.commitCount} commits`,
+                  );
+
+                return changesList.length > 0 ? (
+                  <>
+                    Delete workspace "{singleWorkspaceDeleteDialog.worktreeName}
+                    "? This workspace has{" "}
+                    <strong>{changesList.join(" and ")}</strong>. This action
+                    cannot be undone.
+                  </>
+                ) : (
+                  <>
+                    Delete workspace "{singleWorkspaceDeleteDialog.worktreeName}
+                    "? This action cannot be undone.
+                  </>
+                );
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleSingleWorkspaceDeleteConfirmed}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Workspace
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
