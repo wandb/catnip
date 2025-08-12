@@ -598,6 +598,10 @@ func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitS
 	// Set up GitService as the WorktreeRestorer for state restoration
 	stateManager.SetWorktreeRestorer(s)
 
+	// Initialize and start PR sync manager
+	prSyncManager := GetPRSyncManager(stateManager)
+	prSyncManager.Start()
+
 	return s
 }
 
