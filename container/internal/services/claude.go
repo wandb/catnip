@@ -1176,6 +1176,12 @@ func (s *ClaudeService) IsSuppressingEvents(worktreePath string) bool {
 
 // HandleHookEvent processes Claude Code hook events for activity tracking
 func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
+	// Check if events are suppressed for this worktree
+	if s.IsSuppressingEvents(event.WorkingDirectory) {
+		logger.Debugf("🔕 Suppressing %s hook event for %s", event.EventType, event.WorkingDirectory)
+		return nil
+	}
+
 	s.activityMutex.Lock()
 	defer s.activityMutex.Unlock()
 
