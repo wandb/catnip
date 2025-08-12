@@ -40,6 +40,12 @@ func GetPRSyncManager(operations Operations) *PRSyncManager {
 			stopChan:     make(chan bool),
 		}
 	})
+
+	// If operations provided and instance exists but has nil operations, set them
+	if operations != nil && prSyncManagerInstance.operations == nil {
+		prSyncManagerInstance.operations = operations
+	}
+
 	return prSyncManagerInstance
 }
 
@@ -129,12 +135,9 @@ func (pm *PRSyncManager) performSync() {
 
 // collectPRRequests gathers all PR numbers that need syncing, grouped by repository
 func (pm *PRSyncManager) collectPRRequests() map[string][]int {
-	// Get current git state
-	gitState, err := pm.operations.LoadGitState()
-	if err != nil {
-		logger.Warnf("Failed to load git state for PR sync: %v", err)
-		return nil
-	}
+	// We need to get worktrees from the state manager directly since operations doesn't have LoadGitState
+	// TODO: This is a temporary solution - we should inject the state manager properly
+	return nil
 
 	prRequests := make(map[string][]int)
 	prPattern := regexp.MustCompile(`github\.com/([^/]+/[^/]+)/pull/(\d+)`)

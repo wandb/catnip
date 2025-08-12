@@ -558,9 +558,7 @@ func (wsm *WorktreeStateManager) loadState() error {
 		if err := json.Unmarshal(prStatesData, &prStates); err == nil {
 			// Initialize PR sync manager with loaded states if it exists
 			if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
-				if err := prSyncManager.LoadPersistedStates(); err != nil {
-					logger.Warnf("⚠️ Failed to load persisted PR states: %v", err)
-				}
+				prSyncManager.LoadStatesFromData(prStates)
 			}
 		}
 	}
