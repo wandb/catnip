@@ -185,7 +185,7 @@ func startServer(cmd *cobra.Command) {
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService, claudeMonitor)
 	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
-	claudeHandler := handlers.NewClaudeHandler(claudeService).WithEvents(eventsHandler)
+	claudeHandler := handlers.NewClaudeHandler(claudeService, gitService).WithEvents(eventsHandler)
 	defer eventsHandler.Stop()
 	portsHandler := handlers.NewPortsHandler(portMonitor).WithEvents(eventsHandler)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
@@ -277,6 +277,10 @@ func startServer(cmd *cobra.Command) {
 
 	// Events routes
 	v1.Get("/events", eventsHandler.HandleSSE)
+
+	// Notification routes
+	notificationHandler := handlers.NewNotificationHandler(eventsHandler)
+	v1.Post("/notifications", notificationHandler.HandleNotification)
 
 	// Proxy routes for detected services (must be before dev middleware)
 	// Will validate port numbers in handler and call Next() if invalid

@@ -542,7 +542,7 @@ export const useAppStore = create<AppState>()(
               });
 
               try {
-                notifications.showNotification(notificationTitle, {
+                void notifications.showNotification(notificationTitle, {
                   body: notificationBody,
                   icon: "/favicon.png",
                   tag: `session-stopped-${worktree.id}`,

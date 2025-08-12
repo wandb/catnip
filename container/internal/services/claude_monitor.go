@@ -284,14 +284,15 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 	}
 	s.recentTitlesMutex.Unlock()
 
-	// Update activity time for title changes and also update Claude service activity
+	// Update activity time for title changes (but don't update Claude service activity
+	// as title changes are passive monitoring, not active Claude usage)
 	now := time.Now()
 	s.activityMutex.Lock()
 	s.lastActivityTimes[workDir] = now
 	s.activityMutex.Unlock()
 
-	// Also update the Claude service activity tracking
-	s.claudeService.UpdateActivity(workDir)
+	// Note: We intentionally don't call s.claudeService.UpdateActivity(workDir) here
+	// because title change processing is passive monitoring and should not keep workspaces "active"
 
 	s.managersMutex.Lock()
 	manager, exists := s.checkpointManagers[workDir]
@@ -923,14 +924,15 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	// Todos have changed!
 	logger.Debugf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
 
-	// Update activity time to prevent session cleanup
+	// Update activity time for todo monitoring (but don't update Claude service activity
+	// as todo monitoring is passive and should not keep workspaces "active")
 	now := time.Now()
 	m.claudeMonitor.activityMutex.Lock()
 	m.claudeMonitor.lastActivityTimes[m.workDir] = now
 	m.claudeMonitor.activityMutex.Unlock()
 
-	// Also update the Claude service activity tracking
-	m.claudeMonitor.claudeService.UpdateActivity(m.workDir)
+	// Note: We intentionally don't call UpdateActivity here because todo monitoring
+	// is passive and should not prevent workspaces from transitioning to inactive
 
 	// Update state
 	m.lastModTime = modTime
@@ -1331,6 +1333,11 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 
 	// Without UserPromptSubmit hook events, we should be more conservative about "active" state
 	// Only PTY connection doesn't mean Claude is actively generating - wait for UserPromptSubmit
+
+	// Check if there's an active PTY session first - this is real user interaction
+	if s.sessionService.IsActiveSessionActive(worktreePath) {
+		return models.ClaudeRunning
+	}
 
 	// Check if there's any recent PTY activity (within 10 minutes) to determine if "running"
 	if s.claudeService.IsActiveSession(worktreePath, 10*time.Minute) {

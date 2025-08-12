@@ -12,13 +12,15 @@ import (
 // ClaudeHandler handles Claude Code session-related API endpoints
 type ClaudeHandler struct {
 	claudeService *services.ClaudeService
+	gitService    *services.GitService
 	eventsHandler *EventsHandler
 }
 
 // NewClaudeHandler creates a new Claude handler
-func NewClaudeHandler(claudeService *services.ClaudeService) *ClaudeHandler {
+func NewClaudeHandler(claudeService *services.ClaudeService, gitService *services.GitService) *ClaudeHandler {
 	return &ClaudeHandler{
 		claudeService: claudeService,
+		gitService:    gitService,
 	}
 }
 
@@ -324,45 +326,84 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 	// Handle special events that should broadcast to frontend
 	logger.Debugf("🔔 Hook processing - EventType: %s, EventsHandler nil: %t", req.EventType, h.eventsHandler == nil)
 	if h.eventsHandler != nil && req.EventType == "Stop" {
-		logger.Debugf("🔔 Emitting session stopped event for %s", req.WorkingDirectory)
-		// Get session information for this worktree
-		summary, _ := h.claudeService.GetWorktreeSessionSummary(req.WorkingDirectory)
-		todos, _ := h.claudeService.GetLatestTodos(req.WorkingDirectory)
+		// Find the workspace directory - handle subdirectories by checking workspace prefix
+		workspaceDir := req.WorkingDirectory
+		worktrees := h.gitService.ListWorktrees()
 
-		var sessionTitle *string
-		var lastTodo *string
-		var worktreeID *string
-
-		if summary != nil && summary.Header != nil {
-			sessionTitle = summary.Header
-		}
-
-		if len(todos) > 0 {
-			// Find the last incomplete todo
-			for i := len(todos) - 1; i >= 0; i-- {
-				if todos[i].Status != "completed" {
-					lastTodo = &todos[i].Content
-					break
+		// Check if working directory is a subdirectory of any workspace
+		var matchingWorktree *models.Worktree
+		for _, wt := range worktrees {
+			if strings.HasPrefix(req.WorkingDirectory, wt.Path) {
+				// Use the longest matching path (most specific workspace)
+				if matchingWorktree == nil || len(wt.Path) > len(matchingWorktree.Path) {
+					matchingWorktree = wt
+					workspaceDir = wt.Path
 				}
 			}
-			// If all todos are completed, use the last one
-			if lastTodo == nil {
-				lastTodo = &todos[len(todos)-1].Content
-			}
 		}
 
-		// For now, we don't have direct access to git info here,
-		// but we could extend this to get branch name
-		var branchName *string
+		// Check if events are suppressed for this workspace (automated operation)
+		if h.claudeService.IsSuppressingEvents(workspaceDir) {
+			logger.Debugf("🔔 Skipping stop event - automated operation in progress for %s", workspaceDir)
+			return c.JSON(fiber.Map{
+				"status":  "success",
+				"message": "Hook event processed successfully (automated - events suppressed)",
+			})
+		}
 
-		// Emit the session stopped event
-		h.eventsHandler.EmitSessionStopped(
-			req.WorkingDirectory,
-			worktreeID,
-			sessionTitle,
-			branchName,
-			lastTodo,
-		)
+		// Send stop event for any matching workspace
+		if matchingWorktree != nil {
+			logger.Debugf("🔔 Emitting session stopped event for %s (branch: %s)", workspaceDir, matchingWorktree.Branch)
+
+			// Get session information for this worktree
+			todos, _ := h.claudeService.GetLatestTodos(workspaceDir)
+
+			// Create title: branch name truncated to 15 chars + " stopped"
+			branchName := matchingWorktree.Branch
+			if len(branchName) > 15 {
+				branchName = branchName[:15]
+			}
+			title := branchName + " stopped"
+
+			// Create description: last todo truncated to 50 chars or generic message
+			var description string
+			if len(todos) > 0 {
+				// Find the last incomplete todo
+				var lastTodo string
+				for i := len(todos) - 1; i >= 0; i-- {
+					if todos[i].Status != "completed" {
+						lastTodo = todos[i].Content
+						break
+					}
+				}
+				// If all todos are completed, use the last one
+				if lastTodo == "" && len(todos) > 0 {
+					lastTodo = todos[len(todos)-1].Content
+				}
+
+				if lastTodo != "" {
+					if len(lastTodo) > 50 {
+						lastTodo = lastTodo[:50] + "..."
+					}
+					description = lastTodo
+				} else {
+					description = "Session has completed"
+				}
+			} else {
+				description = "Session has completed"
+			}
+
+			// Emit the session stopped event with improved content
+			h.eventsHandler.EmitSessionStopped(
+				workspaceDir,
+				nil, // worktreeID not needed
+				&title,
+				&matchingWorktree.Branch, // Keep full branch name for context
+				&description,
+			)
+		} else {
+			logger.Debugf("🔔 Skipping stop event - no matching workspace found for %s", req.WorkingDirectory)
+		}
 	}
 
 	return c.JSON(fiber.Map{

@@ -42,6 +42,7 @@ const (
 	WorktreeTodosUpdatedEvent  EventType = "worktree:todos_updated"
 	SessionTitleUpdatedEvent   EventType = "session:title_updated"
 	SessionStoppedEvent        EventType = "session:stopped"
+	NotificationEvent          EventType = "notification:show"
 )
 
 type AppEvent struct {
@@ -506,7 +507,7 @@ func (h *EventsHandler) broadcastEvent(event AppEvent) {
 		logger.Warnf("Attempting to broadcast event with empty type")
 		return
 	}
-	logger.Debugf("🔔 Broadcasting event - Type: %s", event.Type)
+	// Remove noisy broadcasting log - too frequent and not helpful
 
 	message := SSEMessage{
 		Event:     event,

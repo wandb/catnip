@@ -11,11 +11,13 @@ import type { Worktree } from "@/lib/git-api";
 interface WorkspaceTerminalProps {
   worktree: Worktree;
   terminalId?: string;
+  isFocused?: boolean;
 }
 
 export function WorkspaceTerminal({
   worktree,
   terminalId = "default",
+  isFocused = true,
 }: WorkspaceTerminalProps) {
   const { instance, ref } = useXTerm();
   const { setIsConnected } = useWebSocketContext();
@@ -52,12 +54,12 @@ export function WorkspaceTerminal({
     }
   }, []);
 
-  // Send focus state to backend
-  const sendFocusState = useCallback((focused: boolean) => {
+  // Send focus state to backend when isFocused prop changes
+  useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "focus", focused }));
+      wsRef.current.send(JSON.stringify({ type: "focus", focused: isFocused }));
     }
-  }, []);
+  }, [isFocused]);
 
   const fontSize = useCallback((element: Element) => {
     if (element.clientWidth < 400) {
@@ -76,34 +78,6 @@ export function WorkspaceTerminal({
     }
     wsRef.current.send(JSON.stringify({ type: "ready" }));
   }, []);
-
-  // Handle tab focus/blur events
-  useEffect(() => {
-    const handleFocus = () => {
-      sendFocusState(true);
-    };
-
-    const handleBlur = () => {
-      sendFocusState(false);
-    };
-
-    const handleVisibilityChange = () => {
-      sendFocusState(!document.hidden);
-    };
-
-    window.addEventListener("focus", handleFocus);
-    window.addEventListener("blur", handleBlur);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    // Send initial focus state
-    sendFocusState(document.hasFocus() && !document.hidden);
-
-    return () => {
-      window.removeEventListener("focus", handleFocus);
-      window.removeEventListener("blur", handleBlur);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [sendFocusState]);
 
   // Reset state when worktree changes
   useEffect(() => {

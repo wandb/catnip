@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
-
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 )
 
@@ -31,6 +31,9 @@ type ClaudeService struct {
 	// Hook-based activity tracking
 	lastUserPromptSubmit map[string]time.Time // Map of worktree path to last UserPromptSubmit time
 	lastStopEvent        map[string]time.Time // Map of worktree path to last Stop event time
+	// Event suppression for automated operations
+	suppressEventsMutex sync.RWMutex
+	suppressEventsUntil map[string]time.Time // Map of worktree path to suppression expiry time
 }
 
 // readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
@@ -90,6 +93,7 @@ func NewClaudeService() *ClaudeService {
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
+		suppressEventsUntil:  make(map[string]time.Time),
 	}
 }
 
@@ -106,6 +110,7 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
+		suppressEventsUntil:  make(map[string]time.Time),
 	}
 }
 
@@ -799,6 +804,13 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
+		SuppressEvents:   req.SuppressEvents,
+	}
+
+	// Enable event suppression for automated operations
+	if req.SuppressEvents {
+		s.SetSuppressEvents(workingDir, true)
+		defer s.SetSuppressEvents(workingDir, false)
 	}
 
 	// Resume logic is handled by claude CLI's --continue flag
@@ -828,6 +840,13 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
+		SuppressEvents:   req.SuppressEvents,
+	}
+
+	// Enable event suppression for automated operations
+	if req.SuppressEvents {
+		s.SetSuppressEvents(workingDir, true)
+		defer s.SetSuppressEvents(workingDir, false)
 	}
 
 	// Resume logic is handled by claude CLI's --continue flag
@@ -971,10 +990,48 @@ func (s *ClaudeService) GetLastActivity(worktreePath string) time.Time {
 // IsActiveSession returns true if the session has been active within the specified duration
 func (s *ClaudeService) IsActiveSession(worktreePath string, within time.Duration) bool {
 	lastActivity := s.GetLastActivity(worktreePath)
+
 	if lastActivity.IsZero() {
 		return false
 	}
 	return time.Since(lastActivity) <= within
+}
+
+// SetSuppressEvents sets event suppression for a worktree with a 30-second timeout (dead man switch)
+func (s *ClaudeService) SetSuppressEvents(worktreePath string, suppress bool) {
+	s.suppressEventsMutex.Lock()
+	defer s.suppressEventsMutex.Unlock()
+
+	if suppress {
+		// Set suppression with 30-second timeout (dead man switch)
+		s.suppressEventsUntil[worktreePath] = time.Now().Add(30 * time.Second)
+		logger.Debugf("🔕 Event suppression enabled for %s (expires in 30s)", worktreePath)
+	} else {
+		// Clear suppression
+		delete(s.suppressEventsUntil, worktreePath)
+		logger.Debugf("🔊 Event suppression disabled for %s", worktreePath)
+	}
+}
+
+// IsSuppressingEvents checks if events should be suppressed for a worktree (with dead man switch cleanup)
+func (s *ClaudeService) IsSuppressingEvents(worktreePath string) bool {
+	s.suppressEventsMutex.Lock()
+	defer s.suppressEventsMutex.Unlock()
+
+	suppressUntil, exists := s.suppressEventsUntil[worktreePath]
+	if !exists {
+		return false
+	}
+
+	// Check if suppression has expired (dead man switch)
+	if time.Now().After(suppressUntil) {
+		// Clean up expired suppression
+		delete(s.suppressEventsUntil, worktreePath)
+		logger.Debugf("🔊 Event suppression expired for %s (dead man switch)", worktreePath)
+		return false
+	}
+
+	return true
 }
 
 // HandleHookEvent processes Claude Code hook events for activity tracking

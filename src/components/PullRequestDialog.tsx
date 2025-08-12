@@ -193,6 +193,7 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
         working_directory: `/workspace/${worktree.name}`,
         resume: true,
         max_turns: 1,
+        suppress_events: true, // This is an automated operation - suppress stop events
       };
 
       const response = await fetch("/v1/claude/messages", {

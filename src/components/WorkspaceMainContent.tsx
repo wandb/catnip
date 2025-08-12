@@ -38,7 +38,13 @@ interface WorkspaceMainContentProps {
   setSelectedFile?: (file: string | undefined) => void;
 }
 
-function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
+function ClaudeTerminal({
+  worktree,
+  isFocused,
+}: {
+  worktree: Worktree;
+  isFocused: boolean;
+}) {
   const { instance, ref } = useXTerm();
   const { setIsConnected } = useWebSocketContext();
   const wsRef = useRef<WebSocket | null>(null);
@@ -74,6 +80,13 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     }
   }, []);
 
+  // Send focus state to backend when isFocused prop changes
+  useEffect(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "focus", focused: isFocused }));
+    }
+  }, [isFocused]);
+
   // Scroll terminal to bottom
   const scrollToBottom = useCallback(() => {
     if (instance) {
@@ -101,6 +114,8 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
   // Track if this is the very first connection to the worktree
   const isFirstConnection = useRef(true);
+  // Track the last WebSocket close time to detect recreations
+  const lastWebSocketClose = useRef<number | null>(null);
 
   // Reset state when worktree changes
   useEffect(() => {
@@ -110,6 +125,7 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     bufferingRef.current = false;
     lastConnectionAttempt.current = 0;
     isFirstConnection.current = true; // Reset first connection flag when worktree changes
+    lastWebSocketClose.current = null; // Reset close tracking when worktree changes
     setError(null);
 
     // Close existing WebSocket if any
@@ -160,11 +176,25 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
 
     isSetup.current = true;
 
-    // For first connections, clear terminal to ensure clean state
-    // For reconnections, don't clear - we want to preserve state until we get fresh data
-    if (isFirstConnection.current) {
+    // Clear terminal logic:
+    // 1. Always clear on first connection to ensure clean state
+    // 2. Clear on reconnections after WebSocket close (PTY recreation scenario)
+    const shouldClearTerminal =
+      isFirstConnection.current ||
+      (lastWebSocketClose.current && now - lastWebSocketClose.current < 30000);
+
+    if (shouldClearTerminal) {
+      console.log(
+        "[Claude Terminal] Clearing terminal - First connection:",
+        isFirstConnection.current,
+        "Recent close:",
+        lastWebSocketClose.current
+          ? now - lastWebSocketClose.current + "ms ago"
+          : "none",
+      );
       instance.clear();
       isFirstConnection.current = false;
+      lastWebSocketClose.current = null; // Reset close tracking
     }
 
     // Set up WebSocket connection for Claude agent in the workspace directory
@@ -186,7 +216,10 @@ function ClaudeTerminal({ worktree }: { worktree: Worktree }) {
     };
 
     ws.onclose = () => {
+      console.log("[Claude Terminal] WebSocket closed");
       setIsConnected(false);
+      // Track close time to detect PTY recreations
+      lastWebSocketClose.current = Date.now();
     };
 
     ws.onerror = (error) => {
@@ -486,6 +519,40 @@ export function WorkspaceMainContent({
   const [previousTerminalSize, setPreviousTerminalSize] = useState(30);
   const [terminalSize, setTerminalSize] = useState(30);
 
+  // Centralized focus detection for the entire workspace
+  const [isFocused, setIsFocused] = useState(true);
+
+  // Centralized focus detection effect
+  useEffect(() => {
+    const handleFocus = () => {
+      setIsFocused(true);
+    };
+
+    const handleBlur = () => {
+      setIsFocused(false);
+    };
+
+    const handleVisibilityChange = () => {
+      setIsFocused(!document.hidden);
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    // Send initial focus state after a brief delay to avoid race conditions during connection setup
+    const focusTimer = setTimeout(() => {
+      setIsFocused(document.hasFocus() && !document.hidden);
+    }, 100);
+
+    return () => {
+      clearTimeout(focusTimer);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   // Terminal tabs state
   const [terminals, setTerminals] = useState<TerminalTab[]>([
     { id: "default", name: "Terminal 1" },
@@ -628,7 +695,10 @@ export function WorkspaceMainContent({
                       </div>
                     </div>
                     <div className="flex-1 overflow-hidden">
-                      <ClaudeTerminal worktree={worktree} />
+                      <ClaudeTerminal
+                        worktree={worktree}
+                        isFocused={isFocused}
+                      />
                     </div>
                   </div>
                 </ResizablePanel>
@@ -733,6 +803,7 @@ export function WorkspaceMainContent({
                     <WorkspaceTerminal
                       worktree={worktree}
                       terminalId={terminal.id}
+                      isFocused={isFocused}
                     />
                   </div>
                 ))}

@@ -1054,6 +1054,52 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/notifications": {
+            "post": {
+                "description": "Sends a notification event to all connected SSE clients, including the TUI app which can display native macOS notifications",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Send notification",
+                "parameters": [
+                    {
+                        "description": "Notification details",
+                        "name": "notification",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.NotificationPayload"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Success response",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/ports": {
             "get": {
                 "description": "Returns a list of all currently detected ports with their service information",
@@ -1669,6 +1715,11 @@ const docTemplate = `{
                 },
                 "stream": {
                     "description": "Whether to stream the response",
+                    "type": "boolean",
+                    "example": true
+                },
+                "suppress_events": {
+                    "description": "Whether to suppress stop events for this automated operation",
                     "type": "boolean",
                     "example": true
                 },
@@ -2493,7 +2544,8 @@ const docTemplate = `{
                 "worktree:deleted",
                 "worktree:todos_updated",
                 "session:title_updated",
-                "session:stopped"
+                "session:stopped",
+                "notification:show"
             ],
             "x-enum-varnames": [
                 "PortOpenedEvent",
@@ -2514,7 +2566,8 @@ const docTemplate = `{
                 "WorktreeDeletedEvent",
                 "WorktreeTodosUpdatedEvent",
                 "SessionTitleUpdatedEvent",
-                "SessionStoppedEvent"
+                "SessionStoppedEvent",
+                "NotificationEvent"
             ]
         },
         "internal_handlers.GitHubRepository": {
@@ -2565,6 +2618,20 @@ const docTemplate = `{
                     "description": "Optional custom branch name to graduate to",
                     "type": "string",
                     "example": "feature/add-auth"
+                }
+            }
+        },
+        "internal_handlers.NotificationPayload": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "subtitle": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },

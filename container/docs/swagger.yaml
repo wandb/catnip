@@ -191,6 +191,10 @@ definitions:
         description: Whether to stream the response
         example: true
         type: boolean
+      suppress_events:
+        description: Whether to suppress stop events for this automated operation
+        example: true
+        type: boolean
       system_prompt:
         description: Optional system prompt override
         example: You are a helpful coding assistant
@@ -809,6 +813,7 @@ definitions:
     - worktree:todos_updated
     - session:title_updated
     - session:stopped
+    - notification:show
     type: string
     x-enum-varnames:
     - PortOpenedEvent
@@ -830,6 +835,7 @@ definitions:
     - WorktreeTodosUpdatedEvent
     - SessionTitleUpdatedEvent
     - SessionStoppedEvent
+    - NotificationEvent
   internal_handlers.GitHubRepository:
     description: GitHub repository information from the GitHub API
     properties:
@@ -867,6 +873,15 @@ definitions:
       branch_name:
         description: Optional custom branch name to graduate to
         example: feature/add-auth
+        type: string
+    type: object
+  internal_handlers.NotificationPayload:
+    properties:
+      body:
+        type: string
+      subtitle:
+        type: string
+      title:
         type: string
     type: object
   internal_handlers.SSEMessage:
@@ -1707,6 +1722,37 @@ paths:
       summary: Cleanup merged worktrees
       tags:
       - git
+  /v1/notifications:
+    post:
+      consumes:
+      - application/json
+      description: Sends a notification event to all connected SSE clients, including
+        the TUI app which can display native macOS notifications
+      parameters:
+      - description: Notification details
+        in: body
+        name: notification
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.NotificationPayload'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Success response
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Send notification
+      tags:
+      - notifications
   /v1/ports:
     get:
       consumes:

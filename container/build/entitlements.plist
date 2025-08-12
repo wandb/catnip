@@ -25,5 +25,11 @@
     <!-- Allow outbound network connections -->
     <key>com.apple.security.network.server</key>
     <true/>
+    
+    <!-- Note: NSUserNotification doesn't require special entitlements -->
+    <!-- This communication entitlement is for advanced features we don't use -->
+    <!-- Keeping it doesn't hurt but isn't necessary for basic notifications -->
+    <key>com.apple.developer.usernotifications.communication</key>
+    <true/>
 </dict>
 </plist>
