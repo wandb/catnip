@@ -894,7 +894,7 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 	return err
 }
 
-// GetClaudeSettings reads Claude configuration settings from ~/.claude.json
+// GetClaudeSettings reads Claude configuration settings from ~/.claude.json and volume settings.json
 func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 	data, err := os.ReadFile(s.claudeConfigPath)
 	if err != nil {
@@ -906,6 +906,7 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 				Version:                "",
 				HasCompletedOnboarding: false,
 				NumStartups:            0,
+				NotificationsEnabled:   true, // Default to enabled
 			}, nil
 		}
 		return nil, fmt.Errorf("failed to read claude config file: %w", err)
@@ -922,6 +923,7 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 		Version:                "",
 		HasCompletedOnboarding: false,
 		NumStartups:            0,
+		NotificationsEnabled:   true, // Default to enabled
 	}
 
 	// Extract theme (default to "dark" if not set)
@@ -957,6 +959,12 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 		if startupsFloat, ok := startups.(float64); ok {
 			settings.NumStartups = int(startupsFloat)
 		}
+	}
+
+	// Read notifications setting from volume settings.json
+	notificationsEnabled, err := s.getNotificationsEnabled()
+	if err == nil {
+		settings.NotificationsEnabled = notificationsEnabled
 	}
 
 	return settings, nil
