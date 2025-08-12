@@ -98,6 +98,8 @@ export function WorkspaceLeftSidebar() {
       commitCount: 0,
     });
 
+  const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
+
   const { deleteWorktree } = useGitApi();
   const navigate = useNavigate();
 
@@ -423,9 +425,24 @@ export function WorkspaceLeftSidebar() {
                                             worktree.name}
                                         </span>
                                         {worktree.branch && (
-                                          <Popover>
+                                          <Popover
+                                            open={
+                                              hoveredWorkspace === worktree.id
+                                            }
+                                            onOpenChange={() => {}}
+                                          >
                                             <PopoverTrigger asChild>
-                                              <div className="ml-auto flex items-center gap-0.5 cursor-pointer hover:bg-accent rounded px-1">
+                                              <div
+                                                className="ml-auto flex items-center gap-0.5 cursor-pointer hover:bg-accent rounded px-1"
+                                                onMouseEnter={() =>
+                                                  setHoveredWorkspace(
+                                                    worktree.id,
+                                                  )
+                                                }
+                                                onMouseLeave={() =>
+                                                  setHoveredWorkspace(null)
+                                                }
+                                              >
                                                 <GitBranch className="h-3 w-3 text-muted-foreground/70" />
                                                 <span className="text-xs text-muted-foreground truncate max-w-24">
                                                   {worktree.branch}
@@ -433,9 +450,15 @@ export function WorkspaceLeftSidebar() {
                                               </div>
                                             </PopoverTrigger>
                                             <PopoverContent
-                                              side="right"
-                                              align="center"
+                                              side="bottom"
+                                              align="start"
                                               className="w-auto p-3"
+                                              onMouseEnter={() =>
+                                                setHoveredWorkspace(worktree.id)
+                                              }
+                                              onMouseLeave={() =>
+                                                setHoveredWorkspace(null)
+                                              }
                                             >
                                               <div className="flex items-center justify-between gap-3">
                                                 <div>
