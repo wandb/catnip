@@ -59,7 +59,7 @@ func (pm *PRSyncManager) Start() {
 		return
 	}
 
-	logger.Info("Starting PR sync manager with %v interval", pm.syncInterval)
+	logger.Infof("Starting PR sync manager with %v interval", pm.syncInterval)
 	pm.ticker = time.NewTicker(pm.syncInterval)
 	pm.isRunning = true
 
@@ -116,7 +116,7 @@ func (pm *PRSyncManager) performSync() {
 		return
 	}
 
-	logger.Debug("Found %d repositories with PRs to sync", len(prRequests))
+	logger.Debugf("Found %d repositories with PRs to sync", len(prRequests))
 
 	// Sync PR states for each repository
 	for repoID, prNumbers := range prRequests {
@@ -295,7 +295,7 @@ func (pm *PRSyncManager) updateCache(states map[string]*models.PullRequestState)
 
 	// The state manager will automatically persist PR states when saveStateInternal is called
 	// This happens automatically during normal worktree state updates
-	logger.Debug("Updated PR cache with %d states", len(states))
+	logger.Debugf("Updated PR cache with %d states", len(states))
 }
 
 // GetPRState returns the cached state for a specific PR
