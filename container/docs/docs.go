@@ -259,7 +259,7 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "description": "Updates Claude Code configuration settings (currently only theme is supported)",
+                "description": "Updates Claude Code configuration settings (theme and notifications)",
                 "consumes": [
                     "application/json"
                 ],
@@ -1645,6 +1645,11 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "notificationsEnabled": {
+                    "description": "Whether notifications are enabled",
+                    "type": "boolean",
+                    "example": true
+                },
                 "numStartups": {
                     "description": "Number of times Claude has been started",
                     "type": "integer",
@@ -1674,6 +1679,11 @@ const docTemplate = `{
             "description": "Request to update Claude Code settings",
             "type": "object",
             "properties": {
+                "notificationsEnabled": {
+                    "description": "Whether notifications should be enabled",
+                    "type": "boolean",
+                    "example": true
+                },
                 "theme": {
                     "description": "Theme to set (must be one of the valid theme values)",
                     "type": "string",

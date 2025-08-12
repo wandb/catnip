@@ -133,6 +133,10 @@ definitions:
         description: Whether user is authenticated (has userID)
         example: true
         type: boolean
+      notificationsEnabled:
+        description: Whether notifications are enabled
+        example: true
+        type: boolean
       numStartups:
         description: Number of times Claude has been started
         example: 15
@@ -156,6 +160,10 @@ definitions:
   github_com_vanpelt_catnip_internal_models.ClaudeSettingsUpdateRequest:
     description: Request to update Claude Code settings
     properties:
+      notificationsEnabled:
+        description: Whether notifications should be enabled
+        example: true
+        type: boolean
       theme:
         description: Theme to set (must be one of the valid theme values)
         enum:
@@ -1141,8 +1149,7 @@ paths:
     put:
       consumes:
       - application/json
-      description: Updates Claude Code configuration settings (currently only theme
-        is supported)
+      description: Updates Claude Code configuration settings (theme and notifications)
       parameters:
       - description: Settings update request
         in: body
