@@ -215,12 +215,12 @@ export function NewWorkspaceDialog({
 
         // Navigate to the newly created workspace
         if (result.worktreeName) {
-          // Navigate to /workspace/repoId/workspaceName
+          // Navigate to /workspace/project/workspace
           void navigate({
-            to: "/workspace/$repoId/$workspaceName",
+            to: "/workspace/$project/$workspace",
             params: {
-              repoId: repoId.replace("/", "_"),
-              workspaceName: result.worktreeName,
+              project: repoId.replace("/", "_"),
+              workspace: result.worktreeName,
             },
           });
         }
