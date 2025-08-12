@@ -568,7 +568,6 @@ export const useAppStore = create<AppState>()(
                 void notifications.showNotification(notificationTitle, {
                   body: notificationBody,
                   icon: "/favicon.png",
-                  tag: `session-stopped-${worktree.id}`,
                 });
                 console.log("🔔 Notification sent successfully!");
               } catch (error) {
