@@ -209,6 +209,42 @@ export function NewWorkspaceDialog({
 
       if (success) {
         onOpenChange(false);
+
+        // Navigate to the new workspace
+        let projectName: string;
+        let workspaceName: string;
+
+        if (url.startsWith("local/")) {
+          // For local repos, extract the repo name
+          const repoName = url.split("/")[1];
+          projectName = repoName;
+          workspaceName = branch || "main";
+        } else {
+          // For GitHub URLs, parse the org and repo name
+          let match = url.match(
+            /github\.com[/:]([\\w.-]+)\/([\\w.-]+?)(?:\.git)?(?:\/)?$/,
+          );
+          if (!match) {
+            // Try without protocol
+            match = url.match(/^([\\w.-]+)\/([\\w.-]+)$/);
+          }
+
+          if (match) {
+            const org = match[1];
+            const repo = match[2];
+            projectName = `${org}/${repo}`;
+            workspaceName = branch || "main";
+          } else {
+            // Fallback - just close dialog
+            return success;
+          }
+        }
+
+        // Navigate to the new workspace
+        void navigate({
+          to: "/workspace/$project/$workspace",
+          params: { project: projectName, workspace: workspaceName },
+        });
       } else {
         setError(
           "Failed to create workspace. Please check the repository URL and try again.",
