@@ -6,8 +6,10 @@ This mock server allows the frontend to run independently without the actual Cat
 
 - Implements all `/v1/*` API endpoints from `container/docs/swagger.json`
 - Provides Server-Sent Events (SSE) endpoint at `/v1/events` with mock data
-- Simulates real-time events (heartbeat, port changes, git status, etc.)
+- Simulates real-time events (heartbeat, port changes, git status, worktree updates)
 - Supports both streaming and non-streaming Claude message responses
+- Includes git diff, PR, sync, merge, and other advanced git operations
+- Provides mock worktrees with proper repository linkage for app navigation
 
 ## Usage
 
