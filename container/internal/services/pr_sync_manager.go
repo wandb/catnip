@@ -334,21 +334,29 @@ func (pm *PRSyncManager) GetAllPRStates() map[string]*models.PullRequestState {
 
 // LoadPersistedStates loads PR states from disk into memory cache
 func (pm *PRSyncManager) LoadPersistedStates() error {
-	gitState, err := pm.operations.LoadGitState()
-	if err != nil {
-		return err
-	}
-
+	// For now, we'll load from the state manager's state file since it's already integrated
+	// In a future iteration, we could optimize this to use gitState if needed
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
-	if gitState.PullRequestStates != nil {
+	// The state manager will have already loaded the states, we just need to initialize our cache
+	if pm.prStateCache == nil {
 		pm.prStateCache = make(map[string]*models.PullRequestState)
-		for key, state := range gitState.PullRequestStates {
-			pm.prStateCache[key] = state
-		}
+	}
+
+	logger.Debug("PR sync manager cache initialized")
+	return nil
+}
+
+// LoadStatesFromData loads PR states from provided data (used during state restoration)
+func (pm *PRSyncManager) LoadStatesFromData(states map[string]*models.PullRequestState) {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
+	pm.prStateCache = make(map[string]*models.PullRequestState)
+	for key, state := range states {
+		pm.prStateCache[key] = state
 	}
 
 	logger.Debug("Loaded %d persisted PR states into cache", len(pm.prStateCache))
-	return nil
 }

@@ -552,6 +552,19 @@ func (wsm *WorktreeStateManager) loadState() error {
 		}
 	}
 
+	// Load pull request states - we'll pass them to the PR sync manager
+	if prStatesData, exists := state["pull_request_states"]; exists {
+		var prStates map[string]*models.PullRequestState
+		if err := json.Unmarshal(prStatesData, &prStates); err == nil {
+			// Initialize PR sync manager with loaded states if it exists
+			if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
+				if err := prSyncManager.LoadPersistedStates(); err != nil {
+					logger.Warnf("⚠️ Failed to load persisted PR states: %v", err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
