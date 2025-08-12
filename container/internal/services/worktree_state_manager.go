@@ -479,9 +479,16 @@ func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[str
 
 // saveStateInternal saves state to disk (must be called with lock held)
 func (wsm *WorktreeStateManager) saveStateInternal() error {
+	// Include PR states in saved state - we'll get them from the PR sync manager
+	prStates := make(map[string]*models.PullRequestState)
+	if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
+		prStates = prSyncManager.GetAllPRStates()
+	}
+
 	state := map[string]interface{}{
-		"repositories": wsm.repositories,
-		"worktrees":    wsm.worktrees,
+		"repositories":        wsm.repositories,
+		"worktrees":           wsm.worktrees,
+		"pull_request_states": prStates,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
