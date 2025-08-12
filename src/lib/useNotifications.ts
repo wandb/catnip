@@ -97,15 +97,33 @@ export function useNotifications() {
       return null; // Native notification was sent
     }
 
-    // Fallback to browser notification
+    // Native notification failed, fall back to browser notification
     if (!isSupported) {
-      throw new Error("Notifications are not supported in this browser");
+      console.warn("Notifications are not supported in this browser");
+      return null;
     }
 
+    // If we don't have permission, request it first
     if (permission !== "granted") {
-      throw new Error("Notification permission not granted");
+      console.log(
+        "Browser notification permission not granted, requesting permission...",
+      );
+      try {
+        const newPermission = await requestPermission();
+        if (newPermission !== "granted") {
+          console.warn("Browser notification permission denied");
+          return null;
+        }
+      } catch (error) {
+        console.error(
+          "Failed to request browser notification permission:",
+          error,
+        );
+        return null;
+      }
     }
 
+    // Show browser notification
     return new Notification(title, options);
   };
 
