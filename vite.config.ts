@@ -1,5 +1,5 @@
 import path from "path";
-import { defineConfig } from "vite";
+import { defineConfig, type ProxyOptions } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
@@ -20,7 +20,7 @@ if (process.env.CLOUDFLARE_DEV === "true") {
 }
 
 // Proxy configuration for mock server
-const proxyConfig =
+const proxyConfig: Record<string, string | ProxyOptions> =
   process.env.VITE_USE_MOCK === "true"
     ? {
         "/v1": {
