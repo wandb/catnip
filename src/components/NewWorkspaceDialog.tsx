@@ -215,9 +215,14 @@ export function NewWorkspaceDialog({
 
         // Navigate to the newly created workspace
         if (result.worktreeName) {
-          // The worktree name is in the format "repoId/workspaceName"
-          // We need to navigate to /workspace/repoId/workspaceName
-          window.location.href = `/workspace/${repoId}/${result.worktreeName}`;
+          // Navigate to /workspace/repoId/workspaceName
+          void navigate({
+            to: "/workspace/$repoId/$workspaceName",
+            params: {
+              repoId: repoId.replace("/", "_"),
+              workspaceName: result.worktreeName,
+            },
+          });
         }
       } else {
         setError(
