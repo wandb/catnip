@@ -182,13 +182,17 @@ type ClaudeSettings struct {
 	HasCompletedOnboarding bool `json:"hasCompletedOnboarding" example:"true"`
 	// Number of times Claude has been started
 	NumStartups int `json:"numStartups" example:"15"`
+	// Whether notifications are enabled
+	NotificationsEnabled bool `json:"notificationsEnabled" example:"true"`
 }
 
 // ClaudeSettingsUpdateRequest represents a request to update Claude settings
 // @Description Request to update Claude Code settings
 type ClaudeSettingsUpdateRequest struct {
 	// Theme to set (must be one of the valid theme values)
-	Theme string `json:"theme" example:"dark" enums:"dark,light,dark-daltonized,light-daltonized,dark-ansi,light-ansi"`
+	Theme string `json:"theme,omitempty" example:"dark" enums:"dark,light,dark-daltonized,light-daltonized,dark-ansi,light-ansi"`
+	// Whether notifications should be enabled
+	NotificationsEnabled *bool `json:"notificationsEnabled,omitempty" example:"true"`
 }
 
 // ClaudeHookEvent represents a hook event from Claude Code
