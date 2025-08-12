@@ -543,10 +543,10 @@ app.use("/v1/*", (req, res) => {
   });
 });
 
-// Error handling
+// Error handling - Express 5 requires 4 parameters
 app.use((err, req, res, next) => {
   console.error("Error:", err);
-  res.status(500).json({ error: err.message });
+  res.status(500).json({ error: err.message || "Internal server error" });
 });
 
 // Start server
