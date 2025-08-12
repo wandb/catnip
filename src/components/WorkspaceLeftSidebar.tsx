@@ -450,8 +450,8 @@ export function WorkspaceLeftSidebar() {
                                               </div>
                                             </PopoverTrigger>
                                             <PopoverContent
-                                              side="right"
-                                              align="center"
+                                              side="bottom"
+                                              align="start"
                                               className="w-auto p-3"
                                               onMouseEnter={() =>
                                                 setHoveredWorkspace(worktree.id)
