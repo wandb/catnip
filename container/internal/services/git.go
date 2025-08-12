@@ -2279,7 +2279,7 @@ func (s *GitService) RefreshWorktreeStatusByID(worktreeID string) error {
 	return nil
 }
 
-// CreateFromTemplate creates a new project from a template
+// CreateFromTemplate creates a new project from a template using bare repository approach
 func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models.Repository, *models.Worktree, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2289,26 +2289,46 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 		return nil, nil, fmt.Errorf("project name is required")
 	}
 
-	// Check if project already exists in /live
-	projectPath := filepath.Join("/live", projectName)
-	if _, err := os.Stat(projectPath); err == nil {
+	repoID := fmt.Sprintf("local/%s", projectName)
+
+	// Check if repository already exists in our state
+	if existingRepo, exists := s.stateManager.GetRepository(repoID); exists {
 		return nil, nil, fmt.Errorf("project %s already exists", projectName)
 	}
 
+	// Set up bare repository path in /volume/repos (persistent)
+	reposDir := filepath.Join(config.Runtime.VolumeDir, "repos")
+	if err := os.MkdirAll(reposDir, 0755); err != nil {
+		return nil, nil, fmt.Errorf("failed to create repos directory: %v", err)
+	}
+
+	barePath := filepath.Join(reposDir, fmt.Sprintf("%s.git", projectName))
+
+	// Check if bare repository already exists on disk
+	if _, err := os.Stat(barePath); err == nil {
+		return nil, nil, fmt.Errorf("bare repository already exists at %s", barePath)
+	}
+
+	// Create temporary directory for template setup
+	tempDir := filepath.Join("/tmp", fmt.Sprintf("template-%s-%d", projectName, time.Now().Unix()))
+	defer os.RemoveAll(tempDir)
+
+	projectPath := filepath.Join(tempDir, projectName)
+
 	// Create the project based on template type
-	logger.Warnf("🏗️ Creating project from template %s at %s", templateID, projectPath)
+	logger.Infof("🏗️ Creating project from template %s at %s", templateID, projectPath)
 
 	var cmd *exec.Cmd
 	switch templateID {
 	case "react-vite":
 		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "react-ts")
-		cmd.Dir = "/live"
+		cmd.Dir = tempDir
 	case "vue-vite":
 		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "vue-ts")
-		cmd.Dir = "/live"
+		cmd.Dir = tempDir
 	case "nextjs-app":
 		cmd = exec.Command("pnpm", "create", "next-app", projectName, "--typescript", "--tailwind", "--app", "--no-eslint")
-		cmd.Dir = "/live"
+		cmd.Dir = tempDir
 	case "node-express", "python-fastapi":
 		// For these, we create the directory manually and populate it
 		if err := os.MkdirAll(projectPath, 0755); err != nil {
@@ -2320,9 +2340,9 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 
 	// Execute the creation command if one was set
 	if cmd != nil {
-		logger.Warnf("🏗️ Running command: %s", strings.Join(cmd.Args, " "))
+		logger.Infof("🏗️ Running command: %s", strings.Join(cmd.Args, " "))
 		output, err := cmd.CombinedOutput()
-		logger.Warnf("📄 Command output: %s", string(output))
+		logger.Debugf("📄 Command output: %s", string(output))
 		if err != nil {
 			logger.Warnf("❌ Command failed: %v", err)
 			return nil, nil, fmt.Errorf("failed to create project: %v\nOutput: %s", err, string(output))
@@ -2348,53 +2368,52 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	}
 	if isSupported {
 		if err := templates.SetupTemplateFiles(templateID, projectPath); err != nil {
-			// Clean up on failure
-			os.RemoveAll(projectPath)
 			return nil, nil, fmt.Errorf("failed to setup template files: %v", err)
 		}
 	}
 
-	// Initialize git repository
-	gitInitCmd := exec.Command("git", "init")
-	gitInitCmd.Dir = projectPath
-	if output, err := gitInitCmd.CombinedOutput(); err != nil {
-		// Clean up on failure
-		os.RemoveAll(projectPath)
+	// Initialize git repository in temp directory
+	if output, err := s.runGitCommand(projectPath, "init"); err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize git repo: %v\nOutput: %s", err, string(output))
 	}
 
 	// Configure git user for the repo (needed for commits)
-	gitConfigEmailCmd := exec.Command("git", "config", "user.email", "user@catnip.local")
-	gitConfigEmailCmd.Dir = projectPath
-	_, _ = gitConfigEmailCmd.CombinedOutput()
-
-	gitConfigNameCmd := exec.Command("git", "config", "user.name", "Catnip User")
-	gitConfigNameCmd.Dir = projectPath
-	_, _ = gitConfigNameCmd.CombinedOutput()
+	_, _ = s.runGitCommand(projectPath, "config", "user.email", "user@catnip.local")
+	_, _ = s.runGitCommand(projectPath, "config", "user.name", "Catnip User")
 
 	// Add all files and make initial commit
-	gitAddCmd := exec.Command("git", "add", ".")
-	gitAddCmd.Dir = projectPath
-	if output, err := gitAddCmd.CombinedOutput(); err != nil {
+	if output, err := s.runGitCommand(projectPath, "add", "."); err != nil {
 		logger.Warnf("⚠️ Failed to add files to git: %v\nOutput: %s", err, string(output))
 	}
 
-	gitCommitCmd := exec.Command("git", "commit", "-m", fmt.Sprintf("Initial commit from %s template", templateID))
-	gitCommitCmd.Dir = projectPath
-	if output, err := gitCommitCmd.CombinedOutput(); err != nil {
+	commitMsg := fmt.Sprintf("Initial commit from %s template", templateID)
+	if output, err := s.runGitCommand(projectPath, "commit", "-m", commitMsg); err != nil {
 		logger.Warnf("⚠️ Failed to make initial commit: %v\nOutput: %s", err, string(output))
 	}
 
-	// Create a repository entry for this local project (like /live/catnip)
-	repoID := fmt.Sprintf("local/%s", projectName)
+	// Clone the temporary repository as a bare repository to the persistent location
+	if output, err := s.runGitCommand("", "clone", "--bare", projectPath, barePath); err != nil {
+		return nil, nil, fmt.Errorf("failed to create bare repository: %v\nOutput: %s", err, string(output))
+	}
+
+	// Get the default branch from the bare repository
+	defaultBranch, err := s.getDefaultBranch(barePath)
+	if err != nil {
+		// Clean up on failure
+		os.RemoveAll(barePath)
+		return nil, nil, fmt.Errorf("failed to get default branch: %v", err)
+	}
+
+	// Create repository object pointing to the bare repository
 	repo := &models.Repository{
 		ID:            repoID,
-		URL:           projectPath,
-		Path:          projectPath,
-		DefaultBranch: "main",
+		URL:           fmt.Sprintf("file://%s", barePath), // Use file URL to indicate local bare repo
+		Path:          barePath,
+		DefaultBranch: defaultBranch,
 		Description:   fmt.Sprintf("Created from %s template", templateID),
 		CreatedAt:     time.Now(),
 		LastAccessed:  time.Now(),
+		Available:     true,
 	}
 
 	// Add repository to state
@@ -2408,8 +2427,8 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	// Generate a unique session name for the initial worktree
 	funName := s.generateUniqueSessionName(repo.Path)
 
-	// Create worktree for the local repo using main branch
-	worktree, err := s.createLocalRepoWorktree(repo, "main", funName)
+	// Create worktree using the bare repository (similar to remote repos)
+	worktree, err := s.createWorktreeInternalForRepo(repo, defaultBranch, funName, true)
 	if err != nil {
 		logger.Warnf("⚠️ Failed to create initial worktree for template project: %v", err)
 		// Still return success since the repository was created successfully
@@ -2417,7 +2436,8 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 		return repo, nil, nil
 	}
 
-	logger.Infof("✅ Successfully created project %s from template %s with initial worktree %s", projectName, templateID, worktree.Name)
+	logger.Infof("✅ Successfully created project %s from template %s with bare repository at %s and initial worktree %s",
+		projectName, templateID, barePath, worktree.Name)
 	return repo, worktree, nil
 }
 
