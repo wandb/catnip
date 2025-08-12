@@ -108,6 +108,7 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
 		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
 		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
+		settingsPath:         filepath.Join(volumeDir, "settings.json"),
 		subprocessWrapper:    wrapper,
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
