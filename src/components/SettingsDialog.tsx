@@ -731,9 +731,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         className="w-6 h-6 rounded"
                       />
                       <div>
-                        <p className="font-medium text-sm">
-                          Fix authentication bug (feature/auth-fix)
-                        </p>
+                        <p className="font-medium text-sm">feature/auth-fix</p>
                         <p className="text-xs text-muted-foreground">
                           Session ended - Last todo: Update password validation
                           logic
