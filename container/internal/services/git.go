@@ -2292,7 +2292,7 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	repoID := fmt.Sprintf("local/%s", projectName)
 
 	// Check if repository already exists in our state
-	if existingRepo, exists := s.stateManager.GetRepository(repoID); exists {
+	if _, exists := s.stateManager.GetRepository(repoID); exists {
 		return nil, nil, fmt.Errorf("project %s already exists", projectName)
 	}
 
