@@ -324,7 +324,11 @@ app.get("/v1/git/worktrees", (req, res) => {
 
 app.get("/v1/git/worktrees/:id", (req, res) => {
   const worktree = mockData.gitWorktrees.find((w) => w.id === req.params.id);
-  res.json(worktree || mockData.gitWorktrees[0]);
+  if (worktree) {
+    res.json(worktree);
+  } else {
+    res.status(404).json({ error: "Worktree not found" });
+  }
 });
 
 app.delete("/v1/git/worktrees/:id", (req, res) => {
@@ -457,12 +461,64 @@ app.get("/v1/events", (req, res) => {
         payload: {
           status: "running",
           message: "Mock server connected",
+          sshEnabled: false,
         },
       },
       timestamp: Date.now(),
       id: "init-1",
     })}\n\n`,
   );
+
+  // Send worktree information - critical for app to redirect properly
+  mockData.gitWorktrees.forEach((worktree, index) => {
+    // Send worktree created event
+    res.write(
+      `data: ${JSON.stringify({
+        event: {
+          type: "worktree:created",
+          payload: {
+            worktree: worktree,
+          },
+        },
+        timestamp: Date.now(),
+        id: `worktree-created-${index}`,
+      })}\n\n`,
+    );
+
+    // Send worktree status if dirty
+    if (worktree.is_dirty) {
+      res.write(
+        `data: ${JSON.stringify({
+          event: {
+            type: "worktree:dirty",
+            payload: {
+              worktree_id: worktree.id,
+              files: worktree.dirty_files || [],
+            },
+          },
+          timestamp: Date.now(),
+          id: `worktree-dirty-${index}`,
+        })}\n\n`,
+      );
+    }
+
+    // Send todos if any
+    if (worktree.todos && worktree.todos.length > 0) {
+      res.write(
+        `data: ${JSON.stringify({
+          event: {
+            type: "worktree:todos_updated",
+            payload: {
+              worktree_id: worktree.id,
+              todos: worktree.todos,
+            },
+          },
+          timestamp: Date.now(),
+          id: `worktree-todos-${index}`,
+        })}\n\n`,
+      );
+    }
+  });
 
   // Send current ports
   Object.values(mockData.ports).forEach((port) => {
@@ -477,21 +533,6 @@ app.get("/v1/events", (req, res) => {
       })}\n\n`,
     );
   });
-
-  // Send git status
-  res.write(
-    `data: ${JSON.stringify({
-      event: {
-        type: mockData.gitStatus.clean ? "git:clean" : "git:dirty",
-        payload: {
-          workspace: "/workspace/main",
-          files: mockData.gitStatus.files.map((f) => f.path),
-        },
-      },
-      timestamp: Date.now(),
-      id: "git-1",
-    })}\n\n`,
-  );
 
   // Heartbeat interval
   const heartbeatInterval = setInterval(() => {
