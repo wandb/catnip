@@ -174,17 +174,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }, [open, activeSection, catnipVersion]);
 
-  // Check notification support and permission status
-  React.useEffect(() => {
-    if (open && activeSection === "notifications") {
-      const isSupported = "Notification" in window;
-      setNotificationSupported(isSupported);
-      if (isSupported) {
-        setNotificationPermission(Notification.permission);
-      }
-    }
-  }, [open, activeSection]);
-
   // Function to update Claude theme setting
   const updateClaudeTheme = async (theme: string) => {
     setIsUpdatingClaudeSettings(true);
@@ -207,29 +196,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       console.error("Failed to update Claude settings:", error);
     } finally {
       setIsUpdatingClaudeSettings(false);
-    }
-  };
-
-  // Function to request notification permission
-  const requestNotificationPermission = async () => {
-    if (!notificationSupported) {
-      console.warn("Notifications are not supported in this browser");
-      return;
-    }
-
-    try {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
-
-      if (permission === "granted") {
-        // Show a test notification
-        new Notification("Notifications Enabled", {
-          body: "You'll now receive notifications when Claude sessions end.",
-          icon: "/favicon.png",
-        });
-      }
-    } catch (error) {
-      console.error("Failed to request notification permission:", error);
     }
   };
 
@@ -740,7 +706,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         <Button
                           variant="default"
                           size="sm"
-                          onClick={requestNotificationPermission}
+                          onClick={requestBrowserPermission}
                         >
                           Enable Notifications
                         </Button>
