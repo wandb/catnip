@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:mock": "concurrently \"pnpm run mock:server\" \"pnpm run dev:with-mock\"",
+    "dev:mock": "PORT=${PORT:-5173} sh -c 'VITE_PORT=$PORT MOCK_PORT=$((PORT + 1)) concurrently \"MOCK_PORT=$((PORT + 1)) pnpm run mock:server\" \"VITE_USE_MOCK=true VITE_PORT=$PORT MOCK_PORT=$((PORT + 1)) vite\"'",
     "dev:with-mock": "VITE_USE_MOCK=true vite",
     "mock:server": "node mock-server.js",
     "dev:cf": "pnpm run build && wrangler dev 2>&1 | tee /tmp/wrangler.log",
