@@ -161,7 +161,7 @@ export function useGitApi() {
     org: string,
     repo: string,
     branch: string = "main",
-  ): Promise<boolean> => {
+  ): Promise<{ success: boolean; worktreeName?: string }> => {
     setCheckoutLoading(true);
     try {
       // Build URL with optional branch query parameter
@@ -178,18 +178,23 @@ export function useGitApi() {
       });
 
       if (response.ok) {
+        const data = await response.json();
         // New worktree will be added to store via SSE events
         toast.success(`Successfully checked out ${org}/${repo}:${branch}`);
-        return true;
+        // Return success with the worktree name for navigation
+        return {
+          success: true,
+          worktreeName: data.worktree?.name,
+        };
       } else {
         const errorData = await response.json();
         toast.error(`Failed to checkout: ${errorData.error}`);
-        return false;
+        return { success: false };
       }
     } catch (error) {
       console.error("Checkout failed:", error);
       toast.error("Checkout failed");
-      return false;
+      return { success: false };
     } finally {
       setCheckoutLoading(false);
     }
