@@ -1137,15 +1137,15 @@ func (s *ClaudeService) IsActiveSession(worktreePath string, within time.Duratio
 	return time.Since(lastActivity) <= within
 }
 
-// SetSuppressEvents sets event suppression for a worktree with a 30-second timeout (dead man switch)
+// SetSuppressEvents sets event suppression for a worktree with a 5-second timeout (dead man switch)
 func (s *ClaudeService) SetSuppressEvents(worktreePath string, suppress bool) {
 	s.suppressEventsMutex.Lock()
 	defer s.suppressEventsMutex.Unlock()
 
 	if suppress {
-		// Set suppression with 30-second timeout (dead man switch)
-		s.suppressEventsUntil[worktreePath] = time.Now().Add(30 * time.Second)
-		logger.Debugf("🔕 Event suppression enabled for %s (expires in 30s)", worktreePath)
+		// Set suppression with 5-second timeout (dead man switch) - shorter to avoid interfering with user sessions
+		s.suppressEventsUntil[worktreePath] = time.Now().Add(5 * time.Second)
+		logger.Debugf("🔕 Event suppression enabled for %s (expires in 5s)", worktreePath)
 	} else {
 		// Clear suppression
 		delete(s.suppressEventsUntil, worktreePath)
