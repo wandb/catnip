@@ -18,7 +18,7 @@
 
 ## 🚀 Why Catnip?
 
-Catnip's purpose is to make developing with AI more accessible and productive.
+Catnip's purpose is to make asynchronous coding agents more accessible and productive.
 
 - **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK](https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
 - **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
@@ -96,9 +96,17 @@ CATNIP_GO_VERSION=1.22
 
 Catnip currently looks for a file named `setup.sh` in the root of your repo and runs it when a workspace is created. This is a great place to run `pnpm install` or `uv sync` etc.
 
+### Environment variables
+
+`catnip run` accepts `-e` arguments. For instance if you want to pass `ANTHROPIC_API_KEY` from your host into the container you can simply add `-e ANTHROPIC_API_KEY` and then all terminals and sessions within the container will see that variable. You can also explicitly set variables, `-e ANTHROPIC_BASE_URL=https://some.otherprovider.com/v1`
+
 ### SSH
 
-The `catnip run` command configures SSH within the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh).
+The `catnip run` command configures SSH within the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh). You can disable ssh by adding `--disable-ssh` to the run command.
+
+### Docker in Docker
+
+If you want the catnip container to be able to run `docker` commands, pass the `--dind` flag to the `catnip run` command. This mounts the docker socket from the host into the container allowing your terminals and agents to build or run containers.
 
 ### Git
 
@@ -120,7 +128,7 @@ Catnip forwards ports directly to the host system. When a service starts within 
 
 - [ ] 🎯 Custom base images
 - [ ] 🔄 Restore to previous checkpoints
-- [ ] 🤖 Support for more AI coding assistants
+- [ ] 🤖 Support for more AI coding agents
 - [ ] 🌐 Cloud based deployments
 - [ ] 🔧 Plugin ecosystem
 

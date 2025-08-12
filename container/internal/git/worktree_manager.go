@@ -201,6 +201,14 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 	catnipRef := fmt.Sprintf("refs/catnip/%s", workspaceName)
 	if _, err := w.operations.ExecuteGit(repo.Path, "update-ref", "-d", catnipRef); err == nil {
 		logger.Debugf("✅ Removed catnip ref: %s", catnipRef)
+
+		// Also remove the associated git config mapping if it exists
+		configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(catnipRef, "/", "."))
+		if err := w.operations.UnsetConfig(repo.Path, configKey); err != nil {
+			logger.Debugf("ℹ️ No config mapping to remove: %s", configKey)
+		} else {
+			logger.Debugf("✅ Removed config mapping: %s", configKey)
+		}
 	} else {
 		logger.Debugf("ℹ️ No catnip ref to remove: %s", catnipRef)
 	}

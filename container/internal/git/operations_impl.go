@@ -572,6 +572,11 @@ func (o *OperationsImpl) SetConfig(repoPath, key, value string) error {
 	return err
 }
 
+func (o *OperationsImpl) UnsetConfig(repoPath, key string) error {
+	_, err := o.ExecuteGit(repoPath, "config", "--unset", key)
+	return err
+}
+
 func (o *OperationsImpl) SetGlobalConfig(key, value string) error {
 	// Execute without working directory for global config
 	cmd := exec.Command("git", "config", "--global", key, value)

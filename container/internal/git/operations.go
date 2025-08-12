@@ -89,6 +89,7 @@ type Operations interface {
 	// Config operations
 	GetConfig(repoPath, key string) (string, error)
 	SetConfig(repoPath, key, value string) error
+	UnsetConfig(repoPath, key string) error
 	SetGlobalConfig(key, value string) error
 
 	// Branch display name (checks for nice name mapping first)

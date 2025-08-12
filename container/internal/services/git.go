@@ -222,6 +222,15 @@ func (s *GitService) cleanupCatnipRefs() {
 				deletedInRepo++
 				totalDeleted++
 				logger.Debugf("🗑️  Deleted orphaned catnip ref: %s in %s", ref, repo.ID)
+
+				// Also clean up the git config mapping for this ref
+				configKey := fmt.Sprintf("catnip.branch-map.%s", strings.ReplaceAll(ref, "/", "."))
+				if configErr := s.operations.UnsetConfig(repo.Path, configKey); configErr != nil {
+					// Don't log as error since config might not exist - this is cleanup
+					logger.Debugf("🧹 Config mapping %s didn't exist or was already clean", configKey)
+				} else {
+					logger.Debugf("🧹 Cleaned up config mapping: %s", configKey)
+				}
 			} else {
 				logger.Warnf("⚠️  Failed to delete catnip ref %s: %v", ref, err)
 			}
@@ -241,6 +250,9 @@ func (s *GitService) cleanupCatnipRefs() {
 	} else {
 		logger.Debug("✅ No orphaned catnip refs found")
 	}
+
+	// Also clean up orphaned config mappings (even when no refs were deleted)
+	s.cleanupOrphanedConfigMappings()
 }
 
 // CleanupAllCatnipRefs provides a comprehensive cleanup that handles both legacy catnip/ branches and new refs/catnip/ refs
@@ -254,6 +266,84 @@ func (s *GitService) CleanupAllCatnipRefs() {
 	s.cleanupCatnipRefs()
 
 	logger.Debug("✅ Comprehensive catnip cleanup complete")
+}
+
+// cleanupOrphanedConfigMappings removes git config mappings for refs that no longer exist
+func (s *GitService) cleanupOrphanedConfigMappings() {
+	logger.Debug("🧹 Starting cleanup of orphaned git config mappings...")
+
+	s.mu.RLock()
+	reposMap := s.stateManager.GetAllRepositories()
+	s.mu.RUnlock()
+
+	totalCleaned := 0
+
+	for _, repo := range reposMap {
+		// Check if repository path exists before trying to clean it up
+		if _, err := os.Stat(repo.Path); os.IsNotExist(err) {
+			continue
+		}
+
+		// Get all existing refs/catnip/ refs
+		existingRefs := make(map[string]bool)
+		output, err := s.operations.ExecuteGit(repo.Path, "for-each-ref", "--format=%(refname)", "refs/catnip/")
+		if err == nil && strings.TrimSpace(string(output)) != "" {
+			refs := strings.Split(strings.TrimSpace(string(output)), "\n")
+			for _, ref := range refs {
+				ref = strings.TrimSpace(ref)
+				if ref != "" {
+					existingRefs[ref] = true
+				}
+			}
+		}
+
+		// Get all catnip.branch-map config entries
+		configOutput, err := s.operations.ExecuteGit(repo.Path, "config", "--get-regexp", "catnip\\.branch-map\\.")
+		if err != nil {
+			continue // No config mappings or error
+		}
+
+		cleanedInRepo := 0
+		lines := strings.Split(strings.TrimSpace(string(configOutput)), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+
+			// Parse config line: "catnip.branch-map.refs.catnip.name value"
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			configKey := parts[0]
+			// Extract ref from config key: catnip.branch-map.refs.catnip.name -> refs/catnip/name
+			refName := strings.ReplaceAll(strings.TrimPrefix(configKey, "catnip.branch-map."), ".", "/")
+
+			// Check if this ref still exists
+			if !existingRefs[refName] {
+				// This config mapping is orphaned, remove it
+				if err := s.operations.UnsetConfig(repo.Path, configKey); err != nil {
+					logger.Debugf("⚠️ Failed to unset config %s: %v", configKey, err)
+				} else {
+					cleanedInRepo++
+					totalCleaned++
+					logger.Debugf("🧹 Cleaned up orphaned config mapping: %s", configKey)
+				}
+			}
+		}
+
+		if cleanedInRepo > 0 {
+			logger.Infof("✅ Cleaned up %d orphaned config mappings in %s", cleanedInRepo, repo.ID)
+		}
+	}
+
+	if totalCleaned > 0 {
+		logger.Infof("🧹 Config mappings cleanup complete: removed %d orphaned mappings", totalCleaned)
+	} else {
+		logger.Debug("✅ No orphaned config mappings found")
+	}
 }
 
 // SetupExecutor interface for executing setup.sh scripts in worktrees
@@ -496,6 +586,9 @@ func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitS
 	} else {
 		logger.Debug("🔧 Skipping branch cleanup in dev mode")
 	}
+
+	// Always clean up orphaned catnip refs and config mappings (safe in both dev and prod)
+	s.cleanupCatnipRefs()
 
 	// Start CommitSync service for automatic checkpointing
 	if err := s.commitSync.Start(); err != nil {
