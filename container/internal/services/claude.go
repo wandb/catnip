@@ -95,6 +95,7 @@ func NewClaudeService() *ClaudeService {
 		subprocessWrapper:    NewClaudeSubprocessWrapper(),
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
+		lastPostToolUse:      make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
 		suppressEventsUntil:  make(map[string]time.Time),
 	}
@@ -113,6 +114,7 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 		subprocessWrapper:    wrapper,
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
+		lastPostToolUse:      make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
 		suppressEventsUntil:  make(map[string]time.Time),
 	}
