@@ -1186,15 +1186,24 @@ func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
 		// Track both general activity and specific prompt submit
 		s.lastActivity[event.WorkingDirectory] = now
 		s.lastUserPromptSubmit[event.WorkingDirectory] = now
+		logger.Debugf("🎯 Claude hook: UserPromptSubmit in %s", event.WorkingDirectory)
+		return nil
+	case "PostToolUse":
+		// Track both general activity and specific tool use (heartbeat)
+		s.lastActivity[event.WorkingDirectory] = now
+		s.lastPostToolUse[event.WorkingDirectory] = now
+		logger.Debugf("🔧 Claude hook: PostToolUse in %s", event.WorkingDirectory)
 		return nil
 	case "Stop":
 		// Track both general activity and specific stop event
 		s.lastActivity[event.WorkingDirectory] = now
 		s.lastStopEvent[event.WorkingDirectory] = now
+		logger.Debugf("🛑 Claude hook: Stop in %s", event.WorkingDirectory)
 		return nil
 	default:
 		// For other events, just update general activity timestamp
 		s.lastActivity[event.WorkingDirectory] = now
+		logger.Debugf("🔍 Claude hook: %s in %s", event.EventType, event.WorkingDirectory)
 		return nil
 	}
 }
