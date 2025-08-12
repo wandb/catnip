@@ -50,6 +50,29 @@ export function useNotifications() {
     }
   };
 
+  // For explicit permission requests (e.g., from settings UI)
+  const requestBrowserPermission =
+    async (): Promise<NotificationPermission> => {
+      if (!isSupported) {
+        throw new Error("Notifications are not supported in this browser");
+      }
+
+      try {
+        const result = await requestPermission();
+        if (result === "granted") {
+          // Show a test notification
+          new Notification("Notifications Enabled", {
+            body: "You'll now receive notifications when Claude sessions end.",
+            icon: "/favicon.png",
+          });
+        }
+        return result;
+      } catch (error) {
+        console.error("Failed to request notification permission:", error);
+        throw error;
+      }
+    };
+
   const sendNativeNotification = async (
     payload: NotificationPayload,
   ): Promise<boolean> => {
@@ -132,6 +155,7 @@ export function useNotifications() {
     isSupported,
     notificationsEnabled,
     requestPermission,
+    requestBrowserPermission,
     showNotification,
     sendNativeNotification,
     canShowNotifications: notificationsEnabled,
