@@ -18,6 +18,7 @@ import { type LocalRepository, gitApi } from "@/lib/git-api";
 import { useAppStore } from "@/stores/appStore";
 import { useGitApi } from "@/hooks/useGitApi";
 import type { ProjectTemplate } from "@/types/template";
+import { useNavigate } from "@tanstack/react-router";
 
 interface NewWorkspaceDialogProps {
   open: boolean;
@@ -36,6 +37,7 @@ export function NewWorkspaceDialog({
 }: NewWorkspaceDialogProps) {
   const { gitStatus } = useAppStore();
   const { checkoutRepository } = useGitApi();
+  const navigate = useNavigate();
 
   const [githubUrl, setGithubUrl] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
