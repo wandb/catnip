@@ -219,7 +219,7 @@ export function NewWorkspaceDialog({
           void navigate({
             to: "/workspace/$project/$workspace",
             params: {
-              project: repoId.replace("/", "_"),
+              project: repoId,
               workspace: result.worktreeName,
             },
           });
