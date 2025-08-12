@@ -215,14 +215,17 @@ export function NewWorkspaceDialog({
 
         // Navigate to the newly created workspace
         if (result.worktreeName) {
-          // Navigate to /workspace/project/workspace
-          void navigate({
-            to: "/workspace/$project/$workspace",
-            params: {
-              project: repoId,
-              workspace: result.worktreeName,
-            },
-          });
+          // Split the worktree name (format: "projectName/workspaceName")
+          const parts = result.worktreeName.split("/");
+          if (parts.length >= 2) {
+            void navigate({
+              to: "/workspace/$project/$workspace",
+              params: {
+                project: parts[0],
+                workspace: parts[1],
+              },
+            });
+          }
         }
       } else {
         setError(
