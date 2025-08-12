@@ -150,6 +150,10 @@ func startServer(cmd *cobra.Command) {
 	// Initialize and start Claude monitor service
 	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
 
+	// Initialize macOS power manager to prevent sleep during active Claude sessions
+	powerManager := services.NewPowerManager(sessionService)
+	defer powerManager.Shutdown()
+
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService, portMonitor)
 
