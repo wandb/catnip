@@ -175,13 +175,15 @@ export function NewWorkspaceDialog({
     setCheckoutLoading(true);
     setError(null);
     try {
-      let success = false;
+      let result: { success: boolean; worktreeName?: string };
+      let repoId: string;
 
       // Check if this is a local repository (starts with "local/")
       if (url.startsWith("local/")) {
         // For local repos, extract the repo name
         const repoName = url.split("/")[1];
-        success = await checkoutRepository("local", repoName, branch);
+        repoId = `local/${repoName}`;
+        result = await checkoutRepository("local", repoName, branch);
       } else {
         // For GitHub URLs, parse the org and repo name
         // Updated regex to handle URLs with or without .git suffix
@@ -196,7 +198,8 @@ export function NewWorkspaceDialog({
         if (match) {
           const org = match[1];
           const repo = match[2];
-          success = await checkoutRepository(org, repo, branch);
+          repoId = `${org}/${repo}`;
+          result = await checkoutRepository(org, repo, branch);
         } else {
           setError(
             "Invalid GitHub URL format. Please use a valid GitHub URL or org/repo format.",
@@ -205,15 +208,22 @@ export function NewWorkspaceDialog({
         }
       }
 
-      if (success) {
+      if (result.success) {
         onOpenChange(false);
+
+        // Navigate to the newly created workspace
+        if (result.worktreeName) {
+          // The worktree name is in the format "repoId/workspaceName"
+          // We need to navigate to /workspace/repoId/workspaceName
+          window.location.href = `/workspace/${repoId}/${result.worktreeName}`;
+        }
       } else {
         setError(
           "Failed to create workspace. Please check the repository URL and try again.",
         );
       }
 
-      return success;
+      return result.success;
     } catch (error) {
       console.error("Error creating workspace:", error);
       setError(
