@@ -6,6 +6,7 @@ import {
   Plus,
   Settings,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import {
   Collapsible,
@@ -34,6 +35,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useAppStore } from "@/stores/appStore";
 import { useState, useMemo, useEffect } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
@@ -75,6 +81,21 @@ export function WorkspaceLeftSidebar() {
     worktrees: Worktree[];
     repoName: string;
   }>({ open: false, worktrees: [], repoName: "" });
+
+  const [singleWorkspaceDeleteDialog, setSingleWorkspaceDeleteDialog] =
+    useState<{
+      open: boolean;
+      worktreeId: string;
+      worktreeName: string;
+      hasChanges: boolean;
+      commitCount: number;
+    }>({
+      open: false,
+      worktreeId: "",
+      worktreeName: "",
+      hasChanges: false,
+      commitCount: 0,
+    });
 
   const { deleteWorktree } = useGitApi();
   const navigate = useNavigate();
