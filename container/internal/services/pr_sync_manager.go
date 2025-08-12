@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
-	"github.com/vanpelt/catnip/internal/utils/logger"
 )
 
 // PRSyncManager handles periodic synchronization of pull request states
