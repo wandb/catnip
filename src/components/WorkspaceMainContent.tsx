@@ -197,6 +197,13 @@ function ClaudeTerminal({
       lastWebSocketClose.current = null; // Reset close tracking
     }
 
+    // Check if we're running against mock server - skip WebSocket if so
+    const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
+    if (isMockMode) {
+      console.log("📝 Skipping Claude terminal WebSocket in mock mode");
+      return;
+    }
+
     // Set up WebSocket connection for Claude agent in the workspace directory
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const urlParams = new URLSearchParams();
