@@ -116,7 +116,6 @@ export function useNotifications() {
     requestPermission,
     showNotification,
     sendNativeNotification,
-    canShowNotifications:
-      isSupported && permission === "granted" && notificationsEnabled,
+    canShowNotifications: notificationsEnabled,
   };
 }
