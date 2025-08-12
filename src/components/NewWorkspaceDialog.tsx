@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,6 +37,7 @@ export function NewWorkspaceDialog({
 }: NewWorkspaceDialogProps) {
   const { gitStatus } = useAppStore();
   const { checkoutRepository } = useGitApi();
+  const navigate = useNavigate();
 
   const [githubUrl, setGithubUrl] = useState("");
   const [selectedBranch, setSelectedBranch] = useState("");
