@@ -1137,15 +1137,15 @@ func (s *ClaudeService) IsActiveSession(worktreePath string, within time.Duratio
 	return time.Since(lastActivity) <= within
 }
 
-// SetSuppressEvents sets event suppression for a worktree with a 5-second timeout (dead man switch)
+// SetSuppressEvents sets event suppression for a worktree with a 30-second timeout (dead man switch)
 func (s *ClaudeService) SetSuppressEvents(worktreePath string, suppress bool) {
 	s.suppressEventsMutex.Lock()
 	defer s.suppressEventsMutex.Unlock()
 
 	if suppress {
-		// Set suppression with 5-second timeout (dead man switch) - shorter to avoid interfering with user sessions
-		s.suppressEventsUntil[worktreePath] = time.Now().Add(5 * time.Second)
-		logger.Debugf("🔕 Event suppression enabled for %s (expires in 5s)", worktreePath)
+		// Set suppression with 30-second timeout (dead man switch) for automated operations like PR creation
+		s.suppressEventsUntil[worktreePath] = time.Now().Add(30 * time.Second)
+		logger.Debugf("🔕 Event suppression enabled for %s (expires in 30s)", worktreePath)
 	} else {
 		// Clear suppression
 		delete(s.suppressEventsUntil, worktreePath)
@@ -1158,7 +1158,10 @@ func (s *ClaudeService) IsSuppressingEvents(worktreePath string) bool {
 	s.suppressEventsMutex.Lock()
 	defer s.suppressEventsMutex.Unlock()
 
-	suppressUntil, exists := s.suppressEventsUntil[worktreePath]
+	// Normalize the path to worktree root for consistent suppression checking
+	normalizedPath := s.normalizeToWorktreeRoot(worktreePath)
+
+	suppressUntil, exists := s.suppressEventsUntil[normalizedPath]
 	if !exists {
 		return false
 	}
@@ -1166,18 +1169,41 @@ func (s *ClaudeService) IsSuppressingEvents(worktreePath string) bool {
 	// Check if suppression has expired (dead man switch)
 	if time.Now().After(suppressUntil) {
 		// Clean up expired suppression
-		delete(s.suppressEventsUntil, worktreePath)
-		logger.Debugf("🔊 Event suppression expired for %s (dead man switch)", worktreePath)
+		delete(s.suppressEventsUntil, normalizedPath)
+		logger.Debugf("🔊 Event suppression expired for %s (dead man switch)", normalizedPath)
 		return false
 	}
 
 	return true
 }
 
+// normalizeToWorktreeRoot normalizes a subdirectory path to its worktree root using path prefix matching
+func (s *ClaudeService) normalizeToWorktreeRoot(workingDir string) string {
+	// If not under /workspace, return as-is
+	if !strings.HasPrefix(workingDir, "/workspace/") {
+		return workingDir
+	}
+
+	// Extract the worktree root pattern: /workspace/{repo}/{worktree}
+	// Example: /workspace/catnip/earl/container -> /workspace/catnip/earl
+	parts := strings.Split(workingDir, "/")
+	if len(parts) >= 4 && parts[0] == "" && parts[1] == "workspace" {
+		// Reconstruct the worktree root path: /workspace/{repo}/{worktree}
+		worktreeRoot := "/" + strings.Join(parts[1:4], "/")
+		return worktreeRoot
+	}
+
+	// If pattern doesn't match expected structure, return original
+	return workingDir
+}
+
 // HandleHookEvent processes Claude Code hook events for activity tracking
 func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
+	// Normalize subdirectory paths to worktree root for consistent activity tracking
+	worktreeRoot := s.normalizeToWorktreeRoot(event.WorkingDirectory)
+
 	// Check if events are suppressed for this worktree
-	if s.IsSuppressingEvents(event.WorkingDirectory) {
+	if s.IsSuppressingEvents(worktreeRoot) {
 		logger.Debugf("🔕 Suppressing %s hook event for %s", event.EventType, event.WorkingDirectory)
 		return nil
 	}
@@ -1189,27 +1215,27 @@ func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
 
 	switch event.EventType {
 	case "UserPromptSubmit":
-		// Track both general activity and specific prompt submit
-		s.lastActivity[event.WorkingDirectory] = now
-		s.lastUserPromptSubmit[event.WorkingDirectory] = now
-		logger.Debugf("🎯 Claude hook: UserPromptSubmit in %s", event.WorkingDirectory)
+		// Track both general activity and specific prompt submit using worktree root
+		s.lastActivity[worktreeRoot] = now
+		s.lastUserPromptSubmit[worktreeRoot] = now
+		logger.Debugf("🎯 Claude hook: UserPromptSubmit in %s (normalized from %s)", worktreeRoot, event.WorkingDirectory)
 		return nil
 	case "PostToolUse":
-		// Track both general activity and specific tool use (heartbeat)
-		s.lastActivity[event.WorkingDirectory] = now
-		s.lastPostToolUse[event.WorkingDirectory] = now
-		logger.Debugf("🔧 Claude hook: PostToolUse in %s", event.WorkingDirectory)
+		// Track both general activity and specific tool use (heartbeat) using worktree root
+		s.lastActivity[worktreeRoot] = now
+		s.lastPostToolUse[worktreeRoot] = now
+		logger.Debugf("🔧 Claude hook: PostToolUse in %s (normalized from %s)", worktreeRoot, event.WorkingDirectory)
 		return nil
 	case "Stop":
-		// Track both general activity and specific stop event
-		s.lastActivity[event.WorkingDirectory] = now
-		s.lastStopEvent[event.WorkingDirectory] = now
-		logger.Debugf("🛑 Claude hook: Stop in %s", event.WorkingDirectory)
+		// Track both general activity and specific stop event using worktree root
+		s.lastActivity[worktreeRoot] = now
+		s.lastStopEvent[worktreeRoot] = now
+		logger.Debugf("🛑 Claude hook: Stop in %s (normalized from %s)", worktreeRoot, event.WorkingDirectory)
 		return nil
 	default:
-		// For other events, just update general activity timestamp
-		s.lastActivity[event.WorkingDirectory] = now
-		logger.Debugf("🔍 Claude hook: %s in %s", event.EventType, event.WorkingDirectory)
+		// For other events, just update general activity timestamp using worktree root
+		s.lastActivity[worktreeRoot] = now
+		logger.Debugf("🔍 Claude hook: %s in %s (normalized from %s)", event.EventType, worktreeRoot, event.WorkingDirectory)
 		return nil
 	}
 }
