@@ -57,6 +57,7 @@ interface ClaudeSettings {
   version?: string;
   hasCompletedOnboarding: boolean;
   numStartups: number;
+  notificationsEnabled: boolean;
 }
 
 interface GitHubAuthStatus {
@@ -129,11 +130,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   }, [activeSection, swaggerData]);
 
-  // Fetch Claude settings when component mounts or when switching to authentication/appearance
+  // Fetch Claude settings when component mounts or when switching to authentication/appearance/notifications
   React.useEffect(() => {
     if (
       open &&
-      (activeSection === "authentication" || activeSection === "appearance") &&
+      (activeSection === "authentication" ||
+        activeSection === "appearance" ||
+        activeSection === "notifications") &&
       !claudeSettings
     ) {
       fetch("/v1/claude/settings")
