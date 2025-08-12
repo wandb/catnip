@@ -31,19 +31,19 @@ var (
 )
 
 // GetPRSyncManager returns the singleton instance of PRSyncManager
-func GetPRSyncManager(operations Operations) *PRSyncManager {
+func GetPRSyncManager(stateManager *WorktreeStateManager) *PRSyncManager {
 	prSyncManagerOnce.Do(func() {
 		prSyncManagerInstance = &PRSyncManager{
-			operations:   operations,
+			stateManager: stateManager,
 			prStateCache: make(map[string]*models.PullRequestState),
 			syncInterval: time.Minute, // Sync every minute
 			stopChan:     make(chan bool),
 		}
 	})
 
-	// If operations provided and instance exists but has nil operations, set them
-	if operations != nil && prSyncManagerInstance.operations == nil {
-		prSyncManagerInstance.operations = operations
+	// If stateManager provided and instance exists but has nil stateManager, set it
+	if stateManager != nil && prSyncManagerInstance.stateManager == nil {
+		prSyncManagerInstance.stateManager = stateManager
 	}
 
 	return prSyncManagerInstance
