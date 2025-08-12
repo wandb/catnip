@@ -216,8 +216,7 @@ func (pm *PRSyncManager) buildBatchPRQuery(repoID string, prNumbers []int) strin
 
 	var aliases []string
 	for _, num := range prNumbers {
-		alias := fmt.Sprintf("pr%d: pullRequest(number: %d) { number title state url }", num, num)
-		aliases = append(aliases, alias)
+		aliases = append(aliases, fmt.Sprintf("pr%d: pullRequest(number: %d) { number title state url }", num, num))
 	}
 
 	return fmt.Sprintf(`query { repository(owner: "%s", name: "%s") { %s } }`,
@@ -346,5 +345,5 @@ func (pm *PRSyncManager) LoadStatesFromData(states map[string]*models.PullReques
 		pm.prStateCache[key] = state
 	}
 
-	logger.Debug("Loaded %d persisted PR states into cache", len(pm.prStateCache))
+	logger.Debugf("Loaded %d persisted PR states into cache", len(pm.prStateCache))
 }
