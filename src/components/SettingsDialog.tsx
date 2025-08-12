@@ -38,6 +38,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { useNotifications } from "@/lib/useNotifications";
 
 const settingsNav = [
   { name: "Authentication", icon: Key, id: "authentication" },
@@ -113,10 +114,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     React.useState<GitHubAuthStatus | null>(null);
   const [catnipVersion, setCatnipVersion] =
     React.useState<CatnipVersion | null>(null);
-  const [notificationPermission, setNotificationPermission] =
-    React.useState<NotificationPermission>("default");
-  const [notificationSupported, setNotificationSupported] =
-    React.useState(false);
+  const {
+    permission: notificationPermission,
+    isSupported: notificationSupported,
+    requestBrowserPermission,
+  } = useNotifications();
 
   // Fetch swagger data when component mounts
   React.useEffect(() => {
