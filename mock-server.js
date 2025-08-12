@@ -331,6 +331,26 @@ app.get("/v1/git/worktrees/:id", (req, res) => {
   }
 });
 
+app.get("/v1/git/worktrees/:id/diff", (req, res) => {
+  // Mock diff stats for the worktree
+  const worktree = mockData.gitWorktrees.find((w) => w.id === req.params.id);
+  if (worktree && worktree.is_dirty) {
+    res.json({
+      files_changed: worktree.dirty_files ? worktree.dirty_files.length : 0,
+      insertions: 42,
+      deletions: 13,
+      files: worktree.dirty_files || [],
+    });
+  } else {
+    res.json({
+      files_changed: 0,
+      insertions: 0,
+      deletions: 0,
+      files: [],
+    });
+  }
+});
+
 app.delete("/v1/git/worktrees/:id", (req, res) => {
   res.json({ message: `Worktree ${req.params.id} deleted` });
 });
@@ -427,6 +447,21 @@ app.post("/v1/notifications", (req, res) => {
   };
   mockData.notifications.push(notification);
   res.json(notification);
+});
+
+// Settings endpoint (general app settings, not Claude-specific)
+app.get("/v1/settings", (req, res) => {
+  res.json({
+    theme: "dark",
+    isAuthenticated: true,
+    apiVersion: "1.0.0",
+    features: {
+      claude: true,
+      git: true,
+      terminal: true,
+      ports: true,
+    },
+  });
 });
 
 // File upload
