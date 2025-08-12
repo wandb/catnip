@@ -31,6 +31,7 @@ type ClaudeService struct {
 	lastActivity  map[string]time.Time // Map of worktree path to last activity time
 	// Hook-based activity tracking
 	lastUserPromptSubmit map[string]time.Time // Map of worktree path to last UserPromptSubmit time
+	lastPostToolUse      map[string]time.Time // Map of worktree path to last PostToolUse time
 	lastStopEvent        map[string]time.Time // Map of worktree path to last Stop event time
 	// Event suppression for automated operations
 	suppressEventsMutex sync.RWMutex

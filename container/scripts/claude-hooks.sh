@@ -23,7 +23,7 @@ CWD=$(echo "$INPUT_JSON" | jq -r '.cwd // empty' 2>/dev/null)
 
 # Only handle the events we care about for activity tracking
 case "$HOOK_EVENT_NAME" in
-    "UserPromptSubmit"|"Stop")
+    "UserPromptSubmit"|"PostToolUse"|"Stop")
         # Good, we want to track these events
         ;;
     *)
