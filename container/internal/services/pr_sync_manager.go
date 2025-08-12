@@ -135,14 +135,16 @@ func (pm *PRSyncManager) performSync() {
 
 // collectPRRequests gathers all PR numbers that need syncing, grouped by repository
 func (pm *PRSyncManager) collectPRRequests() map[string][]int {
-	// We need to get worktrees from the state manager directly since operations doesn't have LoadGitState
-	// TODO: This is a temporary solution - we should inject the state manager properly
-	return nil
+	if pm.stateManager == nil {
+		return nil
+	}
 
 	prRequests := make(map[string][]int)
 	prPattern := regexp.MustCompile(`github\.com/([^/]+/[^/]+)/pull/(\d+)`)
 
-	for _, worktree := range gitState.Worktrees {
+	// Get all worktrees from state manager
+	allWorktrees := pm.stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
 		if worktree.PullRequestURL == "" {
 			continue
 		}
@@ -264,15 +266,15 @@ func (pm *PRSyncManager) parseBatchPRResponse(output []byte, repoID string, prNu
 
 // getWorktreeIDsForPR finds all worktree IDs that reference a specific PR
 func (pm *PRSyncManager) getWorktreeIDsForPR(repoID string, prNumber int) []string {
-	gitState, err := pm.operations.LoadGitState()
-	if err != nil {
+	if pm.stateManager == nil {
 		return nil
 	}
 
 	var worktreeIDs []string
 	expectedURL := fmt.Sprintf("https://github.com/%s/pull/%d", repoID, prNumber)
 
-	for id, worktree := range gitState.Worktrees {
+	allWorktrees := pm.stateManager.GetAllWorktrees()
+	for id, worktree := range allWorktrees {
 		if worktree.PullRequestURL == expectedURL {
 			worktreeIDs = append(worktreeIDs, id)
 		}
@@ -291,26 +293,9 @@ func (pm *PRSyncManager) updateCache(states map[string]*models.PullRequestState)
 		pm.prStateCache[key] = state
 	}
 
-	// Persist to git state
-	gitState, err := pm.operations.LoadGitState()
-	if err != nil {
-		logger.Warnf("Failed to load git state for cache update: %v", err)
-		return
-	}
-
-	if gitState.PullRequestStates == nil {
-		gitState.PullRequestStates = make(map[string]*models.PullRequestState)
-	}
-
-	// Update persisted state
-	for key, state := range states {
-		gitState.PullRequestStates[key] = state
-	}
-
-	// Save state
-	if err := pm.operations.SaveGitState(gitState); err != nil {
-		logger.Warnf("Failed to save git state after PR sync: %v", err)
-	}
+	// The state manager will automatically persist PR states when saveStateInternal is called
+	// This happens automatically during normal worktree state updates
+	logger.Debug("Updated PR cache with %d states", len(states))
 }
 
 // GetPRState returns the cached state for a specific PR
