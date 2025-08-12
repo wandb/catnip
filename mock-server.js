@@ -374,6 +374,97 @@ app.post("/v1/git/checkout/:org/:repo", (req, res) => {
   });
 });
 
+// Additional git endpoints for PR and sync functionality
+app.post("/v1/git/worktrees/:id/pr", (req, res) => {
+  res.json({
+    success: true,
+    pr_url: `https://github.com/user/repo/pull/${Math.floor(Math.random() * 1000)}`,
+    pr_number: Math.floor(Math.random() * 1000),
+  });
+});
+
+app.post("/v1/git/worktrees/:id/sync", (req, res) => {
+  res.json({
+    success: true,
+    commits_pulled: 2,
+    commits_pushed: 1,
+    conflicts: false,
+  });
+});
+
+app.get("/v1/git/worktrees/:id/sync/check", (req, res) => {
+  res.json({
+    can_sync: true,
+    commits_ahead: 1,
+    commits_behind: 2,
+    has_conflicts: false,
+  });
+});
+
+app.post("/v1/git/worktrees/:id/merge", (req, res) => {
+  res.json({
+    success: true,
+    merged: true,
+    conflicts: [],
+  });
+});
+
+app.get("/v1/git/worktrees/:id/merge/check", (req, res) => {
+  res.json({
+    can_merge: true,
+    conflicts: [],
+    commits_ahead: 0,
+    commits_behind: 0,
+  });
+});
+
+app.post("/v1/git/worktrees/:id/graduate", (req, res) => {
+  res.json({
+    success: true,
+    message: "Worktree graduated to main branch",
+  });
+});
+
+app.post("/v1/git/worktrees/:id/refresh", (req, res) => {
+  const worktree = mockData.gitWorktrees.find((w) => w.id === req.params.id);
+  if (worktree) {
+    res.json({
+      ...worktree,
+      last_refreshed: new Date().toISOString(),
+    });
+  } else {
+    res.status(404).json({ error: "Worktree not found" });
+  }
+});
+
+app.get("/v1/git/worktrees/:id/preview", (req, res) => {
+  res.json({
+    preview_url: `http://localhost:3000/preview/${req.params.id}`,
+    available: true,
+  });
+});
+
+app.get("/v1/git/template", (req, res) => {
+  res.json({
+    templates: [
+      {
+        id: "react",
+        name: "React App",
+        description: "Create React App template",
+      },
+      { id: "node", name: "Node.js", description: "Basic Node.js project" },
+      { id: "python", name: "Python", description: "Python project template" },
+    ],
+  });
+});
+
+app.post("/v1/git/worktrees/cleanup", (req, res) => {
+  res.json({
+    cleaned: 0,
+    message: "No stale worktrees found",
+  });
+});
+
 app.get("/v1/git/github/repos", (req, res) => {
   res.json([
     {
@@ -432,6 +523,19 @@ app.get("/v1/sessions/workspace/:workspace", (req, res) => {
       (s) => s.workspace === decodeURIComponent(req.params.workspace),
     ),
   );
+});
+
+app.get("/v1/sessions/workspace/:workspace/session/:sessionId", (req, res) => {
+  const session = mockData.sessions.find(
+    (s) =>
+      s.workspace === decodeURIComponent(req.params.workspace) &&
+      s.id === req.params.sessionId,
+  );
+  if (session) {
+    res.json(session);
+  } else {
+    res.status(404).json({ error: "Session not found" });
+  }
 });
 
 // Notifications
