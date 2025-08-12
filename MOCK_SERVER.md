@@ -21,8 +21,16 @@ pnpm run dev:mock
 
 This command will:
 
-1. Start the mock server on port 3001
-2. Start Vite dev server with proxy configured to redirect `/v1/*` requests to the mock server
+1. Start Vite dev server on `$PORT` (defaults to 5173)
+2. Start the mock server on `$PORT + 1` (defaults to 5174)
+3. Configure proxy to redirect `/v1/*` requests to the mock server
+
+In the Catnip environment, it automatically uses the `PORT` environment variable:
+
+```bash
+# Uses PORT from environment (e.g., in Catnip container)
+PORT=8080 pnpm run dev:mock  # Vite on 8080, mock server on 8081
+```
 
 ### Run Separately
 
@@ -40,13 +48,17 @@ pnpm run dev:with-mock
 
 ### Configuration
 
-- **Mock Server Port**: Set `MOCK_PORT` environment variable (default: 3001)
+- **Automatic Port Configuration**: When using `pnpm run dev:mock`:
+  - Vite runs on `$PORT` (or 5173 if not set)
+  - Mock server runs on `$PORT + 1` (or 5174 if not set)
+- **Manual Configuration**: When running separately:
 
   ```bash
   MOCK_PORT=3002 pnpm run mock:server
+  VITE_PORT=5173 MOCK_PORT=3002 VITE_USE_MOCK=true vite
   ```
 
-- **Vite Proxy**: When `VITE_USE_MOCK=true`, Vite will proxy all `/v1/*` requests to the mock server
+- **Vite Proxy**: When `VITE_USE_MOCK=true`, Vite will proxy all `/v1/*` requests to the mock server on `$MOCK_PORT`
 
 ## Endpoints
 
