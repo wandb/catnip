@@ -31,6 +31,7 @@ type ClaudeService struct {
 	lastActivity  map[string]time.Time // Map of worktree path to last activity time
 	// Hook-based activity tracking
 	lastUserPromptSubmit map[string]time.Time // Map of worktree path to last UserPromptSubmit time
+	lastPostToolUse      map[string]time.Time // Map of worktree path to last PostToolUse time
 	lastStopEvent        map[string]time.Time // Map of worktree path to last Stop event time
 	// Event suppression for automated operations
 	suppressEventsMutex sync.RWMutex
@@ -94,6 +95,7 @@ func NewClaudeService() *ClaudeService {
 		subprocessWrapper:    NewClaudeSubprocessWrapper(),
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
+		lastPostToolUse:      make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
 		suppressEventsUntil:  make(map[string]time.Time),
 	}
@@ -112,6 +114,7 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 		subprocessWrapper:    wrapper,
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
+		lastPostToolUse:      make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
 		suppressEventsUntil:  make(map[string]time.Time),
 	}
@@ -1183,15 +1186,24 @@ func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
 		// Track both general activity and specific prompt submit
 		s.lastActivity[event.WorkingDirectory] = now
 		s.lastUserPromptSubmit[event.WorkingDirectory] = now
+		logger.Debugf("🎯 Claude hook: UserPromptSubmit in %s", event.WorkingDirectory)
+		return nil
+	case "PostToolUse":
+		// Track both general activity and specific tool use (heartbeat)
+		s.lastActivity[event.WorkingDirectory] = now
+		s.lastPostToolUse[event.WorkingDirectory] = now
+		logger.Debugf("🔧 Claude hook: PostToolUse in %s", event.WorkingDirectory)
 		return nil
 	case "Stop":
 		// Track both general activity and specific stop event
 		s.lastActivity[event.WorkingDirectory] = now
 		s.lastStopEvent[event.WorkingDirectory] = now
+		logger.Debugf("🛑 Claude hook: Stop in %s", event.WorkingDirectory)
 		return nil
 	default:
 		// For other events, just update general activity timestamp
 		s.lastActivity[event.WorkingDirectory] = now
+		logger.Debugf("🔍 Claude hook: %s in %s", event.EventType, event.WorkingDirectory)
 		return nil
 	}
 }
@@ -1201,6 +1213,13 @@ func (s *ClaudeService) GetLastUserPromptSubmit(worktreePath string) time.Time {
 	s.activityMutex.RLock()
 	defer s.activityMutex.RUnlock()
 	return s.lastUserPromptSubmit[worktreePath]
+}
+
+// GetLastPostToolUse returns the last PostToolUse event time for a worktree
+func (s *ClaudeService) GetLastPostToolUse(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastPostToolUse[worktreePath]
 }
 
 // GetLastStopEvent returns the last Stop event time for a worktree

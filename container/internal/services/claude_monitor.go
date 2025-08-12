@@ -1307,44 +1307,52 @@ func (s *ClaudeMonitorService) GetClaudeService() *ClaudeService {
 func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) models.ClaudeActivityState {
 	now := time.Now()
 
-	// Get hook-based timestamps
+	// Get all hook-based timestamps
 	lastPromptSubmit := s.claudeService.GetLastUserPromptSubmit(worktreePath)
-	lastStopEvent := s.claudeService.GetLastStopEvent(worktreePath)
+	lastToolUse := s.claudeService.GetLastPostToolUse(worktreePath)
+	lastStop := s.claudeService.GetLastStopEvent(worktreePath)
 
-	// Use hook events for more precise activity tracking when available
-	if !lastPromptSubmit.IsZero() {
-		// If we have a recent UserPromptSubmit event (within 1 minute), definitely active
-		if now.Sub(lastPromptSubmit) <= 1*time.Minute {
-			return models.ClaudeActive
-		}
+	// Find the most recent activity event (prompt or tool use)
+	var mostRecentActivity time.Time
+	var activityType string
+	if !lastPromptSubmit.IsZero() && (lastToolUse.IsZero() || lastPromptSubmit.After(lastToolUse)) {
+		mostRecentActivity = lastPromptSubmit
+		activityType = "UserPromptSubmit"
+	} else if !lastToolUse.IsZero() {
+		mostRecentActivity = lastToolUse
+		activityType = "PostToolUse"
+	}
 
-		// If we have a Stop event after the last UserPromptSubmit, we're in the "running" phase
-		if !lastStopEvent.IsZero() && lastStopEvent.After(lastPromptSubmit) {
-			// Recent stop event (within 5 minutes) means still running but not actively generating
-			if now.Sub(lastStopEvent) <= 5*time.Minute {
-				return models.ClaudeRunning
-			}
-		} else {
-			// UserPromptSubmit without Stop event - check if it's still recent enough to be "running"
-			if now.Sub(lastPromptSubmit) <= 5*time.Minute {
-				return models.ClaudeRunning
-			}
+	// STOP EVENT OVERRIDE: Recent Stop event immediately transitions to Running
+	// regardless of recent activity (Stop indicates Claude finished generating)
+	if !lastStop.IsZero() && now.Sub(lastStop) <= 10*time.Minute {
+		// Only override if Stop is more recent than last activity, or if Stop is very recent (within 30 seconds)
+		if mostRecentActivity.IsZero() || lastStop.After(mostRecentActivity) || now.Sub(lastStop) <= 30*time.Second {
+			logger.Debugf("🟡 Claude RUNNING in %s (Stop override: %v ago)", worktreePath, now.Sub(lastStop))
+			return models.ClaudeRunning
 		}
 	}
 
-	// Without UserPromptSubmit hook events, we should be more conservative about "active" state
-	// Only PTY connection doesn't mean Claude is actively generating - wait for UserPromptSubmit
+	// ACTIVE: Claude is actively working (recent prompt or tool use, no recent Stop)
+	if !mostRecentActivity.IsZero() && now.Sub(mostRecentActivity) <= 3*time.Minute {
+		logger.Debugf("🟢 Claude ACTIVE in %s (last %s: %v ago)", worktreePath, activityType, now.Sub(mostRecentActivity))
+		return models.ClaudeActive
+	}
 
-	// Check if there's an active PTY session first - this is real user interaction
+	// RUNNING: Session active but not generating (PTY activity)
+	// Check if there's an active PTY session - real user interaction
 	if s.sessionService.IsActiveSessionActive(worktreePath) {
+		logger.Debugf("🟡 Claude RUNNING in %s (active PTY session)", worktreePath)
 		return models.ClaudeRunning
 	}
 
-	// Check if there's any recent PTY activity (within 10 minutes) to determine if "running"
+	// Check if there's any recent PTY activity (within 10 minutes)
 	if s.claudeService.IsActiveSession(worktreePath, 10*time.Minute) {
+		logger.Debugf("🟡 Claude RUNNING in %s (recent PTY activity)", worktreePath)
 		return models.ClaudeRunning
 	}
 
-	// No recent activity
+	// INACTIVE: No recent activity
+	logger.Debugf("⚪ Claude INACTIVE in %s", worktreePath)
 	return models.ClaudeInactive
 }

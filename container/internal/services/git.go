@@ -1901,9 +1901,19 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		IsInitial:    isInitial,
 	})
 	if err != nil {
-		// Check if the error is because branch already exists
+		// Check if the error is because branch already exists or worktree registration conflict
 		if strings.Contains(err.Error(), "already exists") {
 			logger.Warnf("⚠️  Branch %s already exists, trying a new name...", name)
+			// Generate a unique name that doesn't already exist
+			newName := s.generateUniqueSessionName(repo.Path)
+			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
+		} else if strings.Contains(err.Error(), "missing but already registered worktree") {
+			logger.Warnf("⚠️  Worktree registration conflict for %s, trying a new name...", name)
+			// Generate a unique name that doesn't already exist
+			newName := s.generateUniqueSessionName(repo.Path)
+			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
+		} else if strings.Contains(err.Error(), "worktree creation failed even after cleanup") {
+			logger.Warnf("⚠️  Worktree creation failed even after cleanup for %s, trying a new name...", name)
 			// Generate a unique name that doesn't already exist
 			newName := s.generateUniqueSessionName(repo.Path)
 			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
