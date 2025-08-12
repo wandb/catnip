@@ -40,6 +40,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import { useState, useMemo, useEffect } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
@@ -422,24 +423,46 @@ export function WorkspaceLeftSidebar() {
                                             worktree.name}
                                         </span>
                                         {worktree.branch && (
-                                          <Tooltip>
-                                            <TooltipTrigger asChild>
-                                              <div className="ml-auto flex items-center gap-0.5">
+                                          <Popover>
+                                            <PopoverTrigger asChild>
+                                              <div className="ml-auto flex items-center gap-0.5 cursor-pointer hover:bg-accent rounded px-1">
                                                 <GitBranch className="h-3 w-3 text-muted-foreground/70" />
                                                 <span className="text-xs text-muted-foreground truncate max-w-24">
                                                   {worktree.branch}
                                                 </span>
                                               </div>
-                                            </TooltipTrigger>
-                                            <TooltipContent
+                                            </PopoverTrigger>
+                                            <PopoverContent
                                               side="right"
                                               align="center"
+                                              className="w-auto p-3"
                                             >
-                                              <div className="text-xs">
-                                                {worktree.branch}
+                                              <div className="flex items-center justify-between gap-3">
+                                                <div>
+                                                  <div className="text-sm font-medium">
+                                                    {worktree.branch}
+                                                  </div>
+                                                  <div className="text-xs text-muted-foreground">
+                                                    {worktree.name}
+                                                  </div>
+                                                </div>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleSingleWorkspaceDelete(
+                                                      worktree,
+                                                    );
+                                                  }}
+                                                  title="Delete workspace"
+                                                >
+                                                  <Trash2 className="h-4 w-4" />
+                                                </Button>
                                               </div>
-                                            </TooltipContent>
-                                          </Tooltip>
+                                            </PopoverContent>
+                                          </Popover>
                                         )}
                                       </Link>
                                     ) : (
