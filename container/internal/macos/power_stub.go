@@ -3,8 +3,6 @@
 package macos
 
 import (
-	"fmt"
-
 	"github.com/vanpelt/catnip/internal/logger"
 )
 
