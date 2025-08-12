@@ -332,6 +332,14 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 		})
 	}
 
+	// Trigger immediate Claude activity state sync for activity-related events
+	if req.EventType == "UserPromptSubmit" || req.EventType == "PostToolUse" || req.EventType == "Stop" {
+		logger.Debugf("🔄 Triggering immediate Claude activity state sync for %s", req.EventType)
+		if stateManager := h.gitService.GetStateManager(); stateManager != nil {
+			stateManager.TriggerClaudeActivitySync()
+		}
+	}
+
 	// Handle special events that should broadcast to frontend
 	logger.Debugf("🔔 Hook processing - EventType: %s, EventsHandler nil: %t", req.EventType, h.eventsHandler == nil)
 	if h.eventsHandler != nil && req.EventType == "Stop" {

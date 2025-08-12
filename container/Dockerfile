@@ -342,7 +342,7 @@ RUN mkdir -p /home/catnip/.claude && \
     chmod +x /home/catnip/.claude/catnip-activity-hook.sh && \
     chown -R catnip:catnip /home/catnip/.claude && \
     # Create initial Claude settings.json with hooks configured
-    echo '{"hooks":{"UserPromptSubmit":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}],"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}]}}' > /home/catnip/.claude/settings.json && \
+    echo '{"hooks":{"UserPromptSubmit":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}],"PostToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}],"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}]}}' > /home/catnip/.claude/settings.json && \
     chown catnip:catnip /home/catnip/.claude/settings.json && \
     rm -rf /tmp/claude-scripts
 
