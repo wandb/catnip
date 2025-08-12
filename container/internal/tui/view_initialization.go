@@ -337,8 +337,7 @@ func (v *InitializationViewImpl) Render(m *Model) string {
 
 		outputStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(components.ColorBorder)).
-			Width(width + 2) // +2 for border
+			BorderForeground(lipgloss.Color(components.ColorBorder))
 
 		content.WriteString(outputStyle.Render(v.viewport.View()))
 	}
