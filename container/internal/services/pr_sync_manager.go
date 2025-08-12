@@ -16,7 +16,7 @@ import (
 
 // PRSyncManager handles periodic synchronization of pull request states
 type PRSyncManager struct {
-	operations   Operations
+	stateManager *WorktreeStateManager
 	prStateCache map[string]*models.PullRequestState
 	syncInterval time.Duration
 	ticker       *time.Ticker
