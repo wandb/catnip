@@ -521,20 +521,16 @@ export const useAppStore = create<AppState>()(
               const [_, worktree] = worktreeEntry;
               console.log("🔔 Found worktree for notification:", worktree);
 
-              const title =
-                event.payload.session_title ||
-                worktree.session_title?.title ||
-                "Claude Session";
               const branchName =
                 event.payload.branch_name || worktree.branch || "main";
               const lastTodo =
                 event.payload.last_todo ||
                 (worktree.todos && worktree.todos.length > 0
                   ? worktree.todos[worktree.todos.length - 1].content
-                  : "No active todos");
+                  : "Session completed");
 
-              const notificationTitle = `${title} (${branchName})`;
-              const notificationBody = `Session ended - Last todo: ${lastTodo}`;
+              const notificationTitle = `${branchName} - stopped`;
+              const notificationBody = lastTodo;
 
               console.log("🔔 Attempting to show notification:", {
                 title: notificationTitle,
