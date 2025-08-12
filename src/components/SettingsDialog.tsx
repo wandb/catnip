@@ -231,16 +231,29 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     }
   };
 
-  // Function to disable notifications (guide user to browser settings)
-  const disableNotifications = () => {
-    // We can't programmatically disable notifications, so guide the user
-    const instructions = window.navigator.userAgent.includes("Chrome")
-      ? "Go to Settings > Privacy and security > Site Settings > Notifications, find this site, and select 'Block'"
-      : window.navigator.userAgent.includes("Firefox")
-        ? "Click the shield icon in the address bar and select 'Block' for notifications"
-        : "Check your browser settings to disable notifications for this site";
+  // Function to update notifications setting
+  const updateNotificationsSetting = async (enabled: boolean) => {
+    setIsUpdatingClaudeSettings(true);
+    try {
+      const response = await fetch("/v1/claude/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ notificationsEnabled: enabled }),
+      });
 
-    alert(`To disable notifications:\n\n${instructions}`);
+      if (!response.ok) {
+        throw new Error("Failed to update notifications setting");
+      }
+
+      const updatedSettings = await response.json();
+      setClaudeSettings(updatedSettings);
+    } catch (error) {
+      console.error("Failed to update notifications setting:", error);
+    } finally {
+      setIsUpdatingClaudeSettings(false);
+    }
   };
 
   // Function to resolve $ref references in swagger spec
@@ -704,13 +717,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     </div>
                     <div className="flex items-center gap-2">
                       {notificationPermission === "granted" ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={disableNotifications}
-                        >
-                          Disable
-                        </Button>
+                        <Switch
+                          checked={claudeSettings?.notificationsEnabled ?? true}
+                          onCheckedChange={updateNotificationsSetting}
+                          disabled={isUpdatingClaudeSettings}
+                        />
                       ) : notificationPermission === "denied" ? (
                         <div className="text-right">
                           <Badge
