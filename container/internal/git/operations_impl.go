@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -208,14 +209,25 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
 		if err != nil {
-			// If it fails due to missing worktree, log but don't auto-prune
-			// Auto-pruning during runtime can delete workspaces that are being restored
+			// If it fails due to missing worktree, try to resolve the specific conflict
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
-				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
-				// Don't retry - let the error propagate so the caller can handle it
-			}
-			if err != nil {
+				logger.Debug("⚠️  Worktree registration conflict detected. Attempting targeted cleanup.")
+
+				// Try to remove the specific conflicting worktree registration
+				if cleanupErr := o.cleanupOrphanedWorktreeRegistration(repoPath, worktreePath); cleanupErr != nil {
+					logger.Debugf("❌ Failed to cleanup orphaned worktree registration: %v", cleanupErr)
+					// Fall back to suggesting manual prune
+					logger.Debugf("⚠️  To fix manually: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+					return err
+				}
+
+				// Retry the worktree creation after cleanup
+				logger.Debug("🔄 Retrying worktree creation after cleanup...")
+				_, retryErr := o.ExecuteGit(repoPath, args...)
+				if retryErr != nil {
+					return fmt.Errorf("worktree creation failed even after cleanup: %v", retryErr)
+				}
+			} else {
 				return err
 			}
 		}
@@ -247,12 +259,25 @@ func (o *OperationsImpl) CreateWorktree(repoPath, worktreePath, branch, fromRef 
 		}
 		_, err := o.ExecuteGit(repoPath, args...)
 		if err != nil {
-			// If it fails due to missing worktree, log but don't auto-prune
-			// Auto-pruning during runtime can delete workspaces that are being restored
+			// If it fails due to missing worktree, try to resolve the specific conflict
 			if strings.Contains(err.Error(), "missing but already registered worktree") {
-				logger.Debug("⚠️  Worktree registration conflict detected. This may require manual cleanup.")
-				logger.Debugf("⚠️  To fix: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
-				// Don't retry - let the error propagate so the caller can handle it
+				logger.Debug("⚠️  Worktree registration conflict detected. Attempting targeted cleanup.")
+
+				// Try to remove the specific conflicting worktree registration
+				if cleanupErr := o.cleanupOrphanedWorktreeRegistration(repoPath, worktreePath); cleanupErr != nil {
+					logger.Debugf("❌ Failed to cleanup orphaned worktree registration: %v", cleanupErr)
+					// Fall back to suggesting manual prune
+					logger.Debugf("⚠️  To fix manually: run 'git worktree prune' in %s after ensuring all workspaces are backed up", repoPath)
+					return err
+				}
+
+				// Retry the worktree creation after cleanup
+				logger.Debug("🔄 Retrying worktree creation after cleanup...")
+				_, retryErr := o.ExecuteGit(repoPath, args...)
+				if retryErr != nil {
+					return fmt.Errorf("worktree creation failed even after cleanup: %v", retryErr)
+				}
+				return nil
 			}
 		}
 		return err
@@ -306,6 +331,53 @@ func (o *OperationsImpl) ListWorktrees(repoPath string) ([]WorktreeInfo, error) 
 func (o *OperationsImpl) PruneWorktrees(repoPath string) error {
 	_, err := o.ExecuteGit(repoPath, "worktree", "prune")
 	return err
+}
+
+// cleanupOrphanedWorktreeRegistration removes a specific orphaned worktree registration
+// This is safer than `git worktree prune` which removes all orphaned registrations
+func (o *OperationsImpl) cleanupOrphanedWorktreeRegistration(repoPath, worktreePath string) error {
+	// First, list all worktrees to find the conflicting one
+	worktrees, err := o.ListWorktrees(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to list worktrees: %v", err)
+	}
+
+	// Find the specific conflicting worktree
+	var conflictingWorktree *WorktreeInfo
+	for _, wt := range worktrees {
+		if wt.Path == worktreePath {
+			conflictingWorktree = &wt
+			break
+		}
+	}
+
+	if conflictingWorktree == nil {
+		// No conflicting worktree found, nothing to clean up
+		return fmt.Errorf("no conflicting worktree registration found for path: %s", worktreePath)
+	}
+
+	// Check if the worktree path actually exists and is valid
+	if _, err := os.Stat(worktreePath); err == nil {
+		// Path exists - check if it's a valid git worktree
+		if _, gitErr := os.Stat(filepath.Join(worktreePath, ".git")); gitErr == nil {
+			// It's a valid worktree, don't remove it
+			return fmt.Errorf("path %s exists and appears to be a valid worktree", worktreePath)
+		}
+	}
+
+	// The worktree is registered but the path doesn't exist or isn't valid
+	// We can safely remove this specific registration
+	logger.Infof("🧹 Removing orphaned worktree registration for: %s", worktreePath)
+
+	// Use `git worktree remove` with --force to remove the registration
+	// even if the directory doesn't exist
+	_, err = o.ExecuteGit(repoPath, "worktree", "remove", "--force", worktreePath)
+	if err != nil {
+		return fmt.Errorf("failed to remove orphaned worktree registration: %v", err)
+	}
+
+	logger.Infof("✅ Successfully removed orphaned worktree registration for: %s", worktreePath)
+	return nil
 }
 
 // Status operations
