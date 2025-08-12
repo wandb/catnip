@@ -1206,6 +1206,13 @@ func (s *ClaudeService) GetLastUserPromptSubmit(worktreePath string) time.Time {
 	return s.lastUserPromptSubmit[worktreePath]
 }
 
+// GetLastPostToolUse returns the last PostToolUse event time for a worktree
+func (s *ClaudeService) GetLastPostToolUse(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastPostToolUse[worktreePath]
+}
+
 // GetLastStopEvent returns the last Stop event time for a worktree
 func (s *ClaudeService) GetLastStopEvent(worktreePath string) time.Time {
 	s.activityMutex.RLock()
