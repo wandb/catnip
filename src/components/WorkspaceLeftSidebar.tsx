@@ -453,6 +453,12 @@ export function WorkspaceLeftSidebar() {
                                               side="right"
                                               align="center"
                                               className="w-auto p-3"
+                                              onMouseEnter={() =>
+                                                setHoveredWorkspace(worktree.id)
+                                              }
+                                              onMouseLeave={() =>
+                                                setHoveredWorkspace(null)
+                                              }
                                             >
                                               <div className="flex items-center justify-between gap-3">
                                                 <div>
