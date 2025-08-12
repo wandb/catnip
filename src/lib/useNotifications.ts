@@ -12,6 +12,7 @@ export function useNotifications() {
   const [permission, setPermission] =
     useState<NotificationPermission>("default");
   const [isSupported, setIsSupported] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   useEffect(() => {
     const supported = "Notification" in window;
@@ -20,6 +21,18 @@ export function useNotifications() {
     if (supported) {
       setPermission(Notification.permission);
     }
+
+    // Fetch notifications setting from the API
+    fetch("/v1/claude/settings")
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.notificationsEnabled !== undefined) {
+          setNotificationsEnabled(data.notificationsEnabled);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to fetch notifications setting:", error);
+      });
   }, []);
 
   const requestPermission = async (): Promise<NotificationPermission> => {
@@ -65,6 +78,12 @@ export function useNotifications() {
     title: string,
     options?: NotificationOptions,
   ) => {
+    // Check if notifications are enabled in settings
+    if (!notificationsEnabled) {
+      console.log("Notifications are disabled in settings");
+      return null;
+    }
+
     const payload: NotificationPayload = {
       title,
       body: options?.body || "",
@@ -93,9 +112,11 @@ export function useNotifications() {
   return {
     permission,
     isSupported,
+    notificationsEnabled,
     requestPermission,
     showNotification,
     sendNativeNotification,
-    canShowNotifications: isSupported && permission === "granted",
+    canShowNotifications:
+      isSupported && permission === "granted" && notificationsEnabled,
   };
 }
