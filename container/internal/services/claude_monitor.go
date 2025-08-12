@@ -1323,21 +1323,23 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 		activityType = "PostToolUse"
 	}
 
-	// ACTIVE: Claude is actively working (recent prompt or tool use)
+	// STOP EVENT OVERRIDE: Recent Stop event immediately transitions to Running
+	// regardless of recent activity (Stop indicates Claude finished generating)
+	if !lastStop.IsZero() && now.Sub(lastStop) <= 10*time.Minute {
+		// Only override if Stop is more recent than last activity, or if Stop is very recent (within 30 seconds)
+		if mostRecentActivity.IsZero() || lastStop.After(mostRecentActivity) || now.Sub(lastStop) <= 30*time.Second {
+			logger.Debugf("🟡 Claude RUNNING in %s (Stop override: %v ago)", worktreePath, now.Sub(lastStop))
+			return models.ClaudeRunning
+		}
+	}
+
+	// ACTIVE: Claude is actively working (recent prompt or tool use, no recent Stop)
 	if !mostRecentActivity.IsZero() && now.Sub(mostRecentActivity) <= 3*time.Minute {
 		logger.Debugf("🟢 Claude ACTIVE in %s (last %s: %v ago)", worktreePath, activityType, now.Sub(mostRecentActivity))
 		return models.ClaudeActive
 	}
 
-	// RUNNING: Session active but not generating (recent stop event or PTY activity)
-	// Check for recent Stop event after activity
-	if !lastStop.IsZero() && (!mostRecentActivity.IsZero() && lastStop.After(mostRecentActivity)) {
-		if now.Sub(lastStop) <= 10*time.Minute {
-			logger.Debugf("🟡 Claude RUNNING in %s (Stop event: %v ago)", worktreePath, now.Sub(lastStop))
-			return models.ClaudeRunning
-		}
-	}
-
+	// RUNNING: Session active but not generating (PTY activity)
 	// Check if there's an active PTY session - real user interaction
 	if s.sessionService.IsActiveSessionActive(worktreePath) {
 		logger.Debugf("🟡 Claude RUNNING in %s (active PTY session)", worktreePath)
