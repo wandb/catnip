@@ -424,8 +424,12 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 			if settings, err := h.claudeService.GetClaudeSettings(); err == nil && settings.NotificationsEnabled {
 				logger.Debugf("🔔 Emitting notification event: %s", title)
 
-				// Generate workspace URL
-				workspaceURL := fmt.Sprintf("http://localhost:8080/workspace%s", workspaceDir)
+				// Generate workspace URL - remove /workspace prefix if present
+				workspacePath := workspaceDir
+				if strings.HasPrefix(workspacePath, "/workspace") {
+					workspacePath = workspacePath[10:] // Remove "/workspace"
+				}
+				workspaceURL := fmt.Sprintf("http://localhost:8080/workspace%s", workspacePath)
 
 				h.eventsHandler.broadcastEvent(AppEvent{
 					Type: NotificationEvent,
