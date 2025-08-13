@@ -13,11 +13,12 @@ import (
 
 // SSEClient handles Server-Sent Events connections
 type SSEClient struct {
-	url       string
-	program   *tea.Program
-	stopChan  chan struct{}
-	connected bool
-	onEvent   func(AppEvent)
+	url              string
+	program          *tea.Program
+	stopChan         chan struct{}
+	connected        bool
+	onEvent          func(AppEvent)
+	onWorktreeUpdate func(worktrees []WorktreeInfo) // Callback for worktree updates
 }
 
 // SSEMessage represents Server-Sent Events message types matching the server
@@ -34,16 +35,18 @@ type AppEvent struct {
 
 // Event type constants
 const (
-	PortOpenedEvent      = "port:opened"
-	PortClosedEvent      = "port:closed"
-	GitDirtyEvent        = "git:dirty"
-	GitCleanEvent        = "git:clean"
-	ProcessStartedEvent  = "process:started"
-	ProcessStoppedEvent  = "process:stopped"
-	ContainerStatusEvent = "container:status"
-	PortMappedEvent      = "port:mapped"
-	HeartbeatEvent       = "heartbeat"
-	NotificationEvent    = "notification:show"
+	PortOpenedEvent           = "port:opened"
+	PortClosedEvent           = "port:closed"
+	GitDirtyEvent             = "git:dirty"
+	GitCleanEvent             = "git:clean"
+	ProcessStartedEvent       = "process:started"
+	ProcessStoppedEvent       = "process:stopped"
+	ContainerStatusEvent      = "container:status"
+	PortMappedEvent           = "port:mapped"
+	HeartbeatEvent            = "heartbeat"
+	NotificationEvent         = "notification:show"
+	WorktreeUpdatedEvent      = "worktree:updated"
+	WorktreeBatchUpdatedEvent = "worktree:batch_updated"
 )
 
 // SSE event messages are defined in messages.go
