@@ -111,16 +111,18 @@ import (
 )
 
 // SendNativeNotification sends a native macOS notification using the clean, simple approach
-func SendNativeNotification(title, body, subtitle string) error {
+func SendNativeNotification(title, body, subtitle, url string) error {
 	cTitle := C.CString(title)
 	cBody := C.CString(body)
 	cSubtitle := C.CString(subtitle)
+	cURL := C.CString(url)
 
 	defer C.free(unsafe.Pointer(cTitle))
 	defer C.free(unsafe.Pointer(cBody))
 	defer C.free(unsafe.Pointer(cSubtitle))
+	defer C.free(unsafe.Pointer(cURL))
 
-	C.sendNotification(cTitle, cBody, cSubtitle)
+	C.sendNotification(cTitle, cBody, cSubtitle, cURL)
 	return nil
 }
 
