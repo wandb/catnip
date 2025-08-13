@@ -61,6 +61,7 @@ type App struct {
 	program          *tea.Program
 	sseClient        *SSEClient
 	portForwarder    *PortForwardManager
+	powerManager     *HostPowerManager
 
 	// Initialization parameters
 	containerImage string
