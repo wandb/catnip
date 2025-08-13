@@ -155,14 +155,14 @@ func (pm *HostPowerManager) createAssertion(activeWorkspaces []string) {
 
 	assertion, err := macos.NewPowerAssertion(reason)
 	if err != nil {
-		logger.Errorf("🔋 Failed to create power assertion: %v", err)
+		debugLog("🔋 Failed to create power assertion: %v", err)
 		return
 	}
 
 	pm.powerAssertion = assertion
 	pm.assertionStart = time.Now()
 
-	logger.Infof("🔋 Created power assertion for %d active Claude workspace(s): %v",
+	debugLog("🔋 Created power assertion for %d active Claude workspace(s): %v",
 		len(activeWorkspaces), activeWorkspaces)
 }
 
@@ -174,10 +174,10 @@ func (pm *HostPowerManager) releaseAssertion(reason string) {
 
 	err := pm.powerAssertion.Release()
 	if err != nil {
-		logger.Errorf("🔋 Failed to release power assertion: %v", err)
+		debugLog("🔋 Failed to release power assertion: %v", err)
 	} else {
 		duration := time.Since(pm.assertionStart)
-		logger.Infof("🔋 Released power assertion after %v (reason: %s)",
+		debugLog("🔋 Released power assertion after %v (reason: %s)",
 			duration.Round(time.Second), reason)
 	}
 
