@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/macos"
 	"github.com/vanpelt/catnip/internal/models"
 )
@@ -112,7 +111,7 @@ func (pm *HostPowerManager) checkAndUpdateAssertion() {
 
 	// Dead man switch: Release assertion if it's been active too long
 	if currentlyAsserted && pm.assertionExceedsMaxAge() {
-		logger.Warnf("🔋 Dead man switch triggered: power assertion exceeded max age (%v), releasing", pm.maxAssertionAge)
+		debugLog("🔋 Dead man switch triggered: power assertion exceeded max age (%v), releasing", pm.maxAssertionAge)
 		pm.releaseAssertion("dead man switch")
 		return
 	}
