@@ -72,13 +72,16 @@ void sendNotification(const char* title, const char* body, const char* subtitle,
             notification.subtitle = [NSString stringWithUTF8String:subtitle];
         }
 
-        // Add URL to userInfo if provided
+        // Add URL to userInfo - use default workspace URL if none provided
+        NSString *urlString;
         if (url && strlen(url) > 0) {
-            NSString *urlString = [NSString stringWithUTF8String:url];
-            notification.userInfo = @{@"url": urlString};
-            notification.hasActionButton = YES;
-            notification.actionButtonTitle = @"Show";
+            urlString = [NSString stringWithUTF8String:url];
+        } else {
+            urlString = @"http://localhost:8080/workspace";
         }
+        notification.userInfo = @{@"url": urlString};
+        notification.hasActionButton = YES;
+        notification.actionButtonTitle = @"Show";
 
         notification.soundName = NSUserNotificationDefaultSoundName;
 
