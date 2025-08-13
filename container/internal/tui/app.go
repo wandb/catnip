@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 	"github.com/vanpelt/catnip/internal/tui/components"
 )
@@ -54,6 +55,15 @@ func writeToDebugFile(msg string) {
 	_, _ = fmt.Fprintf(file, "%s TUI: %s\n", timestamp, msg)
 }
 
+// WorktreeState represents the state of a worktree in the TUI
+type WorktreeState struct {
+	ID                  string                     `json:"id"`
+	Path                string                     `json:"path"`
+	Name                string                     `json:"name"`
+	ClaudeActivityState models.ClaudeActivityState `json:"claude_activity_state"`
+	// Add other fields as needed
+}
+
 // App represents the main TUI application
 type App struct {
 	containerService *services.ContainerService
@@ -62,6 +72,9 @@ type App struct {
 	sseClient        *SSEClient
 	portForwarder    *PortForwardManager
 	powerManager     *HostPowerManager
+
+	// State management
+	worktrees map[string]*WorktreeState // worktree_id -> WorktreeState
 
 	// Initialization parameters
 	containerImage string
@@ -92,7 +105,113 @@ func NewApp(containerService *services.ContainerService, containerName, workDir,
 		rmFlag:           rmFlag,
 		envVars:          envVars,
 		dind:             dind,
+		worktrees:        make(map[string]*WorktreeState),
 	}
+}
+
+// addWorktree adds a new worktree to the state
+func (a *App) addWorktree(worktreeData map[string]interface{}) {
+	id, _ := worktreeData["id"].(string)
+	path, _ := worktreeData["path"].(string)
+	name, _ := worktreeData["name"].(string)
+
+	// Get activity state if present
+	activityState := models.ClaudeInactive
+	if state, ok := worktreeData["claude_activity_state"].(string); ok {
+		activityState = models.ClaudeActivityState(state)
+	}
+
+	a.worktrees[id] = &WorktreeState{
+		ID:                  id,
+		Path:                path,
+		Name:                name,
+		ClaudeActivityState: activityState,
+	}
+
+	debugLog("Worktree added: %s (ID: %s) -> %s", path, id, activityState)
+}
+
+// updateWorktree updates or creates a worktree in the state
+func (a *App) updateWorktree(worktreeID string, updates map[string]interface{}) {
+	worktree, exists := a.worktrees[worktreeID]
+	if !exists {
+		// Create new worktree state if it doesn't exist
+		worktree = &WorktreeState{
+			ID: worktreeID,
+		}
+		a.worktrees[worktreeID] = worktree
+	}
+
+	// Apply updates
+	if path, ok := updates["path"].(string); ok {
+		worktree.Path = path
+	}
+	if name, ok := updates["name"].(string); ok {
+		worktree.Name = name
+	}
+	if activityState, ok := updates["claude_activity_state"].(string); ok {
+		worktree.ClaudeActivityState = models.ClaudeActivityState(activityState)
+	}
+
+	debugLog("Worktree updated: %s (ID: %s) -> %s", worktree.Path, worktreeID, worktree.ClaudeActivityState)
+}
+
+// getAllWorktreesForPowerManager returns worktree info for the power manager
+func (a *App) getAllWorktreesForPowerManager() []WorktreeInfo {
+	var worktreeInfos []WorktreeInfo
+	for _, worktree := range a.worktrees {
+		if worktree.Path != "" { // Only include worktrees with known paths
+			worktreeInfos = append(worktreeInfos, WorktreeInfo{
+				Path:                worktree.Path,
+				ClaudeActivityState: worktree.ClaudeActivityState,
+			})
+		}
+	}
+	return worktreeInfos
+}
+
+// loadInitialWorktrees loads worktree data from the backend to populate paths
+func (a *App) loadInitialWorktrees(port string) {
+	debugLog("Loading initial worktrees from backend...")
+
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/v1/git/worktrees", port))
+	if err != nil {
+		debugLog("Failed to load worktrees: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		debugLog("Failed to load worktrees: HTTP %d", resp.StatusCode)
+		return
+	}
+
+	var worktrees []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&worktrees); err != nil {
+		debugLog("Failed to decode worktrees: %v", err)
+		return
+	}
+
+	// Populate worktree state with IDs and paths
+	for _, wt := range worktrees {
+		if id, ok := wt["id"].(string); ok {
+			if path, ok := wt["path"].(string); ok {
+				a.worktrees[id] = &WorktreeState{
+					ID:                  id,
+					Path:                path,
+					Name:                wt["name"].(string),
+					ClaudeActivityState: models.ClaudeInactive, // Default to inactive
+				}
+				debugLog("Loaded worktree: %s -> %s", id, path)
+			}
+		}
+	}
+
+	debugLog("Loaded %d worktrees", len(a.worktrees))
 }
 
 // Run starts the TUI application and returns the final active container name
@@ -128,10 +247,37 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	// Initialize SSE client
 	sseClient := NewSSEClient(fmt.Sprintf("http://localhost:%s/v1/events", mainPort), nil)
 
-	// Set up worktree update hook for power management
-	sseClient.onWorktreeUpdate = func(worktrees []WorktreeInfo) {
+	// Set up connection callback to load initial worktrees
+	sseClient.onConnected = func() {
+		// Load initial worktree data once we're connected to the backend
+		a.loadInitialWorktrees(mainPort)
+	}
+
+	// Set up worktree creation hook
+	sseClient.onWorktreeCreated = func(worktree map[string]interface{}) {
+		// Add new worktree to app state
+		a.addWorktree(worktree)
+
+		// Update power manager with all current worktree states
 		if a.powerManager != nil {
-			a.powerManager.UpdateWorktreeBatch(worktrees)
+			worktreeInfos := a.getAllWorktreesForPowerManager()
+			if len(worktreeInfos) > 0 {
+				a.powerManager.UpdateWorktreeBatch(worktreeInfos)
+			}
+		}
+	}
+
+	// Set up worktree update hook for power management and state management
+	sseClient.onWorktreeUpdateWithID = func(worktreeID string, updates map[string]interface{}) {
+		// Update app's worktree state
+		a.updateWorktree(worktreeID, updates)
+
+		// Update power manager with all current worktree states
+		if a.powerManager != nil {
+			worktreeInfos := a.getAllWorktreesForPowerManager()
+			if len(worktreeInfos) > 0 {
+				a.powerManager.UpdateWorktreeBatch(worktreeInfos)
+			}
 		}
 	}
 

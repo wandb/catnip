@@ -10,19 +10,20 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vanpelt/catnip/internal/models"
 )
 
 // SSEClient handles Server-Sent Events connections
 type SSEClient struct {
-	url                   string
-	program               *tea.Program
-	stopChan              chan struct{}
-	connected             bool
-	onEvent               func(AppEvent)
-	onWorktreeUpdate      func(worktrees []WorktreeInfo) // Callback for worktree updates
-	notificationHistory   map[string]time.Time           // Title -> timestamp for deduplication
-	notificationHistoryMu sync.RWMutex
+	url                    string
+	program                *tea.Program
+	stopChan               chan struct{}
+	connected              bool
+	onEvent                func(AppEvent)
+	onWorktreeUpdateWithID func(worktreeID string, updates map[string]interface{}) // Callback for worktree updates with ID
+	onWorktreeCreated      func(worktree map[string]interface{})                   // Callback for worktree creation
+	onConnected            func()                                                  // Callback when connection is established
+	notificationHistory    map[string]time.Time                                    // Title -> timestamp for deduplication
+	notificationHistoryMu  sync.RWMutex
 }
 
 // SSEMessage represents Server-Sent Events message types matching the server
@@ -51,6 +52,7 @@ const (
 	NotificationEvent         = "notification:show"
 	WorktreeUpdatedEvent      = "worktree:updated"
 	WorktreeBatchUpdatedEvent = "worktree:batch_updated"
+	WorktreeCreatedEvent      = "worktree:created"
 )
 
 // SSE event messages are defined in messages.go
@@ -149,6 +151,10 @@ func (c *SSEClient) handleConnection() error {
 		debugLog("TUI SSE: Successfully connected")
 		if c.program != nil {
 			c.program.Send(sseConnectedMsg{})
+		}
+		// Call onConnected callback if set
+		if c.onConnected != nil {
+			c.onConnected()
 		}
 	} else {
 		debugLog("TUI SSE: Already connected, continuing stream")
@@ -309,44 +315,48 @@ func (c *SSEClient) processEvent(data string) {
 	case WorktreeUpdatedEvent:
 		// Single worktree update
 		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
-			if worktree, ok := payload["worktree"].(map[string]interface{}); ok {
-				path, _ := worktree["path"].(string)
-				activityState, _ := worktree["claude_activity_state"].(string)
+			worktreeID, _ := payload["worktree_id"].(string)
+			if updates, ok := payload["updates"].(map[string]interface{}); ok {
+				activityState, _ := updates["claude_activity_state"].(string)
 
-				debugLog("TUI SSE: Worktree updated: %s -> %s", path, activityState)
+				debugLog("TUI SSE: Worktree updated: %s -> %s", worktreeID, activityState)
 
-				if c.onWorktreeUpdate != nil {
-					c.onWorktreeUpdate([]WorktreeInfo{
-						{
-							Path:                path,
-							ClaudeActivityState: models.ClaudeActivityState(activityState),
-						},
-					})
+				// Call the new worktree update callback with ID and updates
+				if c.onWorktreeUpdateWithID != nil {
+					c.onWorktreeUpdateWithID(worktreeID, updates)
 				}
 			}
 		}
 
 	case WorktreeBatchUpdatedEvent:
-		// Multiple worktrees updated
+		// Multiple worktrees updated - handle each one individually
 		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
-			if worktreesData, ok := payload["worktrees"].([]interface{}); ok {
-				var worktrees []WorktreeInfo
-				for _, wtData := range worktreesData {
-					if wt, ok := wtData.(map[string]interface{}); ok {
-						path, _ := wt["path"].(string)
-						activityState, _ := wt["claude_activity_state"].(string)
+			if updates, ok := payload["updates"].(map[string]interface{}); ok {
+				debugLog("TUI SSE: Batch worktree update: %d worktrees", len(updates))
 
-						worktrees = append(worktrees, WorktreeInfo{
-							Path:                path,
-							ClaudeActivityState: models.ClaudeActivityState(activityState),
-						})
+				// Process each worktree update individually
+				for worktreeID, updateData := range updates {
+					if updateMap, ok := updateData.(map[string]interface{}); ok {
+						if c.onWorktreeUpdateWithID != nil {
+							c.onWorktreeUpdateWithID(worktreeID, updateMap)
+						}
 					}
 				}
+			}
+		}
 
-				debugLog("TUI SSE: Batch worktree update: %d worktrees", len(worktrees))
+	case WorktreeCreatedEvent:
+		// New worktree created
+		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
+			if worktree, ok := payload["worktree"].(map[string]interface{}); ok {
+				worktreeID, _ := worktree["id"].(string)
+				worktreePath, _ := worktree["path"].(string)
 
-				if c.onWorktreeUpdate != nil && len(worktrees) > 0 {
-					c.onWorktreeUpdate(worktrees)
+				debugLog("TUI SSE: Worktree created: %s -> %s", worktreeID, worktreePath)
+
+				// Call the worktree created callback
+				if c.onWorktreeCreated != nil {
+					c.onWorktreeCreated(worktree)
 				}
 			}
 		}
