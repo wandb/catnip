@@ -106,17 +106,17 @@ func (pm *PRSyncManager) syncLoop() {
 
 // performSync executes a single sync cycle
 func (pm *PRSyncManager) performSync() {
-	logger.Debug("Starting PR sync cycle")
+	// logger.Debug("Starting PR sync cycle")
 
 	// Get all worktrees with PR URLs
 	prRequests := pm.collectPRRequests()
 
 	if len(prRequests) == 0 {
-		logger.Debug("No PRs to sync")
+		// logger.Debug("No PRs to sync")
 		return
 	}
 
-	logger.Debugf("Found %d repositories with PRs to sync", len(prRequests))
+	// logger.Debugf("Found %d repositories with PRs to sync", len(prRequests))
 
 	// Sync PR states for each repository
 	for repoID, prNumbers := range prRequests {
@@ -130,7 +130,7 @@ func (pm *PRSyncManager) performSync() {
 		pm.updateCache(states)
 	}
 
-	logger.Debug("PR sync cycle completed")
+	// logger.Debug("PR sync cycle completed")
 }
 
 // collectPRRequests gathers all PR numbers that need syncing, grouped by repository

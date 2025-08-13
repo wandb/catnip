@@ -1328,7 +1328,7 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 	if !lastStop.IsZero() && now.Sub(lastStop) <= 10*time.Minute {
 		// Only override if Stop is more recent than last activity, or if Stop is very recent (within 30 seconds)
 		if mostRecentActivity.IsZero() || lastStop.After(mostRecentActivity) || now.Sub(lastStop) <= 30*time.Second {
-			logger.Debugf("🟡 Claude RUNNING in %s (Stop override: %v ago)", worktreePath, now.Sub(lastStop))
+			// logger.Debugf("🟡 Claude RUNNING in %s (Stop override: %v ago)", worktreePath, now.Sub(lastStop))
 			return models.ClaudeRunning
 		}
 	}
@@ -1342,17 +1342,17 @@ func (s *ClaudeMonitorService) GetClaudeActivityState(worktreePath string) model
 	// RUNNING: Session active but not generating (PTY activity)
 	// Check if there's an active PTY session - real user interaction
 	if s.sessionService.IsActiveSessionActive(worktreePath) {
-		logger.Debugf("🟡 Claude RUNNING in %s (active PTY session)", worktreePath)
+		// logger.Debugf("🟡 Claude RUNNING in %s (active PTY session)", worktreePath)
 		return models.ClaudeRunning
 	}
 
 	// Check if there's any recent PTY activity (within 10 minutes)
 	if s.claudeService.IsActiveSession(worktreePath, 10*time.Minute) {
-		logger.Debugf("🟡 Claude RUNNING in %s (recent PTY activity)", worktreePath)
+		// logger.Debugf("🟡 Claude RUNNING in %s (recent PTY activity)", worktreePath)
 		return models.ClaudeRunning
 	}
 
 	// INACTIVE: No recent activity
-	logger.Debugf("⚪ Claude INACTIVE in %s", worktreePath)
+	// logger.Debugf("⚪ Claude INACTIVE in %s", worktreePath)
 	return models.ClaudeInactive
 }

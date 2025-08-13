@@ -451,6 +451,21 @@ func (s *GitService) getSourceRef(worktree *models.Worktree) string {
 		// The live remote can become stale and doesn't represent the current state
 		return worktree.SourceBranch
 	}
+
+	// Check if origin remote exists and is valid in the worktree
+	remotes, err := s.operations.GetRemotes(worktree.Path)
+	if err != nil || remotes["origin"] == "" {
+		// No valid origin remote, use local branch
+		return worktree.SourceBranch
+	}
+
+	// Check if origin points to a temp directory (template repos)
+	originURL := remotes["origin"]
+	if strings.HasPrefix(originURL, "/tmp/template-") {
+		// Template repo with invalid temp directory origin, use local branch
+		return worktree.SourceBranch
+	}
+
 	return fmt.Sprintf("origin/%s", worktree.SourceBranch)
 }
 
@@ -2459,7 +2474,18 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 		return nil, nil, fmt.Errorf("project name is required")
 	}
 
-	repoID := fmt.Sprintf("local/%s", projectName)
+	// Get GitHub username from git config for template repos
+	// This distinguishes them from local clones of live repos
+	var repoID string
+	usernameOutput, err := s.operations.ExecuteGit(".", "config", "--global", "user.name")
+	if err != nil || strings.TrimSpace(string(usernameOutput)) == "" {
+		// Fallback to "template" if no username is configured
+		logger.Warnf("⚠️ No git user.name configured, using 'template' prefix for repository")
+		repoID = fmt.Sprintf("template/%s", projectName)
+	} else {
+		username := strings.TrimSpace(string(usernameOutput))
+		repoID = fmt.Sprintf("%s/%s", username, projectName)
+	}
 
 	// Check if repository already exists in our state
 	if _, exists := s.stateManager.GetRepository(repoID); exists {
@@ -2483,6 +2509,11 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	tempDir := filepath.Join("/tmp", fmt.Sprintf("template-%s-%d", projectName, time.Now().Unix()))
 	defer os.RemoveAll(tempDir)
 
+	// Create the temp directory first
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return nil, nil, fmt.Errorf("failed to create temp directory: %v", err)
+	}
+
 	projectPath := filepath.Join(tempDir, projectName)
 
 	// Create the project based on template type
@@ -2491,13 +2522,13 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	var cmd *exec.Cmd
 	switch templateID {
 	case "react-vite":
-		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "react-ts")
+		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "react-ts", "--yes")
 		cmd.Dir = tempDir
 	case "vue-vite":
-		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "vue-ts")
+		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "vue-ts", "--yes")
 		cmd.Dir = tempDir
 	case "nextjs-app":
-		cmd = exec.Command("pnpm", "create", "next-app", projectName, "--typescript", "--tailwind", "--app", "--no-eslint")
+		cmd = exec.Command("pnpm", "create", "next-app", projectName, "--typescript", "--tailwind", "--app", "--no-eslint", "--yes")
 		cmd.Dir = tempDir
 	case "node-express", "python-fastapi":
 		// For these, we create the directory manually and populate it

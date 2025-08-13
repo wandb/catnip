@@ -634,15 +634,26 @@ func (css *CommitSyncService) syncToNiceBranch(commitInfo *CommitInfo) error {
 
 	logger.Debugf("🔄 Synced nice branch %s to commit %s from %s", niceBranch, commitInfo.CommitHash[:8], commitInfo.Branch)
 
-	// For local repositories, also push the nice branch to the main repository
+	// For local and template repositories, also sync the nice branch to the bare repository
 	repo, err := css.findRepositoryForWorktree(commitInfo.WorktreePath)
-	if err == nil && strings.HasPrefix(repo.ID, "local/") {
-		// Push the nice branch to the catnip-live remote (which points to the main repo)
-		_, pushErr := css.operations.ExecuteGit(commitInfo.WorktreePath, "push", "catnip-live", fmt.Sprintf("%s:%s", niceBranch, niceBranch), "--force-with-lease")
-		if pushErr != nil {
-			logger.Warnf("⚠️ Failed to push nice branch to catnip-live remote: %v", pushErr)
+	if err == nil {
+		if strings.HasPrefix(repo.ID, "local/") {
+			// Push the nice branch to the catnip-live remote (which points to the main repo)
+			_, pushErr := css.operations.ExecuteGit(commitInfo.WorktreePath, "push", "catnip-live", fmt.Sprintf("%s:%s", niceBranch, niceBranch), "--force-with-lease")
+			if pushErr != nil {
+				logger.Warnf("⚠️ Failed to push nice branch to catnip-live remote: %v", pushErr)
+			} else {
+				logger.Infof("✅ Pushed nice branch %s to catnip-live remote", niceBranch)
+			}
 		} else {
-			logger.Infof("✅ Pushed nice branch %s to catnip-live remote", niceBranch)
+			// For template repositories and other bare repos, sync the nice branch directly to the bare repository
+			niceBranchRef := fmt.Sprintf("refs/heads/%s", niceBranch)
+			_, err = css.operations.ExecuteGit(repo.Path, "update-ref", niceBranchRef, commitInfo.CommitHash)
+			if err != nil {
+				logger.Warnf("⚠️ Failed to sync nice branch %s to bare repository: %v", niceBranch, err)
+			} else {
+				logger.Infof("✅ Synced nice branch %s to bare repository", niceBranch)
+			}
 		}
 	}
 

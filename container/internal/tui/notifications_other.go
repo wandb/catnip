@@ -12,6 +12,12 @@ func SendNativeNotification(title, body, subtitle, url string) error {
 	return fmt.Errorf("native notifications not supported on this platform")
 }
 
+// SendNativeNotificationAsync is a no-op on non-macOS platforms
+func SendNativeNotificationAsync(title, body, subtitle, url string) error {
+	debugLog("Notification async (unsupported platform): %s - %s (URL: %s)", title, body, url)
+	return fmt.Errorf("native notifications not supported on this platform")
+}
+
 // IsNotificationSupported returns false on non-macOS platforms
 func IsNotificationSupported() bool {
 	return false
