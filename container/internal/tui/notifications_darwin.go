@@ -9,6 +9,26 @@ package tui
 #import <Foundation/Foundation.h>
 #import <Cocoa/Cocoa.h>
 
+@interface NotificationDelegate : NSObject <NSUserNotificationCenterDelegate>
+@end
+
+@implementation NotificationDelegate
+- (BOOL)userNotificationCenter:(NSUserNotificationCenter *)center shouldPresentNotification:(NSUserNotification *)notification {
+    return YES;
+}
+
+- (void)userNotificationCenter:(NSUserNotificationCenter *)center didActivateNotification:(NSUserNotification *)notification {
+    if (notification.activationType == NSUserNotificationActivationTypeActionButtonClicked) {
+        NSString *url = notification.userInfo[@"url"];
+        if (url) {
+            [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:url]];
+        }
+    }
+}
+@end
+
+static NotificationDelegate *notificationDelegate = nil;
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
@@ -36,6 +56,12 @@ void sendNotification(const char* title, const char* body, const char* subtitle,
         if (!center) {
             NSLog(@"[Catnip] ERROR: Could not get NSUserNotificationCenter");
             return;
+        }
+
+        // Set up delegate for handling clicks (only once)
+        if (!notificationDelegate) {
+            notificationDelegate = [[NotificationDelegate alloc] init];
+            center.delegate = notificationDelegate;
         }
 
         NSUserNotification *notification = [[NSUserNotification alloc] init];
