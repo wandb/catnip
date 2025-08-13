@@ -72,8 +72,9 @@ func TestGitServiceMethods(t *testing.T) {
 	})
 
 	t.Run("DeleteWorktree_NonExistent", func(t *testing.T) {
-		err := service.DeleteWorktree("non-existent")
+		done, err := service.DeleteWorktree("non-existent")
 		assert.Error(t, err)
+		assert.Nil(t, done)
 		assert.Contains(t, err.Error(), "worktree non-existent not found")
 	})
 }

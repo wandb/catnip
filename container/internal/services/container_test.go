@@ -98,11 +98,11 @@ func TestDetectContainerRuntime(t *testing.T) {
 		return
 	}
 
-	// Should prefer container over docker
-	if commandExists("container") && runtime != RuntimeApple {
-		t.Errorf("Expected Apple Container runtime when container command is available, got %v", runtime)
-	} else if !commandExists("container") && commandExists("docker") && runtime != RuntimeDocker {
-		t.Errorf("Expected Docker runtime when only docker is available, got %v", runtime)
+	// Should prefer docker over container
+	if commandExists("docker") && runtime != RuntimeDocker {
+		t.Errorf("Expected Docker runtime when docker command is available, got %v", runtime)
+	} else if !commandExists("docker") && commandExists("container") && runtime != RuntimeApple {
+		t.Errorf("Expected Apple Container runtime when only container is available, got %v", runtime)
 	}
 }
 

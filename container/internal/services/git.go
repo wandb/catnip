@@ -1201,20 +1201,21 @@ func (s *GitService) GetRepositoryBranches(repoID string) ([]string, error) {
 	return s.operations.GetRemoteBranches(repo.Path, repo.DefaultBranch)
 }
 
-// DeleteWorktree removes a worktree
-func (s *GitService) DeleteWorktree(worktreeID string) error {
+// DeleteWorktree removes a worktree and returns a channel that signals when cleanup is complete
+// Callers can ignore the channel for async behavior, or wait on it for sync behavior
+func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	worktree, exists := s.stateManager.GetWorktree(worktreeID)
 	if !exists {
-		return fmt.Errorf("worktree %s not found", worktreeID)
+		return nil, fmt.Errorf("worktree %s not found", worktreeID)
 	}
 
 	// Get repository for worktree deletion
 	repo, exists := s.stateManager.GetRepository(worktree.RepoID)
 	if !exists {
-		return fmt.Errorf("repository %s not found", worktree.RepoID)
+		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
 	}
 
 	// Clean up any active PTY sessions for this worktree (service-specific)
@@ -1233,6 +1234,9 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 		s.claudeMonitor.OnWorktreeDeleted(worktreeID, worktree.Path)
 	}
 
+	// Create a channel to signal completion
+	done := make(chan error, 1)
+
 	// Perform comprehensive git cleanup in background (non-blocking)
 	go func() {
 		logger.Debugf("🗑️ Starting background git cleanup for worktree %s", worktree.Name)
@@ -1240,16 +1244,19 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 
 		if err := s.gitWorktreeManager.DeleteWorktree(worktree, repo); err != nil {
 			logger.Warnf("⚠️ Background git cleanup failed for worktree %s: %v", worktree.Name, err)
+			done <- err
 		} else {
 			cleanupDuration := time.Since(cleanupStart)
 			logger.Debugf("✅ Background git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
+			done <- nil
 		}
+		close(done)
 	}()
 
 	// Save state
 	// State persistence handled by state manager
 
-	return nil
+	return done, nil
 }
 
 // UpdateWorktreeBranchName updates the stored branch name for a worktree after a git branch rename
@@ -1386,10 +1393,15 @@ func (s *GitService) CleanupMergedWorktrees() (int, []string, error) {
 
 			// Use the existing deletion logic but don't hold the mutex
 			s.mu.Unlock()
-			if cleanupErr := s.DeleteWorktree(worktree.ID); cleanupErr != nil {
+			if done, cleanupErr := s.DeleteWorktree(worktree.ID); cleanupErr != nil {
 				errors = append(errors, fmt.Errorf("failed to cleanup worktree %s: %v", worktree.Name, cleanupErr))
 			} else {
-				cleanedUp = append(cleanedUp, worktree.Name)
+				// Wait for cleanup to complete
+				if waitErr := <-done; waitErr != nil {
+					errors = append(errors, fmt.Errorf("failed to complete cleanup for worktree %s: %v", worktree.Name, waitErr))
+				} else {
+					cleanedUp = append(cleanedUp, worktree.Name)
+				}
 			}
 			s.mu.Lock()
 		}
