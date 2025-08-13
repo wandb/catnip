@@ -537,6 +537,16 @@ export const useAppStore = create<AppState>()(
 
         case "notification:show": {
           const { notifications } = get();
+
+          // Skip browser notifications on macOS since TUI already handles native notifications
+          const isMacOS = navigator.platform.indexOf("Mac") > -1;
+          if (isMacOS) {
+            console.log(
+              "🔔 Skipping browser notification on macOS (TUI handles native notifications)",
+            );
+            break;
+          }
+
           if (
             notifications?.canShowNotifications &&
             notifications.isSupported
