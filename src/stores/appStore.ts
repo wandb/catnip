@@ -537,34 +537,31 @@ export const useAppStore = create<AppState>()(
 
         case "notification:show": {
           const { notifications } = get();
-          if (notifications?.canShowNotifications) {
+          if (
+            notifications?.canShowNotifications &&
+            notifications.isSupported
+          ) {
             try {
-              // Implement client-side deduplication with 5-second window
-              const title = event.payload.title;
-              const now = Date.now();
-              const dedupeKey = `notification_${title}`;
+              console.log("🔔 Showing browser notification:", event.payload);
 
-              // Check if we've shown this notification recently
-              const lastShown = sessionStorage.getItem(dedupeKey);
-              if (lastShown && now - parseInt(lastShown, 10) < 5000) {
-                console.log("🔕 Skipping duplicate notification:", title);
-                break;
+              // Show browser notification directly without calling sendNativeNotification
+              // to avoid infinite loop (TUI already handled native notifications via SSE)
+              if (notifications.permission === "granted") {
+                new Notification(event.payload.title, {
+                  body: event.payload.body,
+                  icon: "/favicon.png",
+                });
+              } else {
+                console.log(
+                  "🔔 Browser notification permission not granted, skipping browser notification",
+                );
               }
-
-              // Store timestamp for deduplication
-              sessionStorage.setItem(dedupeKey, now.toString());
-
-              console.log("🔔 Showing notification:", event.payload);
-              void notifications.showNotification(title, {
-                body: event.payload.body,
-                icon: "/favicon.png",
-              });
             } catch (error) {
-              console.error("🔔 Failed to show notification:", error);
+              console.error("🔔 Failed to show browser notification:", error);
             }
           } else {
             console.log(
-              "🔔 Notifications not enabled, skipping notification event",
+              "🔔 Browser notifications not available, skipping notification event",
             );
           }
           break;

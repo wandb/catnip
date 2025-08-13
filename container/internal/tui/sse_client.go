@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,12 +15,14 @@ import (
 
 // SSEClient handles Server-Sent Events connections
 type SSEClient struct {
-	url              string
-	program          *tea.Program
-	stopChan         chan struct{}
-	connected        bool
-	onEvent          func(AppEvent)
-	onWorktreeUpdate func(worktrees []WorktreeInfo) // Callback for worktree updates
+	url                   string
+	program               *tea.Program
+	stopChan              chan struct{}
+	connected             bool
+	onEvent               func(AppEvent)
+	onWorktreeUpdate      func(worktrees []WorktreeInfo) // Callback for worktree updates
+	notificationHistory   map[string]time.Time           // Title -> timestamp for deduplication
+	notificationHistoryMu sync.RWMutex
 }
 
 // SSEMessage represents Server-Sent Events message types matching the server
@@ -55,9 +58,10 @@ const (
 // NewSSEClient creates a new SSE client
 func NewSSEClient(url string, program *tea.Program) *SSEClient {
 	return &SSEClient{
-		url:      url,
-		program:  program,
-		stopChan: make(chan struct{}),
+		url:                 url,
+		program:             program,
+		stopChan:            make(chan struct{}),
+		notificationHistory: make(map[string]time.Time),
 	}
 }
 
@@ -274,6 +278,26 @@ func (c *SSEClient) processEvent(data string) {
 
 			// Send native notification if supported
 			if IsNotificationSupported() {
+				// Check for duplicate notifications (5-second window per title)
+				c.notificationHistoryMu.Lock()
+				now := time.Now()
+				if lastSent, exists := c.notificationHistory[title]; exists && now.Sub(lastSent) < 5*time.Second {
+					debugLog("TUI SSE: Skipping duplicate notification: %s", title)
+					c.notificationHistoryMu.Unlock()
+					return
+				}
+
+				// Clean up old entries (older than 5 seconds) to prevent memory leak
+				for oldTitle, timestamp := range c.notificationHistory {
+					if now.Sub(timestamp) >= 5*time.Second {
+						delete(c.notificationHistory, oldTitle)
+					}
+				}
+
+				// Record this notification
+				c.notificationHistory[title] = now
+				c.notificationHistoryMu.Unlock()
+
 				if err := SendNativeNotification(title, body, subtitle); err != nil {
 					debugLog("TUI SSE: Failed to send notification: %v", err)
 				} else {
