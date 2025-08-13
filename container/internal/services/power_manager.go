@@ -31,7 +31,7 @@ func NewPowerManager(sessionService *SessionService) *PowerManager {
 		ctx:             ctx,
 		cancel:          cancel,
 		deadManInterval: 30 * time.Second, // Check every 30 seconds
-		maxAssertionAge: 2 * time.Hour,    // Maximum 2 hours of continuous assertion
+		maxAssertionAge: 15 * time.Minute, // Maximum 15 minutes of continuous assertion
 	}
 
 	// Start monitoring goroutine
@@ -101,9 +101,9 @@ func (pm *PowerManager) shouldMaintainAssertion() (bool, []string) {
 	for workspacePath := range activeSessions {
 		activityState := pm.sessionService.GetClaudeActivityState(workspacePath)
 
-		// Keep machine awake for both Active and Running states
-		// Active = recent activity (<2 min), Running = PTY exists but no recent activity
-		if activityState == models.ClaudeActive || activityState == models.ClaudeRunning {
+		// Keep machine awake only for Active state (recent activity <2 min)
+		// Running state (PTY exists but no recent activity) allows machine to sleep
+		if activityState == models.ClaudeActive {
 			activeWorkspaces = append(activeWorkspaces, workspacePath)
 		}
 	}
