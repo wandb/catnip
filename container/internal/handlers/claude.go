@@ -425,10 +425,7 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 				logger.Debugf("🔔 Emitting notification event: %s", title)
 
 				// Generate workspace URL - remove /workspace prefix if present
-				workspacePath := workspaceDir
-				if strings.HasPrefix(workspacePath, "/workspace") {
-					workspacePath = workspacePath[10:] // Remove "/workspace"
-				}
+				workspacePath := strings.TrimPrefix(workspaceDir, "/workspace")
 				workspaceURL := fmt.Sprintf("http://localhost:8080/workspace%s", workspacePath)
 
 				h.eventsHandler.broadcastEvent(AppEvent{
