@@ -28,5 +28,7 @@
 	<string>Copyright © 2024 Catnip. All rights reserved.</string>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
+	<key>NSUserNotificationAlertStyle</key>
+	<string>alert</string>
 </dict>
 </plist>

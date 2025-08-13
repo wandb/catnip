@@ -305,7 +305,8 @@ func (c *SSEClient) processEvent(data string) {
 				c.notificationHistory[title] = now
 				c.notificationHistoryMu.Unlock()
 
-				if err := SendNativeNotification(title, body, subtitle, url); err != nil {
+				// Send notification async for server usage (no wait needed)
+				if err := SendNativeNotificationAsync(title, body, subtitle, url); err != nil {
 					debugLog("TUI SSE: Failed to send notification: %v", err)
 				} else {
 					debugLog("TUI SSE: Sent notification: %s", title)

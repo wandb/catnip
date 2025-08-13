@@ -49,6 +49,7 @@ Send a basic notification:
 
 		fmt.Printf("📢 Sending notification: %s\n", title)
 
+		fmt.Println("🔄 Waiting 10 seconds for notification display and clicks...")
 		err := tui.SendNativeNotification(title, body, subtitle, "")
 		if err != nil {
 			fmt.Printf("❌ Failed to send notification: %v\n", err)
@@ -56,6 +57,7 @@ Send a basic notification:
 		}
 
 		fmt.Println("✅ Notification sent successfully!")
+		fmt.Println("💡 The \"Show\" button should now work for this and any historical notifications")
 
 		if !tui.HasNotificationPermission() {
 			fmt.Println("⚠️  Note: If you don't see the notification, check that you granted permission when prompted.")
