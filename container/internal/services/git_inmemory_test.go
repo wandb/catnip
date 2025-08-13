@@ -439,7 +439,9 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 		assert.DirExists(t, worktree.Path)
 
 		// Clean up this worktree for the next tests
-		_ = service.DeleteWorktree(worktree.ID)
+		if done, err := service.DeleteWorktree(worktree.ID); err == nil {
+			<-done
+		}
 	})
 
 	t.Run("CreateLocalRepoWorktreeDirectly", func(t *testing.T) {
@@ -466,7 +468,9 @@ func testLocalRepositoryOperations(t *testing.T, service *GitService, exec *exec
 		assert.True(t, branchExists, "Branch should exist in refs/catnip/ namespace: %s", uniqueName)
 
 		// Clean up this worktree for the next tests
-		_ = service.DeleteWorktree(worktree.ID)
+		if done, err := service.DeleteWorktree(worktree.ID); err == nil {
+			<-done
+		}
 	})
 
 	t.Run("ShouldCreateInitialWorktree", func(t *testing.T) {
@@ -501,7 +505,9 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		// Clear any existing worktrees from previous tests
 		allWorktrees := service.stateManager.GetAllWorktrees()
 		for id := range allWorktrees {
-			_ = service.DeleteWorktree(id)
+			if done, err := service.DeleteWorktree(id); err == nil {
+				<-done
+			}
 		}
 
 		// Get the repository
@@ -530,8 +536,10 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		// Verify worktree directory exists
 		assert.DirExists(t, worktree.Path)
 
-		// Delete the worktree
-		err = service.DeleteWorktree(worktreeID)
+		// Delete the worktree and wait for cleanup to complete
+		done, err := service.DeleteWorktree(worktreeID)
+		assert.NoError(t, err)
+		err = <-done
 		assert.NoError(t, err)
 
 		// Verify worktree was removed from service
@@ -550,7 +558,9 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		// Clear any existing worktrees from previous tests
 		allWorktrees := service.stateManager.GetAllWorktrees()
 		for id := range allWorktrees {
-			_ = service.DeleteWorktree(id)
+			if done, err := service.DeleteWorktree(id); err == nil {
+				<-done
+			}
 		}
 
 		// Create two worktrees
@@ -573,8 +583,10 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		assert.True(t, exists1, "Branch should exist in refs/catnip/ namespace: %s", worktree1.Branch)
 		assert.True(t, exists2, "Branch should exist in refs/catnip/ namespace: %s", worktree2.Branch)
 
-		// Delete first worktree
-		err = service.DeleteWorktree(worktree1.ID)
+		// Delete first worktree and wait for cleanup to complete
+		done, err := service.DeleteWorktree(worktree1.ID)
+		assert.NoError(t, err)
+		err = <-done
 		assert.NoError(t, err)
 
 		// Verify only one worktree remains
@@ -589,13 +601,16 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		assert.True(t, exists2AfterDelete, "Second branch should still exist in refs/catnip/ namespace: %s", worktree2.Branch)
 
 		// Clean up remaining worktree
-		_ = service.DeleteWorktree(worktree2.ID)
+		if done, err := service.DeleteWorktree(worktree2.ID); err == nil {
+			<-done
+		}
 	})
 
 	t.Run("DeleteNonexistentWorktree", func(t *testing.T) {
 		// Try to delete a worktree that doesn't exist
-		err := service.DeleteWorktree("nonexistent-id")
+		done, err := service.DeleteWorktree("nonexistent-id")
 		assert.Error(t, err)
+		assert.Nil(t, done)
 		assert.Contains(t, err.Error(), "worktree nonexistent-id not found")
 	})
 }

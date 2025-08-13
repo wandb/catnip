@@ -182,16 +182,20 @@ func (g *GitHubManager) updatePullRequestWithGH(worktree *models.Worktree, owner
 		"--title", title,
 		"--body", body)
 
-	output, err := cmd.CombinedOutput()
+	_, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to update PR: %v\nOutput: %s", err, string(output))
+		// For error reporting, capture stderr if available
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("failed to update PR: %v\nStderr: %s", err, string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("failed to update PR: %v", err)
 	}
 
 	logger.Infof("✅ Updated PR for branch %s", worktree.Branch)
 
 	// Get the PR details
 	cmd = g.execCommand("gh", "pr", "view", worktree.Branch, "--repo", ownerRepo, "--json", "number,url,title,body")
-	output, err = cmd.Output()
+	output, err := cmd.Output()
 	if err != nil {
 		logger.Warnf("⚠️ Could not get PR details: %v", err)
 		return &models.PullRequestResponse{
@@ -300,13 +304,18 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 		"--title", title,
 		"--body", body)
 
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
-		// Check if it's because PR already exists
-		if strings.Contains(string(output), "already exists") {
-			return nil, fmt.Errorf("PR_ALREADY_EXISTS: A pull request for this branch already exists")
+		// For error checking, we need to capture stderr separately
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			stderr := string(exitErr.Stderr)
+			// Check if it's because PR already exists
+			if strings.Contains(stderr, "already exists") {
+				return nil, fmt.Errorf("PR_ALREADY_EXISTS: A pull request for this branch already exists")
+			}
+			return nil, fmt.Errorf("failed to create PR: %v\nStderr: %s", err, stderr)
 		}
-		return nil, fmt.Errorf("failed to create PR: %v\nOutput: %s", err, string(output))
+		return nil, fmt.Errorf("failed to create PR: %v", err)
 	}
 
 	logger.Infof("✅ Created PR for branch %s", branchToPush)

@@ -326,7 +326,8 @@ func (h *GitHandler) GetRepositoryBranches(c *fiber.Ctx) error {
 func (h *GitHandler) DeleteWorktree(c *fiber.Ctx) error {
 	worktreeID := c.Params("id")
 
-	if err := h.gitService.DeleteWorktree(worktreeID); err != nil {
+	_, err := h.gitService.DeleteWorktree(worktreeID)
+	if err != nil {
 		return c.Status(400).JSON(fiber.Map{
 			"error": err.Error(),
 		})
@@ -439,7 +440,8 @@ func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 
 	// Automatically clean up the worktree after successful merge if requested
 	if autoCleanup {
-		if cleanupErr := h.gitService.DeleteWorktree(worktreeID); cleanupErr != nil {
+		_, cleanupErr := h.gitService.DeleteWorktree(worktreeID)
+		if cleanupErr != nil {
 			// Don't fail the response, just warn about cleanup failure
 			response["cleanup_warning"] = "Merge succeeded but worktree cleanup failed: " + cleanupErr.Error()
 		} else {
