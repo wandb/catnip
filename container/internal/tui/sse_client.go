@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vanpelt/catnip/internal/models"
 )
 
 // SSEClient handles Server-Sent Events connections
@@ -277,6 +278,51 @@ func (c *SSEClient) processEvent(data string) {
 					debugLog("TUI SSE: Failed to send notification: %v", err)
 				} else {
 					debugLog("TUI SSE: Sent notification: %s", title)
+				}
+			}
+		}
+
+	case WorktreeUpdatedEvent:
+		// Single worktree update
+		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
+			if worktree, ok := payload["worktree"].(map[string]interface{}); ok {
+				path, _ := worktree["path"].(string)
+				activityState, _ := worktree["claude_activity_state"].(string)
+
+				debugLog("TUI SSE: Worktree updated: %s -> %s", path, activityState)
+
+				if c.onWorktreeUpdate != nil {
+					c.onWorktreeUpdate([]WorktreeInfo{
+						{
+							Path:                path,
+							ClaudeActivityState: models.ClaudeActivityState(activityState),
+						},
+					})
+				}
+			}
+		}
+
+	case WorktreeBatchUpdatedEvent:
+		// Multiple worktrees updated
+		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
+			if worktreesData, ok := payload["worktrees"].([]interface{}); ok {
+				var worktrees []WorktreeInfo
+				for _, wtData := range worktreesData {
+					if wt, ok := wtData.(map[string]interface{}); ok {
+						path, _ := wt["path"].(string)
+						activityState, _ := wt["claude_activity_state"].(string)
+
+						worktrees = append(worktrees, WorktreeInfo{
+							Path:                path,
+							ClaudeActivityState: models.ClaudeActivityState(activityState),
+						})
+					}
+				}
+
+				debugLog("TUI SSE: Batch worktree update: %d worktrees", len(worktrees))
+
+				if c.onWorktreeUpdate != nil && len(worktrees) > 0 {
+					c.onWorktreeUpdate(worktrees)
 				}
 			}
 		}
