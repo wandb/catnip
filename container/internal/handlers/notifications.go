@@ -12,6 +12,7 @@ type NotificationPayload struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
 	Subtitle string `json:"subtitle,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
 // NotificationHandler handles notification requests
@@ -60,6 +61,7 @@ func (h *NotificationHandler) HandleNotification(c *fiber.Ctx) error {
 			Title:    payload.Title,
 			Body:     payload.Body,
 			Subtitle: payload.Subtitle,
+			URL:      payload.URL,
 		},
 	})
 

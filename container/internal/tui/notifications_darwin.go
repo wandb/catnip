@@ -9,11 +9,31 @@ package tui
 #import <Foundation/Foundation.h>
 #import <Cocoa/Cocoa.h>
 
+@interface NotificationDelegate : NSObject <NSUserNotificationCenterDelegate>
+@end
+
+@implementation NotificationDelegate
+- (BOOL)userNotificationCenter:(NSUserNotificationCenter *)center shouldPresentNotification:(NSUserNotification *)notification {
+    return YES;
+}
+
+- (void)userNotificationCenter:(NSUserNotificationCenter *)center didActivateNotification:(NSUserNotification *)notification {
+    if (notification.activationType == NSUserNotificationActivationTypeActionButtonClicked) {
+        NSString *url = notification.userInfo[@"url"];
+        if (url) {
+            [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:url]];
+        }
+    }
+}
+@end
+
+static NotificationDelegate *notificationDelegate = nil;
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 // Clean, simple notification implementation based on terminal-notifier pattern
-void sendNotification(const char* title, const char* body, const char* subtitle) {
+void sendNotification(const char* title, const char* body, const char* subtitle, const char* url) {
     @autoreleasepool {
         // Debug: NSLog(@"[Catnip] Sending notification: %s", title);
 
@@ -38,6 +58,12 @@ void sendNotification(const char* title, const char* body, const char* subtitle)
             return;
         }
 
+        // Set up delegate for handling clicks (only once)
+        if (!notificationDelegate) {
+            notificationDelegate = [[NotificationDelegate alloc] init];
+            center.delegate = notificationDelegate;
+        }
+
         NSUserNotification *notification = [[NSUserNotification alloc] init];
         notification.title = [NSString stringWithUTF8String:title];
         notification.informativeText = [NSString stringWithUTF8String:body];
@@ -45,6 +71,17 @@ void sendNotification(const char* title, const char* body, const char* subtitle)
         if (subtitle && strlen(subtitle) > 0) {
             notification.subtitle = [NSString stringWithUTF8String:subtitle];
         }
+
+        // Add URL to userInfo - use default workspace URL if none provided
+        NSString *urlString;
+        if (url && strlen(url) > 0) {
+            urlString = [NSString stringWithUTF8String:url];
+        } else {
+            urlString = @"http://localhost:8080/workspace";
+        }
+        notification.userInfo = @{@"url": urlString};
+        notification.hasActionButton = YES;
+        notification.actionButtonTitle = @"Show";
 
         notification.soundName = NSUserNotificationDefaultSoundName;
 
@@ -77,16 +114,18 @@ import (
 )
 
 // SendNativeNotification sends a native macOS notification using the clean, simple approach
-func SendNativeNotification(title, body, subtitle string) error {
+func SendNativeNotification(title, body, subtitle, url string) error {
 	cTitle := C.CString(title)
 	cBody := C.CString(body)
 	cSubtitle := C.CString(subtitle)
+	cURL := C.CString(url)
 
 	defer C.free(unsafe.Pointer(cTitle))
 	defer C.free(unsafe.Pointer(cBody))
 	defer C.free(unsafe.Pointer(cSubtitle))
+	defer C.free(unsafe.Pointer(cURL))
 
-	C.sendNotification(cTitle, cBody, cSubtitle)
+	C.sendNotification(cTitle, cBody, cSubtitle, cURL)
 	return nil
 }
 

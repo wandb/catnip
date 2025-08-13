@@ -7,8 +7,8 @@ import (
 )
 
 // SendNativeNotification is a no-op on non-macOS platforms
-func SendNativeNotification(title, body, subtitle string) error {
-	debugLog("Notification (unsupported platform): %s - %s", title, body)
+func SendNativeNotification(title, body, subtitle, url string) error {
+	debugLog("Notification (unsupported platform): %s - %s (URL: %s)", title, body, url)
 	return fmt.Errorf("native notifications not supported on this platform")
 }
 

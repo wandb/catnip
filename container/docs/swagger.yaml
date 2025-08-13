@@ -905,6 +905,8 @@ definitions:
         type: string
       title:
         type: string
+      url:
+        type: string
     type: object
   internal_handlers.SSEMessage:
     properties:
