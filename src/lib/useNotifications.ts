@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
 export type NotificationPermission = "default" | "granted" | "denied";
 
@@ -112,6 +113,11 @@ export function useNotifications() {
       body: options?.body || "",
       subtitle: options?.tag,
     };
+
+    // Always show toast notification in the app
+    toast(title, {
+      description: options?.body || "",
+    });
 
     // Try native notification first (will work when TUI is connected)
     const nativeSent = await sendNativeNotification(payload);
