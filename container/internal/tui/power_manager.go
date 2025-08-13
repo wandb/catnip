@@ -38,7 +38,7 @@ func NewHostPowerManager() *HostPowerManager {
 	// Start monitoring goroutine
 	go pm.monitor()
 
-	debugLog("🔋 Host power manager initialized (check: %v, max age: %v)",
+	logger.Infof("🔋 Host power manager initialized (check: %v, max age: %v)",
 		pm.deadManInterval, pm.maxAssertionAge)
 
 	return pm
@@ -53,7 +53,7 @@ func (pm *HostPowerManager) UpdateWorktreeState(worktreePath string, state model
 	pm.worktreeStates[worktreePath] = state
 
 	if !existed || oldState != state {
-		debugLog("🔋 Worktree state updated: %s -> %s", worktreePath, state)
+		logger.Debugf("🔋 Worktree state updated: %s -> %s", worktreePath, state)
 		// Immediately check if we need to update assertion
 		go pm.checkAndUpdateAssertion()
 	}
@@ -70,7 +70,7 @@ func (pm *HostPowerManager) UpdateWorktreeBatch(worktrees []WorktreeInfo) {
 		if !existed || oldState != wt.ClaudeActivityState {
 			pm.worktreeStates[wt.Path] = wt.ClaudeActivityState
 			changed = true
-			debugLog("🔋 Worktree state updated: %s -> %s", wt.Path, wt.ClaudeActivityState)
+			logger.Debugf("🔋 Worktree state updated: %s -> %s", wt.Path, wt.ClaudeActivityState)
 		}
 	}
 
@@ -84,7 +84,7 @@ func (pm *HostPowerManager) UpdateWorktreeBatch(worktrees []WorktreeInfo) {
 func (pm *HostPowerManager) Shutdown() {
 	pm.cancel()
 	pm.releaseAssertion("shutdown")
-	debugLog("🔋 Host power manager shutdown complete")
+	logger.Infof("🔋 Host power manager shutdown complete")
 }
 
 // monitor runs the main monitoring loop
@@ -124,7 +124,7 @@ func (pm *HostPowerManager) checkAndUpdateAssertion() {
 	} else if currentlyAsserted {
 		// Log periodic status while assertion is active
 		age := time.Since(pm.assertionStart)
-		debugLog("🔋 Power assertion active for %v (workspaces: %v)", age.Round(time.Second), activeWorkspaces)
+		logger.Debugf("🔋 Power assertion active for %v (workspaces: %v)", age.Round(time.Second), activeWorkspaces)
 	}
 }
 
