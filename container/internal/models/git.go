@@ -164,6 +164,25 @@ type PullRequestInfo struct {
 	URL string `json:"url,omitempty" example:"https://github.com/owner/repo/pull/123"`
 }
 
+// PullRequestState represents the cached state of a pull request
+// @Description Cached state of a pull request across multiple worktrees
+type PullRequestState struct {
+	// Pull request number
+	Number int `json:"number" example:"123"`
+	// Pull request state (OPEN, CLOSED, MERGED)
+	State string `json:"state" example:"MERGED"`
+	// Repository in owner/repo format
+	Repository string `json:"repository" example:"anthropics/claude-code"`
+	// URL to the pull request
+	URL string `json:"url" example:"https://github.com/anthropics/claude-code/pull/123"`
+	// Title of the pull request
+	Title string `json:"title" example:"Feature: Add new functionality"`
+	// When this state was last synced from GitHub
+	LastSynced time.Time `json:"last_synced" example:"2024-01-15T16:45:30Z"`
+	// List of worktree IDs that reference this PR
+	WorktreeIDs []string `json:"worktree_ids" example:"[\"abc123-def456\", \"ghi789-jkl012\"]"`
+}
+
 // GitState represents the persisted state of repositories and worktrees
 // @Description Persisted state of all repositories and worktrees
 type GitState struct {
@@ -171,4 +190,6 @@ type GitState struct {
 	Repositories map[string]*Repository `json:"repositories"`
 	// All worktrees mapped by worktree ID
 	Worktrees map[string]*Worktree `json:"worktrees"`
+	// Cached pull request states mapped by "owner/repo#number" key
+	PullRequestStates map[string]*PullRequestState `json:"pull_request_states"`
 }

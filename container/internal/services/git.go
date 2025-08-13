@@ -598,7 +598,34 @@ func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitS
 	// Set up GitService as the WorktreeRestorer for state restoration
 	stateManager.SetWorktreeRestorer(s)
 
+	// Initialize and start PR sync manager
+	prSyncManager := GetPRSyncManager(stateManager)
+	prSyncManager.Start()
+
 	return s
+}
+
+// Stop properly shuts down the git service and its components
+func (s *GitService) Stop() {
+	// Stop CommitSync service
+	if s.commitSync != nil {
+		s.commitSync.Stop()
+	}
+
+	// Stop worktree cache
+	if s.worktreeCache != nil {
+		s.worktreeCache.Stop()
+	}
+
+	// Stop state manager
+	if s.stateManager != nil {
+		s.stateManager.Stop()
+	}
+
+	// Stop PR sync manager
+	if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
+		prSyncManager.Stop()
+	}
 }
 
 // CheckoutRepository clones a GitHub repository as a bare repo and creates initial worktree
@@ -1766,19 +1793,6 @@ func (s *GitService) GetStateManager() *WorktreeStateManager {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.stateManager
-}
-
-// Stop stops the Git service
-func (s *GitService) Stop() {
-	// Stop CommitSync service
-	if s.commitSync != nil {
-		s.commitSync.Stop()
-	}
-
-	// Stop worktree cache
-	if s.worktreeCache != nil {
-		s.worktreeCache.Stop()
-	}
 }
 
 // RenameBranch renames a branch in the given repository

@@ -479,9 +479,18 @@ func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[str
 
 // saveStateInternal saves state to disk (must be called with lock held)
 func (wsm *WorktreeStateManager) saveStateInternal() error {
+	// Include PR states in saved state - we'll get them from the PR sync manager
+	prStates := make(map[string]*models.PullRequestState)
+	// Note: We pass nil here because this might be called before the sync manager is fully initialized
+	// The sync manager will be properly initialized in the git service
+	if prSyncManagerInstance != nil {
+		prStates = prSyncManagerInstance.GetAllPRStates()
+	}
+
 	state := map[string]interface{}{
-		"repositories": wsm.repositories,
-		"worktrees":    wsm.worktrees,
+		"repositories":        wsm.repositories,
+		"worktrees":           wsm.worktrees,
+		"pull_request_states": prStates,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -541,6 +550,17 @@ func (wsm *WorktreeStateManager) loadState() error {
 			// Initialize previous state for change detection
 			for id, wt := range worktrees {
 				wsm.previousState[id] = wsm.captureFieldState(wt)
+			}
+		}
+	}
+
+	// Load pull request states - we'll pass them to the PR sync manager
+	if prStatesData, exists := state["pull_request_states"]; exists {
+		var prStates map[string]*models.PullRequestState
+		if err := json.Unmarshal(prStatesData, &prStates); err == nil {
+			// Initialize PR sync manager with loaded states if it exists
+			if prSyncManagerInstance != nil {
+				prSyncManagerInstance.LoadStatesFromData(prStates)
 			}
 		}
 	}
