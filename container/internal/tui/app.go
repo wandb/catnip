@@ -61,6 +61,7 @@ type App struct {
 	program          *tea.Program
 	sseClient        *SSEClient
 	portForwarder    *PortForwardManager
+	powerManager     *HostPowerManager
 
 	// Initialization parameters
 	containerImage string
@@ -121,8 +122,19 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 		}
 	}
 
+	// Initialize power manager (only on macOS)
+	a.powerManager = NewHostPowerManager()
+
 	// Initialize SSE client
 	sseClient := NewSSEClient(fmt.Sprintf("http://localhost:%s/v1/events", mainPort), nil)
+
+	// Set up worktree update hook for power management
+	sseClient.onWorktreeUpdate = func(worktrees []WorktreeInfo) {
+		if a.powerManager != nil {
+			a.powerManager.UpdateWorktreeBatch(worktrees)
+		}
+	}
+
 	// Initialize port forwarder (uses backend on mainPort)
 	a.portForwarder = NewPortForwardManager(fmt.Sprintf("http://localhost:%s", mainPort))
 	// Start forwarding when ports open (only if SSH enabled)
@@ -182,6 +194,10 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	}
 	if a.portForwarder != nil {
 		a.portForwarder.StopAll()
+	}
+	// Clean up power manager
+	if a.powerManager != nil {
+		a.powerManager.Shutdown()
 	}
 
 	// Best-effort terminal reset to avoid leaving the user's terminal in an odd state

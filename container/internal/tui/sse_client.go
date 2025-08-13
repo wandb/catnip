@@ -9,15 +9,17 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/vanpelt/catnip/internal/models"
 )
 
 // SSEClient handles Server-Sent Events connections
 type SSEClient struct {
-	url       string
-	program   *tea.Program
-	stopChan  chan struct{}
-	connected bool
-	onEvent   func(AppEvent)
+	url              string
+	program          *tea.Program
+	stopChan         chan struct{}
+	connected        bool
+	onEvent          func(AppEvent)
+	onWorktreeUpdate func(worktrees []WorktreeInfo) // Callback for worktree updates
 }
 
 // SSEMessage represents Server-Sent Events message types matching the server
@@ -34,16 +36,18 @@ type AppEvent struct {
 
 // Event type constants
 const (
-	PortOpenedEvent      = "port:opened"
-	PortClosedEvent      = "port:closed"
-	GitDirtyEvent        = "git:dirty"
-	GitCleanEvent        = "git:clean"
-	ProcessStartedEvent  = "process:started"
-	ProcessStoppedEvent  = "process:stopped"
-	ContainerStatusEvent = "container:status"
-	PortMappedEvent      = "port:mapped"
-	HeartbeatEvent       = "heartbeat"
-	NotificationEvent    = "notification:show"
+	PortOpenedEvent           = "port:opened"
+	PortClosedEvent           = "port:closed"
+	GitDirtyEvent             = "git:dirty"
+	GitCleanEvent             = "git:clean"
+	ProcessStartedEvent       = "process:started"
+	ProcessStoppedEvent       = "process:stopped"
+	ContainerStatusEvent      = "container:status"
+	PortMappedEvent           = "port:mapped"
+	HeartbeatEvent            = "heartbeat"
+	NotificationEvent         = "notification:show"
+	WorktreeUpdatedEvent      = "worktree:updated"
+	WorktreeBatchUpdatedEvent = "worktree:batch_updated"
 )
 
 // SSE event messages are defined in messages.go
@@ -274,6 +278,51 @@ func (c *SSEClient) processEvent(data string) {
 					debugLog("TUI SSE: Failed to send notification: %v", err)
 				} else {
 					debugLog("TUI SSE: Sent notification: %s", title)
+				}
+			}
+		}
+
+	case WorktreeUpdatedEvent:
+		// Single worktree update
+		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
+			if worktree, ok := payload["worktree"].(map[string]interface{}); ok {
+				path, _ := worktree["path"].(string)
+				activityState, _ := worktree["claude_activity_state"].(string)
+
+				debugLog("TUI SSE: Worktree updated: %s -> %s", path, activityState)
+
+				if c.onWorktreeUpdate != nil {
+					c.onWorktreeUpdate([]WorktreeInfo{
+						{
+							Path:                path,
+							ClaudeActivityState: models.ClaudeActivityState(activityState),
+						},
+					})
+				}
+			}
+		}
+
+	case WorktreeBatchUpdatedEvent:
+		// Multiple worktrees updated
+		if payload, ok := msg.Event.Payload.(map[string]interface{}); ok {
+			if worktreesData, ok := payload["worktrees"].([]interface{}); ok {
+				var worktrees []WorktreeInfo
+				for _, wtData := range worktreesData {
+					if wt, ok := wtData.(map[string]interface{}); ok {
+						path, _ := wt["path"].(string)
+						activityState, _ := wt["claude_activity_state"].(string)
+
+						worktrees = append(worktrees, WorktreeInfo{
+							Path:                path,
+							ClaudeActivityState: models.ClaudeActivityState(activityState),
+						})
+					}
+				}
+
+				debugLog("TUI SSE: Batch worktree update: %d worktrees", len(worktrees))
+
+				if c.onWorktreeUpdate != nil && len(worktrees) > 0 {
+					c.onWorktreeUpdate(worktrees)
 				}
 			}
 		}
