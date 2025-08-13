@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/macos"
 	"github.com/vanpelt/catnip/internal/models"
 )
@@ -111,7 +112,7 @@ func (pm *HostPowerManager) checkAndUpdateAssertion() {
 
 	// Dead man switch: Release assertion if it's been active too long
 	if currentlyAsserted && pm.assertionExceedsMaxAge() {
-		debugLog("🔋 Dead man switch triggered: power assertion exceeded max age (%v), releasing", pm.maxAssertionAge)
+		logger.Warnf("🔋 Dead man switch triggered: power assertion exceeded max age (%v), releasing", pm.maxAssertionAge)
 		pm.releaseAssertion("dead man switch")
 		return
 	}
@@ -155,14 +156,14 @@ func (pm *HostPowerManager) createAssertion(activeWorkspaces []string) {
 
 	assertion, err := macos.NewPowerAssertion(reason)
 	if err != nil {
-		debugLog("🔋 Failed to create power assertion: %v", err)
+		logger.Errorf("🔋 Failed to create power assertion: %v", err)
 		return
 	}
 
 	pm.powerAssertion = assertion
 	pm.assertionStart = time.Now()
 
-	debugLog("🔋 Created power assertion for %d active Claude workspace(s): %v",
+	logger.Infof("🔋 Created power assertion for %d active Claude workspace(s): %v",
 		len(activeWorkspaces), activeWorkspaces)
 }
 
@@ -174,10 +175,10 @@ func (pm *HostPowerManager) releaseAssertion(reason string) {
 
 	err := pm.powerAssertion.Release()
 	if err != nil {
-		debugLog("🔋 Failed to release power assertion: %v", err)
+		logger.Errorf("🔋 Failed to release power assertion: %v", err)
 	} else {
 		duration := time.Since(pm.assertionStart)
-		debugLog("🔋 Released power assertion after %v (reason: %s)",
+		logger.Infof("🔋 Released power assertion after %v (reason: %s)",
 			duration.Round(time.Second), reason)
 	}
 
