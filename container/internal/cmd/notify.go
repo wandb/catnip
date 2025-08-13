@@ -49,7 +49,7 @@ Send a basic notification:
 
 		fmt.Printf("📢 Sending notification: %s\n", title)
 
-		err := tui.SendNativeNotification(title, body, subtitle)
+		err := tui.SendNativeNotification(title, body, subtitle, "")
 		if err != nil {
 			fmt.Printf("❌ Failed to send notification: %v\n", err)
 			return

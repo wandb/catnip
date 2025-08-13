@@ -275,6 +275,7 @@ func (c *SSEClient) processEvent(data string) {
 			title, _ := payload["title"].(string)
 			body, _ := payload["body"].(string)
 			subtitle, _ := payload["subtitle"].(string)
+			url, _ := payload["url"].(string)
 
 			// Send native notification if supported
 			if IsNotificationSupported() {
@@ -298,7 +299,7 @@ func (c *SSEClient) processEvent(data string) {
 				c.notificationHistory[title] = now
 				c.notificationHistoryMu.Unlock()
 
-				if err := SendNativeNotification(title, body, subtitle); err != nil {
+				if err := SendNativeNotification(title, body, subtitle, url); err != nil {
 					debugLog("TUI SSE: Failed to send notification: %v", err)
 				} else {
 					debugLog("TUI SSE: Sent notification: %s", title)

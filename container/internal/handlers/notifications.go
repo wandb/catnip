@@ -61,6 +61,7 @@ func (h *NotificationHandler) HandleNotification(c *fiber.Ctx) error {
 			Title:    payload.Title,
 			Body:     payload.Body,
 			Subtitle: payload.Subtitle,
+			URL:      payload.URL,
 		},
 	})
 
