@@ -187,6 +187,15 @@ export interface SessionStoppedEvent {
   };
 }
 
+export interface NotificationEvent {
+  type: "notification:show";
+  payload: {
+    title: string;
+    body: string;
+    subtitle?: string;
+  };
+}
+
 export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
@@ -206,7 +215,8 @@ export type AppEvent =
   | WorktreeDeletedEvent
   | WorktreeTodosUpdatedEvent
   | SessionTitleUpdatedEvent
-  | SessionStoppedEvent;
+  | SessionStoppedEvent
+  | NotificationEvent;
 
 export interface SSEMessage {
   event: AppEvent;

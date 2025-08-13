@@ -529,56 +529,43 @@ export const useAppStore = create<AppState>()(
         }
 
         case "session:stopped": {
+          // Session stopped event - notifications are now handled separately via notification:show events
+          // This event can be used for other session cleanup logic if needed
+          console.log("🔔 Session stopped:", event.payload);
+          break;
+        }
+
+        case "notification:show": {
           const { notifications } = get();
-          console.log(
-            "🔔 session:stopped - notifications object:",
-            notifications,
-          );
-          console.log(
-            "🔔 session:stopped - canShowNotifications:",
-            notifications?.canShowNotifications,
-          );
           if (notifications?.canShowNotifications) {
-            // Find the worktree for this session
-            const worktreeEntry = Array.from(worktrees.entries()).find(
-              ([_, worktree]) => worktree.path === event.payload.workspace_dir,
-            );
+            try {
+              // Implement client-side deduplication with 5-second window
+              const title = event.payload.title;
+              const now = Date.now();
+              const dedupeKey = `notification_${title}`;
 
-            if (worktreeEntry) {
-              const [_, worktree] = worktreeEntry;
-              console.log("🔔 Found worktree for notification:", worktree);
-
-              const branchName =
-                event.payload.branch_name || worktree.branch || "main";
-              const lastTodo =
-                event.payload.last_todo ||
-                (worktree.todos && worktree.todos.length > 0
-                  ? worktree.todos[worktree.todos.length - 1].content
-                  : "Session completed");
-
-              const notificationTitle = `${branchName} - stopped`;
-              const notificationBody = lastTodo;
-
-              console.log("🔔 Attempting to show notification:", {
-                title: notificationTitle,
-                body: notificationBody,
-              });
-
-              try {
-                void notifications.showNotification(notificationTitle, {
-                  body: notificationBody,
-                  icon: "/favicon.png",
-                });
-                console.log("🔔 Notification sent successfully!");
-              } catch (error) {
-                console.error("🔔 Failed to show notification:", error);
+              // Check if we've shown this notification recently
+              const lastShown = sessionStorage.getItem(dedupeKey);
+              if (lastShown && now - parseInt(lastShown, 10) < 5000) {
+                console.log("🔕 Skipping duplicate notification:", title);
+                break;
               }
-            } else {
-              console.log(
-                "🔔 No worktree found for workspace_dir:",
-                event.payload.workspace_dir,
-              );
+
+              // Store timestamp for deduplication
+              sessionStorage.setItem(dedupeKey, now.toString());
+
+              console.log("🔔 Showing notification:", event.payload);
+              void notifications.showNotification(title, {
+                body: event.payload.body,
+                icon: "/favicon.png",
+              });
+            } catch (error) {
+              console.error("🔔 Failed to show notification:", error);
             }
+          } else {
+            console.log(
+              "🔔 Notifications not enabled, skipping notification event",
+            );
           }
           break;
         }

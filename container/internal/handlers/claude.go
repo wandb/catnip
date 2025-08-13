@@ -418,6 +418,23 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 				&matchingWorktree.Branch, // Keep full branch name for context
 				&description,
 			)
+
+			// Also emit a notification event directly via SSE if notifications are enabled
+			if settings, err := h.claudeService.GetClaudeSettings(); err == nil && settings.NotificationsEnabled {
+				logger.Debugf("🔔 Emitting notification event: %s", title)
+				h.eventsHandler.broadcastEvent(AppEvent{
+					Type: NotificationEvent,
+					Payload: NotificationPayload{
+						Title:    title,
+						Body:     description,
+						Subtitle: "", // Leave empty for consistency with existing notification structure
+					},
+				})
+			} else if err != nil {
+				logger.Debugf("🔔 Failed to get Claude settings for notification check: %v", err)
+			} else {
+				logger.Debugf("🔔 Notifications disabled, skipping notification event")
+			}
 		} else {
 			logger.Debugf("🔔 Skipping stop event - no matching workspace found for %s", req.WorkingDirectory)
 		}
