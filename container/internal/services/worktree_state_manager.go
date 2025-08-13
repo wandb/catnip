@@ -481,10 +481,9 @@ func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[str
 func (wsm *WorktreeStateManager) saveStateInternal() error {
 	// Include PR states in saved state - we'll get them from the PR sync manager
 	prStates := make(map[string]*models.PullRequestState)
-	// Note: We pass nil here because this might be called before the sync manager is fully initialized
-	// The sync manager will be properly initialized in the git service
-	if prSyncManagerInstance != nil {
-		prStates = prSyncManagerInstance.GetAllPRStates()
+	// Get PR states from the sync manager if it exists
+	if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
+		prStates = prSyncManager.GetAllPRStates()
 	}
 
 	state := map[string]interface{}{
@@ -559,8 +558,8 @@ func (wsm *WorktreeStateManager) loadState() error {
 		var prStates map[string]*models.PullRequestState
 		if err := json.Unmarshal(prStatesData, &prStates); err == nil {
 			// Initialize PR sync manager with loaded states if it exists
-			if prSyncManagerInstance != nil {
-				prSyncManagerInstance.LoadStatesFromData(prStates)
+			if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
+				prSyncManager.LoadStatesFromData(prStates)
 			}
 		}
 	}

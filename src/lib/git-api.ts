@@ -53,6 +53,8 @@ export interface Worktree {
   pull_request_url?: string;
   pull_request_title?: string;
   pull_request_body?: string;
+  pull_request_state?: string;
+  pull_request_last_synced?: string;
   todos?: Todo[];
 }
 

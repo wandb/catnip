@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -815,10 +816,42 @@ func (s *GitService) ListWorktrees() []*models.Worktree {
 		// Enhance with cached status (this is extremely fast - O(1) lookup)
 		s.worktreeCache.EnhanceWorktreeWithCache(&worktreeCopy)
 
+		// Enhance with PR state information if available
+		s.enhanceWorktreeWithPRState(&worktreeCopy)
+
 		worktrees = append(worktrees, &worktreeCopy)
 	}
 
 	return worktrees
+}
+
+// enhanceWorktreeWithPRState adds PR state information to a worktree if available
+func (s *GitService) enhanceWorktreeWithPRState(wt *models.Worktree) {
+	// Only enhance if the worktree has a PR URL
+	if wt.PullRequestURL == "" {
+		return
+	}
+
+	// Extract repo ID and PR number from the PR URL
+	prPattern := regexp.MustCompile(`github\.com/([^/]+/[^/]+)/pull/(\d+)`)
+	matches := prPattern.FindStringSubmatch(wt.PullRequestURL)
+	if len(matches) != 3 {
+		return
+	}
+
+	repoID := matches[1]
+	prNumber, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return
+	}
+
+	// Get PR state from the sync manager
+	if prSyncManager := GetPRSyncManager(nil); prSyncManager != nil {
+		if prState := prSyncManager.GetPRState(repoID, prNumber); prState != nil {
+			wt.PullRequestState = prState.State
+			wt.PullRequestLastSynced = &prState.LastSynced
+		}
+	}
 }
 
 // GetStatus returns the current Git status

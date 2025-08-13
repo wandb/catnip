@@ -102,6 +102,10 @@ type Worktree struct {
 	PullRequestTitle string `json:"pull_request_title,omitempty" example:"Feature: Add new functionality"`
 	// Body/description of the associated pull request (persisted for updates)
 	PullRequestBody string `json:"pull_request_body,omitempty" example:"This PR adds new functionality to the system"`
+	// State of the associated pull request (open, closed, merged)
+	PullRequestState string `json:"pull_request_state,omitempty" example:"open"`
+	// Last time the PR state was synced
+	PullRequestLastSynced *time.Time `json:"pull_request_last_synced,omitempty"`
 	// Current todos from the most recent TodoWrite in Claude session
 	Todos []Todo `json:"todos,omitempty"`
 }

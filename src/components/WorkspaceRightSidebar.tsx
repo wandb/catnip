@@ -300,7 +300,12 @@ function ChangedFiles({
                     href={worktree.pull_request_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                    className={`flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors ${
+                      worktree.pull_request_state === "CLOSED" ||
+                      worktree.pull_request_state === "MERGED"
+                        ? "line-through opacity-60"
+                        : ""
+                    }`}
                     title="Open pull request"
                   >
                     <span>
@@ -416,7 +421,12 @@ function ChangedFiles({
                   href={worktree.pull_request_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors"
+                  className={`flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors ${
+                    worktree.pull_request_state === "CLOSED" ||
+                    worktree.pull_request_state === "MERGED"
+                      ? "line-through opacity-60"
+                      : ""
+                  }`}
                   title="Open pull request"
                 >
                   <span>

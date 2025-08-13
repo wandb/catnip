@@ -7,6 +7,7 @@ import {
   Settings,
   AlertTriangle,
   Trash2,
+  ExternalLink,
 } from "lucide-react";
 import {
   Collapsible,
@@ -420,7 +421,16 @@ export function WorkspaceLeftSidebar() {
                                           className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
                                           title={status.label}
                                         />
-                                        <span className="truncate">
+                                        <span
+                                          className={`truncate ${
+                                            worktree.pull_request_state ===
+                                              "CLOSED" ||
+                                            worktree.pull_request_state ===
+                                              "MERGED"
+                                              ? "line-through opacity-60"
+                                              : ""
+                                          }`}
+                                        >
                                           {worktree.name.split("/")[1] ||
                                             worktree.name}
                                         </span>
@@ -465,8 +475,37 @@ export function WorkspaceLeftSidebar() {
                                                   <div className="text-sm font-medium">
                                                     {worktree.branch}
                                                   </div>
-                                                  <div className="text-xs text-muted-foreground">
-                                                    {worktree.name}
+                                                  <div className="text-xs text-muted-foreground flex items-center gap-2">
+                                                    <span>{worktree.name}</span>
+                                                    {worktree.pull_request_url && (
+                                                      <a
+                                                        href={
+                                                          worktree.pull_request_url
+                                                        }
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className={`flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors ${
+                                                          worktree.pull_request_state ===
+                                                            "CLOSED" ||
+                                                          worktree.pull_request_state ===
+                                                            "MERGED"
+                                                            ? "line-through opacity-60"
+                                                            : ""
+                                                        }`}
+                                                        title="Open pull request"
+                                                        onClick={(e) =>
+                                                          e.stopPropagation()
+                                                        }
+                                                      >
+                                                        <span>
+                                                          PR{" "}
+                                                          {worktree.pull_request_url.match(
+                                                            /\/pull\/(\d+)/,
+                                                          )?.[1] || "?"}
+                                                        </span>
+                                                        <ExternalLink className="h-2 w-2" />
+                                                      </a>
+                                                    )}
                                                   </div>
                                                 </div>
                                                 <Button
@@ -494,7 +533,16 @@ export function WorkspaceLeftSidebar() {
                                           className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
                                           title={status.label}
                                         />
-                                        <span className="truncate">
+                                        <span
+                                          className={`truncate ${
+                                            worktree.pull_request_state ===
+                                              "CLOSED" ||
+                                            worktree.pull_request_state ===
+                                              "MERGED"
+                                              ? "line-through opacity-60"
+                                              : ""
+                                          }`}
+                                        >
                                           {worktree.name.split("/")[1] ||
                                             worktree.name}
                                         </span>
