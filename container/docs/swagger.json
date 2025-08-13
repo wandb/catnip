@@ -2657,6 +2657,9 @@
                 },
                 "title": {
                     "type": "string"
+                },
+                "url": {
+                    "type": "string"
                 }
             }
         },
