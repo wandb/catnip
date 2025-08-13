@@ -260,6 +260,8 @@ export function WorkspaceLeftSidebar() {
   const handleSingleWorkspaceDeleteConfirmed = async () => {
     try {
       await deleteWorktree(singleWorkspaceDeleteDialog.worktreeId);
+
+      // Close dialog after successful deletion
       setSingleWorkspaceDeleteDialog({
         open: false,
         worktreeId: "",

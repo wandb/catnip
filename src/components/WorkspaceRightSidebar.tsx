@@ -238,7 +238,14 @@ function ChangedFiles({
   const handleDeleteConfirmed = async () => {
     try {
       await deleteWorktree(deleteDialog.worktreeId);
-      setDeleteDialog({ ...deleteDialog, open: false });
+      // Close dialog after successful deletion
+      setDeleteDialog({
+        open: false,
+        worktreeId: "",
+        worktreeName: "",
+        hasChanges: false,
+        commitCount: 0,
+      });
       // Redirect to workspace index to find next available workspace or show onboarding
       void navigate({ to: "/workspace" });
     } catch (error) {
