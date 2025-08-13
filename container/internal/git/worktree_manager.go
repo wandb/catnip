@@ -178,6 +178,7 @@ func (w *WorktreeManager) CreateLocalWorktree(req CreateWorktreeRequest) (*model
 
 // DeleteWorktree removes a worktree comprehensively
 func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models.Repository) error {
+	startTime := time.Now()
 	logger.Debugf("🗑️ Starting comprehensive cleanup for worktree %s", worktree.Name)
 
 	// Step 1: Remove the worktree directory
@@ -237,6 +238,7 @@ func (w *WorktreeManager) DeleteWorktree(worktree *models.Worktree, repo *models
 		logger.Debugf("✅ Ran garbage collection to clean up dangling objects")
 	}
 
+	logger.Debugf("🗑️ Comprehensive cleanup completed in %v total", time.Since(startTime))
 	logger.Debugf("✅ Completed comprehensive cleanup for worktree %s", worktree.Name)
 	return nil
 }

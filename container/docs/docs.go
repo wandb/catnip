@@ -2112,6 +2112,15 @@ const docTemplate = `{
                     "type": "string",
                     "example": "This PR adds new functionality to the system"
                 },
+                "pull_request_last_synced": {
+                    "description": "Last time the PR state was synced",
+                    "type": "string"
+                },
+                "pull_request_state": {
+                    "description": "State of the associated pull request (open, closed, merged)",
+                    "type": "string",
+                    "example": "open"
+                },
                 "pull_request_title": {
                     "description": "Title of the associated pull request (persisted for updates)",
                     "type": "string",
@@ -2488,6 +2497,15 @@ const docTemplate = `{
                     "description": "Body/description of the associated pull request (persisted for updates)",
                     "type": "string",
                     "example": "This PR adds new functionality to the system"
+                },
+                "pull_request_last_synced": {
+                    "description": "Last time the PR state was synced",
+                    "type": "string"
+                },
+                "pull_request_state": {
+                    "description": "State of the associated pull request (open, closed, merged)",
+                    "type": "string",
+                    "example": "open"
                 },
                 "pull_request_title": {
                     "description": "Title of the associated pull request (persisted for updates)",

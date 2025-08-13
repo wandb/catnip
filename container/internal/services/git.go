@@ -1220,23 +1220,31 @@ func (s *GitService) DeleteWorktree(worktreeID string) error {
 	// Clean up any active PTY sessions for this worktree (service-specific)
 	s.cleanupActiveSessions(worktree.Path)
 
-	// Use git WorktreeManager to handle the comprehensive cleanup
-	if err := s.gitWorktreeManager.DeleteWorktree(worktree, repo); err != nil {
-		return err
-	}
-
-	// Remove from cache
+	// Remove from cache immediately (for fast UI response)
 	s.worktreeCache.RemoveWorktree(worktreeID, worktree.Path)
 
-	// Remove from service memory
+	// Remove from service memory immediately
 	if err := s.stateManager.DeleteWorktree(worktreeID); err != nil {
 		logger.Warnf("⚠️ Failed to delete worktree from state: %v", err)
 	}
 
-	// Notify Claude monitor service to clean up checkpoint managers and todo monitors
+	// Notify Claude monitor service to clean up checkpoint managers and todo monitors immediately
 	if s.claudeMonitor != nil {
 		s.claudeMonitor.OnWorktreeDeleted(worktreeID, worktree.Path)
 	}
+
+	// Perform comprehensive git cleanup in background (non-blocking)
+	go func() {
+		logger.Debugf("🗑️ Starting background git cleanup for worktree %s", worktree.Name)
+		cleanupStart := time.Now()
+
+		if err := s.gitWorktreeManager.DeleteWorktree(worktree, repo); err != nil {
+			logger.Warnf("⚠️ Background git cleanup failed for worktree %s: %v", worktree.Name, err)
+		} else {
+			cleanupDuration := time.Since(cleanupStart)
+			logger.Debugf("✅ Background git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
+		}
+	}()
 
 	// Save state
 	// State persistence handled by state manager

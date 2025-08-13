@@ -494,6 +494,13 @@ definitions:
           updates)
         example: This PR adds new functionality to the system
         type: string
+      pull_request_last_synced:
+        description: Last time the PR state was synced
+        type: string
+      pull_request_state:
+        description: State of the associated pull request (open, closed, merged)
+        example: open
+        type: string
       pull_request_title:
         description: Title of the associated pull request (persisted for updates)
         example: 'Feature: Add new functionality'
@@ -768,6 +775,13 @@ definitions:
         description: Body/description of the associated pull request (persisted for
           updates)
         example: This PR adds new functionality to the system
+        type: string
+      pull_request_last_synced:
+        description: Last time the PR state was synced
+        type: string
+      pull_request_state:
+        description: State of the associated pull request (open, closed, merged)
+        example: open
         type: string
       pull_request_title:
         description: Title of the associated pull request (persisted for updates)
