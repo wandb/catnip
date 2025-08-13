@@ -13,7 +13,7 @@ package tui
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 // Clean, simple notification implementation based on terminal-notifier pattern
-void sendNotification(const char* title, const char* body, const char* subtitle) {
+void sendNotification(const char* title, const char* body, const char* subtitle, const char* url) {
     @autoreleasepool {
         // Debug: NSLog(@"[Catnip] Sending notification: %s", title);
 
@@ -44,6 +44,14 @@ void sendNotification(const char* title, const char* body, const char* subtitle)
 
         if (subtitle && strlen(subtitle) > 0) {
             notification.subtitle = [NSString stringWithUTF8String:subtitle];
+        }
+
+        // Add URL to userInfo if provided
+        if (url && strlen(url) > 0) {
+            NSString *urlString = [NSString stringWithUTF8String:url];
+            notification.userInfo = @{@"url": urlString};
+            notification.hasActionButton = YES;
+            notification.actionButtonTitle = @"Show";
         }
 
         notification.soundName = NSUserNotificationDefaultSoundName;

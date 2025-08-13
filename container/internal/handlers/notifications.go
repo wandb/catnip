@@ -12,6 +12,7 @@ type NotificationPayload struct {
 	Title    string `json:"title"`
 	Body     string `json:"body"`
 	Subtitle string `json:"subtitle,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
 // NotificationHandler handles notification requests
