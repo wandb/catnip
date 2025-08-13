@@ -321,7 +321,23 @@ func (g *GitHubManager) createPullRequestWithGH(worktree *models.Worktree, owner
 	logger.Infof("✅ Created PR for branch %s", branchToPush)
 
 	// Extract URL from output (gh pr create returns the URL)
-	url := strings.TrimSpace(string(output))
+	// Split by newlines and take the last non-empty line to handle mixed output
+	outputStr := strings.TrimSpace(string(output))
+	lines := strings.Split(outputStr, "\n")
+
+	var url string
+	// Find the last line that looks like a GitHub PR URL
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(line, "https://github.com/") && strings.Contains(line, "/pull/") {
+			url = line
+			break
+		}
+	}
+
+	if url == "" {
+		return nil, fmt.Errorf("failed to extract valid GitHub PR URL from output: %s", outputStr)
+	}
 
 	// Extract PR number from URL (e.g., https://github.com/owner/repo/pull/123)
 	prNumber := 0
