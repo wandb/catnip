@@ -422,12 +422,17 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 			// Also emit a notification event directly via SSE if notifications are enabled
 			if settings, err := h.claudeService.GetClaudeSettings(); err == nil && settings.NotificationsEnabled {
 				logger.Debugf("🔔 Emitting notification event: %s", title)
+
+				// Generate workspace URL
+				workspaceURL := fmt.Sprintf("http://localhost:8080/workspace%s", workspaceDir)
+
 				h.eventsHandler.broadcastEvent(AppEvent{
 					Type: NotificationEvent,
 					Payload: NotificationPayload{
 						Title:    title,
 						Body:     description,
 						Subtitle: "", // Leave empty for consistency with existing notification structure
+						URL:      workspaceURL,
 					},
 				})
 			} else if err != nil {
