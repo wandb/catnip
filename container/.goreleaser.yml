@@ -76,23 +76,21 @@ builds:
       post:
         - cmd: ./build/macos-bundle.sh {{ .Os }} {{ .Path }} {{ .Version }} {{ .Target }}
 
-# Code signing and notarization for macOS app bundles
-# Signing is handled in the post-build script to work with app bundles
-# This section is disabled since we sign in the macos-bundle.sh script
-#notarize:
-#  macos:
-#    - enabled: '{{ if index .Env "APPLE_SIGN_P12" }}true{{ else }}false{{ end }}'
-#      ids: [catnip-macos]
-#      sign:
-#        certificate: "{{ .Env.APPLE_SIGN_P12 }}"
-#        password: "{{ .Env.APPLE_SIGN_PASSWORD }}"
-#        entitlements: "build/entitlements.plist"
-#      notarize:
-#        issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
-#        key: "{{ .Env.APPLE_PRIVATE_KEY }}"
-#        key_id: "{{ .Env.APPLE_KEY_ID }}"
-#        wait: true
-#        timeout: 20m
+# Code signing and notarization for macOS binaries (before app bundle creation)
+notarize:
+  macos:
+    - enabled: '{{ if index .Env "APPLE_SIGN_P12" }}true{{ else }}false{{ end }}'
+      ids: [catnip-macos]
+      sign:
+        certificate: "{{ .Env.APPLE_SIGN_P12 }}"
+        password: "{{ .Env.APPLE_SIGN_PASSWORD }}"
+        entitlements: "build/entitlements.plist"
+      notarize:
+        issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
+        key: "{{ .Env.APPLE_PRIVATE_KEY }}"
+        key_id: "{{ .Env.APPLE_KEY_ID }}"
+        wait: true
+        timeout: 20m
 
 # Archive configuration
 archives:
@@ -300,6 +298,7 @@ before:
     - go mod download
     - go mod tidy
     - go generate ./...
+
 
 # Build environment
 # CGO settings are per-build now - see builds section
