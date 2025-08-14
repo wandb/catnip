@@ -24,6 +24,19 @@ jobs:
           go-version: "1.24"
           cache-dependency-path: container/go.sum
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
       #- name: Import Code-Signing Certificates
       #  uses: Apple-Actions/import-codesign-certs@v3
       #  with:
