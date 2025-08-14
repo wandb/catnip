@@ -94,43 +94,47 @@ notarize:
 
 # Archive configuration
 archives:
-  - id: default
-    # Modern v2 syntax: use ids instead of builds
-    ids: [catnip-no-cgo, catnip-macos]
-
-    # Archive name template
+  # Linux and FreeBSD archives (standard binaries only)
+  - id: unix
+    ids: [catnip-no-cgo]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
-
-    # Archive format (modern v2 syntax)
     format_overrides:
       - goos: linux
         formats: [tar.gz]
-      - goos: darwin
-        formats: [tar.gz]
       - goos: freebsd
         formats: [tar.gz]
-
-    # Files to include in archive
     files:
       - README.md
       - LICENSE
       - docs/swagger.json
       - docs/swagger.yaml
-      - src: "{{ .Os }}_{{ .Arch }}/Catnip.app/**"
+    wrap_in_directory: false
+
+  # macOS archives (with app bundles and CLI wrappers)
+  - id: macos
+    ids: [catnip-macos]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    format_overrides:
+      - goos: darwin
+        formats: [tar.gz]
+    files:
+      - README.md
+      - LICENSE
+      - docs/swagger.json
+      - docs/swagger.yaml
+      - src: "dist/catnip-macos_darwin_*/*.app/**"
         dst: "Catnip.app"
         strip_parent: true
         info:
           owner: root
           group: wheel
           mode: 0755
-      - src: "{{ .Os }}_{{ .Arch }}/catnip-cli"
+      - src: "dist/catnip-macos_darwin_*/catnip-cli"
         dst: "catnip"
         info:
           owner: root
           group: wheel  
           mode: 0755
-
-    # Wrap binaries in directory
     wrap_in_directory: false
 
 # Checksum configuration
