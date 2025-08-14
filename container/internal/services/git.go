@@ -2529,6 +2529,11 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	case "react-vite":
 		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "react-ts", "--yes")
 		cmd.Dir = tempDir
+	case "basic":
+		// For basic template, we create the directory manually and populate it
+		if err := os.MkdirAll(projectPath, 0755); err != nil {
+			return nil, nil, fmt.Errorf("failed to create project directory: %v", err)
+		}
 	case "vue-vite":
 		cmd = exec.Command("pnpm", "create", "vite", projectName, "--template", "vue-ts", "--yes")
 		cmd.Dir = tempDir
@@ -2562,6 +2567,16 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 		return nil, nil, fmt.Errorf("project directory %s was not created by template command", projectPath)
 	}
 	logger.Infof("✅ Project directory verified: %s", projectPath)
+
+	// Create README.md for basic template
+	if templateID == "basic" {
+		readmePath := filepath.Join(projectPath, "README.md")
+		readmeContent := "# Hello World\n\nThis is a basic project created with Catnip.\n"
+		if err := os.WriteFile(readmePath, []byte(readmeContent), 0644); err != nil {
+			return nil, nil, fmt.Errorf("failed to create README.md: %v", err)
+		}
+		logger.Infof("✅ Created README.md for basic template")
+	}
 
 	// For templates that just create directories, we need to set up the files manually
 	supportedTemplates := templates.GetSupportedTemplates()
