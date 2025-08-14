@@ -22,11 +22,13 @@ install_instructions() {
     case $1 in
         "pnpm")
             echo "  • Install via npm: npm install -g pnpm"
+            echo "  • Install via corepack: corepack enable && corepack prepare pnpm@latest --activate"
             echo "  • Install via curl: curl -fsSL https://get.pnpm.io/install.sh | sh -"
             echo "  • Install via Homebrew: brew install pnpm"
             echo "  • More options: https://pnpm.io/installation"
             ;;
         "just")
+            echo "  • Install via npm: npm install -g just-install"
             echo "  • Install via cargo: cargo install just"
             echo "  • Install via Homebrew: brew install just"
             echo "  • Install via package manager: https://github.com/casey/just#installation"
@@ -44,6 +46,45 @@ install_instructions() {
     echo ""
 }
 
+# Function to attempt automatic installation
+try_auto_install() {
+    local tool=$1
+    echo -e "${YELLOW}🔧 Attempting to auto-install $tool...${NC}"
+    
+    case $tool in
+        "pnpm")
+            # Try corepack first (available in Node.js 16.13+)
+            if command_exists corepack; then
+                echo "Enabling pnpm via corepack..."
+                if corepack enable && corepack prepare pnpm@latest --activate; then
+                    echo -e "${GREEN}✅ pnpm installed via corepack${NC}"
+                    return 0
+                fi
+            fi
+            # Fall back to npm
+            if command_exists npm; then
+                echo "Installing pnpm via npm..."
+                if npm install -g pnpm; then
+                    echo -e "${GREEN}✅ pnpm installed via npm${NC}"
+                    return 0
+                fi
+            fi
+            ;;
+        "just")
+            # Try npm installation
+            if command_exists npm; then
+                echo "Installing just via npm..."
+                if npm install -g just-install && command_exists just; then
+                    echo -e "${GREEN}✅ just installed via npm${NC}"
+                    return 0
+                fi
+            fi
+            ;;
+    esac
+    
+    return 1
+}
+
 # Check required dependencies
 missing_deps=()
 
@@ -55,8 +96,10 @@ if ! command_exists node; then
 fi
 
 if ! command_exists pnpm; then
-    install_instructions "pnpm"
-    missing_deps+=("pnpm")
+    if ! try_auto_install "pnpm"; then
+        install_instructions "pnpm"
+        missing_deps+=("pnpm")
+    fi
 fi
 
 if ! command_exists go; then
@@ -65,8 +108,10 @@ if ! command_exists go; then
 fi
 
 if ! command_exists just; then
-    install_instructions "just"
-    missing_deps+=("just")
+    if ! try_auto_install "just"; then
+        install_instructions "just"
+        missing_deps+=("just")
+    fi
 fi
 
 # Exit if dependencies are missing

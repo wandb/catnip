@@ -1,0 +1,39 @@
+{
+  "name": "Catnip Dev Container",
+  "image": "mcr.microsoft.com/devcontainers/go:1-bookworm",
+  "remoteEnv": {
+    "CATNIP_ROOT": "/home/vscode/.catnip",
+    "CATNIP_WORKSPACE_DIR": "/catnip",
+    "CATNIP_VOLUME_DIR": "/home/vscode/.catnip/volume",
+    "CATNIP_LIVE_DIR": "/workspaces",
+    "CATNIP_HOME_DIR": "/home/vscode",
+    "CATNIP_TEMP_DIR": "/tmp"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.Go",
+        "anthropic.claude-code",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss"
+      ],
+      "settings": {
+        "go.toolsManagement.checkForUpdates": "local",
+        "go.useLanguageServer": true,
+        "go.gopath": "/go",
+        "go.goroot": "/usr/local/go"
+      }
+    }
+  },
+  "forwardPorts": [5173, 8080],
+  "onCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "latest"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  }
+}

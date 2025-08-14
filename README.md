@@ -3,14 +3,14 @@
 
 # 🐾 Catnip
 
-**The developer environment that's like catnip for agentic programming**
+**The developer environment that's like catnip for agentic programming.**
 
 [![GitHub Stars](https://img.shields.io/github/stars/wandb/catnip?style=social)](https://github.com/wandb/catnip)
 [![Docker Pulls](https://img.shields.io/docker/pulls/wandb/catnip)](https://hub.docker.com/r/wandb/catnip)
 [![Version](https://img.shields.io/github/v/release/wandb/catnip)](https://github.com/wandb/catnip/releases)
 <br/>
 
-**🔥 Run multiple AI agents in parallel, each in their own isolated git worktree with live preview!**
+**🔥 Parallel vibe coding in containers. Stay organized, get notified, create anything! 😎**
 
 <img src="public/screenshot.png" alt="Catnip UI Screenshot"/>
 
@@ -30,6 +30,8 @@ Catnip's purpose is to make asynchronous coding agents more accessible and produ
 
 ```bash
 curl -sSfL install.catnip.sh | sh
+# Optionally start catnip from an existing git repo
+cd ~/Development/my_awesome_project
 catnip run
 # Open http://localhost:8080 🎉
 ```
@@ -77,7 +79,7 @@ graph TB
     class svc1,svc2,svc3 serviceStyle
 ```
 
-`catnip` is a golang binary with a vite SPA embedded within it. The `wandb/catnip` container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container.
+`catnip` is a golang binary with a vite SPA embedded in it. The [wandb/catnip](./container/Dockerfile) container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container.
 
 It comes pre-configured with node, python, golang, gcc, and rust. You can have the container install a different version of the language on boot by setting any of these environment variables:
 
@@ -114,6 +116,14 @@ If you run `catnip` from within a git repo, we mount the repo into the container
 
 > [!TIP]
 > The workspace within the container is committing to a custom ref `refs/catnip/$NAME`. For convenience we also create a nicely named branch like `feature/make-something-great`. This branch is kept in sync with the workspace ref which means you can run `git checkout feature/make-something-great` outside of the container to see changes locally!
+
+We also run a git server in the container. You will see a Git option in the "Open in..." menu that will provide you with a clone command like:
+
+```bash
+git clone -o catnip http://localhost:8080/my-sick-repo.git
+```
+
+As you create new workspaces in the container, you can run `git fetch catnip` back on your host to see your changes outside of the container!
 
 ### Ports
 
@@ -154,7 +164,7 @@ Big time... Inception 🤯
 We welcome contributions! Catnip is designed to make agentic programming more powerful and accessible.
 
 1. 🍴 Fork the repository
-2. 🌿 Run catnip in dev mode `catnip run --dev`
+2. 🌿 Run catnip in dev mode `catnip run --dev` (you must run this from within the catnip repo)
 3. 💻 Make your changes
 4. ✅ Add tests if applicable
 5. 📤 Submit a pull request
