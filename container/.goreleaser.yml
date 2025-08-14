@@ -298,7 +298,7 @@ before:
     - go mod tidy
     - go generate ./...
     # Frontend build!
-    - sh -c "cd .. && pnpm install --frozen-lockfile && pnpm build"
+    - sh -c "cd .. && pnpm build"
     - mkdir -p internal/assets/dist
     - sh -c "cd .. && [ -d dist ] && cp -r dist/* container/internal/assets/dist/"
     # Copy root README for archives
