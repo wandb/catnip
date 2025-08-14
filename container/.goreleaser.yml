@@ -122,13 +122,17 @@ archives:
       - LICENSE
       - docs/swagger.json
       - docs/swagger.yaml
-      - src: "dist/catnip-macos_darwin_*/*.app/**"
-        dst: "Catnip.app"
+      - src: "dist/catnip-macos_darwin_*/catnip.app/Contents/Info.plist"
+        dst: "Catnip.app/Contents"
+        strip_parent: true
+      - src: "dist/catnip-macos_darwin_*/catnip.app/Contents/MacOS/catnip"
+        dst: "Catnip.app/Contents/MacOS"
         strip_parent: true
         info:
-          owner: root
-          group: wheel
           mode: 0755
+      - src: "dist/catnip-macos_darwin_*/catnip.app/Contents/Resources/**"
+        dst: "Catnip.app/Contents/Resources"
+        strip_parent: true
     wrap_in_directory: false
 
 # Checksum configuration
