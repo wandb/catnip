@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 # Catnip CLI Installation Script
 # 
@@ -10,7 +10,7 @@
 #   curl -sSfL install.catnip.sh | sh -s -- --version v1.0.0
 #   curl -sSfL install.catnip.sh | INSTALL_DIR=/usr/local/bin sh
 
-set -euo pipefail
+set -eu
 
 # Default configuration
 GITHUB_REPO="wandb/catnip"
@@ -55,16 +55,16 @@ command_exists() {
 
 # Verify required commands are available
 verify_dependencies() {
-    local missing_deps=()
+    local missing_deps=""
     
     for cmd in curl tar; do
         if ! command_exists "$cmd"; then
-            missing_deps+=("$cmd")
+            missing_deps="$missing_deps $cmd"
         fi
     done
     
-    if [[ ${#missing_deps[@]} -gt 0 ]]; then
-        fatal "Missing required dependencies: ${missing_deps[*]}"
+    if [ -n "$missing_deps" ]; then
+        fatal "Missing required dependencies:$missing_deps"
     fi
     
     # Check for checksum command (sha256sum or shasum)
@@ -115,7 +115,7 @@ get_latest_version() {
         version=$(curl -sfL "$api_url" | grep '"tag_name":' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
     fi
     
-    if [[ -z "$version" || "$version" == "null" ]]; then
+    if [ -z "$version" ] || [ "$version" = "null" ]; then
         fatal "Failed to get latest version from Catnip proxy"
     fi
     
@@ -152,7 +152,7 @@ verify_checksum() {
         fatal "No checksum command available"
     fi
     
-    if [[ "$actual_checksum" != "$expected_checksum" ]]; then
+    if [ "$actual_checksum" != "$expected_checksum" ]; then
         fatal "Checksum verification failed!\nExpected: $expected_checksum\nActual: $actual_checksum"
     fi
     
@@ -161,7 +161,7 @@ verify_checksum() {
 
 # Create installation directory
 create_install_dir() {
-    if [[ ! -d "$INSTALL_DIR" ]]; then
+    if [ ! -d "$INSTALL_DIR" ]; then
         log "Creating installation directory: $INSTALL_DIR"
         if ! mkdir -p "$INSTALL_DIR"; then
             fatal "Failed to create installation directory: $INSTALL_DIR"
@@ -171,11 +171,14 @@ create_install_dir() {
 
 # Check if installation directory is in PATH
 check_path() {
-    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-        warn "Installation directory $INSTALL_DIR is not in your PATH"
-        warn "Add it to your PATH by adding this line to your shell profile:"
-        warn "  export PATH=\"$INSTALL_DIR:\$PATH\""
-    fi
+    case ":$PATH:" in
+        *":$INSTALL_DIR:"*) ;;
+        *)
+            warn "Installation directory $INSTALL_DIR is not in your PATH"
+            warn "Add it to your PATH by adding this line to your shell profile:"
+            warn "  export PATH=\"$INSTALL_DIR:\$PATH\""
+            ;;
+    esac
 }
 
 # Main installation function
@@ -191,7 +194,7 @@ install_catnip() {
     log "Detected system: $os/$arch"
     
     # Get version
-    if [[ "$VERSION" == "latest" ]]; then
+    if [ "$VERSION" = "latest" ]; then
         version=$(get_latest_version)
     else
         version="$VERSION"
@@ -220,7 +223,7 @@ install_catnip() {
     
     # Extract expected checksum
     expected_checksum=$(grep "$archive_name" "$checksum_file" | cut -d' ' -f1)
-    if [[ -z "$expected_checksum" ]]; then
+    if [ -z "$expected_checksum" ]; then
         fatal "Could not find checksum for $archive_name in checksums file"
     fi
     
@@ -237,9 +240,9 @@ install_catnip() {
     fi
     
     # Handle macOS app bundle vs standard binary
-    if [[ "$os" == "darwin" ]]; then
+    if [ "$os" = "darwin" ]; then
         # macOS: Look for app bundle structure
-        if [[ -d "$temp_dir/Catnip.app" ]]; then
+        if [ -d "$temp_dir/Catnip.app" ]; then
             log "Installing macOS app bundle..."
             
             # Use ~/Library/Application Support for the app bundle (standard location for CLI support files)
@@ -248,13 +251,13 @@ install_catnip() {
             
             # Clean up old app bundle from incorrect location (if it exists)
             local old_app_location="$INSTALL_DIR/Catnip.app"
-            if [[ -d "$old_app_location" ]]; then
+            if [ -d "$old_app_location" ]; then
                 log "Cleaning up old app bundle from $INSTALL_DIR..."
                 rm -rf "$old_app_location"
             fi
             
             # Create Application Support directory if needed
-            if [[ ! -d "$app_support_dir" ]]; then
+            if [ ! -d "$app_support_dir" ]; then
                 log "Creating Application Support directory..."
                 if ! mkdir -p "$app_support_dir"; then
                     fatal "Failed to create Application Support directory: $app_support_dir"
@@ -262,7 +265,7 @@ install_catnip() {
             fi
             
             # Remove existing app bundle if present
-            if [[ -d "$app_bundle_path" ]]; then
+            if [ -d "$app_bundle_path" ]; then
                 log "Removing existing app bundle..."
                 rm -rf "$app_bundle_path"
             fi
@@ -289,7 +292,7 @@ EOF
         else
             # Fallback: Look for standalone binary (older releases)
             local extracted_binary="$temp_dir/$BINARY_NAME"
-            if [[ ! -f "$extracted_binary" ]]; then
+            if [ ! -f "$extracted_binary" ]; then
                 fatal "Neither app bundle nor standalone binary found in archive"
             fi
             
@@ -309,7 +312,7 @@ EOF
     else
         # Linux/FreeBSD: Standard binary installation
         local extracted_binary="$temp_dir/$BINARY_NAME"
-        if [[ ! -f "$extracted_binary" ]]; then
+        if [ ! -f "$extracted_binary" ]; then
             fatal "Binary not found in archive: $BINARY_NAME"
         fi
         
@@ -345,7 +348,7 @@ EOF
 
 # Parse command line arguments
 parse_args() {
-    while [[ $# -gt 0 ]]; do
+    while [ $# -gt 0 ]; do
         case $1 in
             --version)
                 VERSION="$2"
@@ -393,7 +396,7 @@ EOF
 # Main execution
 main() {
     log "Catnip CLI Installation Script"
-    log "========================================"
+    log "===================="
     
     parse_args "$@"
     verify_dependencies
