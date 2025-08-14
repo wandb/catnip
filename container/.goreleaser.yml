@@ -129,12 +129,6 @@ archives:
           owner: root
           group: wheel
           mode: 0755
-      - src: "dist/catnip-macos_darwin_*/catnip-cli"
-        dst: "catnip"
-        info:
-          owner: root
-          group: wheel  
-          mode: 0755
     wrap_in_directory: false
 
 # Checksum configuration
