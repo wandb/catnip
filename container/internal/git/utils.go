@@ -36,7 +36,7 @@ var (
 
 		// Short and sweet names
 		"oreo", "gizmo", "bandit", "muffin", "cookie", "pepper", "ziggy",
-		"cosmo", "socks", "patches", "ginger", "rusty", "dusty", "midnight",
+		"cosmo", "socks", "patches", "ginger", "rusty", "dusty", "frost",
 
 		// Playful names
 		"noodle", "pickle", "taco", "bingo", "jinx", "pixel", "widget",
