@@ -21,6 +21,8 @@ builds:
     binary: catnip
     env:
       - CGO_ENABLED=0
+      - CC=gcc
+      - CXX=g++
 
     # Build flags and ldflags for version injection
     flags:
@@ -52,6 +54,8 @@ builds:
     binary: catnip
     env:
       - CGO_ENABLED=1
+      - CC=clang
+      - CXX=clang++
 
     # Build flags and ldflags for version injection
     flags:
