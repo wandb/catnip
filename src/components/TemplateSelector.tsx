@@ -20,14 +20,15 @@ const categoryIcons = {
   frontend: <Code2 className="w-4 h-4" />,
   backend: <Server className="w-4 h-4" />,
   fullstack: <Layers className="w-4 h-4" />,
-  other: <Package className="w-4 h-4" />,
+  basic: <Package className="w-4 h-4" />,
 };
 
 export function TemplateSelector({ onSelectTemplate }: TemplateSelectorProps) {
   const [selectedCategory, setSelectedCategory] =
-    useState<ProjectTemplate["category"]>("frontend");
+    useState<ProjectTemplate["category"]>("basic");
 
   const categories: ProjectTemplate["category"][] = [
+    "basic",
     "frontend",
     "backend",
     "fullstack",
@@ -51,7 +52,7 @@ export function TemplateSelector({ onSelectTemplate }: TemplateSelectorProps) {
           setSelectedCategory(v as ProjectTemplate["category"])
         }
       >
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           {categories.map((category) => (
             <TabsTrigger key={category} value={category} className="capitalize">
               <span className="flex items-center gap-2">

@@ -2,6 +2,14 @@ import type { ProjectTemplate } from "@/types/template";
 
 export const projectTemplates: ProjectTemplate[] = [
   {
+    id: "basic",
+    name: "Basic README",
+    description: "Simple empty repo with a basic README.md",
+    category: "basic",
+    language: "Markdown",
+    icon: "📝",
+  },
+  {
     id: "react-vite",
     name: "React + Vite",
     description: "Modern React app with Vite, TypeScript, and Tailwind CSS",
