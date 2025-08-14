@@ -155,7 +155,9 @@ jobs:
       - name: Check GoReleaser config
         uses: goreleaser/goreleaser-action@v6
         with:
-          distribution: goreleaser
+          distribution: goreleaser-pro
           version: "~> v2"
           args: check
           workdir: container
+        env:
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
