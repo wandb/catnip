@@ -23,6 +23,9 @@ APP_DIR="${BINARY_PATH}.app"
 rm -rf "${APP_DIR}"
 cp -R "${STATIC_APP}" "${APP_DIR}"
 
+# Ensure the MacOS directory exists in the app bundle
+mkdir -p "${APP_DIR}/Contents/MacOS"
+
 # Move built binary to app bundle
 mv "${BINARY_PATH}" "${APP_DIR}/Contents/MacOS/catnip"
 
