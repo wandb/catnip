@@ -69,6 +69,35 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/token": {
+            "post": {
+                "description": "Exchanges a short-lived CLI token for a browser session cookie",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Exchange token for session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "JWT token from CLI",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/hooks": {
             "post": {
                 "description": "Receives hook notifications from Claude Code for activity tracking",

@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vanpelt/catnip/internal/middleware"
 	"github.com/vanpelt/catnip/internal/tui/components"
 )
 
@@ -267,20 +270,53 @@ func (v *OverviewViewImpl) renderWithASCIIView(m *Model, content string) string 
 }
 
 func (v *OverviewViewImpl) openBrowser(url string) error {
+	// Add authentication token if CATNIP_AUTH_SECRET is set
+	authenticatedURL, err := v.addAuthTokenToURL(url)
+	if err != nil {
+		// If token generation fails, continue with original URL
+		authenticatedURL = url
+	}
+
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", authenticatedURL)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", authenticatedURL)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", authenticatedURL)
 	default:
 		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 	}
 
 	return cmd.Start()
+}
+
+func (v *OverviewViewImpl) addAuthTokenToURL(baseURL string) (string, error) {
+	// Check if authentication is required
+	if os.Getenv("CATNIP_AUTH_SECRET") == "" {
+		return baseURL, nil
+	}
+
+	// Generate a short-lived CLI token
+	token, err := middleware.GenerateToken("cli", 5*time.Minute)
+	if err != nil {
+		return baseURL, fmt.Errorf("failed to generate auth token: %w", err)
+	}
+
+	// Parse the base URL
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return baseURL, fmt.Errorf("failed to parse URL: %w", err)
+	}
+
+	// Add the token as a query parameter
+	query := parsedURL.Query()
+	query.Set("token", token)
+	parsedURL.RawQuery = query.Encode()
+
+	return parsedURL.String(), nil
 }
 
 func (v *OverviewViewImpl) isAppReady(baseURL string) bool {

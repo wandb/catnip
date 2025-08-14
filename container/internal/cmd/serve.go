@@ -13,6 +13,7 @@ import (
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/handlers"
 	"github.com/vanpelt/catnip/internal/logger"
+	"github.com/vanpelt/catnip/internal/middleware"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
 )
@@ -117,8 +118,17 @@ func startServer(cmd *cobra.Command) {
 	app.Use(recover.New())
 	app.Use(cors.New(cors.Config{
 		AllowOrigins: "*",
-		AllowHeaders: "Origin, Content-Type, Accept",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
 	}))
+
+	// Initialize and apply authentication middleware
+	authMiddleware := middleware.NewAuthMiddleware()
+	if authMiddleware != nil {
+		logger.Infof("🔐 Authentication enabled with CATNIP_AUTH_SECRET")
+		app.Use(authMiddleware.RequireAuth)
+	} else {
+		logger.Infof("🔓 Authentication disabled (no CATNIP_AUTH_SECRET)")
+	}
 
 	// Health check
 	app.Get("/health", func(c *fiber.Ctx) error {
@@ -128,9 +138,10 @@ func startServer(cmd *cobra.Command) {
 	// Settings endpoint - returns environment configuration
 	app.Get("/v1/settings", func(c *fiber.Ctx) error {
 		catnipProxy := os.Getenv("CATNIP_PROXY")
+		catnipAuthSecret := os.Getenv("CATNIP_AUTH_SECRET")
 		return c.JSON(fiber.Map{
 			"catnipProxy":  catnipProxy,
-			"authRequired": catnipProxy != "",
+			"authRequired": catnipAuthSecret != "",
 		})
 	})
 
@@ -213,6 +224,9 @@ func startServer(cmd *cobra.Command) {
 	v1.Post("/auth/github/start", authHandler.StartGitHubAuth)
 	v1.Get("/auth/github/status", authHandler.GetAuthStatus)
 	v1.Post("/auth/github/reset", authHandler.ResetAuthState)
+
+	// Token authentication routes
+	v1.Post("/auth/token", authHandler.ExchangeToken)
 
 	// Upload routes
 	v1.Post("/upload", uploadHandler.UploadFile)

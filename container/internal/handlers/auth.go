@@ -15,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
+	"github.com/vanpelt/catnip/internal/middleware"
 	"gopkg.in/yaml.v2"
 )
 
@@ -409,4 +410,63 @@ func (h *AuthHandler) parseAuthOutput(stdout io.Reader) {
 			h.authMutex.Unlock()
 		}
 	}
+}
+
+// ExchangeToken exchanges a short-lived token for a session cookie
+// @Summary Exchange token for session
+// @Description Exchanges a short-lived CLI token for a browser session cookie
+// @Tags auth
+// @Param token query string true "JWT token from CLI"
+// @Success 200 {object} map[string]string
+// @Router /v1/auth/token [post]
+func (h *AuthHandler) ExchangeToken(c *fiber.Ctx) error {
+	// Get token from query parameter
+	token := c.Query("token")
+	if token == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "token required"})
+	}
+
+	// Create auth middleware instance to validate token
+	am := middleware.NewAuthMiddleware()
+	if am == nil {
+		// No auth required, just return success
+		return c.JSON(fiber.Map{"status": "ok", "message": "authentication not required"})
+	}
+
+	// Validate the token
+	claims, err := am.ValidateToken(token)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"error": "invalid or expired token"})
+	}
+
+	// Generate a new longer-lived token for browser sessions
+	var duration time.Duration
+	if claims.Source == "cli" {
+		// CLI tokens are exchanged for 7-day browser tokens
+		duration = 7 * 24 * time.Hour
+	} else {
+		// Keep the same duration for browser-originated tokens
+		duration = time.Until(time.Unix(claims.ExpiresAt, 0))
+	}
+
+	newToken, err := middleware.GenerateToken("browser", duration)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "failed to generate session token"})
+	}
+
+	// Set cookie with the new token
+	c.Cookie(&fiber.Cookie{
+		Name:     "catnip_token",
+		Value:    newToken,
+		Expires:  time.Now().Add(duration),
+		HTTPOnly: true,
+		Secure:   c.Protocol() == "https",
+		SameSite: "Lax",
+	})
+
+	return c.JSON(fiber.Map{
+		"status":  "ok",
+		"message": "session established",
+		"expires": time.Now().Add(duration).Unix(),
+	})
 }

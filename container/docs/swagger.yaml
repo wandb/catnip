@@ -1070,6 +1070,25 @@ paths:
       summary: Get authentication status
       tags:
       - auth
+  /v1/auth/token:
+    post:
+      description: Exchanges a short-lived CLI token for a browser session cookie
+      parameters:
+      - description: JWT token from CLI
+        in: query
+        name: token
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Exchange token for session
+      tags:
+      - auth
   /v1/claude/hooks:
     post:
       consumes:
