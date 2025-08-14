@@ -1,4 +1,5 @@
 # GoReleaser configuration for catnip CLI
+# yaml-language-server: $schema=https://goreleaser.com/static/schema-pro.json
 # Documentation: https://goreleaser.com
 
 version: 2
@@ -49,7 +50,7 @@ builds:
   # macOS builds with CGO for native notifications
   - id: catnip-macos
     main: ./cmd/cli/main.go
-    binary: catnip
+    binary: Catnip.app/Contents/MacOS/catnip
     env:
       - CGO_ENABLED=1
 
@@ -71,10 +72,7 @@ builds:
       - amd64
       - arm64
 
-    # Post-build hooks to create app bundle for macOS using static structure
-    hooks:
-      post:
-        - cmd: ./build/macos-bundle.sh {{ .Os }} {{ .Path }} {{ .Version }} {{ .Target }}
+    # No post-build hook - we'll create app bundle directly in archive
 
 # Code signing and notarization for macOS binaries (before app bundle creation)
 notarize:
@@ -117,23 +115,22 @@ archives:
     format_overrides:
       - goos: darwin
         formats: [tar.gz]
+    # Let GoReleaser automatically include the signed binary + add these files
     files:
-      - README.md
+      - src: README.md
+        dst: README.md
       - LICENSE
-      - docs/swagger.json
-      - docs/swagger.yaml
-      - src: "dist/catnip-macos_darwin_*/catnip.app/Contents/Info.plist"
-        dst: "Catnip.app/Contents"
-        strip_parent: true
-      - src: "dist/catnip-macos_darwin_*/catnip.app/Contents/MacOS/catnip"
-        dst: "Catnip.app/Contents/MacOS"
-        strip_parent: true
-        info:
-          mode: 0755
-      - src: "dist/catnip-macos_darwin_*/catnip.app/Contents/Resources/**"
+      - src: "build/Catnip.app/Contents/Resources/**"
         dst: "Catnip.app/Contents/Resources"
         strip_parent: true
+      - docs/swagger.json
+      - docs/swagger.yaml
+    # Template the Info.plist with version info
+    templated_files:
+      - src: "build/Catnip.app/Contents/Info.plist"
+        dst: "Catnip.app/Contents/Info.plist"
     wrap_in_directory: false
+    allow_different_binary_count: true
 
 # Checksum configuration
 checksum:
@@ -214,9 +211,9 @@ release:
 
     ### 📖 Documentation
 
-    - [Installation Guide](https://github.com/wandb/catnip#installation)
-    - [Usage Examples](https://github.com/wandb/catnip#usage)
-    - [Contributing](https://github.com/wandb/catnip/blob/main/CONTRIBUTING.md)
+    - [Installation Guide](https://github.com/wandb/catnip#-quick-start)
+    - [Usage Examples](https://github.com/wandb/catnip#-how-it-works)
+    - [Contributing](https://github.com/wandb/catnip#-contributing)
 
     **Full Changelog**: https://github.com/wandb/catnip/compare/{{.PreviousTag}}...{{.Tag}}
 
@@ -300,6 +297,17 @@ before:
     - go mod download
     - go mod tidy
     - go generate ./...
+    # Frontend build!
+    - sh -c "cd .. && pnpm install --frozen-lockfile && pnpm build"
+    - mkdir -p internal/assets/dist
+    - sh -c "cd .. && [ -d dist ] && cp -r dist/* container/internal/assets/dist/"
+    # Copy root README for archives
+    - cp ../README.md ./README.md
+
+# Clean up after release
+after:
+  hooks:
+    - git restore README.md
 
 
 # Build environment

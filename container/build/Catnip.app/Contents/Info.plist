@@ -19,16 +19,18 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleShortVersionString</key>
-	<string>__VERSION__</string>
+	<string>{{ .Version }}</string>
 	<key>CFBundleVersion</key>
-	<string>__VERSION__</string>
+	<string>{{ .Version }}</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>10.14</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2024 Catnip. All rights reserved.</string>
+	<string>Copyright © 2025 CoreWeave. All rights reserved.</string>
 	<key>NSSupportsAutomaticGraphicsSwitching</key>
 	<true/>
+	<key>NSUserNotificationAlertStyle</key>
+	<string>alert</string>
 </dict>
 </plist>
