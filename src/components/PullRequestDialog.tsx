@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -14,13 +15,19 @@ import {
 import { RefreshCw, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { GitErrorDialog } from "./GitErrorDialog";
-import { type Worktree, type PullRequestInfo, gitApi } from "@/lib/git-api";
+import {
+  type Worktree,
+  type PullRequestInfo,
+  type LocalRepository,
+  gitApi,
+} from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
 
 interface PullRequestDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   worktree: Worktree;
+  repository?: LocalRepository;
   prStatus?: PullRequestInfo;
   summary?: WorktreeSummary;
   onRefreshPrStatuses: () => Promise<void>;
@@ -40,6 +47,7 @@ export function PullRequestDialog({
   open,
   onOpenChange,
   worktree,
+  repository,
   prStatus,
   summary,
   onRefreshPrStatuses,
@@ -60,9 +68,38 @@ export function PullRequestDialog({
     error: "",
   });
 
+  const [showCreateRepoDialog, setShowCreateRepoDialog] = useState(false);
+  const [repoCreationForm, setRepoCreationForm] = useState({
+    name: "",
+    description: "",
+    isPrivate: true,
+  });
+
   // Generate PR content when dialog opens (only for new PRs)
   useEffect(() => {
     if (open && worktree) {
+      // Check if this is a local repo without GitHub remote
+      // Local repos are identified by file:// URLs or repos without GitHub remote
+      if (
+        repository &&
+        !repository.has_github_remote &&
+        (repository.url.startsWith("file://") ||
+          worktree.repo_id.startsWith("local/"))
+      ) {
+        // Initialize repo creation form with sensible defaults
+        const repoName = worktree.repo_id.startsWith("local/")
+          ? worktree.repo_id.replace("local/", "")
+          : worktree.repo_id.split("/").pop() || worktree.repo_id;
+
+        setRepoCreationForm({
+          name: repoName,
+          description: repository.description || `Repository for ${repoName}`,
+          isPrivate: true, // Default to private for security
+        });
+        setShowCreateRepoDialog(true);
+        return;
+      }
+
       // Check if this is an existing PR - if so, skip generation and use existing data
       const isExistingPR = prStatus?.exists || !!worktree.pull_request_url;
 
@@ -78,7 +115,13 @@ export function PullRequestDialog({
         void generatePrContent();
       }
     }
-  }, [open, worktree?.id, prStatus?.exists, worktree.pull_request_url]);
+  }, [
+    open,
+    worktree?.id,
+    prStatus?.exists,
+    worktree.pull_request_url,
+    repository?.has_github_remote,
+  ]);
 
   const fetchCurrentPrInfo = async () => {
     try {
@@ -307,6 +350,50 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
     setIsGenerating(false);
   };
 
+  const handleCreateGitHubRepository = async () => {
+    if (!repository) return;
+
+    setLoading(true);
+    try {
+      const result = await gitApi.createGitHubRepository(
+        repository.id,
+        repoCreationForm.name,
+        repoCreationForm.description,
+        repoCreationForm.isPrivate,
+      );
+
+      toast.success(
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <div className="font-medium">GitHub repository created!</div>
+            <div className="text-sm text-muted-foreground mt-1">
+              {result.message}
+            </div>
+          </div>
+        </div>,
+        { duration: 5000 },
+      );
+
+      // Close the repo creation dialog
+      setShowCreateRepoDialog(false);
+
+      // Refresh the repository data to get the updated remote info
+      await onRefreshPrStatuses();
+
+      // Now proceed with generating PR content since we have a GitHub remote
+      void generatePrContent();
+    } catch (error) {
+      console.error("Failed to create GitHub repository:", error);
+      setErrorDialog({
+        open: true,
+        error: String(error),
+        title: "Failed to Create GitHub Repository",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleForceSubmit = async () => {
     setLoading(true);
     setErrorDialog({ open: false, error: "" }); // Close error dialog
@@ -478,7 +565,7 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open && !showCreateRepoDialog} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
@@ -578,6 +665,88 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
         forceActionLabel="Force Push"
         isRetrying={loading}
       />
+
+      {/* Create GitHub Repository Dialog */}
+      <Dialog
+        open={showCreateRepoDialog}
+        onOpenChange={setShowCreateRepoDialog}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Create GitHub Repository</DialogTitle>
+            <DialogDescription>
+              This local repository doesn't have a GitHub remote. Create a
+              GitHub repository to enable pull requests.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="repo-name">Repository Name</Label>
+              <Input
+                id="repo-name"
+                value={repoCreationForm.name}
+                onChange={(e) =>
+                  setRepoCreationForm((prev) => ({
+                    ...prev,
+                    name: e.target.value,
+                  }))
+                }
+                placeholder="my-awesome-project"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="repo-description">Description</Label>
+              <Input
+                id="repo-description"
+                value={repoCreationForm.description}
+                onChange={(e) =>
+                  setRepoCreationForm((prev) => ({
+                    ...prev,
+                    description: e.target.value,
+                  }))
+                }
+                placeholder="A brief description of your project"
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="repo-private"
+                checked={repoCreationForm.isPrivate}
+                onCheckedChange={(checked: boolean) =>
+                  setRepoCreationForm((prev) => ({
+                    ...prev,
+                    isPrivate: checked,
+                  }))
+                }
+              />
+              <Label htmlFor="repo-private" className="text-sm font-normal">
+                Make repository private
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCreateRepoDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateGitHubRepository}
+              disabled={loading || !repoCreationForm.name}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                  Creating...
+                </>
+              ) : (
+                "Create Repository"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

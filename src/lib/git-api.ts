@@ -82,6 +82,8 @@ export interface LocalRepository {
   path: string;
   url: string;
   available: boolean;
+  remote_origin?: string;
+  has_github_remote?: boolean;
 }
 
 interface FileDiff {
@@ -579,5 +581,34 @@ export const gitApi = {
       errorHandler(error instanceof Error ? error : new Error("Network error"));
       return { success: false };
     }
+  },
+
+  async createGitHubRepository(
+    repoId: string,
+    name: string,
+    description: string,
+    isPrivate: boolean,
+  ): Promise<{ url: string; message: string }> {
+    const response = await fetch(
+      `/v1/git/repositories/${encodeURIComponent(repoId)}/github`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          description,
+          is_private: isPrivate,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Failed to create GitHub repository");
+    }
+
+    return await response.json();
   },
 };

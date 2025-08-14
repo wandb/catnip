@@ -30,8 +30,13 @@ import {
   Terminal,
   Trash2,
   Code2,
+  GitBranch,
 } from "lucide-react";
-import { type Worktree, type PullRequestInfo } from "@/lib/git-api";
+import {
+  type Worktree,
+  type PullRequestInfo,
+  type LocalRepository,
+} from "@/lib/git-api";
 // ConflictStatus type moved - conflicts now tracked directly on worktree.has_conflicts
 
 type Mode = "workspace" | "worktree";
@@ -39,6 +44,7 @@ type Mode = "workspace" | "worktree";
 interface WorkspaceActionsProps {
   mode: Mode;
   worktree: Worktree;
+  repository?: LocalRepository;
 
   // Optional props for worktree mode
   mergeConflicts?: Record<string, any>; // ConflictStatus type removed
@@ -65,6 +71,7 @@ interface WorkspaceActionsProps {
 export function WorkspaceActions({
   mode,
   worktree,
+  repository,
   mergeConflicts = {},
   prStatus,
   isSyncing = false,
@@ -78,6 +85,7 @@ export function WorkspaceActions({
 }: WorkspaceActionsProps) {
   const sshEnabled = useAppStore((state) => state.sshEnabled);
   const [showSshDialog, setShowSshDialog] = useState(false);
+  const [showGitDialog, setShowGitDialog] = useState(false);
   const [prDialogOpen, setPrDialogOpen] = useState(false);
 
   const handleDeleteClick = (e?: React.MouseEvent) => {
@@ -245,6 +253,16 @@ export function WorkspaceActions({
                     SSH
                   </DropdownMenuItem>
                 )}
+
+                {!worktree.repo_id.startsWith("local/") && (
+                  <DropdownMenuItem
+                    onClick={() => setShowGitDialog(true)}
+                    className="flex items-center gap-2"
+                  >
+                    <GitBranch size={16} />
+                    Git
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>
@@ -363,12 +381,36 @@ export function WorkspaceActions({
         </DialogContent>
       </Dialog>
 
+      {/* Git Clone Dialog */}
+      <Dialog open={showGitDialog} onOpenChange={setShowGitDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clone Repository</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-muted-foreground">
+              Use this command to clone this repository locally:
+            </p>
+            <div className="bg-muted p-3 rounded-md font-mono text-sm">
+              git clone -o catnip http://localhost:8080/
+              {worktree.repo_id.split("/").pop()}.git
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This will clone the repository with 'catnip' as the remote name,
+              allowing you to work locally and push changes back to this
+              environment.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Pull Request Dialog */}
       {!onOpenPrDialog && (
         <PullRequestDialog
           open={prDialogOpen}
           onOpenChange={setPrDialogOpen}
           worktree={worktree}
+          repository={repository}
           prStatus={prStatus}
           summary={undefined} // TODO: Pass WorktreeSummary if available
           onRefreshPrStatuses={async () => {

@@ -195,6 +195,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
 
 function ChangedFiles({
   worktree,
+  repository,
   showDiffView,
   setShowDiffView,
   setShowPortPreview,
@@ -202,6 +203,7 @@ function ChangedFiles({
   onSync,
 }: {
   worktree: Worktree;
+  repository: LocalRepository;
   showDiffView: boolean;
   setShowDiffView: (showDiff: boolean) => void;
   setShowPortPreview: (port: number | null) => void;
@@ -326,6 +328,7 @@ function ChangedFiles({
                 <WorkspaceActions
                   mode="workspace"
                   worktree={worktree}
+                  repository={repository}
                   onSync={onSync}
                   onDelete={handleConfirmDelete}
                 />
@@ -447,6 +450,7 @@ function ChangedFiles({
               <WorkspaceActions
                 mode="workspace"
                 worktree={worktree}
+                repository={repository}
                 onSync={onSync}
                 onDelete={handleConfirmDelete}
               />
@@ -684,6 +688,7 @@ function WorkspacePorts({
 
 export function WorkspaceRightSidebar({
   worktree,
+  repository,
   showDiffView,
   setShowDiffView,
   showPortPreview,
@@ -704,6 +709,7 @@ export function WorkspaceRightSidebar({
         <SidebarSeparator className="mx-0" />
         <ChangedFiles
           worktree={worktree}
+          repository={repository}
           showDiffView={showDiffView}
           setShowDiffView={setShowDiffView}
           setShowPortPreview={setShowPortPreview}

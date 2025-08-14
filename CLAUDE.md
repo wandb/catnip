@@ -57,8 +57,7 @@ catnip/
 
 ### Container Commands
 
-- Execute in dev container: `docker exec -u 1000:1000 catnip-dev bash -c '...'` (use uid/gid 1000:1000 to avoid git ownership issues)
-- Execute as root (if needed): `docker exec -it catnip-dev bash --login -c '...'`
+- Exec in the container: `docker exec -u 1000 catnip-dev bash --login -c '...'` (use uid 1000 and --login for proper path and perms, you can always run sudo if needed)
 - View logs: `docker logs --tail 50 catnip-dev`
 
 ### Port System
