@@ -55,6 +55,10 @@ type Repository struct {
 	LastAccessed time.Time `json:"last_accessed" example:"2024-01-15T16:45:30Z"`
 	// Repository description
 	Description string `json:"description" example:"AI coding assistant"`
+	// Remote origin URL (may be different from URL for local repos)
+	RemoteOrigin string `json:"remote_origin,omitempty" example:"https://github.com/anthropics/claude-code.git"`
+	// Whether the remote origin is a GitHub repository
+	HasGitHubRemote bool `json:"has_github_remote" example:"true"`
 }
 
 // Worktree represents a Git worktree

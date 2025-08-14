@@ -157,8 +157,10 @@ func (h *ClaudeHandler) CreateCompletion(c *fiber.Ctx) error {
 	}
 
 	// Handle non-streaming response
+	logger.Infof("🔍 Creating Claude completion for prompt: %.100s...", req.Prompt)
 	resp, err := h.claudeService.CreateCompletion(ctx, &req)
 	if err != nil {
+		logger.Errorf("❌ Claude completion failed: %v", err)
 		// Handle specific error types
 		if strings.Contains(err.Error(), "prompt is required") {
 			return c.Status(400).JSON(fiber.Map{
@@ -178,6 +180,8 @@ func (h *ClaudeHandler) CreateCompletion(c *fiber.Ctx) error {
 		})
 	}
 
+	logger.Infof("✅ Claude completion successful. Response length: %d chars", len(resp.Response))
+	logger.Debugf("📝 Claude response content: %s", resp.Response)
 	return c.JSON(resp)
 }
 

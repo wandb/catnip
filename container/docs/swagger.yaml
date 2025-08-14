@@ -349,6 +349,10 @@ definitions:
         description: Repository description
         example: AI coding assistant
         type: string
+      has_github_remote:
+        description: Whether the remote origin is a GitHub repository
+        example: true
+        type: boolean
       id:
         description: Repository identifier in owner/repo format
         example: anthropics/claude-code
@@ -360,6 +364,10 @@ definitions:
       path:
         description: Local path to the bare repository
         example: /workspace/repos/anthropics_claude-code.git
+        type: string
+      remote_origin:
+        description: Remote origin URL (may be different from URL for local repos)
+        example: https://github.com/anthropics/claude-code.git
         type: string
       url:
         description: Full GitHub repository URL
@@ -675,6 +683,34 @@ definitions:
       worktree_name:
         description: Name of the worktree
         example: feature-branch
+        type: string
+    type: object
+  internal_handlers.CreateGitHubRepositoryRequest:
+    description: Request to create a new GitHub repository and set it as origin
+    properties:
+      description:
+        description: Repository description
+        example: My awesome project
+        type: string
+      is_private:
+        description: Whether the repository should be private
+        example: false
+        type: boolean
+      name:
+        description: Repository name
+        example: my-project
+        type: string
+    type: object
+  internal_handlers.CreateGitHubRepositoryResponse:
+    description: Response containing the created repository information
+    properties:
+      message:
+        description: Success message
+        example: Repository created and origin updated successfully
+        type: string
+      url:
+        description: URL of the created repository
+        example: https://github.com/user/repo
         type: string
     type: object
   internal_handlers.CreatePullRequestRequest:
@@ -1335,6 +1371,46 @@ paths:
               $ref: '#/definitions/internal_handlers.GitHubRepository'
             type: array
       summary: List GitHub repositories
+      tags:
+      - git
+  /v1/git/repositories/{id}/github:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new GitHub repository and sets it as the origin for a
+        local repository
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Repository creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateGitHubRepositoryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.CreateGitHubRepositoryResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create GitHub repository
       tags:
       - git
   /v1/git/status:

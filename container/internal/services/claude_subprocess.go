@@ -500,15 +500,21 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 			continue
 		}
 
+		logger.Debugf("🔍 Claude output line: %s", line)
+
 		// Parse JSON line to check if it's an assistant message
 		var jsonData map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &jsonData); err != nil {
+			logger.Debugf("⚠️ Failed to parse JSON line, skipping: %v", err)
 			continue // Skip invalid JSON lines
 		}
 
 		// Look for assistant messages
 		if msgType, ok := jsonData["type"].(string); ok && msgType == "assistant" {
+			logger.Infof("✅ Found assistant message: %s", line)
 			assistantLine = line
+		} else {
+			logger.Debugf("📝 Non-assistant message type: %s", msgType)
 		}
 
 	}
@@ -543,6 +549,7 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 
 	// Check if we found an assistant response
 	if assistantLine == "" {
+		logger.Errorf("❌ No assistant message found in Claude output")
 		return &models.CreateCompletionResponse{
 			Response: "No assistant response found in Claude output",
 			IsChunk:  false,
@@ -553,6 +560,7 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 	// Parse the assistant line to extract the actual content
 	var assistantData map[string]interface{}
 	if err := json.Unmarshal([]byte(assistantLine), &assistantData); err != nil {
+		logger.Errorf("❌ Failed to parse assistant JSON: %v", err)
 		return &models.CreateCompletionResponse{
 			Response: "Failed to parse assistant response",
 			IsChunk:  false,
@@ -560,19 +568,34 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 		}, nil
 	}
 
+	logger.Debugf("📋 Assistant data structure: %+v", assistantData)
+
 	// Extract the text content from message.content[0].text
 	var responseText string
 	if message, ok := assistantData["message"].(map[string]interface{}); ok {
+		logger.Debugf("📋 Message structure: %+v", message)
 		if content, ok := message["content"].([]interface{}); ok && len(content) > 0 {
+			logger.Debugf("📋 Content array length: %d", len(content))
 			if textBlock, ok := content[0].(map[string]interface{}); ok {
+				logger.Debugf("📋 Text block structure: %+v", textBlock)
 				if text, ok := textBlock["text"].(string); ok {
 					responseText = text
+					logger.Infof("✅ Extracted text content: %.100s...", responseText)
+				} else {
+					logger.Errorf("❌ No 'text' field found in text block")
 				}
+			} else {
+				logger.Errorf("❌ First content item is not a map")
 			}
+		} else {
+			logger.Errorf("❌ No content array found or content is empty")
 		}
+	} else {
+		logger.Errorf("❌ No message field found in assistant data")
 	}
 
 	if responseText == "" {
+		logger.Errorf("❌ Response text is empty, returning fallback message")
 		responseText = "No text content found in assistant response"
 	}
 

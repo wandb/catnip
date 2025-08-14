@@ -77,13 +77,16 @@ func (lrm *LocalRepoManager) DetectLocalRepos() map[string]*models.Repository {
 
 		// Create repository object
 		repoID := fmt.Sprintf("local/%s", entry.Name())
+		remoteOrigin, hasGitHubRemote := lrm.getRemoteOriginInfo(repoPath)
 		repo := &models.Repository{
-			ID:            repoID,
-			URL:           "file://" + repoPath,
-			Path:          repoPath,
-			DefaultBranch: lrm.getLocalRepoDefaultBranch(repoPath),
-			CreatedAt:     time.Now(),
-			LastAccessed:  time.Now(),
+			ID:              repoID,
+			URL:             "file://" + repoPath,
+			Path:            repoPath,
+			DefaultBranch:   lrm.getLocalRepoDefaultBranch(repoPath),
+			CreatedAt:       time.Now(),
+			LastAccessed:    time.Now(),
+			RemoteOrigin:    remoteOrigin,
+			HasGitHubRemote: hasGitHubRemote,
 		}
 
 		repositories[repoID] = repo
@@ -128,15 +131,18 @@ func (lrm *LocalRepoManager) detectCurrentRepo() map[string]*models.Repository {
 	// Create repository object
 	repoName := config.Runtime.CurrentRepo
 	repoID := fmt.Sprintf("local/%s", repoName)
+	remoteOrigin, hasGitHubRemote := lrm.getRemoteOriginInfo(repoPath)
 
 	repo := &models.Repository{
-		ID:            repoID,
-		URL:           "file://" + repoPath,
-		Path:          repoPath,
-		DefaultBranch: branch,
-		CreatedAt:     time.Now(),
-		LastAccessed:  time.Now(),
-		Description:   fmt.Sprintf("Local repository: %s", repoName),
+		ID:              repoID,
+		URL:             "file://" + repoPath,
+		Path:            repoPath,
+		DefaultBranch:   branch,
+		CreatedAt:       time.Now(),
+		LastAccessed:    time.Now(),
+		Description:     fmt.Sprintf("Local repository: %s", repoName),
+		RemoteOrigin:    remoteOrigin,
+		HasGitHubRemote: hasGitHubRemote,
 	}
 
 	logger.Infof("✅ Detected current repository: %s (branch: %s)", repoName, branch)
@@ -286,4 +292,19 @@ func (lrm *LocalRepoManager) createTemporaryCommit(worktreePath string) (string,
 
 	logger.Debugf("📝 Created temporary commit %s with uncommitted changes", commitHash[:8])
 	return commitHash, nil
+}
+
+// getRemoteOriginInfo gets the remote origin URL and determines if it's a GitHub repository
+func (lrm *LocalRepoManager) getRemoteOriginInfo(repoPath string) (string, bool) {
+	remoteURL, err := lrm.operations.GetRemoteURL(repoPath)
+	if err != nil {
+		logger.Debugf("🔍 No remote origin found for %s: %v", repoPath, err)
+		return "", false
+	}
+
+	// Check if it's a GitHub URL
+	isGitHub := strings.Contains(remoteURL, "github.com")
+
+	logger.Debugf("🔍 Remote origin for %s: %s (GitHub: %v)", repoPath, remoteURL, isGitHub)
+	return remoteURL, isGitHub
 }

@@ -65,6 +65,26 @@ type ConflictCheckResponse struct {
 	Message string `json:"message" example:"No conflicts detected"`
 }
 
+// CreateGitHubRepositoryRequest represents a request to create a GitHub repository
+// @Description Request to create a new GitHub repository and set it as origin
+type CreateGitHubRepositoryRequest struct {
+	// Repository name
+	Name string `json:"name" example:"my-project"`
+	// Repository description
+	Description string `json:"description" example:"My awesome project"`
+	// Whether the repository should be private
+	IsPrivate bool `json:"is_private" example:"false"`
+}
+
+// CreateGitHubRepositoryResponse represents the response for creating a GitHub repository
+// @Description Response containing the created repository information
+type CreateGitHubRepositoryResponse struct {
+	// URL of the created repository
+	URL string `json:"url" example:"https://github.com/user/repo"`
+	// Success message
+	Message string `json:"message" example:"Repository created and origin updated successfully"`
+}
+
 // WorktreeOperationResponse represents the response for worktree operations
 // @Description Response for worktree operations like delete, sync, merge, preview
 type WorktreeOperationResponse struct {
@@ -895,4 +915,64 @@ func (h *GitHandler) CreateFromTemplate(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(response)
+}
+
+// CreateGitHubRepository creates a GitHub repository and sets it as origin for a local repo
+// @Summary Create GitHub repository
+// @Description Creates a new GitHub repository and sets it as the origin for a local repository
+// @Tags git
+// @Accept json
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Param request body CreateGitHubRepositoryRequest true "Repository creation request"
+// @Success 200 {object} CreateGitHubRepositoryResponse
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /v1/git/repositories/{id}/github [post]
+func (h *GitHandler) CreateGitHubRepository(c *fiber.Ctx) error {
+	repoID := c.Params("id")
+	logger.Infof("🔍 CreateGitHubRepository called with repoID: '%s'", repoID)
+
+	// URL decode the repository ID
+	decodedRepoID, err := url.QueryUnescape(repoID)
+	if err != nil {
+		logger.Errorf("❌ Failed to URL decode repoID '%s': %v", repoID, err)
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid repository ID: " + err.Error(),
+		})
+	}
+	repoID = decodedRepoID
+	logger.Infof("🔍 Decoded repoID: '%s'", repoID)
+
+	var req CreateGitHubRepositoryRequest
+	if err := c.BodyParser(&req); err != nil {
+		logger.Errorf("❌ Failed to parse request body: %v", err)
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body: " + err.Error(),
+		})
+	}
+
+	logger.Infof("📝 Request parsed: name='%s', description='%s', isPrivate=%v", req.Name, req.Description, req.IsPrivate)
+
+	// Validate request
+	if req.Name == "" {
+		logger.Errorf("❌ Repository name is required")
+		return c.Status(400).JSON(fiber.Map{
+			"error": "name is required",
+		})
+	}
+
+	// Create GitHub repository and update origin
+	logger.Infof("🚀 Calling CreateGitHubRepositoryAndSetOrigin with repoID: '%s'", repoID)
+	repoURL, err := h.gitService.CreateGitHubRepositoryAndSetOrigin(repoID, req.Name, req.Description, req.IsPrivate)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(CreateGitHubRepositoryResponse{
+		URL:     repoURL,
+		Message: "Repository created and origin updated successfully",
+	})
 }

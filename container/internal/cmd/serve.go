@@ -236,6 +236,7 @@ func startServer(cmd *cobra.Command) {
 	v1.Post("/git/worktrees/:id/graduate", gitHandler.GraduateBranch)
 	v1.Post("/git/worktrees/:id/refresh", gitHandler.RefreshWorktreeStatus)
 	v1.Get("/git/github/repos", gitHandler.ListGitHubRepositories)
+	v1.Post("/git/repositories/:id/github", gitHandler.CreateGitHubRepository)
 	v1.Get("/git/branches/:repo_id", gitHandler.GetRepositoryBranches)
 	v1.Post("/git/template", gitHandler.CreateFromTemplate)
 

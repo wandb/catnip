@@ -447,3 +447,46 @@ func (g *GitHubManager) ListRepositories() ([]GitHubRepository, error) {
 
 	return repos, nil
 }
+
+// CreateRepository creates a new GitHub repository
+func (g *GitHubManager) CreateRepository(name, description string, isPrivate bool) (string, error) {
+	args := []string{"repo", "create", name, "--description", description}
+
+	if isPrivate {
+		args = append(args, "--private")
+	} else {
+		args = append(args, "--public")
+	}
+
+	cmd := g.execCommand("gh", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		// For error reporting, capture stderr if available
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return "", fmt.Errorf("failed to create GitHub repository: %v\nStderr: %s", err, string(exitErr.Stderr))
+		}
+		return "", fmt.Errorf("failed to create GitHub repository: %v", err)
+	}
+
+	// Extract repository URL from output
+	outputStr := strings.TrimSpace(string(output))
+	lines := strings.Split(outputStr, "\n")
+
+	// Find the line that contains the repository URL
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "https://github.com/") {
+			return line, nil
+		}
+	}
+
+	// If we can't find the URL in output, construct it based on the authenticated user
+	userCmd := g.execCommand("gh", "api", "user", "--jq", ".login")
+	userOutput, err := userCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get authenticated user: %v", err)
+	}
+
+	username := strings.TrimSpace(string(userOutput))
+	return fmt.Sprintf("https://github.com/%s/%s", username, name), nil
+}

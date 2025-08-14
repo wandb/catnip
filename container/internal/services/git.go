@@ -2123,6 +2123,11 @@ func (s *GitService) CreatePullRequest(worktreeID, title, body string, forcePush
 	}
 	s.mu.RUnlock()
 
+	// Check if this is a local repository without a GitHub remote
+	if strings.HasPrefix(worktree.RepoID, "local/") && !repo.HasGitHubRemote {
+		return nil, fmt.Errorf("NO_GITHUB_REMOTE: this local repository does not have a GitHub remote configured. Please create a GitHub repository first")
+	}
+
 	logger.Infof("🔄 Creating pull request for worktree %s", worktree.Name)
 
 	// Check if base branch exists on remote and push if needed
@@ -2778,4 +2783,80 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 // RestoreState restores worktree state from persistent storage
 func (s *GitService) RestoreState() error {
 	return s.stateManager.RestoreState()
+}
+
+// CreateGitHubRepositoryAndSetOrigin creates a GitHub repository and sets it as origin for a local repo
+func (s *GitService) CreateGitHubRepositoryAndSetOrigin(repoID, name, description string, isPrivate bool) (string, error) {
+	logger.Infof("🔍 Looking up repository with ID: '%s'", repoID)
+
+	s.mu.RLock()
+	repo, exists := s.stateManager.GetRepository(repoID)
+	if !exists {
+		s.mu.RUnlock()
+		logger.Errorf("❌ Repository '%s' not found in state manager", repoID)
+
+		// Debug: List all available repositories
+		s.mu.RLock()
+		allRepos := s.stateManager.GetAllRepositories()
+		s.mu.RUnlock()
+		logger.Infof("🔍 Available repositories:")
+		for id := range allRepos {
+			logger.Infof("  - '%s'", id)
+		}
+
+		return "", fmt.Errorf("repository %s not found", repoID)
+	}
+	s.mu.RUnlock()
+
+	logger.Infof("✅ Found repository: %s (path: %s)", repoID, repo.Path)
+	logger.Infof("🚀 Creating GitHub repository %s for repo %s", name, repoID)
+
+	// Create the GitHub repository
+	repoURL, err := s.githubManager.CreateRepository(name, description, isPrivate)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GitHub repository: %v", err)
+	}
+
+	logger.Infof("✅ Created GitHub repository: %s", repoURL)
+
+	// Update the local repository's origin
+	gitURL := strings.Replace(repoURL, "https://github.com/", "git@github.com:", 1) + ".git"
+	if err := s.operations.SetRemoteURL(repo.Path, "origin", gitURL); err != nil {
+		logger.Warnf("⚠️ Failed to set remote origin to %s: %v", gitURL, err)
+		// Try HTTPS format as fallback
+		httpsURL := repoURL + ".git"
+		if err := s.operations.SetRemoteURL(repo.Path, "origin", httpsURL); err != nil {
+			return "", fmt.Errorf("failed to set remote origin: %v", err)
+		}
+		logger.Infof("✅ Set remote origin to %s (HTTPS)", httpsURL)
+	} else {
+		logger.Infof("✅ Set remote origin to %s (SSH)", gitURL)
+	}
+
+	// Update repository state with new remote information
+	s.mu.Lock()
+	repo.RemoteOrigin = repoURL + ".git"
+	repo.HasGitHubRemote = true
+	repo.URL = repoURL
+	if err := s.stateManager.AddRepository(repo); err != nil {
+		logger.Warnf("Failed to update repository %s with remote info: %v", repoID, err)
+	}
+	s.mu.Unlock()
+
+	// Push the main branch to the newly created GitHub repository
+	// This must happen after updating the repository state so operations can see the new remote
+	logger.Infof("📤 Pushing main branch to GitHub repository...")
+	pushStrategy := git.PushStrategy{
+		Branch:      repo.DefaultBranch,
+		Remote:      "origin",
+		SetUpstream: true, // Set upstream for the first push
+	}
+	if err := s.operations.PushBranch(repo.Path, pushStrategy); err != nil {
+		logger.Warnf("⚠️ Failed to push %s branch to origin: %v", repo.DefaultBranch, err)
+		// Don't fail the entire operation if push fails - the repo is created and origin is set
+	} else {
+		logger.Infof("✅ Successfully pushed %s branch to GitHub", repo.DefaultBranch)
+	}
+
+	return repoURL, nil
 }

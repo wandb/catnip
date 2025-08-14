@@ -443,6 +443,65 @@
                 }
             }
         },
+        "/v1/git/repositories/{id}/github": {
+            "post": {
+                "description": "Creates a new GitHub repository and sets it as the origin for a local repository",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "git"
+                ],
+                "summary": "Create GitHub repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Repository creation request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateGitHubRepositoryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.CreateGitHubRepositoryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/git/status": {
             "get": {
                 "description": "Returns the current repository and worktree status",
@@ -1925,6 +1984,11 @@
                     "type": "string",
                     "example": "AI coding assistant"
                 },
+                "has_github_remote": {
+                    "description": "Whether the remote origin is a GitHub repository",
+                    "type": "boolean",
+                    "example": true
+                },
                 "id": {
                     "description": "Repository identifier in owner/repo format",
                     "type": "string",
@@ -1939,6 +2003,11 @@
                     "description": "Local path to the bare repository",
                     "type": "string",
                     "example": "/workspace/repos/anthropics_claude-code.git"
+                },
+                "remote_origin": {
+                    "description": "Remote origin URL (may be different from URL for local repos)",
+                    "type": "string",
+                    "example": "https://github.com/anthropics/claude-code.git"
                 },
                 "url": {
                     "description": "Full GitHub repository URL",
@@ -2364,6 +2433,43 @@
                     "description": "Name of the worktree",
                     "type": "string",
                     "example": "feature-branch"
+                }
+            }
+        },
+        "internal_handlers.CreateGitHubRepositoryRequest": {
+            "description": "Request to create a new GitHub repository and set it as origin",
+            "type": "object",
+            "properties": {
+                "description": {
+                    "description": "Repository description",
+                    "type": "string",
+                    "example": "My awesome project"
+                },
+                "is_private": {
+                    "description": "Whether the repository should be private",
+                    "type": "boolean",
+                    "example": false
+                },
+                "name": {
+                    "description": "Repository name",
+                    "type": "string",
+                    "example": "my-project"
+                }
+            }
+        },
+        "internal_handlers.CreateGitHubRepositoryResponse": {
+            "description": "Response containing the created repository information",
+            "type": "object",
+            "properties": {
+                "message": {
+                    "description": "Success message",
+                    "type": "string",
+                    "example": "Repository created and origin updated successfully"
+                },
+                "url": {
+                    "description": "URL of the created repository",
+                    "type": "string",
+                    "example": "https://github.com/user/repo"
                 }
             }
         },
