@@ -74,40 +74,12 @@ builds:
     # Post-build hooks to create app bundle for macOS using static structure
     hooks:
       post:
-        - cmd: |
-            if [ "{{ .Os }}" = "darwin" ]; then
-              echo "Creating macOS app bundle for {{ .Target }} using static structure"
-              
-              # Use static app bundle structure
-              STATIC_APP="build/Catnip.app"
-              APP_DIR="{{ .Path }}.app"
-              
-              # Remove old bundle and copy static structure
-              rm -rf "${APP_DIR}"
-              cp -R "${STATIC_APP}" "${APP_DIR}"
-              
-              # Move built binary to app bundle
-              mv "{{ .Path }}" "${APP_DIR}/Contents/MacOS/catnip"
-              
-              # Process Info.plist template to set version
-              sed "s/__VERSION__/{{ .Version }}/g" "${STATIC_APP}/Contents/Info.plist" > "${APP_DIR}/Contents/Info.plist"
-              
-              # Create CLI wrapper script
-              cat > "{{ .Dir }}/catnip-cli" << 'EOF'
-            #!/bin/bash
-            # Catnip CLI wrapper - calls the binary inside the app bundle
-            DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-            exec "${DIR}/Catnip.app/Contents/MacOS/catnip" "$@"
-            EOF
-              chmod +x "{{ .Dir }}/catnip-cli"
-              
-              echo "✅ Static app bundle deployed at ${APP_DIR}"
-            fi
+        - cmd: ./build/macos-bundle.sh {{ .Os }} {{ .Path }} {{ .Version }} {{ .Target }}
 
 # Code signing and notarization for macOS app bundles
 notarize:
   macos:
-    - enabled: true
+    - enabled: '{{ if index .Env "APPLE_SIGN_P12" }}true{{ else }}false{{ end }}'
       # Sign the app bundle instead of just the binary
       ids: [catnip-macos]
       notarize:
