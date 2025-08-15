@@ -101,46 +101,31 @@ archives:
       - docs/swagger.yaml
     wrap_in_directory: false
 
-  # macOS archives (with app bundles and CLI wrappers)  
-  - id: macos-amd64
+  # macOS archives (with app bundles and CLI wrappers)
+  - id: macos
     ids: [catnip-macos]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
     format_overrides:
       - goos: darwin
-        format: tar.gz
-    goarch: amd64
+        formats: [tar.gz]
+    # Include the complete signed app bundle that our script creates
+    # {{ .Path }} is "Catnip.app/Contents/MacOS/catnip", so we go up 3 dirs to get "Catnip.app"
     files:
-      - src: "dist/catnip-macos_darwin_amd64_v1/Catnip.app/Contents/Info.plist"
+      # Info.plist that our signing script creates and templates
+      - src: "{{ .Path | dir | dir | dir }}/Contents/Info.plist"
         dst: "Catnip.app/Contents/Info.plist"
-      - src: "dist/catnip-macos_darwin_amd64_v1/Catnip.app/Contents/Resources/**"
+      # Resources directory that our signing script copies
+      - src: "{{ .Path | dir | dir | dir }}/Contents/Resources/**"
         dst: "Catnip.app/Contents/Resources"
         strip_parent: true
+      # Documentation files
       - src: README.md
         dst: README.md
       - LICENSE
       - docs/swagger.json
       - docs/swagger.yaml
     wrap_in_directory: false
-
-  - id: macos-arm64
-    ids: [catnip-macos]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}_{{ . }}{{ end }}"
-    format_overrides:
-      - goos: darwin
-        format: tar.gz
-    goarch: arm64
-    files:
-      - src: "dist/catnip-macos_darwin_arm64_v8.0/Catnip.app/Contents/Info.plist"
-        dst: "Catnip.app/Contents/Info.plist"
-      - src: "dist/catnip-macos_darwin_arm64_v8.0/Catnip.app/Contents/Resources/**"
-        dst: "Catnip.app/Contents/Resources"
-        strip_parent: true
-      - src: README.md
-        dst: README.md
-      - LICENSE
-      - docs/swagger.json
-      - docs/swagger.yaml
-    wrap_in_directory: false
+    allow_different_binary_count: true
 
 # Checksum configuration
 checksum:
