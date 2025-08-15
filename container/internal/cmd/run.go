@@ -883,6 +883,16 @@ func runCodespaceWorkflow(cmd *cobra.Command, args []string) error {
 		logger.Debugf("Failed to save config: %v", err)
 	}
 
+	// Capture and persist the GITHUB_TOKEN for this codespace so external
+	// clients can authenticate against forwarded ports.
+	if tokenOutput, err := codespaceService.RunCommandInCodespace(ctx, selectedCodespace.Name, "printenv GITHUB_TOKEN"); err != nil {
+		logger.Debugf("Failed to retrieve GITHUB_TOKEN: %v", err)
+	} else if token := strings.TrimSpace(tokenOutput); token != "" {
+		if err := codespaceService.SaveCodespaceToken(selectedCodespace.Name, token); err != nil {
+			logger.Debugf("Failed to save GITHUB_TOKEN: %v", err)
+		}
+	}
+
 	logger.Infof("✅ Catnip is now running in codespace: %s", selectedCodespace.Name)
 	logger.Infof("🌐 You can access it via the codespace web interface")
 	logger.Infof("💡 Codespace URL: %s", selectedCodespace.WebURL)

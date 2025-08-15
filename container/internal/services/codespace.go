@@ -260,6 +260,41 @@ func (cs *CodespaceService) SaveCodespaceConfig(codespaces map[string]string) er
 	return nil
 }
 
+// SaveCodespaceToken stores the provided token for a specific codespace
+// in ~/.catnip/config.json so external tools can authenticate against
+// the forwarded ports.
+func (cs *CodespaceService) SaveCodespaceToken(codespaceName, token string) error {
+	configPath := filepath.Join(filepath.Dir(cs.configPath), "config.json")
+	logger.Debugf("💾 Saving GITHUB_TOKEN for %s to %s", codespaceName, configPath)
+
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	config := make(map[string]string)
+	if data, err := os.ReadFile(configPath); err == nil {
+		if err := json.Unmarshal(data, &config); err != nil {
+			return fmt.Errorf("failed to unmarshal config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	config[codespaceName] = token
+
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+
+	logger.Debugf("✅ GITHUB_TOKEN saved successfully")
+	return nil
+}
+
 // LoadCodespaceConfig loads codespace configuration from the config file
 func (cs *CodespaceService) LoadCodespaceConfig() (map[string]string, error) {
 	logger.Debugf("📂 Loading codespace configuration from %s", cs.configPath)
