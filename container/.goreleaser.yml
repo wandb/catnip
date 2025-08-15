@@ -108,20 +108,13 @@ archives:
     format_overrides:
       - goos: darwin
         formats: [tar.gz]
-    # Let GoReleaser automatically include the signed binary + add these files
+    # The app bundle is already complete and signed - just include additional docs
     files:
       - src: README.md
         dst: README.md
       - LICENSE
-      - src: "build/Catnip.app/Contents/Resources/**"
-        dst: "Catnip.app/Contents/Resources"
-        strip_parent: true
       - docs/swagger.json
       - docs/swagger.yaml
-    # Template the Info.plist with version info
-    templated_files:
-      - src: "build/Catnip.app/Contents/Info.plist"
-        dst: "Catnip.app/Contents/Info.plist"
     wrap_in_directory: false
     allow_different_binary_count: true
 
