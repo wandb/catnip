@@ -1,7 +1,11 @@
 package tui
 
 import (
+	"fmt"
+	"net/http"
+	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -55,6 +59,7 @@ type PortInfo struct {
 type Model struct {
 	// Core dependencies
 	containerService *services.ContainerService
+	codespaceService *services.CodespaceService
 	containerName    string
 	gitRoot          string
 	sseClient        *SSEClient
@@ -70,6 +75,11 @@ type Model struct {
 	rmFlag         bool
 	envVars        []string
 	dind           bool
+
+	// Network configuration
+	baseURL      string // Base URL for API calls (e.g., "http://localhost:2287")
+	internalPort string // Internal container port (default: 2287)
+	externalPort string // External host port (parsed from customPorts)
 
 	// Current state
 	currentView      ViewType
@@ -138,8 +148,33 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 	// Get runtime information from container service
 	runtime := string(containerService.GetRuntime())
 
+	// Initialize codespace service (ignore errors for now)
+	codespaceService, _ := services.NewCodespaceService()
+
+	// Parse port configuration
+	internalPort := "2287" // Default internal port
+	externalPort := "2287" // Default external port
+	if len(customPorts) > 0 {
+		// Parse port mapping (e.g., "8181:2287" means external:internal)
+		parts := strings.Split(customPorts[0], ":")
+		if len(parts) >= 1 {
+			externalPort = parts[0]
+		}
+		if len(parts) >= 2 {
+			internalPort = parts[1]
+		}
+	}
+
+	// Determine base URL (will be overridden by getBaseURL if in codespace)
+	// This will be recalculated dynamically by getBaseURL() method
+	baseURL := fmt.Sprintf("http://localhost:%s", externalPort)
+	if hostURL := os.Getenv("CATNIP_HOST_URL"); hostURL != "" {
+		baseURL = hostURL
+	}
+
 	m := &Model{
 		containerService: containerService,
+		codespaceService: codespaceService,
 		containerName:    containerName,
 		gitRoot:          gitRoot,
 		containerImage:   containerImage,
@@ -152,6 +187,9 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 		rmFlag:           rmFlag,
 		envVars:          envVars,
 		dind:             dind,
+		baseURL:          baseURL,
+		internalPort:     internalPort,
+		externalPort:     externalPort,
 		currentView:      InitializationView,
 		containerInfo:    make(map[string]interface{}),
 		repositoryInfo:   make(map[string]interface{}),
@@ -181,4 +219,118 @@ func (m *Model) GetCurrentView() View {
 // SwitchToView changes the current view
 func (m *Model) SwitchToView(viewType ViewType) {
 	m.currentView = viewType
+}
+
+// isInCodespace checks if we're running in a GitHub Codespace
+func (m *Model) isInCodespace() bool {
+	return os.Getenv("CODESPACES") == "true"
+}
+
+// getCodespaceName returns the codespace name from environment
+func (m *Model) getCodespaceName() string {
+	return os.Getenv("CODESPACE_NAME")
+}
+
+// createAuthenticatedClient creates an HTTP client with codespace token if available
+func (m *Model) createAuthenticatedClient(timeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: timeout}
+
+	// If we're in a codespace and have a token, add it to requests
+	if m.isInCodespace() && m.codespaceService != nil {
+		if token, err := m.codespaceService.LoadCodespaceToken(); err == nil && token != "" {
+			// Create a transport that adds the Authorization header
+			client.Transport = &authTransport{
+				token: token,
+				base:  http.DefaultTransport,
+			}
+		}
+	}
+
+	return client
+}
+
+// getHost returns just the host part (e.g., "localhost" or "mycodespace-2287.app.github.dev")
+func (m *Model) getHost() string {
+	// If we're in a codespace, return the codespace host
+	if m.isInCodespace() && m.codespaceService != nil {
+		codespaceName := m.getCodespaceName()
+		if codespaceName != "" {
+			// Return codespace host without protocol or port
+			return fmt.Sprintf("%s-%s.app.github.dev", codespaceName, m.externalPort)
+		}
+	}
+
+	// Check for custom host URL
+	if hostURL := os.Getenv("CATNIP_HOST_URL"); hostURL != "" {
+		// Parse the URL to extract just the host
+		hostURL = strings.TrimPrefix(hostURL, "http://")
+		hostURL = strings.TrimPrefix(hostURL, "https://")
+		if idx := strings.Index(hostURL, ":"); idx > 0 {
+			return hostURL[:idx] // Return just the host part
+		}
+		if idx := strings.Index(hostURL, "/"); idx > 0 {
+			return hostURL[:idx]
+		}
+		return hostURL
+	}
+
+	// Default to localhost
+	return "localhost"
+}
+
+// getProtocol returns the protocol (http or https) based on the environment
+func (m *Model) getProtocol() string {
+	// Codespaces always use HTTPS
+	if m.isInCodespace() {
+		return "https"
+	}
+
+	// Check if custom URL has https
+	if hostURL := os.Getenv("CATNIP_HOST_URL"); hostURL != "" {
+		if strings.HasPrefix(hostURL, "https://") {
+			return "https"
+		}
+	}
+
+	return "http"
+}
+
+// getBaseURL returns the appropriate base URL (local or codespace)
+func (m *Model) getBaseURL(port string) string {
+	if m.isInCodespace() && m.codespaceService != nil {
+		codespaceName := m.getCodespaceName()
+		if codespaceName != "" {
+			return m.codespaceService.GetCodespaceURL(codespaceName, port)
+		}
+	}
+
+	// Use configured base URL if no specific port is provided
+	if port == "" {
+		return m.baseURL
+	}
+
+	// Otherwise build URL with specific port
+	// Extract host from baseURL
+	if hostURL := os.Getenv("CATNIP_HOST_URL"); hostURL != "" {
+		// If custom host URL is set, replace just the port
+		if idx := strings.LastIndex(hostURL, ":"); idx > 0 && idx < len(hostURL)-1 {
+			// Has port in URL
+			return hostURL[:idx+1] + port
+		}
+		// No port in URL, add it
+		return hostURL + ":" + port
+	}
+
+	return fmt.Sprintf("%s://%s:%s", m.getProtocol(), m.getHost(), port)
+}
+
+// authTransport adds Authorization header to HTTP requests
+type authTransport struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("Authorization", "Bearer "+t.token)
+	return t.base.RoundTrip(req)
 }

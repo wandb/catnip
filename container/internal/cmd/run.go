@@ -41,7 +41,7 @@ var runCmd = &cobra.Command{
 - Otherwise, no directory is mounted
 
 ## 🌐 Network Access
-- Container exposes **port 8080** for web access
+- Container exposes **port 2287** for web access
 - Automatically shuts down when you quit the TUI
 
 ## 🎯 Development Mode
@@ -80,7 +80,7 @@ func init() {
 	runCmd.Flags().StringVarP(&name, "name", "n", "", "Container name (auto-generated if not provided)")
 	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run container in detached mode")
 	runCmd.Flags().BoolVar(&noTUI, "no-tui", false, "Disable TUI and tail logs directly")
-	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"8080:8080"}, "Port mappings")
+	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"2287:2287"}, "Port mappings")
 	runCmd.Flags().BoolVar(&dev, "dev", false, "Run in development mode with dev image and node_modules volume")
 	runCmd.Flags().BoolVar(&refresh, "refresh", false, "Force refresh: rebuild dev image with 'just build-dev' or pull production image from registry")
 	runCmd.Flags().BoolVar(&disableSSH, "disable-ssh", false, "Disable SSH server (enabled by default on port 2222)")
@@ -104,6 +104,11 @@ func cleanVersionForProduction(version string) string {
 }
 
 func runContainer(cmd *cobra.Command, args []string) error {
+	// Handle codespace runtime specially
+	if runtime == "codespace" {
+		return runCodespaceWorkflow(cmd, args)
+	}
+
 	// Configure logging based on dev mode and environment
 	logLevel := logger.GetLogLevelFromEnv(dev)
 
@@ -784,4 +789,137 @@ func findAvailablePort(ctx context.Context, containerService *services.Container
 		logger.Debugf("Port %d is in use, trying next...", port)
 	}
 	return "", fmt.Errorf("no available ports found in range 8080-8989")
+}
+
+// runCodespaceWorkflow handles the codespace-specific workflow
+func runCodespaceWorkflow(cmd *cobra.Command, args []string) error {
+	// Configure logging
+	logLevel := logger.GetLogLevelFromEnv(dev)
+	logger.Configure(logLevel, true)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Initialize codespace service
+	codespaceService, err := services.NewCodespaceService()
+	if err != nil {
+		return fmt.Errorf("failed to initialize codespace service: %w", err)
+	}
+
+	logger.Infof("🐱 Welcome to Catnip Codespace Manager!")
+
+	// List existing codespaces
+	codespaces, err := codespaceService.ListCodespaces(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to list codespaces: %w", err)
+	}
+
+	var selectedCodespace *services.CodespaceInfo
+
+	if len(codespaces) == 0 {
+		logger.Infof("📦 No existing codespaces found")
+
+		// Prompt to create a new one
+		create, repo, branch, err := codespaceService.PromptForNewCodespace()
+		if err != nil {
+			return fmt.Errorf("failed to get user input: %w", err)
+		}
+
+		if !create {
+			return fmt.Errorf("no codespace selected")
+		}
+
+		// Create new codespace
+		newCodespace, err := codespaceService.CreateCodespace(ctx, repo, branch)
+		if err != nil {
+			return fmt.Errorf("failed to create codespace: %w", err)
+		}
+
+		selectedCodespace = newCodespace
+	} else {
+		// Let user select from existing codespaces
+		selectedCodespace, err = codespaceService.SelectCodespace(ctx, codespaces)
+		if err != nil {
+			// If selection failed, offer to create a new one
+			logger.Debugf("Selection failed: %v", err)
+			create, repo, branch, err := codespaceService.PromptForNewCodespace()
+			if err != nil {
+				return fmt.Errorf("failed to get user input: %w", err)
+			}
+
+			if !create {
+				return fmt.Errorf("no codespace selected")
+			}
+
+			// Create new codespace
+			newCodespace, err := codespaceService.CreateCodespace(ctx, repo, branch)
+			if err != nil {
+				return fmt.Errorf("failed to create codespace: %w", err)
+			}
+
+			selectedCodespace = newCodespace
+		}
+	}
+
+	logger.Infof("🚀 Setting up Catnip in codespace: %s", selectedCodespace.Name)
+
+	// Start the catnip daemon in the codespace
+	if err := codespaceService.StartCodespaceDaemon(ctx, selectedCodespace.Name); err != nil {
+		return fmt.Errorf("failed to start catnip daemon: %w", err)
+	}
+
+	// Load existing configuration
+	config, err := codespaceService.LoadCodespaceConfig()
+	if err != nil {
+		logger.Debugf("Failed to load config (creating new): %v", err)
+		config = make(map[string]string)
+	}
+
+	// Store the codespace name in config
+	configKey := fmt.Sprintf("codespace-%s", selectedCodespace.Repository)
+	config[configKey] = selectedCodespace.Name
+
+	if err := codespaceService.SaveCodespaceConfig(config); err != nil {
+		logger.Debugf("Failed to save config: %v", err)
+	}
+
+	// Capture and persist the GITHUB_TOKEN for this codespace so external
+	// clients can authenticate against forwarded ports.
+	if tokenOutput, err := codespaceService.RunCommandInCodespace(ctx, selectedCodespace.Name, "printenv GITHUB_TOKEN"); err != nil {
+		logger.Debugf("Failed to retrieve GITHUB_TOKEN: %v", err)
+	} else if token := strings.TrimSpace(tokenOutput); token != "" {
+		if err := codespaceService.SaveCodespaceToken(selectedCodespace.Name, token); err != nil {
+			logger.Debugf("Failed to save GITHUB_TOKEN: %v", err)
+		}
+	}
+
+	logger.Infof("✅ Catnip is now running in codespace: %s", selectedCodespace.Name)
+	logger.Infof("🌐 You can access it via the codespace web interface")
+	logger.Infof("💡 Codespace URL: %s", selectedCodespace.WebURL)
+
+	if !detach {
+		logger.Infof("🔗 Press Ctrl+C to stop monitoring...")
+
+		// Keep the process alive and monitor the codespace
+		for {
+			select {
+			case <-ctx.Done():
+				logger.Infof("👋 Stopping codespace monitoring...")
+				return nil
+			case <-time.After(30 * time.Second):
+				// Periodically check if the daemon is still running
+				if _, err := codespaceService.RunCommandInCodespace(ctx, selectedCodespace.Name, "pgrep -f 'catnip serve'"); err != nil {
+					logger.Debugf("⚠️ Catnip daemon may have stopped: %v", err)
+					// Try to restart it
+					logger.Infof("🔄 Attempting to restart catnip daemon...")
+					if err := codespaceService.StartCodespaceDaemon(ctx, selectedCodespace.Name); err != nil {
+						logger.Errorf("❌ Failed to restart daemon: %v", err)
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	return nil
 }

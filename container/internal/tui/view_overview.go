@@ -79,15 +79,8 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 	sections = append(sections, components.SubHeaderStyle.Render("🖥️  Catnip UI"))
 
 	// Determine the actual port from customPorts
-	mainPort := "8080"
-	for _, p := range m.customPorts {
-		// Parse port mapping (e.g., "8181:8080" or "8080:8080")
-		parts := strings.Split(p, ":")
-		if len(parts) >= 1 {
-			mainPort = parts[0]
-			break
-		}
-	}
+	// Use the external port from the model
+	mainPort := m.externalPort
 
 	// Show booting animation if not healthy
 	if !m.appHealthy {
@@ -102,7 +95,7 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 			sections = append(sections, fmt.Sprintf("  %s %s", components.KeyHighlightStyle.Render("0."), bootingText))
 		}
 	} else {
-		sections = append(sections, fmt.Sprintf("  %s Main UI → http://localhost:%s", components.KeyHighlightStyle.Render("0."), mainPort))
+		sections = append(sections, fmt.Sprintf("  %s Main UI → %s://%s:%s", components.KeyHighlightStyle.Render("0."), m.getProtocol(), m.getHost(), mainPort))
 	}
 	sections = append(sections, "")
 
@@ -113,9 +106,9 @@ func (v *OverviewViewImpl) Render(m *Model) string {
 		for i, portInfo := range m.ports {
 			if i < 9 { // Only show first 9 ports for number shortcuts
 				portKey := components.KeyHighlightStyle.Render(fmt.Sprintf("%d.", i+1))
-				sections = append(sections, fmt.Sprintf("  %s %s → http://localhost:8080/%s", portKey, portInfo.Title, portInfo.Port))
+				sections = append(sections, fmt.Sprintf("  %s %s → %s://%s:%s/%s", portKey, portInfo.Title, m.getProtocol(), m.getHost(), m.externalPort, portInfo.Port))
 			} else {
-				sections = append(sections, fmt.Sprintf("     %s → http://localhost:8080/%s", portInfo.Title, portInfo.Port))
+				sections = append(sections, fmt.Sprintf("     %s → %s://%s:%s/%s", portInfo.Title, m.getProtocol(), m.getHost(), m.externalPort, portInfo.Port))
 			}
 		}
 	} else {
@@ -222,7 +215,8 @@ func (v *OverviewViewImpl) createNewShellSessionWithCmd(m *Model) (*Model, tea.C
 	}
 
 	terminalWidth := m.shellViewport.Width - 2
-	return m, createAndConnectShell(sessionID, terminalWidth, m.shellViewport.Height)
+	baseURL := m.getBaseURL("")
+	return m, createAndConnectShell(sessionID, terminalWidth, m.shellViewport.Height, baseURL)
 }
 
 func (v *OverviewViewImpl) renderWithASCIIView(m *Model, content string) string {
@@ -283,8 +277,10 @@ func (v *OverviewViewImpl) openBrowser(url string) error {
 	return cmd.Start()
 }
 
-func (v *OverviewViewImpl) isAppReady(baseURL string) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
+func (v *OverviewViewImpl) isAppReady(baseURL string, client *http.Client) bool {
+	if client == nil {
+		client = &http.Client{Timeout: 2 * time.Second}
+	}
 	resp, err := client.Get(baseURL + "/health")
 	if err != nil {
 		return false
