@@ -41,7 +41,7 @@ var runCmd = &cobra.Command{
 - Otherwise, no directory is mounted
 
 ## 🌐 Network Access
-- Container exposes **port 8080** for web access
+- Container exposes **port 2287** for web access
 - Automatically shuts down when you quit the TUI
 
 ## 🎯 Development Mode
@@ -80,7 +80,7 @@ func init() {
 	runCmd.Flags().StringVarP(&name, "name", "n", "", "Container name (auto-generated if not provided)")
 	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run container in detached mode")
 	runCmd.Flags().BoolVar(&noTUI, "no-tui", false, "Disable TUI and tail logs directly")
-	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"8080:8080"}, "Port mappings")
+	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"2287:2287"}, "Port mappings")
 	runCmd.Flags().BoolVar(&dev, "dev", false, "Run in development mode with dev image and node_modules volume")
 	runCmd.Flags().BoolVar(&refresh, "refresh", false, "Force refresh: rebuild dev image with 'just build-dev' or pull production image from registry")
 	runCmd.Flags().BoolVar(&disableSSH, "disable-ssh", false, "Disable SSH server (enabled by default on port 2222)")

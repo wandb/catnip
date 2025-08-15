@@ -40,13 +40,13 @@ func init() {
 	rootCmd.AddCommand(serveCmd)
 
 	// Add port flag
-	serveCmd.Flags().StringP("port", "p", "8080", "Port to listen on")
+	serveCmd.Flags().StringP("port", "p", "2287", "Port to listen on")
 }
 
 // @title Catnip Container API
 // @version 1.0
 // @description API for managing container PTY sessions and services
-// @host localhost:8080
+// @host localhost:2287
 // @schemes http ws
 func startServer(cmd *cobra.Command) {
 	// Configure logging with formatted output (always use console formatting to match Fiber)

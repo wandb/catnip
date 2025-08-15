@@ -108,7 +108,9 @@ func (m *Model) fetchRepositoryInfo() tea.Cmd {
 // fetchHealthStatus checks the health of the main application
 func (m *Model) fetchHealthStatus() tea.Cmd {
 	return func() tea.Msg {
-		healthy := isAppReady("http://localhost:8080")
+		baseURL := m.getBaseURL("") // Use model's configured port
+		client := m.createAuthenticatedClient(2 * time.Second)
+		healthy := isAppReady(baseURL, client)
 		debugLog("Health check result: %v", healthy)
 		return healthStatusMsg(healthy)
 	}

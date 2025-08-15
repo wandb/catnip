@@ -32,6 +32,7 @@ type CodespaceInfo struct {
 // CodespaceService manages GitHub Codespaces
 type CodespaceService struct {
 	configPath string
+	tokenPath  string
 }
 
 // NewCodespaceService creates a new codespace service
@@ -48,9 +49,11 @@ func NewCodespaceService() (*CodespaceService, error) {
 	}
 
 	configPath := filepath.Join(homeDir, ".catnip", "codespaces.json")
+	tokenPath := filepath.Join(homeDir, ".catnip", "codespace-token")
 
 	return &CodespaceService{
 		configPath: configPath,
+		tokenPath:  tokenPath,
 	}, nil
 }
 
@@ -162,7 +165,7 @@ func (cs *CodespaceService) StartCodespaceDaemon(ctx context.Context, codespaceN
 	}
 
 	// Start catnip serve as a daemon
-	daemonCmd := "nohup catnip serve --port 8080 > /tmp/catnip.log 2>&1 & echo $!"
+	daemonCmd := "nohup catnip serve --port 2287 > /tmp/catnip.log 2>&1 & echo $!"
 	pidOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, daemonCmd)
 	if err != nil {
 		return fmt.Errorf("failed to start catnip daemon: %w", err)
@@ -385,4 +388,67 @@ func (cs *CodespaceService) PromptForNewCodespace() (bool, string, string, error
 	branch := strings.TrimSpace(branchInput)
 
 	return true, repo, branch, nil
+}
+
+// SaveCodespaceToken saves the codespace token for authenticated requests
+func (cs *CodespaceService) SaveCodespaceToken(token string) error {
+	logger.Debugf("💾 Saving codespace token to %s", cs.tokenPath)
+
+	// Ensure config directory exists
+	if err := os.MkdirAll(filepath.Dir(cs.tokenPath), 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Save token with restricted permissions
+	if err := os.WriteFile(cs.tokenPath, []byte(token), 0600); err != nil {
+		return fmt.Errorf("failed to write token file: %w", err)
+	}
+
+	logger.Debugf("✅ Token saved successfully")
+	return nil
+}
+
+// LoadCodespaceToken loads the codespace token for authenticated requests
+func (cs *CodespaceService) LoadCodespaceToken() (string, error) {
+	logger.Debugf("📂 Loading codespace token from %s", cs.tokenPath)
+
+	if _, err := os.Stat(cs.tokenPath); os.IsNotExist(err) {
+		logger.Debugf("📄 Token file doesn't exist")
+		return "", nil
+	}
+
+	data, err := os.ReadFile(cs.tokenPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read token file: %w", err)
+	}
+
+	token := strings.TrimSpace(string(data))
+	logger.Debugf("✅ Loaded token successfully")
+	return token, nil
+}
+
+// GetCodespaceURL derives the catnip URL from a codespace name
+func (cs *CodespaceService) GetCodespaceURL(codespaceName string, port string) string {
+	if port == "" {
+		port = "2287"
+	}
+	// GitHub Codespaces URL pattern: https://{codespaceName}-{port}.app.github.dev
+	return fmt.Sprintf("https://%s-%s.app.github.dev", codespaceName, port)
+}
+
+// DeleteCodespaceToken removes the saved token
+func (cs *CodespaceService) DeleteCodespaceToken() error {
+	logger.Debugf("🗑️ Deleting codespace token")
+
+	if _, err := os.Stat(cs.tokenPath); os.IsNotExist(err) {
+		logger.Debugf("📄 Token file doesn't exist, nothing to delete")
+		return nil
+	}
+
+	if err := os.Remove(cs.tokenPath); err != nil {
+		return fmt.Errorf("failed to delete token file: %w", err)
+	}
+
+	logger.Debugf("✅ Token deleted successfully")
+	return nil
 }
