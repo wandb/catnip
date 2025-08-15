@@ -72,23 +72,16 @@ builds:
       - amd64
       - arm64
 
-    # No post-build hook - we'll create app bundle directly in archive
+    # Post-build hooks to sign and notarize the entire app bundle
+    hooks:
+      post:
+        # Only run if we have signing credentials
+        # {{ .Path }} will be "Catnip.app/Contents/MacOS/catnip", so we need to go up 3 directories to get "Catnip.app"
+        # Pass the version as the second argument
+        - sh -c 'if [ -n "$APPLE_SIGN_P12" ]; then ./scripts/sign-macos-app.sh "{{ .Path | dir | dir | dir }}" "{{ .Version }}"; fi'
 
-# Code signing and notarization for macOS binaries (before app bundle creation)
-notarize:
-  macos:
-    - enabled: '{{ if index .Env "APPLE_SIGN_P12" }}true{{ else }}false{{ end }}'
-      ids: [catnip-macos]
-      sign:
-        certificate: "{{ .Env.APPLE_SIGN_P12 }}"
-        password: "{{ .Env.APPLE_SIGN_PASSWORD }}"
-        entitlements: "build/entitlements.plist"
-      notarize:
-        issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
-        key: "{{ .Env.APPLE_PRIVATE_KEY }}"
-        key_id: "{{ .Env.APPLE_KEY_ID }}"
-        wait: true
-        timeout: 20m
+# Removed built-in notarize section - using custom post-build hooks instead
+# Built-in notarization only signs the binary, not the entire app bundle
 
 # Archive configuration
 archives:
