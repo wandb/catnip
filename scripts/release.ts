@@ -16,6 +16,11 @@ interface Version {
 // Parse command line arguments
 const args = process.argv.slice(2);
 
+// Check for revert flag
+const revertIndex = args.findIndex((arg) => arg.startsWith("--revert="));
+const revertVersion =
+  revertIndex !== -1 ? args[revertIndex].split("=")[1] : undefined;
+
 // Check for help flag
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
@@ -38,6 +43,7 @@ OPTIONS:
     --push                     Push tag to trigger GoReleaser
     --message="text"           Release message (required with --push)
     --message "text"           Release message (alternative format)
+    --revert=vX.Y.Z            Revert latest release pointer to specified version
     --help, -h                 Show this help
 
 EXAMPLES:
@@ -45,6 +51,7 @@ EXAMPLES:
     pnpm tsx scripts/release.ts --patch                             # Create v0.0.1 (patch, interactive)
     pnpm tsx scripts/release.ts --major --push --message="v1.0!"   # Create and release v1.0.0
     pnpm tsx scripts/release.ts --dev --push --message "Bug fixes" # Create dev release with message
+    pnpm tsx scripts/release.ts --revert=v0.9.0                     # Revert latest to v0.9.0
 `);
   process.exit(0);
 }
@@ -160,7 +167,140 @@ function createTag(version: string, message?: string): string {
   return tag;
 }
 
+async function revertLatestRelease(targetVersion: string): Promise<void> {
+  console.log(`🔄 Reverting latest release pointer to ${targetVersion}...\n`);
+
+  // Check environment variables
+  const githubToken = process.env.GITHUB_TOKEN;
+  if (!githubToken) {
+    console.error("❌ Error: GITHUB_TOKEN is required");
+    console.error("   Get a token from: https://github.com/settings/tokens");
+    console.error("   Then run: export GITHUB_TOKEN=your_token_here");
+    process.exit(1);
+  }
+
+  const r2BucketName = process.env.R2_BUCKET_NAME || "catnip";
+  const githubRepository = process.env.GITHUB_REPOSITORY || "wandb/catnip";
+
+  console.log(`📦 Using bucket: ${r2BucketName}`);
+  console.log(`📚 Using repository: ${githubRepository}`);
+  console.log("");
+
+  console.log(
+    `📥 Fetching ${targetVersion} release information from GitHub API...`,
+  );
+
+  try {
+    // Fetch release information from GitHub
+    const response = await fetch(
+      `https://api.github.com/repos/${githubRepository}/releases/tags/${targetVersion}`,
+      {
+        headers: {
+          Authorization: `token ${githubToken}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.error("❌ Error from GitHub API:");
+      console.error(JSON.stringify(error, null, 2));
+      process.exit(1);
+    }
+
+    const releaseInfo = await response.json();
+
+    // Verify this is the correct version
+    if (releaseInfo.tag_name !== targetVersion) {
+      console.error(
+        `❌ Error: Expected ${targetVersion} but got ${releaseInfo.tag_name}`,
+      );
+      process.exit(1);
+    }
+
+    // Create release metadata in the same format as upload-to-r2.sh
+    console.log(`📝 Creating release metadata for ${targetVersion}...`);
+    const releaseMetadata = {
+      id: releaseInfo.id,
+      name: releaseInfo.name,
+      tag_name: releaseInfo.tag_name,
+      target_commitish: releaseInfo.target_commitish,
+      draft: releaseInfo.draft,
+      prerelease: releaseInfo.prerelease,
+      created_at: releaseInfo.created_at,
+      published_at: releaseInfo.published_at,
+      assets: releaseInfo.assets.map((asset: any) => ({
+        id: asset.id,
+        name: asset.name,
+        content_type: asset.content_type,
+        size: asset.size,
+        download_count: asset.download_count,
+        created_at: asset.created_at,
+        updated_at: asset.updated_at,
+      })),
+      body: releaseInfo.body,
+      html_url: releaseInfo.html_url,
+      zipball_url: releaseInfo.zipball_url,
+      tarball_url: releaseInfo.tarball_url,
+    };
+
+    // Write to temporary file
+    const tmpFile = `/tmp/release-metadata-${Date.now()}.json`;
+    const fs = await import("fs");
+    await fs.promises.writeFile(
+      tmpFile,
+      JSON.stringify(releaseMetadata, null, 2),
+    );
+
+    console.log(
+      `📤 Uploading ${targetVersion} metadata as latest release to ${r2BucketName}...`,
+    );
+
+    // Upload to R2 using wrangler
+    try {
+      run(
+        `wrangler r2 object put "${r2BucketName}/releases/latest.json" ` +
+          `--file="${tmpFile}" ` +
+          `--content-type="application/json" ` +
+          `--remote`,
+      );
+
+      console.log(
+        `✅ Successfully updated latest release pointer to ${targetVersion}`,
+      );
+      console.log("");
+      console.log("The latest release is now pointing to:");
+      console.log(`- Version: ${targetVersion}`);
+      console.log(`- Release Name: ${releaseMetadata.name}`);
+      console.log(`- Published: ${releaseMetadata.published_at}`);
+    } catch (error: any) {
+      console.error(`❌ Failed to update latest release pointer`);
+      console.error(error.message);
+      process.exit(1);
+    } finally {
+      // Clean up temp file
+      try {
+        await fs.promises.unlink(tmpFile);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    console.log("🎉 Update completed successfully!");
+  } catch (error: any) {
+    console.error(`❌ Failed to fetch release information: ${error.message}`);
+    process.exit(1);
+  }
+}
+
 async function main(): Promise<void> {
+  // Handle revert command separately
+  if (revertVersion) {
+    await revertLatestRelease(revertVersion);
+    return;
+  }
+
   console.log("🚀 Catnip Release Manager\n");
 
   // Check if we're in a git repo
