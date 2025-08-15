@@ -170,12 +170,22 @@ function createTag(version: string, message?: string): string {
 async function revertLatestRelease(targetVersion: string): Promise<void> {
   console.log(`🔄 Reverting latest release pointer to ${targetVersion}...\n`);
 
-  // Check environment variables
-  const githubToken = process.env.GITHUB_TOKEN;
-  if (!githubToken) {
-    console.error("❌ Error: GITHUB_TOKEN is required");
-    console.error("   Get a token from: https://github.com/settings/tokens");
-    console.error("   Then run: export GITHUB_TOKEN=your_token_here");
+  // Check if gh CLI is available
+  try {
+    run("gh --version");
+  } catch (error) {
+    console.error("❌ Error: GitHub CLI (gh) is not installed");
+    console.error("   Install it from: https://cli.github.com/");
+    console.error("   Or via Homebrew: brew install gh");
+    process.exit(1);
+  }
+
+  // Check if gh is authenticated
+  try {
+    run("gh auth status");
+  } catch (error) {
+    console.error("❌ Error: GitHub CLI is not authenticated");
+    console.error("   Run: gh auth login");
     process.exit(1);
   }
 
@@ -187,29 +197,15 @@ async function revertLatestRelease(targetVersion: string): Promise<void> {
   console.log("");
 
   console.log(
-    `📥 Fetching ${targetVersion} release information from GitHub API...`,
+    `📥 Fetching ${targetVersion} release information from GitHub...`,
   );
 
   try {
-    // Fetch release information from GitHub
-    const response = await fetch(
-      `https://api.github.com/repos/${githubRepository}/releases/tags/${targetVersion}`,
-      {
-        headers: {
-          Authorization: `token ${githubToken}`,
-          Accept: "application/vnd.github.v3+json",
-        },
-      },
+    // Fetch release information using gh CLI
+    const releaseInfoJson = run(
+      `gh api repos/${githubRepository}/releases/tags/${targetVersion}`,
     );
-
-    if (!response.ok) {
-      const error = await response.json();
-      console.error("❌ Error from GitHub API:");
-      console.error(JSON.stringify(error, null, 2));
-      process.exit(1);
-    }
-
-    const releaseInfo = await response.json();
+    const releaseInfo = JSON.parse(releaseInfoJson);
 
     // Verify this is the correct version
     if (releaseInfo.tag_name !== targetVersion) {
@@ -289,7 +285,9 @@ async function revertLatestRelease(targetVersion: string): Promise<void> {
 
     console.log("🎉 Update completed successfully!");
   } catch (error: any) {
-    console.error(`❌ Failed to fetch release information: ${error.message}`);
+    console.error(`❌ Failed to fetch release information`);
+    console.error(`   Make sure ${targetVersion} exists as a release`);
+    console.error(`   Error: ${error.message}`);
     process.exit(1);
   }
 }
