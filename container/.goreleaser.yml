@@ -72,13 +72,7 @@ builds:
       - amd64
       - arm64
 
-    # Post-build hooks to sign and notarize the entire app bundle
-    hooks:
-      post:
-        # Only run if we have signing credentials
-        # {{ .Path }} will be "Catnip.app/Contents/MacOS/catnip", so we need to go up 3 directories to get "Catnip.app"
-        # Pass the version as the second argument
-        - sh -c 'if [ -n "$APPLE_SIGN_P12" ]; then ./scripts/sign-macos-app.sh "{{ .Path | dir | dir | dir }}" "{{ .Version }}"; fi'
+    # No post-build hooks - we'll sign during archive step instead
 
 # Removed built-in notarize section - using custom post-build hooks instead
 # Built-in notarization only signs the binary, not the entire app bundle
@@ -102,30 +96,45 @@ archives:
     wrap_in_directory: false
 
   # macOS archives (with app bundles and CLI wrappers)
-  - id: macos
+  - id: macos-amd64
     ids: [catnip-macos]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Amd64 }}_{{ . }}{{ end }}"
     format_overrides:
       - goos: darwin
-        formats: [tar.gz]
-    # Include the complete signed app bundle that our script creates
-    # {{ .Path }} is "Catnip.app/Contents/MacOS/catnip", so we go up 3 dirs to get "Catnip.app"
+        format: tar.gz
+    goarch: amd64
+    hooks:
+      before:
+        - sh -c 'if [ -n "$APPLE_SIGN_P12" ]; then ./scripts/sign-macos-app.sh "dist/catnip-macos_darwin_amd64_v1/Catnip.app" "{{ .Version }}"; fi'
+    # Use rlcp to recursively copy the entire app bundle structure
+    rlcp: true
     files:
-      # Info.plist that our signing script creates and templates
-      - src: "{{ .Path | dir | dir | dir }}/Contents/Info.plist"
-        dst: "Catnip.app/Contents/Info.plist"
-      # Resources directory that our signing script copies
-      - src: "{{ .Path | dir | dir | dir }}/Contents/Resources/**"
-        dst: "Catnip.app/Contents/Resources"
-        strip_parent: true
-      # Documentation files
       - src: README.md
         dst: README.md
       - LICENSE
       - docs/swagger.json
       - docs/swagger.yaml
     wrap_in_directory: false
-    allow_different_binary_count: true
+
+  - id: macos-arm64
+    ids: [catnip-macos]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}_{{ . }}{{ end }}"
+    format_overrides:
+      - goos: darwin
+        format: tar.gz
+    goarch: arm64
+    hooks:
+      before:
+        - sh -c 'if [ -n "$APPLE_SIGN_P12" ]; then ./scripts/sign-macos-app.sh "dist/catnip-macos_darwin_arm64_v8.0/Catnip.app" "{{ .Version }}"; fi'
+    # Use rlcp to recursively copy the entire app bundle structure  
+    rlcp: true
+    files:
+      - src: README.md
+        dst: README.md
+      - LICENSE
+      - docs/swagger.json
+      - docs/swagger.yaml
+    wrap_in_directory: false
 
 # Checksum configuration
 checksum:
