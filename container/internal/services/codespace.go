@@ -204,7 +204,25 @@ func (cs *CodespaceService) StartCodespaceDaemon(ctx context.Context, codespaceN
 	}
 	if err != nil {
 		logger.Infof("📦 Catnip not found, installing...")
-		installCmd := "curl -sSfL install.catnip.sh | sh"
+
+		// Check if we should use development installation mode
+		var installCmd string
+		catnipDev := os.Getenv("CATNIP_DEV")
+
+		switch catnipDev {
+		case "", "false":
+			// Use the standard installation script
+			installCmd = "curl -sSfL install.catnip.sh | sh"
+		case "true":
+			// Clone the repo and run 'just install' from main branch
+			logger.Infof("🔧 Using development installation mode (CATNIP_DEV=true)")
+			installCmd = "cd /tmp && rm -rf catnip && git clone https://github.com/vanpelt/catnip.git && cd catnip/container && just install"
+		default:
+			// Use CATNIP_DEV value as the branch name
+			logger.Infof("🔧 Using development installation mode from branch: %s", catnipDev)
+			installCmd = fmt.Sprintf("cd /tmp && rm -rf catnip && git clone -b %s https://github.com/vanpelt/catnip.git && cd catnip/container && just install", catnipDev)
+		}
+
 		installOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, installCmd)
 		if err != nil {
 			return fmt.Errorf("failed to install catnip in codespace: %w", err)
