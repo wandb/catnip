@@ -216,11 +216,11 @@ func (cs *CodespaceService) StartCodespaceDaemon(ctx context.Context, codespaceN
 		case "true":
 			// Clone the repo and run 'just install' from main branch
 			logger.Infof("🔧 Using development installation mode (CATNIP_DEV=true)")
-			installCmd = "cd /tmp && rm -rf catnip && git clone https://github.com/vanpelt/catnip.git && cd catnip/container && just install"
+			installCmd = "cd /tmp && rm -rf catnip && git clone https://github.com/wandb/catnip.git && cd catnip/container && just install"
 		default:
 			// Use CATNIP_DEV value as the branch name
 			logger.Infof("🔧 Using development installation mode from branch: %s", catnipDev)
-			installCmd = fmt.Sprintf("cd /tmp && rm -rf catnip && git clone -b %s https://github.com/vanpelt/catnip.git && cd catnip/container && just install", catnipDev)
+			installCmd = fmt.Sprintf("cd /tmp && rm -rf catnip && git clone -b %s https://github.com/wandb/catnip.git && cd catnip/container && just install", catnipDev)
 		}
 
 		installOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, installCmd)
