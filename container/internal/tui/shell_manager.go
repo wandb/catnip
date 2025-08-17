@@ -66,7 +66,7 @@ func (sm *ShellManager) CreateSession(sessionID string) *ShellSession {
 func (sm *ShellManager) ConnectSession(sessionID string, baseURL string) error {
 	if session, exists := sm.sessions[sessionID]; exists {
 		if baseURL == "" {
-			baseURL = "http://localhost:2287" // Fallback to default
+			baseURL = "http://localhost:6369" // Fallback to default
 		}
 		err := session.Client.Connect(baseURL)
 		if err == nil {

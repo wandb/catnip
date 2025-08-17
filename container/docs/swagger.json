@@ -10,7 +10,7 @@
         "contact": {},
         "version": "1.0"
     },
-    "host": "localhost:2287",
+    "host": "localhost:6369",
     "paths": {
         "/v1/auth/github/reset": {
             "post": {

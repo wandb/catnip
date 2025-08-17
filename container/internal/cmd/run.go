@@ -41,7 +41,7 @@ var runCmd = &cobra.Command{
 - Otherwise, no directory is mounted
 
 ## 🌐 Network Access
-- Container exposes **port 2287** for web access
+- Container exposes **port 6369** for web access
 - Automatically shuts down when you quit the TUI
 
 ## 🎯 Development Mode
@@ -80,7 +80,7 @@ func init() {
 	runCmd.Flags().StringVarP(&name, "name", "n", "", "Container name (auto-generated if not provided)")
 	runCmd.Flags().BoolVarP(&detach, "detach", "d", false, "Run container in detached mode")
 	runCmd.Flags().BoolVar(&noTUI, "no-tui", false, "Disable TUI and tail logs directly")
-	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"2287:2287"}, "Port mappings")
+	runCmd.Flags().StringSliceVarP(&ports, "port", "p", []string{"6369:6369"}, "Port mappings")
 	runCmd.Flags().BoolVar(&dev, "dev", false, "Run in development mode with dev image and node_modules volume")
 	runCmd.Flags().BoolVar(&refresh, "refresh", false, "Force refresh: rebuild dev image with 'just build-dev' or pull production image from registry")
 	runCmd.Flags().BoolVar(&disableSSH, "disable-ssh", false, "Disable SSH server (enabled by default on port 2222)")
@@ -793,9 +793,8 @@ func findAvailablePort(ctx context.Context, containerService *services.Container
 
 // runCodespaceWorkflow handles the codespace-specific workflow
 func runCodespaceWorkflow(cmd *cobra.Command, args []string) error {
-	// Configure logging
-	logLevel := logger.GetLogLevelFromEnv(dev)
-	logger.Configure(logLevel, true)
+	// Configure logging - always use debug for codespace workflow to help troubleshooting
+	logger.Configure(logger.LevelDebug, true)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -865,6 +864,15 @@ func runCodespaceWorkflow(cmd *cobra.Command, args []string) error {
 
 	// Start the catnip daemon in the codespace
 	if err := codespaceService.StartCodespaceDaemon(ctx, selectedCodespace.Name); err != nil {
+		// If SSH isn't configured, offer to open in VS Code instead
+		if strings.Contains(err.Error(), "SSH is not configured") {
+			logger.Errorf("❌ %v", err)
+			logger.Infof("\n💡 Alternative: You can open this codespace in VS Code with:")
+			logger.Infof("   gh codespace code --codespace %s", selectedCodespace.Name)
+			logger.Infof("\nOr in your browser at:")
+			logger.Infof("   %s", selectedCodespace.VSCodeURL)
+			return fmt.Errorf("unable to install catnip via SSH")
+		}
 		return fmt.Errorf("failed to start catnip daemon: %w", err)
 	}
 
@@ -908,14 +916,17 @@ func runCodespaceWorkflow(cmd *cobra.Command, args []string) error {
 				return nil
 			case <-time.After(30 * time.Second):
 				// Periodically check if the daemon is still running
-				if _, err := codespaceService.RunCommandInCodespace(ctx, selectedCodespace.Name, "pgrep -f 'catnip serve'"); err != nil {
-					logger.Debugf("⚠️ Catnip daemon may have stopped: %v", err)
+				checkOutput, err := codespaceService.RunCommandInCodespace(ctx, selectedCodespace.Name, "pgrep -f 'catnip serve' || echo 'no-process'")
+				if err != nil || strings.TrimSpace(checkOutput) == "no-process" {
+					logger.Debugf("⚠️ Catnip daemon may have stopped (output: %s, err: %v)", checkOutput, err)
 					// Try to restart it
 					logger.Infof("🔄 Attempting to restart catnip daemon...")
 					if err := codespaceService.StartCodespaceDaemon(ctx, selectedCodespace.Name); err != nil {
 						logger.Errorf("❌ Failed to restart daemon: %v", err)
 						return err
 					}
+				} else {
+					logger.Debugf("✅ Catnip daemon still running (PID: %s)", strings.TrimSpace(checkOutput))
 				}
 			}
 		}

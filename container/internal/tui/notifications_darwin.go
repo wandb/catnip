@@ -108,7 +108,7 @@ void sendNotification(const char* title, const char* body, const char* subtitle,
         if (url && strlen(url) > 0) {
             urlString = [NSString stringWithUTF8String:url];
         } else {
-            urlString = @"http://localhost:2287/workspace";
+            urlString = @"http://localhost:6369/workspace";
         }
         notification.userInfo = @{@"url": urlString};
         notification.hasActionButton = YES;

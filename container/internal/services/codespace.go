@@ -17,16 +17,19 @@ import (
 
 // CodespaceInfo represents information about a GitHub Codespace
 type CodespaceInfo struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"displayName"`
-	Repository  string `json:"repository"`
-	Branch      string `json:"gitStatus.ref"`
-	State       string `json:"state"`
-	Machine     string `json:"machine"`
-	CreatedAt   string `json:"createdAt"`
-	LastUsedAt  string `json:"lastUsedAt"`
-	WebURL      string `json:"webUrl"`
-	VSCodeURL   string `json:"vsCodeUrl"`
+	Name        string                 `json:"name"`
+	DisplayName string                 `json:"displayName"`
+	Repository  string                 `json:"repository"`
+	GitStatus   map[string]interface{} `json:"gitStatus"`
+	State       string                 `json:"state"`
+	Machine     string                 `json:"machineName"`
+	CreatedAt   string                 `json:"createdAt"`
+	LastUsedAt  string                 `json:"lastUsedAt"`
+	Owner       string                 `json:"owner"`
+	VSCSTarget  string                 `json:"vscsTarget"`
+	// Computed fields
+	WebURL    string `json:"-"`
+	VSCodeURL string `json:"-"`
 }
 
 // CodespaceService manages GitHub Codespaces
@@ -57,11 +60,19 @@ func NewCodespaceService() (*CodespaceService, error) {
 	}, nil
 }
 
+// computeCodespaceURLs adds the computed WebURL and VSCodeURL to a codespace
+func (cs *CodespaceService) computeCodespaceURLs(codespace *CodespaceInfo) {
+	// GitHub Codespaces web URL format
+	codespace.WebURL = fmt.Sprintf("https://github.com/codespaces/%s", codespace.Name)
+	// VS Code URL format
+	codespace.VSCodeURL = fmt.Sprintf("https://%s.github.dev", codespace.Name)
+}
+
 // ListCodespaces lists all available codespaces
 func (cs *CodespaceService) ListCodespaces(ctx context.Context) ([]CodespaceInfo, error) {
 	logger.Debugf("🔍 Listing GitHub Codespaces...")
 
-	cmd := exec.CommandContext(ctx, "gh", "codespace", "list", "--json", "name,displayName,repository,gitStatus,state,machine,createdAt,lastUsedAt,webUrl,vsCodeUrl")
+	cmd := exec.CommandContext(ctx, "gh", "codespace", "list", "--json", "name,displayName,repository,gitStatus,state,machineName,createdAt,lastUsedAt,owner,vscsTarget")
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -73,6 +84,11 @@ func (cs *CodespaceService) ListCodespaces(ctx context.Context) ([]CodespaceInfo
 	var codespaces []CodespaceInfo
 	if err := json.Unmarshal(output, &codespaces); err != nil {
 		return nil, fmt.Errorf("failed to parse codespaces list: %w", err)
+	}
+
+	// Compute URLs for each codespace
+	for i := range codespaces {
+		cs.computeCodespaceURLs(&codespaces[i])
 	}
 
 	logger.Debugf("✅ Found %d codespaces", len(codespaces))
@@ -87,7 +103,7 @@ func (cs *CodespaceService) CreateCodespace(ctx context.Context, repo, branch st
 	if branch != "" {
 		args = append(args, "--branch", branch)
 	}
-	args = append(args, "--json", "name,displayName,repository,gitStatus,state,machine,createdAt,lastUsedAt,webUrl,vsCodeUrl")
+	args = append(args, "--json", "name,displayName,repository,gitStatus,state,machineName,createdAt,lastUsedAt,owner,vscsTarget")
 
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	output, err := cmd.Output()
@@ -102,6 +118,9 @@ func (cs *CodespaceService) CreateCodespace(ctx context.Context, repo, branch st
 	if err := json.Unmarshal(output, &codespace); err != nil {
 		return nil, fmt.Errorf("failed to parse codespace info: %w", err)
 	}
+
+	// Compute URLs for the new codespace
+	cs.computeCodespaceURLs(&codespace)
 
 	logger.Infof("✅ Created codespace: %s", codespace.Name)
 	return &codespace, nil
@@ -140,7 +159,19 @@ func (cs *CodespaceService) RunCommandInCodespace(ctx context.Context, codespace
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("command failed: %s", string(exitErr.Stderr))
+			stderr := string(exitErr.Stderr)
+			// Check for SSH configuration error
+			if strings.Contains(stderr, "failed to start SSH server") || strings.Contains(stderr, "SSH server is installed") {
+				return "", fmt.Errorf("SSH is not configured in this codespace.\n\n"+
+					"To fix this, add SSH support to your .devcontainer/devcontainer.json:\n\n"+
+					"  \"features\": {\n"+
+					"    \"ghcr.io/devcontainers/features/sshd:1\": {\n"+
+					"      \"version\": \"latest\"\n"+
+					"    }\n"+
+					"  }\n\n"+
+					"Then rebuild your codespace with: gh codespace rebuild --codespace %s", codespaceName)
+			}
+			return "", fmt.Errorf("command failed: %s", stderr)
 		}
 		return "", fmt.Errorf("failed to run command: %w", err)
 	}
@@ -152,38 +183,94 @@ func (cs *CodespaceService) RunCommandInCodespace(ctx context.Context, codespace
 func (cs *CodespaceService) StartCodespaceDaemon(ctx context.Context, codespaceName string) error {
 	logger.Infof("🚀 Starting catnip daemon in codespace: %s", codespaceName)
 
-	// Install catnip if not already present
-	installCmd := "curl -sSfL install.catnip.sh | sh"
-	if _, err := cs.RunCommandInCodespace(ctx, codespaceName, "which catnip || ("+installCmd+")"); err != nil {
-		return fmt.Errorf("failed to install catnip in codespace: %w", err)
+	// Check if catnip is already installed
+	logger.Debugf("Checking if catnip is installed...")
+	catnipPath, err := cs.RunCommandInCodespace(ctx, codespaceName, "which catnip 2>/dev/null || echo $HOME/.local/bin/catnip")
+	catnipPath = strings.TrimSpace(catnipPath)
+
+	// Check if the found path actually exists and is executable
+	if err == nil && catnipPath != "" && !strings.HasSuffix(catnipPath, ".local/bin/catnip") {
+		// Only test executability if we found it via 'which', not if we defaulted to .local/bin
+		testOutput, testErr := cs.RunCommandInCodespace(ctx, codespaceName, fmt.Sprintf("test -x %s && echo 'exists' || echo 'not-found'", catnipPath))
+		if testErr != nil || strings.TrimSpace(testOutput) != "exists" {
+			err = fmt.Errorf("catnip binary not executable")
+		}
+	} else if strings.HasSuffix(catnipPath, ".local/bin/catnip") {
+		// For the default path, check if it exists
+		testOutput, testErr := cs.RunCommandInCodespace(ctx, codespaceName, fmt.Sprintf("test -f %s && echo 'exists' || echo 'not-found'", catnipPath))
+		if testErr != nil || strings.TrimSpace(testOutput) != "exists" {
+			err = fmt.Errorf("catnip binary not found at default location")
+		}
+	}
+	if err != nil {
+		logger.Infof("📦 Catnip not found, installing...")
+		installCmd := "curl -sSfL install.catnip.sh | sh"
+		installOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, installCmd)
+		if err != nil {
+			return fmt.Errorf("failed to install catnip in codespace: %w", err)
+		}
+		logger.Debugf("Install output: %s", installOutput)
+
+		// Check again after installation - look in the default install location
+		catnipPath, err = cs.RunCommandInCodespace(ctx, codespaceName, "which catnip 2>/dev/null || echo $HOME/.local/bin/catnip")
+		if err != nil {
+			return fmt.Errorf("catnip not found after installation: %w", err)
+		}
+		catnipPath = strings.TrimSpace(catnipPath)
+	}
+	logger.Infof("✅ Catnip found at: %s", strings.TrimSpace(catnipPath))
+
+	// Check catnip version
+	versionOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, fmt.Sprintf("%s --version", catnipPath))
+	if err != nil {
+		logger.Warnf("⚠️ Could not get catnip version: %v", err)
+	} else {
+		logger.Infof("📌 Catnip version: %s", strings.TrimSpace(versionOutput))
 	}
 
 	// Run bootstrap to ensure dependencies are installed
-	bootstrapCmd := "catnip bootstrap"
-	if _, err := cs.RunCommandInCodespace(ctx, codespaceName, bootstrapCmd); err != nil {
+	logger.Debugf("Running bootstrap...")
+	bootstrapCmd := fmt.Sprintf("%s bootstrap", catnipPath)
+	if bootstrapOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, bootstrapCmd); err != nil {
 		logger.Debugf("⚠️ Bootstrap failed (may be ok if dependencies already installed): %v", err)
+	} else {
+		logger.Debugf("Bootstrap output: %s", bootstrapOutput)
 	}
 
+	// Kill any existing catnip serve processes
+	logger.Debugf("Cleaning up any existing catnip processes...")
+	_, _ = cs.RunCommandInCodespace(ctx, codespaceName, "pkill -f 'catnip serve' || true")
+	time.Sleep(1 * time.Second)
+
 	// Start catnip serve as a daemon
-	daemonCmd := "nohup catnip serve --port 2287 > /tmp/catnip.log 2>&1 & echo $!"
+	logger.Infof("🚀 Starting catnip serve daemon...")
+	daemonCmd := fmt.Sprintf("nohup '%s' serve --port 6369 > /tmp/catnip.log 2>&1 & echo $!", catnipPath)
+	logger.Debugf("Daemon command: %s", daemonCmd)
 	pidOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, daemonCmd)
 	if err != nil {
-		return fmt.Errorf("failed to start catnip daemon: %w", err)
+		// Try to get any error output
+		logOutput, _ := cs.RunCommandInCodespace(ctx, codespaceName, "cat /tmp/catnip.log 2>/dev/null || echo 'No log file found'")
+		return fmt.Errorf("failed to start catnip daemon: %w\nLog output: %s", err, logOutput)
 	}
 
 	pid := strings.TrimSpace(pidOutput)
 	logger.Infof("✅ Catnip daemon started with PID: %s", pid)
 
 	// Wait a moment and verify it's still running
-	time.Sleep(2 * time.Second)
-	checkCmd := fmt.Sprintf("kill -0 %s", pid)
-	if _, err := cs.RunCommandInCodespace(ctx, codespaceName, checkCmd); err != nil {
-		// Check the log for errors
-		logOutput, _ := cs.RunCommandInCodespace(ctx, codespaceName, "tail -20 /tmp/catnip.log")
-		return fmt.Errorf("catnip daemon failed to start properly. Log output:\n%s", logOutput)
+	logger.Debugf("Waiting for daemon to stabilize...")
+	time.Sleep(3 * time.Second)
+
+	checkCmd := fmt.Sprintf("ps -p %s > /dev/null 2>&1 && echo 'running' || echo 'stopped'", pid)
+	statusOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, checkCmd)
+	if err != nil || strings.TrimSpace(statusOutput) != "running" {
+		// Get detailed error information
+		logOutput, _ := cs.RunCommandInCodespace(ctx, codespaceName, "cat /tmp/catnip.log 2>/dev/null || echo 'No log file'")
+		psOutput, _ := cs.RunCommandInCodespace(ctx, codespaceName, fmt.Sprintf("ps aux | grep %s || echo 'Process not found'", pid))
+		return fmt.Errorf("catnip daemon failed to start properly (PID %s).\nStatus: %s\nLog output:\n%s\nProcess info:\n%s",
+			pid, statusOutput, logOutput, psOutput)
 	}
 
-	logger.Infof("✅ Catnip daemon is running successfully")
+	logger.Infof("✅ Catnip daemon is running successfully on port 6369")
 	return nil
 }
 
@@ -390,9 +477,9 @@ func (cs *CodespaceService) PromptForNewCodespace() (bool, string, string, error
 	return true, repo, branch, nil
 }
 
-// SaveCodespaceToken saves the codespace token for authenticated requests
-func (cs *CodespaceService) SaveCodespaceToken(token string) error {
-	logger.Debugf("💾 Saving codespace token to %s", cs.tokenPath)
+// SaveGlobalCodespaceToken saves a global codespace token for authenticated requests
+func (cs *CodespaceService) SaveGlobalCodespaceToken(token string) error {
+	logger.Debugf("💾 Saving global codespace token to %s", cs.tokenPath)
 
 	// Ensure config directory exists
 	if err := os.MkdirAll(filepath.Dir(cs.tokenPath), 0755); err != nil {
@@ -404,7 +491,7 @@ func (cs *CodespaceService) SaveCodespaceToken(token string) error {
 		return fmt.Errorf("failed to write token file: %w", err)
 	}
 
-	logger.Debugf("✅ Token saved successfully")
+	logger.Debugf("✅ Global token saved successfully")
 	return nil
 }
 
@@ -430,7 +517,7 @@ func (cs *CodespaceService) LoadCodespaceToken() (string, error) {
 // GetCodespaceURL derives the catnip URL from a codespace name
 func (cs *CodespaceService) GetCodespaceURL(codespaceName string, port string) string {
 	if port == "" {
-		port = "2287"
+		port = "6369"
 	}
 	// GitHub Codespaces URL pattern: https://{codespaceName}-{port}.app.github.dev
 	return fmt.Sprintf("https://%s-%s.app.github.dev", codespaceName, port)

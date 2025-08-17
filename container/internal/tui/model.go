@@ -77,8 +77,8 @@ type Model struct {
 	dind           bool
 
 	// Network configuration
-	baseURL      string // Base URL for API calls (e.g., "http://localhost:2287")
-	internalPort string // Internal container port (default: 2287)
+	baseURL      string // Base URL for API calls (e.g., "http://localhost:6369")
+	internalPort string // Internal container port (default: 6369)
 	externalPort string // External host port (parsed from customPorts)
 
 	// Current state
@@ -152,10 +152,10 @@ func NewModelWithInitialization(containerService *services.ContainerService, con
 	codespaceService, _ := services.NewCodespaceService()
 
 	// Parse port configuration
-	internalPort := "2287" // Default internal port
-	externalPort := "2287" // Default external port
+	internalPort := "6369" // Default internal port
+	externalPort := "6369" // Default external port
 	if len(customPorts) > 0 {
-		// Parse port mapping (e.g., "8181:2287" means external:internal)
+		// Parse port mapping (e.g., "8181:6369" means external:internal)
 		parts := strings.Split(customPorts[0], ":")
 		if len(parts) >= 1 {
 			externalPort = parts[0]
@@ -249,7 +249,7 @@ func (m *Model) createAuthenticatedClient(timeout time.Duration) *http.Client {
 	return client
 }
 
-// getHost returns just the host part (e.g., "localhost" or "mycodespace-2287.app.github.dev")
+// getHost returns just the host part (e.g., "localhost" or "mycodespace-6369.app.github.dev")
 func (m *Model) getHost() string {
 	// If we're in a codespace, return the codespace host
 	if m.isInCodespace() && m.codespaceService != nil {
