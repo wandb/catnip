@@ -183,23 +183,27 @@ func (cs *CodespaceService) RunCommandInCodespace(ctx context.Context, codespace
 func (cs *CodespaceService) StartCodespaceDaemon(ctx context.Context, codespaceName string) error {
 	logger.Infof("🚀 Starting catnip daemon in codespace: %s", codespaceName)
 
-	// Check if catnip is already installed
+	// Check if catnip is already running
+	logger.Debugf("Checking if catnip daemon is already running...")
+	psOutput, psErr := cs.RunCommandInCodespace(ctx, codespaceName, "pgrep -f 'catnip serve' || echo 'no-process'")
+	if psErr == nil && strings.TrimSpace(psOutput) != "no-process" {
+		logger.Infof("✅ Catnip daemon is already running (PID: %s)", strings.TrimSpace(psOutput))
+		return nil
+	}
+
+	// Check if catnip is installed in multiple possible locations
 	logger.Debugf("Checking if catnip is installed...")
-	catnipPath, err := cs.RunCommandInCodespace(ctx, codespaceName, "which catnip 2>/dev/null || echo $HOME/.local/bin/catnip")
+	catnipPath, err := cs.RunCommandInCodespace(ctx, codespaceName, "which catnip 2>/dev/null || (test -x $HOME/.local/bin/catnip && echo $HOME/.local/bin/catnip) || (test -x /usr/local/bin/catnip && echo /usr/local/bin/catnip) || echo 'not-found'")
 	catnipPath = strings.TrimSpace(catnipPath)
 
-	// Check if the found path actually exists and is executable
-	if err == nil && catnipPath != "" && !strings.HasSuffix(catnipPath, ".local/bin/catnip") {
-		// Only test executability if we found it via 'which', not if we defaulted to .local/bin
-		testOutput, testErr := cs.RunCommandInCodespace(ctx, codespaceName, fmt.Sprintf("test -x %s && echo 'exists' || echo 'not-found'", catnipPath))
+	// Check if we found a valid catnip binary
+	if catnipPath == "not-found" || catnipPath == "" {
+		err = fmt.Errorf("catnip binary not found")
+	} else {
+		// Verify the binary is executable
+		testOutput, testErr := cs.RunCommandInCodespace(ctx, codespaceName, fmt.Sprintf("test -x '%s' && echo 'exists' || echo 'not-found'", catnipPath))
 		if testErr != nil || strings.TrimSpace(testOutput) != "exists" {
-			err = fmt.Errorf("catnip binary not executable")
-		}
-	} else if strings.HasSuffix(catnipPath, ".local/bin/catnip") {
-		// For the default path, check if it exists
-		testOutput, testErr := cs.RunCommandInCodespace(ctx, codespaceName, fmt.Sprintf("test -f %s && echo 'exists' || echo 'not-found'", catnipPath))
-		if testErr != nil || strings.TrimSpace(testOutput) != "exists" {
-			err = fmt.Errorf("catnip binary not found at default location")
+			err = fmt.Errorf("catnip binary not executable at %s", catnipPath)
 		}
 	}
 	if err != nil {
@@ -214,13 +218,13 @@ func (cs *CodespaceService) StartCodespaceDaemon(ctx context.Context, codespaceN
 			// Use the standard installation script
 			installCmd = "curl -sSfL install.catnip.sh | sh"
 		case "true":
-			// Clone the repo and run 'just install' from main branch
+			// Clone the repo and build for Linux
 			logger.Infof("🔧 Using development installation mode (CATNIP_DEV=true)")
-			installCmd = "cd /tmp && rm -rf catnip && git clone https://github.com/wandb/catnip.git && cd catnip/container && just install"
+			installCmd = "cd /tmp && rm -rf catnip && git clone https://github.com/wandb/catnip.git && cd catnip/container && just deps && just build && mkdir -p $HOME/.local/bin && cp bin/catnip-cli $HOME/.local/bin/catnip && chmod +x $HOME/.local/bin/catnip"
 		default:
 			// Use CATNIP_DEV value as the branch name
 			logger.Infof("🔧 Using development installation mode from branch: %s", catnipDev)
-			installCmd = fmt.Sprintf("cd /tmp && rm -rf catnip && git clone -b %s https://github.com/wandb/catnip.git && cd catnip/container && just install", catnipDev)
+			installCmd = fmt.Sprintf("cd /tmp && rm -rf catnip && git clone -b %s https://github.com/wandb/catnip.git && cd catnip/container && just deps && just build && mkdir -p $HOME/.local/bin && cp bin/catnip-cli $HOME/.local/bin/catnip && chmod +x $HOME/.local/bin/catnip", catnipDev)
 		}
 
 		installOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, installCmd)
@@ -260,9 +264,9 @@ func (cs *CodespaceService) StartCodespaceDaemon(ctx context.Context, codespaceN
 	_, _ = cs.RunCommandInCodespace(ctx, codespaceName, "pkill -f 'catnip serve' || true")
 	time.Sleep(1 * time.Second)
 
-	// Start catnip serve as a daemon
+	// Start catnip serve as a daemon with GitHub token
 	logger.Infof("🚀 Starting catnip serve daemon...")
-	daemonCmd := fmt.Sprintf("nohup '%s' serve --port 6369 > /tmp/catnip.log 2>&1 & echo $!", catnipPath)
+	daemonCmd := fmt.Sprintf("nohup env GITHUB_TOKEN=\"$GITHUB_TOKEN\" '%s' serve --port 6369 > /tmp/catnip.log 2>&1 & echo $!", catnipPath)
 	logger.Debugf("Daemon command: %s", daemonCmd)
 	pidOutput, err := cs.RunCommandInCodespace(ctx, codespaceName, daemonCmd)
 	if err != nil {
