@@ -159,7 +159,7 @@ export function RepoSelector({
               )}
             {filteredGitHubRepos.length > 0 && (
               <CommandGroup heading="Your GitHub Repositories">
-                {filteredGitHubRepos.slice(0, 20).map((repo) => (
+                {filteredGitHubRepos.map((repo) => (
                   <CommandItem
                     key={repo.name}
                     value={repo.url}
