@@ -637,6 +637,13 @@ func (wsm *WorktreeStateManager) RestoreState() error {
 		logger.Debugf("🔧 Calling RecreateWorktree for %s", worktree.Name)
 		if err := wsm.worktreeRestorer.RecreateWorktree(worktree, repo); err != nil {
 			logger.Errorf("❌ Failed to restore worktree %s: %v", worktree.Name, err)
+
+			// Mark the worktree as failed/unavailable but don't fail the boot process
+			// This ensures that other worktrees can still be restored successfully
+			logger.Warnf("⚠️ Marking worktree %s as unavailable due to restoration failure", worktree.Name)
+			// Note: We could add an "Available" field to the Worktree model in the future
+			// For now, we just log the failure and continue
+
 			failedCount++
 			continue
 		}

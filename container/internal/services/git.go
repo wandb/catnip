@@ -56,9 +56,17 @@ func (s *GitService) cleanupUnusedBranches() {
 	totalDeleted := 0
 
 	for _, repo := range reposMap {
+		// Skip unavailable repositories to prevent boot failures
+		if !repo.Available {
+			logger.Debugf("🔍 Skipping cleanup for unavailable repository %s", repo.ID)
+			continue
+		}
+
 		// Check if repository path exists before trying to clean it up
 		if _, err := os.Stat(repo.Path); os.IsNotExist(err) {
-			// Skip non-existent repositories (likely in-memory test repositories)
+			// Mark repository as unavailable and skip cleanup
+			logger.Warnf("⚠️ Repository %s not available at %s, marking as unavailable", repo.ID, repo.Path)
+			repo.Available = false
 			continue
 		}
 
@@ -66,6 +74,11 @@ func (s *GitService) cleanupUnusedBranches() {
 		branches, err := s.operations.ListBranches(repo.Path, git.ListBranchesOptions{All: true})
 		if err != nil {
 			logger.Warnf("⚠️  Failed to list branches for %s: %v", repo.ID, err)
+			// Check if it's a directory access issue and mark repo as unavailable
+			if strings.Contains(err.Error(), "cannot change to") || strings.Contains(err.Error(), "No such file or directory") {
+				logger.Warnf("⚠️ Repository %s appears to be inaccessible, marking as unavailable", repo.ID)
+				repo.Available = false
+			}
 			continue
 		}
 		deletedInRepo := 0
@@ -173,10 +186,29 @@ func (s *GitService) cleanupCatnipRefs() {
 	totalDeleted := 0
 
 	for _, repo := range reposMap {
+		// Skip unavailable repositories to prevent boot failures
+		if !repo.Available {
+			logger.Debugf("🔍 Skipping catnip refs cleanup for unavailable repository %s", repo.ID)
+			continue
+		}
+
+		// Check if repository path exists before trying to list refs
+		if _, err := os.Stat(repo.Path); os.IsNotExist(err) {
+			// Mark repository as unavailable and skip cleanup
+			logger.Warnf("⚠️ Repository %s not available at %s, marking as unavailable", repo.ID, repo.Path)
+			repo.Available = false
+			continue
+		}
+
 		// Use git for-each-ref to list all refs/catnip/ references
 		output, err := s.operations.ExecuteGit(repo.Path, "for-each-ref", "--format=%(refname)", "refs/catnip/")
 		if err != nil {
 			logger.Warnf("⚠️  Failed to list catnip refs for %s: %v", repo.ID, err)
+			// Check if it's a directory access issue and mark repo as unavailable
+			if strings.Contains(err.Error(), "cannot change to") || strings.Contains(err.Error(), "No such file or directory") {
+				logger.Warnf("⚠️ Repository %s appears to be inaccessible, marking as unavailable", repo.ID)
+				repo.Available = false
+			}
 			continue
 		}
 
@@ -280,8 +312,17 @@ func (s *GitService) cleanupOrphanedConfigMappings() {
 	totalCleaned := 0
 
 	for _, repo := range reposMap {
+		// Skip unavailable repositories to prevent boot failures
+		if !repo.Available {
+			logger.Debugf("🔍 Skipping config cleanup for unavailable repository %s", repo.ID)
+			continue
+		}
+
 		// Check if repository path exists before trying to clean it up
 		if _, err := os.Stat(repo.Path); os.IsNotExist(err) {
+			// Mark repository as unavailable and skip cleanup
+			logger.Warnf("⚠️ Repository %s not available at %s, marking as unavailable", repo.ID, repo.Path)
+			repo.Available = false
 			continue
 		}
 
@@ -2740,9 +2781,38 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 	restoreCmd := []string{"restore", "."}
 	if _, err := s.operations.ExecuteGit(worktree.Path, restoreCmd...); err != nil {
 		logger.Warnf("❌ Failed to restore files in %s: %v", worktree.Path, err)
-		return fmt.Errorf("failed to restore files: %v", err)
+
+		// Check if it's an index.lock issue and try to recover
+		if strings.Contains(err.Error(), "index.lock") {
+			logger.Infof("🔧 Detected index.lock issue, attempting recovery...")
+
+			// Find the index.lock file path
+			worktreeMetadataPath := filepath.Join(repo.Path, "worktrees", filepath.Base(worktree.Path))
+			if !strings.HasSuffix(repo.Path, ".git") {
+				worktreeMetadataPath = filepath.Join(repo.Path, ".git", "worktrees", filepath.Base(worktree.Path))
+			}
+			indexLockPath := filepath.Join(worktreeMetadataPath, "index.lock")
+
+			// Remove stale index.lock file
+			if err := os.Remove(indexLockPath); err != nil {
+				logger.Warnf("⚠️ Failed to remove stale index.lock file %s: %v", indexLockPath, err)
+			} else {
+				logger.Infof("✅ Removed stale index.lock file: %s", indexLockPath)
+
+				// Retry the restore operation
+				logger.Infof("🔄 Retrying file restoration...")
+				if _, retryErr := s.operations.ExecuteGit(worktree.Path, restoreCmd...); retryErr != nil {
+					logger.Warnf("❌ Retry failed: %v", retryErr)
+					return fmt.Errorf("failed to restore files after index.lock recovery: %v", retryErr)
+				}
+				logger.Infof("✅ Successfully restored files after index.lock recovery")
+			}
+		} else {
+			return fmt.Errorf("failed to restore files: %v", err)
+		}
+	} else {
+		logger.Infof("✅ Restored files from git index")
 	}
-	logger.Infof("✅ Restored files from git index")
 
 	// Step 5: Verify the restoration
 	statusCmd := []string{"status", "--porcelain"}
