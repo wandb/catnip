@@ -62,72 +62,56 @@ catnip run
 
 ## 🎯 AI Engineering Workflows
 
-### Multi-Agent System Development Pattern
+### Multi-Agent System Development with Catnip
 
 ```mermaid
 graph TB
-    subgraph project ["🤖 Multi-Agent System Release"]
-        subgraph devagents ["🧑‍💻 Claude Development Agents"]
-            dagent1["<b>Claude Dev Agent 1</b><br/>Orchestrator & Routing"]
-            dagent2["<b>Claude Dev Agent 2</b><br/>Agent Communication"]
-            dagent3["<b>Claude Dev Agent 3</b><br/>UI & Monitoring"]
-            dagent4["<b>Claude Dev Agent 4</b><br/>Tool Integration"]
+    subgraph catnip ["🐾 Catnip Development Environment"]
+        subgraph devs ["🧑‍💻 Claude Development Agents"]
+            claude1["🤖 Claude Agent 1<br/>Agent Orchestrator"]
+            claude2["🤖 Claude Agent 2<br/>Chat Interface"] 
+            claude3["🤖 Claude Agent 3<br/>Tool Functions"]
         end
         
-        subgraph worktrees ["📁 Isolated Development Workspaces"]
-            wt1["<b>refs/catnip/orchestrator</b><br/>Core routing logic"]
-            wt2["<b>refs/catnip/agent-protocol</b><br/>Communication layer"] 
-            wt3["<b>refs/catnip/dashboard</b><br/>User interface"]
-            wt4["<b>refs/catnip/tools</b><br/>Function calling"]
+        subgraph workspaces ["📁 Isolated Workspaces"]
+            wt1["refs/catnip/orchestrator<br/>FastAPI + routing logic"]
+            wt2["refs/catnip/frontend<br/>React + WebSocket UI"]
+            wt3["refs/catnip/tools<br/>Function calling + APIs"]
         end
         
-        subgraph services ["🔗 Multi-Agent System Services"]
-            orchestrator["<b>Agent Orchestrator</b><br/>FastAPI :8000"]
-            dashboard["<b>Admin Dashboard</b><br/>React :3000"]
-            monitoring["<b>Agent Monitor</b><br/>Streamlit :8501"]
-            vector["<b>Vector Memory</b><br/>ChromaDB :8002"]
-            queue["<b>Message Queue</b><br/>Redis :6379"]
-        end
-        
-        subgraph aiagents ["🤖 Your Released AI Agents"]
-            researcher["<b>Research Agent</b><br/>Web search & analysis"]
-            coder["<b>Code Agent</b><br/>Programming assistant"]
-            writer["<b>Writing Agent</b><br/>Content generation"]
-            coordinator["<b>Task Coordinator</b><br/>Agent orchestration"]
-        end
-        
-        subgraph branches ["🌿 Feature Branches"]
-            br1["<b>feature/agent-routing</b><br/>Ready for PR"]
-            br2["<b>feature/message-protocol</b><br/>Ready for PR"]
-            br3["<b>feature/monitoring-ui</b><br/>Ready for PR"]
-            br4["<b>feature/tool-calling</b><br/>Ready for PR"]
+        subgraph services ["🔗 Development Services"]
+            orch["Agent Orchestrator<br/>localhost:8000"]
+            ui["Chat Dashboard<br/>localhost:3000"]
+            monitor["Agent Monitor<br/>localhost:8501"]
         end
     end
     
-    dagent1 -.->|"Builds"| wt1
-    dagent2 -.->|"Builds"| wt2  
-    dagent3 -.->|"Builds"| wt3
-    dagent4 -.->|"Builds"| wt4
+    subgraph production ["🚀 Your Released Multi-Agent System"]
+        researcher["🔍 Research Agent"]
+        coder["💻 Code Agent"] 
+        writer["✍️ Writing Agent"]
+        coordinator["🎯 Task Coordinator"]
+    end
     
-    wt1 -.->|"Auto-syncs"| br1
-    wt2 -.->|"Auto-syncs"| br2
-    wt3 -.->|"Auto-syncs"| br3
-    wt4 -.->|"Auto-syncs"| br4
+    claude1 --> wt1
+    claude2 --> wt2
+    claude3 --> wt3
     
-    services -.->|"Powers"| aiagents
-    devagents -.->|"Develop"| services
+    wt1 --> orch
+    wt2 --> ui
+    wt3 --> monitor
     
-    classDef devAgentStyle fill:#10b981,stroke:#047857,stroke-width:2px,color:#ffffff
-    classDef worktreeStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff  
+    services --> production
+    
+    classDef claudeStyle fill:#10b981,stroke:#047857,stroke-width:2px,color:#ffffff
+    classDef workspaceStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff
     classDef serviceStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff
-    classDef aiAgentStyle fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#ffffff
-    classDef branchStyle fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#ffffff
+    classDef prodStyle fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#ffffff
     
-    class dagent1,dagent2,dagent3,dagent4 devAgentStyle
-    class wt1,wt2,wt3,wt4 worktreeStyle
-    class orchestrator,dashboard,monitoring,vector,queue serviceStyle
-    class researcher,coder,writer,coordinator aiAgentStyle
-    class br1,br2,br3,br4 branchStyle
+    class claude1,claude2,claude3 claudeStyle
+    class wt1,wt2,wt3 workspaceStyle
+    class orch,ui,monitor serviceStyle
+    class researcher,coder,writer,coordinator prodStyle
 ```
 
 ### Example: LLM Application Development
