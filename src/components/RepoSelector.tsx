@@ -123,32 +123,38 @@ export function RepoSelector({
                 : "Type a GitHub repository URL"}
             </CommandEmpty>
             {currentRepositories &&
-              Object.keys(currentRepositories).length > 0 && (
+              Object.values(currentRepositories).filter(
+                (repo) => repo.available,
+              ).length > 0 && (
                 <CommandGroup heading="Current Repositories">
-                  {Object.values(currentRepositories).map((repo) => (
-                    <CommandItem
-                      key={repo.id}
-                      value={repo.id.startsWith("local/") ? repo.id : repo.url}
-                      onSelect={handleSelect}
-                    >
-                      <Check
-                        className={`mr-2 h-4 w-4 ${
-                          value ===
-                          (repo.id.startsWith("local/") ? repo.id : repo.url)
-                            ? "opacity-100"
-                            : "opacity-0"
-                        }`}
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium">{repo.id}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {repo.id.startsWith("local/")
-                            ? "Local repository (mounted)"
-                            : repo.url}
+                  {Object.values(currentRepositories)
+                    .filter((repo) => repo.available)
+                    .map((repo) => (
+                      <CommandItem
+                        key={repo.id}
+                        value={
+                          repo.id.startsWith("local/") ? repo.id : repo.url
+                        }
+                        onSelect={handleSelect}
+                      >
+                        <Check
+                          className={`mr-2 h-4 w-4 ${
+                            value ===
+                            (repo.id.startsWith("local/") ? repo.id : repo.url)
+                              ? "opacity-100"
+                              : "opacity-0"
+                          }`}
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">{repo.id}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {repo.id.startsWith("local/")
+                              ? "Local repository (mounted)"
+                              : repo.url}
+                          </div>
                         </div>
-                      </div>
-                    </CommandItem>
-                  ))}
+                      </CommandItem>
+                    ))}
                 </CommandGroup>
               )}
             {filteredGitHubRepos.length > 0 && (
