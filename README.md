@@ -62,101 +62,106 @@ catnip run
 
 ## 🎯 AI Engineering Workflows
 
-### Multi-Agent System Development with Catnip
+### Multi-Agent System Development with Parallel Claude Sessions
 
 ```mermaid
 graph TB
-    subgraph catnip ["🐾 Catnip Development Environment"]
-        subgraph devs ["🧑‍💻 Claude Development Agents"]
-            claude1["🤖 Claude Agent 1<br/>Agent Orchestrator"]
-            claude2["🤖 Claude Agent 2<br/>Chat Interface"] 
-            claude3["🤖 Claude Agent 3<br/>Tool Functions"]
+    subgraph catnip ["🐾 Catnip Multi-Agent Development"]
+        subgraph devs ["🧑‍💻 Claude Sessions (Same Multi-Agent System, Different Features)"]
+            claude1["🤖 Claude Session 1<br/>Agent Communication Protocol"]
+            claude2["🤖 Claude Session 2<br/>Tool Integration System"] 
+            claude3["🤖 Claude Session 3<br/>Agent Monitoring Dashboard"]
         end
         
-        subgraph workspaces ["📁 Isolated Workspaces"]
-            wt1["refs/catnip/orchestrator<br/>FastAPI + routing logic"]
-            wt2["refs/catnip/frontend<br/>React + WebSocket UI"]
-            wt3["refs/catnip/tools<br/>Function calling + APIs"]
+        subgraph isolation ["📁 Git Worktree Isolation (No Conflicts)"]
+            wt1["refs/catnip/agent-comms<br/>Isolated Git workspace"]
+            wt2["refs/catnip/tool-integration<br/>Isolated Git workspace"]
+            wt3["refs/catnip/monitoring-ui<br/>Isolated Git workspace"]
         end
         
-        subgraph services ["🔗 Development Services"]
-            orch["Agent Orchestrator<br/>localhost:8000"]
-            ui["Chat Dashboard<br/>localhost:3000"]
-            monitor["Agent Monitor<br/>localhost:8501"]
+        subgraph branches ["🌿 Clean Git Branches (For PRs)"]
+            br1["feature/agent-communication<br/>Ready for pull request"]
+            br2["feature/tool-calling-system<br/>Ready for pull request"]
+            br3["feature/dashboard-monitoring<br/>Ready for pull request"]
+        end
+        
+        subgraph main ["📦 Main Repository"]
+            mainbranch["main branch<br/>Your Multi-Agent System"]
         end
     end
     
-    subgraph production ["🚀 Your Released Multi-Agent System"]
-        researcher["🔍 Research Agent"]
-        coder["💻 Code Agent"] 
-        writer["✍️ Writing Agent"]
-        coordinator["🎯 Task Coordinator"]
-    end
+    claude1 -->|"Commits to isolated workspace"| wt1
+    claude2 -->|"Commits to isolated workspace"| wt2
+    claude3 -->|"Commits to isolated workspace"| wt3
     
-    claude1 --> wt1
-    claude2 --> wt2
-    claude3 --> wt3
+    wt1 -->|"Auto-syncs commits"| br1
+    wt2 -->|"Auto-syncs commits"| br2
+    wt3 -->|"Auto-syncs commits"| br3
     
-    wt1 --> orch
-    wt2 --> ui
-    wt3 --> monitor
-    
-    services --> production
+    br1 -.->|"Pull request"| mainbranch
+    br2 -.->|"Pull request"| mainbranch
+    br3 -.->|"Pull request"| mainbranch
     
     classDef claudeStyle fill:#10b981,stroke:#047857,stroke-width:2px,color:#ffffff
     classDef workspaceStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff
-    classDef serviceStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff
-    classDef prodStyle fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#ffffff
+    classDef branchStyle fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#ffffff
+    classDef mainStyle fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#ffffff
     
     class claude1,claude2,claude3 claudeStyle
     class wt1,wt2,wt3 workspaceStyle
-    class orch,ui,monitor serviceStyle
-    class researcher,coder,writer,coordinator prodStyle
+    class br1,br2,br3 branchStyle
+    class mainbranch mainStyle
 ```
 
-### Example: LLM Application Development
+### Why You Can't Run Multiple Claude Sessions (And How Catnip Fixes It)
 
-```bash
-# Start with LLM development environment
-catnip run -e ANTHROPIC_API_KEY -e OPENAI_API_KEY
+**The Problem with Multi-Agent Development:** You want Claude to help build different parts of your multi-agent system simultaneously, but Git gets in the way:
+- Claude Session 1 checks out `feature/agent-communication` branch  
+- Claude Session 2 tries to checkout `feature/tool-integration` branch → **ERROR: "Already checked out"**
+- You're forced to build your multi-agent system one feature at a time (slow!)
 
-# Agent 1: RAG Backend Development  
-# - FastAPI service with vector database integration
-# - Embedding pipelines and retrieval logic
-# - Auto-detected on port 8000, proxied at localhost:8080/8000
+**How Catnip Enables Parallel Development:**
 
-# Agent 2: Chat Interface Development
-# - React/Next.js frontend with streaming chat UI
-# - Real-time message handling via WebSocket
-# - Live preview at localhost:3000
+1. **Isolated Git Workspaces:** Each Claude session gets its own Git worktree using custom refs (`refs/catnip/*`)
+   - Claude Session 1: `refs/catnip/agent-comms` → builds agent communication protocol
+   - Claude Session 2: `refs/catnip/tool-integration` → builds tool calling system  
+   - Claude Session 3: `refs/catnip/monitoring-ui` → builds agent dashboard
+   - **No conflicts!** All work in parallel on the same codebase
 
-# Agent 3: Data Pipeline & Tools
-# - Document ingestion scripts
-# - Streamlit dashboard for data exploration
-# - Vector database management tools
+2. **Automatic Branch Management:** Catnip automatically creates clean feature branches:
+   - `refs/catnip/agent-comms` → `feature/agent-communication` branch
+   - `refs/catnip/tool-integration` → `feature/tool-calling-system` branch  
+   - `refs/catnip/monitoring-ui` → `feature/dashboard-monitoring` branch
 
-# All services accessible through Catnip's unified interface
-```
+3. **Standard Git Workflow:** Each feature gets its own clean branch ready for pull requests
+
+**Multi-Agent Development Speed:**
+- **Before Catnip:** Build agent communication → finish → build tool system → finish → build dashboard (weeks)
+- **With Catnip:** All three Claude sessions building simultaneously → three parallel PRs ready in days (or even hours!)
 
 ### Example: Multi-Agent System Development
 
 ```bash
-# Environment for building agentic applications
-catnip run -e ANTHROPIC_API_KEY \
-           -e CATNIP_PYTHON_VERSION=3.11 \
-           -e DATABASE_URL
+# Start multi-agent system development environment
+catnip run -e ANTHROPIC_API_KEY -e OPENAI_API_KEY
 
-# Parallel development workflow:
-# Workspace 1: Agent orchestration system
-# Workspace 2: Tool integration and function calling
-# Workspace 3: Memory and state management
-# Workspace 4: Web interface and monitoring dashboard
+# Claude Session 1: Agent Communication Protocol
+# - Working in refs/catnip/agent-comms workspace
+# - Building inter-agent message routing and state management
+# - Auto-synced to feature/agent-communication branch
 
-# Services auto-detected and forwarded:
-# - FastAPI orchestrator: localhost:8000
-# - Streamlit monitoring: localhost:8501
-# - React admin panel: localhost:3000
-# - Jupyter for experimentation: localhost:8888
+# Claude Session 2: Tool Integration System  
+# - Working in refs/catnip/tool-integration workspace
+# - Building function calling, web search, and code execution tools
+# - Auto-synced to feature/tool-calling-system branch
+
+# Claude Session 3: Agent Monitoring Dashboard
+# - Working in refs/catnip/monitoring-ui workspace
+# - Building real-time agent performance and task tracking UI
+# - Auto-synced to feature/dashboard-monitoring branch
+
+# All sessions work on the same multi-agent codebase, just different features
+# Services auto-detected: Agent API :8000, Dashboard :3000, Monitor :8501
 ```
 
 ## 🤓 How it works
