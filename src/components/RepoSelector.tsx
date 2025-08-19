@@ -39,6 +39,39 @@ export function RepoSelector({
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
+  // Filter out GitHub repositories that are already available locally/live
+  const filteredGitHubRepos = repositories.filter((repo) => {
+    // Extract repository name from GitHub URL for comparison
+    const repoName = repo.name;
+    const repoFullName = repo.fullName;
+
+    // Check if we have this repo locally or as a live mount
+    const hasLocal = Object.values(currentRepositories).some((localRepo) => {
+      // Check by ID (e.g., "local/doc-crawler" vs "doc-crawler")
+      if (localRepo.id.endsWith(`/${repoName}`) || localRepo.id === repoName) {
+        return true;
+      }
+
+      // Check by URL matching
+      if (localRepo.url && localRepo.url === repo.url) {
+        return true;
+      }
+
+      // Check by full name matching (owner/repo)
+      if (
+        repoFullName &&
+        (localRepo.id.endsWith(`/${repoFullName}`) ||
+          localRepo.id === repoFullName)
+      ) {
+        return true;
+      }
+
+      return false;
+    });
+
+    return !hasLocal;
+  });
+
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue);
     setSearchValue(""); // Reset search when selecting
@@ -62,7 +95,7 @@ export function RepoSelector({
   };
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={open} onOpenChange={handleOpenChange} modal={true}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -75,7 +108,7 @@ export function RepoSelector({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[600px] p-0" align="start">
-        <Command>
+        <Command className="h-full">
           <CommandInput
             placeholder="Search repositories or type URL..."
             value={searchValue}
@@ -118,9 +151,9 @@ export function RepoSelector({
                   ))}
                 </CommandGroup>
               )}
-            {repositories.length > 0 && (
+            {filteredGitHubRepos.length > 0 && (
               <CommandGroup heading="Your GitHub Repositories">
-                {repositories.map((repo) => (
+                {filteredGitHubRepos.slice(0, 20).map((repo) => (
                   <CommandItem
                     key={repo.name}
                     value={repo.url}
