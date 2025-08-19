@@ -113,7 +113,7 @@ graph TB
     class mainbranch mainStyle
 ```
 
-#### Why You Can't Run Multiple Claude Sessions (And How Catnip Fixes It)
+### Why You Can't Run Multiple Claude Sessions (And How Catnip Fixes It)
 
 **The Problem with Multi-Agent Development:** You want Claude to help build different parts of your multi-agent system simultaneously, but Git gets in the way:
 - Claude Session 1 checks out `feature/agent-communication` branch  
@@ -137,7 +137,7 @@ graph TB
 
 **Multi-Agent Development Speed:**
 - **Before Catnip:** Build agent communication → finish → build tool system → finish → build dashboard (weeks)
-- **With Catnip:** All three Claude sessions building simultaneously → three parallel PRs ready in days
+- **With Catnip:** All three Claude sessions building simultaneously → three parallel PRs ready in days (or even hours!)
 
 ### Example: Multi-Agent System Development
 
