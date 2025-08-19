@@ -62,56 +62,72 @@ catnip run
 
 ## 🎯 AI Engineering Workflows
 
-### Multi-Agent Development Pattern
+### Multi-Agent System Development Pattern
 
 ```mermaid
 graph TB
-    subgraph project ["🚀 AI Engineering Project"]
-        subgraph agents ["🤖 Parallel AI Agents"]
-            agent1["<b>Claude Agent 1</b><br/>Feature Development"]
-            agent2["<b>Claude Agent 2</b><br/>Model Training"]
-            agent3["<b>Claude Agent 3</b><br/>API Integration"]
+    subgraph project ["🤖 Multi-Agent System Release"]
+        subgraph devagents ["🧑‍💻 Claude Development Agents"]
+            dagent1["<b>Claude Dev Agent 1</b><br/>Orchestrator & Routing"]
+            dagent2["<b>Claude Dev Agent 2</b><br/>Agent Communication"]
+            dagent3["<b>Claude Dev Agent 3</b><br/>UI & Monitoring"]
+            dagent4["<b>Claude Dev Agent 4</b><br/>Tool Integration"]
         end
         
-        subgraph worktrees ["📁 Isolated Worktrees"]
-            wt1["<b>refs/catnip/feature-dev</b><br/>Working Directory 1"]
-            wt2["<b>refs/catnip/ml-experiment</b><br/>Working Directory 2"] 
-            wt3["<b>refs/catnip/api-work</b><br/>Working Directory 3"]
+        subgraph worktrees ["📁 Isolated Development Workspaces"]
+            wt1["<b>refs/catnip/orchestrator</b><br/>Core routing logic"]
+            wt2["<b>refs/catnip/agent-protocol</b><br/>Communication layer"] 
+            wt3["<b>refs/catnip/dashboard</b><br/>User interface"]
+            wt4["<b>refs/catnip/tools</b><br/>Function calling"]
         end
         
-        subgraph services ["🔗 Live Services"]
-            jupyter["<b>Jupyter Lab</b><br/>:8888"]
-            api["<b>FastAPI</b><br/>:8000"]
-            frontend["<b>React Dev</b><br/>:3000"]
-            streamlit["<b>Streamlit</b><br/>:8501"]
+        subgraph services ["🔗 Multi-Agent System Services"]
+            orchestrator["<b>Agent Orchestrator</b><br/>FastAPI :8000"]
+            dashboard["<b>Admin Dashboard</b><br/>React :3000"]
+            monitoring["<b>Agent Monitor</b><br/>Streamlit :8501"]
+            vector["<b>Vector Memory</b><br/>ChromaDB :8002"]
+            queue["<b>Message Queue</b><br/>Redis :6379"]
         end
         
-        subgraph branches ["🌿 Synced Branches"]
-            br1["<b>feature/auth-system</b><br/>Ready for PR"]
-            br2["<b>feature/model-optimization</b><br/>Ready for PR"]
-            br3["<b>feature/api-endpoints</b><br/>Ready for PR"]
+        subgraph aiagents ["🤖 Your Released AI Agents"]
+            researcher["<b>Research Agent</b><br/>Web search & analysis"]
+            coder["<b>Code Agent</b><br/>Programming assistant"]
+            writer["<b>Writing Agent</b><br/>Content generation"]
+            coordinator["<b>Task Coordinator</b><br/>Agent orchestration"]
+        end
+        
+        subgraph branches ["🌿 Feature Branches"]
+            br1["<b>feature/agent-routing</b><br/>Ready for PR"]
+            br2["<b>feature/message-protocol</b><br/>Ready for PR"]
+            br3["<b>feature/monitoring-ui</b><br/>Ready for PR"]
+            br4["<b>feature/tool-calling</b><br/>Ready for PR"]
         end
     end
     
-    agent1 -.->|"Works in"| wt1
-    agent2 -.->|"Works in"| wt2  
-    agent3 -.->|"Works in"| wt3
+    dagent1 -.->|"Builds"| wt1
+    dagent2 -.->|"Builds"| wt2  
+    dagent3 -.->|"Builds"| wt3
+    dagent4 -.->|"Builds"| wt4
     
     wt1 -.->|"Auto-syncs"| br1
     wt2 -.->|"Auto-syncs"| br2
     wt3 -.->|"Auto-syncs"| br3
+    wt4 -.->|"Auto-syncs"| br4
     
-    agents -.->|"Access"| services
+    services -.->|"Powers"| aiagents
+    devagents -.->|"Develop"| services
     
-    classDef agentStyle fill:#10b981,stroke:#047857,stroke-width:2px,color:#ffffff
+    classDef devAgentStyle fill:#10b981,stroke:#047857,stroke-width:2px,color:#ffffff
     classDef worktreeStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff  
     classDef serviceStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff
+    classDef aiAgentStyle fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#ffffff
     classDef branchStyle fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#ffffff
     
-    class agent1,agent2,agent3 agentStyle
-    class wt1,wt2,wt3 worktreeStyle
-    class jupyter,api,frontend,streamlit serviceStyle
-    class br1,br2,br3 branchStyle
+    class dagent1,dagent2,dagent3,dagent4 devAgentStyle
+    class wt1,wt2,wt3,wt4 worktreeStyle
+    class orchestrator,dashboard,monitoring,vector,queue serviceStyle
+    class researcher,coder,writer,coordinator aiAgentStyle
+    class br1,br2,br3,br4 branchStyle
 ```
 
 ### Example: LLM Application Development
