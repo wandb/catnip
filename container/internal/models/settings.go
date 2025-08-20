@@ -101,6 +101,16 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 		}
 	}
 
+	// Create nested directory for Claude projects (session .jsonl files)
+	volumeProjectsDir := filepath.Join(volumeClaudeNestedDir, "projects")
+	if err := os.MkdirAll(volumeProjectsDir, 0755); err != nil {
+		logger.Errorf("❌ Failed to create volume projects directory %s: %v", volumeProjectsDir, err)
+	} else {
+		if err := os.Chown(volumeProjectsDir, 1000, 1000); err != nil {
+			logger.Warnf("⚠️  Failed to chown volume projects directory %s: %v", volumeProjectsDir, err)
+		}
+	}
+
 	// Files to restore - only restore if home file doesn't exist
 	files := []struct {
 		volumePath string
