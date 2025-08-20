@@ -46,6 +46,9 @@ func (s *Settings) Start() {
 	// Restore IDE directory if it exists
 	s.restoreIDEDirectory()
 
+	// Restore Claude projects directory if it exists
+	s.restoreClaudeProjectsDirectory()
+
 	// Start the ticker to watch for changes
 	s.ticker = time.NewTicker(5 * time.Second)
 	go s.watchForChanges()
