@@ -5,7 +5,7 @@ import { Navbar } from "@/components/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { Link } from "@tanstack/react-router";
 import { useWebSocket } from "@/lib/hooks";
-import { Suspense } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/lib/auth-context";
 import { useAuth } from "@/lib/hooks";
@@ -21,6 +21,34 @@ function RootLayout() {
   const { isConnected } = useWebSocket();
   const { isAuthenticated, isLoading, authRequired } = useAuth();
   const { showAuthModal, setShowAuthModal } = useGitHubAuth();
+
+  // Check if we're on mobile
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.matchMedia("(max-width: 768px)").matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 768px)");
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile("matches" in e ? e.matches : (e as MediaQueryList).matches);
+    };
+    handler(mql);
+    if (mql.addEventListener) {
+      mql.addEventListener("change", handler);
+    } else {
+      mql.addListener(handler);
+    }
+    return () => {
+      if (mql.removeEventListener) {
+        mql.removeEventListener("change", handler);
+      } else {
+        mql.removeListener(handler);
+      }
+    };
+  }, []);
 
   // Check if we're on a workspace route
   const isWorkspaceRoute = location.pathname.startsWith("/workspace");
@@ -103,7 +131,8 @@ function RootLayout() {
       {/* GitHub Auth Modal */}
       <GitHubAuthModal open={showAuthModal} onOpenChange={setShowAuthModal} />
 
-      <TanStackRouterDevtools position="bottom-right" />
+      {/* Router Devtools - Only show on desktop */}
+      {!isMobile && <TanStackRouterDevtools position="bottom-right" />}
     </>
   );
 }

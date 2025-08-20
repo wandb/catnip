@@ -1,14 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppStore } from "@/stores/appStore";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
+import { WorkspaceMobileIndex } from "@/components/WorkspaceMobileIndex";
 import { BackendErrorScreen } from "@/components/BackendErrorScreen";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 function WorkspaceRedirect() {
   const navigate = useNavigate();
   const hasRedirected = useRef(false);
+  const [isMobile, setIsMobile] = useState(() => {
+    // Initialize with correct mobile state to prevent redirect race condition
+    if (typeof window !== "undefined") {
+      return window.matchMedia("(max-width: 768px)").matches;
+    }
+    return false;
+  });
 
   // Use stable selectors to avoid infinite loops
   const initialLoading = useAppStore((state) => state.initialLoading);
@@ -18,9 +26,30 @@ function WorkspaceRedirect() {
   );
   const getRepositoryById = useAppStore((state) => state.getRepositoryById);
 
+  // Detect mobile viewport
   useEffect(() => {
-    if (hasRedirected.current || initialLoading || loadError) {
-      return; // Prevent multiple redirects or wait for data to load
+    const mql = window.matchMedia("(max-width: 768px)");
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile("matches" in e ? e.matches : (e as MediaQueryList).matches);
+    };
+    handler(mql);
+    if (mql.addEventListener) {
+      mql.addEventListener("change", handler);
+    } else {
+      mql.addListener(handler);
+    }
+    return () => {
+      if (mql.removeEventListener) {
+        mql.removeEventListener("change", handler);
+      } else {
+        mql.removeListener(handler);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hasRedirected.current || initialLoading || loadError || isMobile) {
+      return; // Prevent multiple redirects or wait for data to load, or if mobile show index
     }
 
     if (worktreesCount > 0) {
@@ -54,7 +83,14 @@ function WorkspaceRedirect() {
     }
 
     // Don't redirect if no available workspaces - show welcome screen instead
-  }, [initialLoading, loadError, worktreesCount, navigate, getRepositoryById]);
+  }, [
+    initialLoading,
+    loadError,
+    worktreesCount,
+    navigate,
+    getRepositoryById,
+    isMobile,
+  ]);
 
   // Show error screen if backend is unavailable
   if (loadError) {
@@ -64,6 +100,11 @@ function WorkspaceRedirect() {
   // Show welcome screen if no workspaces
   if (!initialLoading && worktreesCount === 0) {
     return <WorkspaceWelcome />;
+  }
+
+  // Show mobile index if on mobile and workspaces are available
+  if (isMobile && !initialLoading && worktreesCount > 0) {
+    return <WorkspaceMobileIndex />;
   }
 
   // Show loading while checking for workspaces
