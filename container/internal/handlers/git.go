@@ -395,8 +395,8 @@ func (h *GitHandler) SyncWorktree(c *fiber.Ctx) error {
 				"error":          "merge_conflict",
 				"message":        mergeConflictErr.Message,
 				"operation":      mergeConflictErr.Operation,
-				"worktree_name":  mergeConflictErr.WorktreeName,
-				"worktree_path":  mergeConflictErr.WorktreePath,
+				"worktreeName":   mergeConflictErr.WorktreeName,
+				"worktreePath":   mergeConflictErr.WorktreePath,
 				"conflict_files": mergeConflictErr.ConflictFiles,
 			})
 		}
@@ -440,8 +440,8 @@ func (h *GitHandler) MergeWorktreeToMain(c *fiber.Ctx) error {
 				"error":          "merge_conflict",
 				"message":        mergeConflictErr.Message,
 				"operation":      mergeConflictErr.Operation,
-				"worktree_name":  mergeConflictErr.WorktreeName,
-				"worktree_path":  mergeConflictErr.WorktreePath,
+				"worktreeName":   mergeConflictErr.WorktreeName,
+				"worktreePath":   mergeConflictErr.WorktreePath,
 				"conflict_files": mergeConflictErr.ConflictFiles,
 			})
 		}
@@ -910,8 +910,8 @@ func (h *GitHandler) CreateFromTemplate(c *fiber.Ctx) error {
 	// Include worktree info if one was created
 	if worktree != nil {
 		response["worktree"] = worktree.ID
-		response["worktree_path"] = worktree.Path
-		response["worktree_name"] = worktree.Name
+		response["worktreePath"] = worktree.Path
+		response["worktreeName"] = worktree.Name
 	}
 
 	return c.JSON(response)
