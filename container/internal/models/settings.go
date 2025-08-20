@@ -331,6 +331,119 @@ func (s *Settings) watchForChanges() {
 	}
 }
 
+// checkAndSyncClaudeProjects monitors the Claude projects directory for changes and syncs .jsonl files
+func (s *Settings) checkAndSyncClaudeProjects() {
+	homeProjectsDir := filepath.Join(s.homePath, ".claude", "projects")
+	volumeProjectsDir := filepath.Join(s.volumePath, ".claude", ".claude", "projects")
+
+	// Check if home projects directory exists
+	if _, err := os.Stat(homeProjectsDir); os.IsNotExist(err) {
+		return
+	}
+
+	// Check if it's time to sync (throttle to every 10 seconds for directory scanning)
+	lastSync, exists := s.lastDirSync[homeProjectsDir]
+	if exists && time.Since(lastSync) < 10*time.Second {
+		return
+	}
+
+	// Walk through the projects directory and sync .jsonl files that have changed
+	err := filepath.Walk(homeProjectsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue walking even if there's an error with one file
+		}
+
+		// Only process .jsonl files
+		if info.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+
+		// Check if file has been modified since last sync
+		lastMod, exists := s.lastModTimes[path]
+		if exists && info.ModTime().Equal(lastMod) {
+			return nil
+		}
+
+		// Calculate relative path from projects directory
+		relPath, err := filepath.Rel(homeProjectsDir, path)
+		if err != nil {
+			logger.Errorf("❌ Error calculating relative path for %s: %v", path, err)
+			return nil
+		}
+
+		// Schedule sync for this .jsonl file
+		volumeFilePath := filepath.Join(volumeProjectsDir, relPath)
+		s.scheduleClaudeProjectFileSync(path, volumeFilePath, info.ModTime())
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Errorf("❌ Error walking Claude projects directory: %v", err)
+	}
+
+	// Update last sync time for directory
+	s.lastDirSync[homeProjectsDir] = time.Now()
+}
+
+// scheduleClaudeProjectFileSync schedules a debounced sync for a Claude project file
+func (s *Settings) scheduleClaudeProjectFileSync(sourcePath, destPath string, modTime time.Time) {
+	// Cancel existing timer if it exists
+	if timer, exists := s.debounceMap[sourcePath]; exists {
+		timer.Stop()
+	}
+
+	// Create new debounced timer (shorter delay for session files)
+	debounceDelay := 1 * time.Second
+
+	s.debounceMap[sourcePath] = time.AfterFunc(debounceDelay, func() {
+		s.performClaudeProjectFileSync(sourcePath, destPath, modTime)
+	})
+}
+
+// performClaudeProjectFileSync performs the actual sync of a Claude project file
+func (s *Settings) performClaudeProjectFileSync(sourcePath, destPath string, expectedModTime time.Time) {
+	s.syncMutex.Lock()
+	defer s.syncMutex.Unlock()
+
+	// Double-check the file still exists and hasn't changed again
+	info, err := os.Stat(sourcePath)
+	if os.IsNotExist(err) {
+		logger.Debugf("⚠️  File %s no longer exists, skipping sync", sourcePath)
+		return
+	}
+	if err != nil {
+		logger.Errorf("❌ Error re-checking file %s: %v", sourcePath, err)
+		return
+	}
+
+	// If file has been modified again since we scheduled this sync, skip it
+	if !info.ModTime().Equal(expectedModTime) {
+		logger.Debugf("⚠️  File %s was modified again, skipping this sync", sourcePath)
+		return
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		logger.Errorf("❌ Failed to create directory for %s: %v", destPath, err)
+		return
+	}
+
+	// Copy the file
+	if err := s.copyFile(sourcePath, destPath); err != nil {
+		logger.Errorf("❌ Failed to sync Claude project file %s: %v", filepath.Base(sourcePath), err)
+		return
+	}
+
+	// Try to fix ownership
+	_ = os.Chown(destPath, 1000, 1000)
+
+	// Update last modification time
+	s.lastModTimes[sourcePath] = info.ModTime()
+
+	logger.Debugf("📋 Synced Claude project file %s to volume", filepath.Base(sourcePath))
+}
+
 // checkAndSyncFiles checks if files have changed and schedules debounced syncing to volume
 func (s *Settings) checkAndSyncFiles() {
 	files := []struct {
