@@ -72,23 +72,14 @@ builds:
       - amd64
       - arm64
 
-    # No post-build hook - we'll create app bundle directly in archive
+    # Post-build hooks to sign and notarize the entire app bundle
+    hooks:
+      post:
+        # Sign the app bundle after building
+        - sh -c 'if [ -n "$APPLE_SIGN_P12" ] && [ -d "{{ .Path | dir | dir | dir }}" ]; then ./scripts/sign-macos-app.sh "{{ .Path | dir | dir | dir }}" "{{ .Version }}"; fi'
 
-# Code signing and notarization for macOS binaries (before app bundle creation)
-notarize:
-  macos:
-    - enabled: '{{ if index .Env "APPLE_SIGN_P12" }}true{{ else }}false{{ end }}'
-      ids: [catnip-macos]
-      sign:
-        certificate: "{{ .Env.APPLE_SIGN_P12 }}"
-        password: "{{ .Env.APPLE_SIGN_PASSWORD }}"
-        entitlements: "build/entitlements.plist"
-      notarize:
-        issuer_id: "{{ .Env.APPLE_ISSUER_ID }}"
-        key: "{{ .Env.APPLE_PRIVATE_KEY }}"
-        key_id: "{{ .Env.APPLE_KEY_ID }}"
-        wait: true
-        timeout: 20m
+# Removed built-in notarize section - using custom post-build hooks instead
+# Built-in notarization only signs the binary, not the entire app bundle
 
 # Archive configuration
 archives:
@@ -108,29 +99,40 @@ archives:
       - docs/swagger.yaml
     wrap_in_directory: false
 
-  # macOS archives (with app bundles and CLI wrappers)
-  - id: macos
+  # macOS archives - use meta archives to avoid including binaries twice
+  - id: macos-amd64
     ids: [catnip-macos]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
-    format_overrides:
-      - goos: darwin
-        formats: [tar.gz]
-    # Let GoReleaser automatically include the signed binary + add these files
+    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_amd64"
+    formats: [tar.gz]
+    meta: true
+    # Include the complete signed app bundle preserving structure
     files:
-      - src: README.md
-        dst: README.md
+      # Copy the entire signed app bundle - keep the Catnip.app directory name
+      - src: "dist/catnip-macos_darwin_amd64_v1/Catnip.app"
+        dst: "Catnip.app"
+      # Documentation files
+      - README.md
       - LICENSE
-      - src: "build/Catnip.app/Contents/Resources/**"
-        dst: "Catnip.app/Contents/Resources"
-        strip_parent: true
       - docs/swagger.json
       - docs/swagger.yaml
-    # Template the Info.plist with version info
-    templated_files:
-      - src: "build/Catnip.app/Contents/Info.plist"
-        dst: "Catnip.app/Contents/Info.plist"
     wrap_in_directory: false
-    allow_different_binary_count: true
+
+  - id: macos-arm64
+    ids: [catnip-macos]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_darwin_arm64"
+    formats: [tar.gz]
+    meta: true
+    # Include the complete signed app bundle preserving structure
+    files:
+      # Copy the entire signed app bundle - keep the Catnip.app directory name
+      - src: "dist/catnip-macos_darwin_arm64_v8.0/Catnip.app"
+        dst: "Catnip.app"
+      # Documentation files
+      - README.md
+      - LICENSE
+      - docs/swagger.json
+      - docs/swagger.yaml
+    wrap_in_directory: false
 
 # Checksum configuration
 checksum:

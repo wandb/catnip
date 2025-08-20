@@ -37,11 +37,44 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      #- name: Import Code-Signing Certificates
-      #  uses: Apple-Actions/import-codesign-certs@v3
-      #  with:
-      #    p12-file-base64: ${{ secrets.CERT_P12_BASE64 }}
-      #    p12-password: ${{ secrets.CERT_PASSWORD }}
+      - name: Setup keychain for signing and notarization
+        run: |
+          # create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/goreleaser.p12
+          KEY_PATH=$RUNNER_TEMP/goreleaser.p8
+          KEYCHAIN_PATH=$RUNNER_TEMP/goreleaser.keychain-db
+
+          # import certificate and key from secrets
+          echo -n "$MACOS_SIGN_P12" | base64 --decode -o $CERTIFICATE_PATH
+          echo -n "$MACOS_NOTARY_KEY" | base64 --decode -o $KEY_PATH
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$MACOS_SIGN_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # create notary profile
+          xcrun notarytool store-credentials "$MACOS_NOTARY_PROFILE_NAME" \
+            --key "$KEY_PATH" \
+            --key-id "$MACOS_NOTARY_KEY_ID" \
+            --issuer "$MACOS_NOTARY_ISSUER_ID" \
+            --keychain $KEYCHAIN_PATH
+
+          # export the keychain path
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >>$GITHUB_ENV
+        env:
+          MACOS_SIGN_P12: ${{ secrets.CERT_P12_BASE64 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.APPLE_PRIVATE_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.APPLE_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.APPLE_ISSUER_ID }}
+          MACOS_NOTARY_PROFILE_NAME: "catnip-notary"
+          KEYCHAIN_PASSWORD: "temp-keychain-password"
 
       # Docker setup removed - focusing on binaries only for catnip
       # - name: Set up Docker Buildx
@@ -77,6 +110,8 @@ jobs:
           APPLE_PRIVATE_KEY: ${{ secrets.APPLE_PRIVATE_KEY }}
           APPLE_ISSUER_ID: ${{ vars.APPLE_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          KEYCHAIN_PATH: ${{ env.KEYCHAIN_PATH }}
+          MACOS_NOTARY_PROFILE_NAME: "catnip-notary"
 
           # HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}  # Disabled for now
           # SCOOP_BUCKET_GITHUB_TOKEN: ${{ secrets.SCOOP_BUCKET_GITHUB_TOKEN }}  # Disabled for now

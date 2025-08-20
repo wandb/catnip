@@ -39,6 +39,39 @@ export function RepoSelector({
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
+  // Filter out GitHub repositories that are already available locally/live
+  const filteredGitHubRepos = repositories.filter((repo) => {
+    // Extract repository name from GitHub URL for comparison
+    const repoName = repo.name;
+    const repoFullName = repo.fullName;
+
+    // Check if we have this repo locally or as a live mount
+    const hasLocal = Object.values(currentRepositories).some((localRepo) => {
+      // Check by ID (e.g., "local/doc-crawler" vs "doc-crawler")
+      if (localRepo.id.endsWith(`/${repoName}`) || localRepo.id === repoName) {
+        return true;
+      }
+
+      // Check by URL matching
+      if (localRepo.url && localRepo.url === repo.url) {
+        return true;
+      }
+
+      // Check by full name matching (owner/repo)
+      if (
+        repoFullName &&
+        (localRepo.id.endsWith(`/${repoFullName}`) ||
+          localRepo.id === repoFullName)
+      ) {
+        return true;
+      }
+
+      return false;
+    });
+
+    return !hasLocal;
+  });
+
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue);
     setSearchValue(""); // Reset search when selecting
@@ -62,7 +95,7 @@ export function RepoSelector({
   };
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={open} onOpenChange={handleOpenChange} modal={true}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -75,7 +108,7 @@ export function RepoSelector({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[600px] p-0" align="start">
-        <Command>
+        <Command className="h-full">
           <CommandInput
             placeholder="Search repositories or type URL..."
             value={searchValue}
@@ -90,37 +123,43 @@ export function RepoSelector({
                 : "Type a GitHub repository URL"}
             </CommandEmpty>
             {currentRepositories &&
-              Object.keys(currentRepositories).length > 0 && (
+              Object.values(currentRepositories).filter(
+                (repo) => repo.available,
+              ).length > 0 && (
                 <CommandGroup heading="Current Repositories">
-                  {Object.values(currentRepositories).map((repo) => (
-                    <CommandItem
-                      key={repo.id}
-                      value={repo.id.startsWith("local/") ? repo.id : repo.url}
-                      onSelect={handleSelect}
-                    >
-                      <Check
-                        className={`mr-2 h-4 w-4 ${
-                          value ===
-                          (repo.id.startsWith("local/") ? repo.id : repo.url)
-                            ? "opacity-100"
-                            : "opacity-0"
-                        }`}
-                      />
-                      <div className="flex-1">
-                        <div className="font-medium">{repo.id}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {repo.id.startsWith("local/")
-                            ? "Local repository (mounted)"
-                            : repo.url}
+                  {Object.values(currentRepositories)
+                    .filter((repo) => repo.available)
+                    .map((repo) => (
+                      <CommandItem
+                        key={repo.id}
+                        value={
+                          repo.id.startsWith("local/") ? repo.id : repo.url
+                        }
+                        onSelect={handleSelect}
+                      >
+                        <Check
+                          className={`mr-2 h-4 w-4 ${
+                            value ===
+                            (repo.id.startsWith("local/") ? repo.id : repo.url)
+                              ? "opacity-100"
+                              : "opacity-0"
+                          }`}
+                        />
+                        <div className="flex-1">
+                          <div className="font-medium">{repo.id}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {repo.id.startsWith("local/")
+                              ? "Local repository (mounted)"
+                              : repo.url}
+                          </div>
                         </div>
-                      </div>
-                    </CommandItem>
-                  ))}
+                      </CommandItem>
+                    ))}
                 </CommandGroup>
               )}
-            {repositories.length > 0 && (
+            {filteredGitHubRepos.length > 0 && (
               <CommandGroup heading="Your GitHub Repositories">
-                {repositories.map((repo) => (
+                {filteredGitHubRepos.map((repo) => (
                   <CommandItem
                     key={repo.name}
                     value={repo.url}

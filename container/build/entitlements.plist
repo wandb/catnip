@@ -27,9 +27,7 @@
     <true/>
     
     <!-- Note: NSUserNotification doesn't require special entitlements -->
-    <!-- This communication entitlement is for advanced features we don't use -->
-    <!-- Keeping it doesn't hurt but isn't necessary for basic notifications -->
-    <key>com.apple.developer.usernotifications.communication</key>
-    <true/>
+    <!-- The communication entitlement is restricted and requires Apple approval -->
+    <!-- Removed: com.apple.developer.usernotifications.communication -->
 </dict>
 </plist>
