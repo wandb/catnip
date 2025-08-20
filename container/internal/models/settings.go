@@ -32,6 +32,7 @@ func NewSettings() *Settings {
 		homePath:     config.Runtime.HomeDir,
 		lastModTimes: make(map[string]time.Time),
 		debounceMap:  make(map[string]*time.Timer),
+		lastDirSync:  make(map[string]time.Time),
 		done:         make(chan bool),
 	}
 }
@@ -347,6 +348,7 @@ func (s *Settings) checkAndSyncFiles() {
 	s.syncMutex.Lock()
 	defer s.syncMutex.Unlock()
 
+	// Check individual files
 	for _, file := range files {
 		// Check if source file exists
 		info, err := os.Stat(file.sourcePath)
@@ -367,6 +369,9 @@ func (s *Settings) checkAndSyncFiles() {
 		// File has changed - schedule debounced sync
 		s.scheduleDebounceSync(file.sourcePath, file.volumeDir, file.destName, file.sensitive, info.ModTime())
 	}
+
+	// Check Claude projects directory for changes
+	s.checkAndSyncClaudeProjects()
 }
 
 // scheduleDebounceSync schedules a debounced sync operation for a file
