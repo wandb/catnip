@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useParams } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { useGitApi } from "@/hooks/useGitApi";
 import { WorkspaceLeftSidebar } from "@/components/WorkspaceLeftSidebar";
@@ -9,6 +9,7 @@ import { WorkspaceMainContent } from "@/components/WorkspaceMainContent";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { BackendErrorScreen } from "@/components/BackendErrorScreen";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { WorkspaceMobile } from "@/components/WorkspaceMobile";
 
 function WorkspacePage() {
   const { project, workspace } = useParams({
@@ -38,6 +39,28 @@ function WorkspacePage() {
 
   // Construct the workspace name from URL params
   const workspaceName = `${project}/${workspace}`;
+
+  // Detect mobile viewport
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 768px)");
+    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile("matches" in e ? e.matches : (e as MediaQueryList).matches);
+    };
+    handler(mql);
+    if (mql.addEventListener) {
+      mql.addEventListener("change", handler);
+    } else {
+      mql.addListener(handler);
+    }
+    return () => {
+      if (mql.removeEventListener) {
+        mql.removeEventListener("change", handler);
+      } else {
+        mql.removeListener(handler);
+      }
+    };
+  }, []);
 
   // Use stable selectors to avoid infinite loops - only get counts first
   const worktreesCount = useAppStore(
@@ -118,6 +141,10 @@ function WorkspacePage() {
         </div>
       </div>
     );
+  }
+
+  if (isMobile) {
+    return <WorkspaceMobile worktree={worktree} repository={repository} />;
   }
 
   // Render the full workspace layout with sidebars and main content
