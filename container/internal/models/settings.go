@@ -21,7 +21,8 @@ type Settings struct {
 	homePath     string
 	lastModTimes map[string]time.Time
 	debounceMap  map[string]*time.Timer // For debouncing file changes
-	syncMutex    sync.Mutex             // Protects lastModTimes and debounceMap
+	lastDirSync  map[string]time.Time   // For tracking directory sync times
+	syncMutex    sync.Mutex             // Protects lastModTimes, debounceMap, and lastDirSync
 }
 
 // NewSettings creates a new settings manager
@@ -168,6 +169,31 @@ func (s *Settings) restoreIDEDirectory() {
 		logger.Errorf("❌ Failed to restore IDE directory: %v", err)
 	} else {
 		logger.Info("✅ Restored IDE directory from volume")
+	}
+}
+
+// restoreClaudeProjectsDirectory copies the Claude projects directory from volume to home if it exists
+func (s *Settings) restoreClaudeProjectsDirectory() {
+	volumeProjectsDir := filepath.Join(s.volumePath, ".claude", ".claude", "projects")
+	homeProjectsDir := filepath.Join(s.homePath, ".claude", "projects")
+
+	// Check if volume projects directory exists
+	if _, err := os.Stat(volumeProjectsDir); os.IsNotExist(err) {
+		return
+	}
+
+	logger.Info("📂 Restoring Claude projects directory from volume")
+
+	// Remove existing home projects directory if it exists
+	if err := os.RemoveAll(homeProjectsDir); err != nil {
+		logger.Warnf("⚠️  Failed to remove existing projects directory: %v", err)
+	}
+
+	// Copy the entire directory
+	if err := s.copyDirectory(volumeProjectsDir, homeProjectsDir); err != nil {
+		logger.Errorf("❌ Failed to restore Claude projects directory: %v", err)
+	} else {
+		logger.Info("✅ Restored Claude projects directory from volume")
 	}
 }
 
