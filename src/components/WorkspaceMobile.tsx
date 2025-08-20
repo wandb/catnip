@@ -5,8 +5,10 @@ import { Button } from "@/components/ui/button";
 import { TodoDisplay } from "@/components/TodoDisplay";
 import { DiffViewer } from "@/components/DiffViewer";
 import { TextContent } from "@/components/TextContent";
+import { PullRequestDialog } from "@/components/PullRequestDialog";
 import { useAppStore } from "@/stores/appStore";
 import { useClaudeApi } from "@/hooks/useClaudeApi";
+import { GitMerge, ExternalLink } from "lucide-react";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 import type { ClaudeSessionSummary } from "@/lib/claude-api";
 
@@ -28,6 +30,10 @@ export function WorkspaceMobile({
     useState<ClaudeSessionSummary | null>(null);
   const [latestMessage, setLatestMessage] = useState<string>("");
   const [loading, setLoading] = useState(true);
+<<<<<<< HEAD
+=======
+  const [prDialogOpen, setPrDialogOpen] = useState(false);
+>>>>>>> 4c50d7a (Add mobile workspace components and Claude API integration)
   const wsRef = useRef<WebSocket | null>(null);
 
   const { getAllWorktreeSessionSummaries, getWorktreeLatestAssistantMessage } =
@@ -268,14 +274,358 @@ export function WorkspaceMobile({
     );
   }
 
+  if (phase === "existing" && claudeSession) {
+    // Extract workspace name and use fallback for repo name
+    const parts = worktree.name.split("/");
+    const workspace = parts[1] || parts[0];
+    const repoName = repository.name || parts[0] || "Unknown";
+    const cleanBranch = worktree.branch.startsWith("/")
+      ? worktree.branch.slice(1)
+      : worktree.branch;
+
+    return (
+      <>
+        <div className="min-h-screen bg-background flex flex-col">
+          <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="p-4 flex items-center gap-3">
+              <Button asChild variant="ghost" size="sm" className="p-2">
+                <Link to="/workspace">
+                  <span className="text-lg font-bold">‹</span>
+                </Link>
+              </Button>
+              <div className="flex-1">
+                <h1 className="text-lg font-semibold">
+                  {repoName}/{workspace}
+                </h1>
+                <p className="text-sm text-muted-foreground">{cleanBranch}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col">
+            <div className="flex-1 p-4 overflow-y-auto">
+              <TextContent
+                content={
+                  latestMessage ||
+                  claudeSession.header ||
+                  "No session content available."
+                }
+              />
+            </div>
+
+            <div className="border-t px-4 pb-20">
+              <DiffViewer
+                worktreeId={worktree.id}
+                isOpen={true}
+                onClose={() => {}}
+              />
+            </div>
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 bg-background border-t p-4">
+            {showNewPrompt ? (
+              <div className="space-y-4">
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe what you'd like to change..."
+                  className="min-h-[120px]"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    onClick={startSession}
+                    disabled={!prompt.trim()}
+                    className="flex-1"
+                  >
+                    Send
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowNewPrompt(false);
+                      setPrompt("");
+                    }}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setShowNewPrompt(true)}
+                  className="flex-1"
+                >
+                  Ask for changes
+                </Button>
+                <Button
+                  onClick={() => {
+                    console.log("PR button clicked, opening dialog...");
+                    setPrDialogOpen(true);
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                  disabled={
+                    !worktree.commit_count || worktree.commit_count === 0
+                  }
+                  title={
+                    !worktree.commit_count || worktree.commit_count === 0
+                      ? "No commits in this worktree"
+                      : worktree.pull_request_url
+                        ? "View existing pull request"
+                        : "Create new pull request"
+                  }
+                >
+                  {worktree.pull_request_url ? (
+                    <>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      View PR
+                    </>
+                  ) : (
+                    <>
+                      <GitMerge className="h-4 w-4 mr-2" />
+                      Create PR
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Pull Request Dialog */}
+        <PullRequestDialog
+          open={prDialogOpen}
+          onOpenChange={setPrDialogOpen}
+          worktree={worktree}
+          repository={repository}
+          prStatus={undefined}
+          summary={undefined}
+          onRefreshPrStatuses={async () => {
+            console.log("Refreshing PR statuses...");
+          }}
+        />
+      </>
+    );
+  }
+
+  if (phase === "input") {
+    // Extract workspace name and use fallback for repo name
+    const parts = worktree.name.split("/");
+    const workspace = parts[1] || parts[0];
+    const repoName = repository.name || parts[0] || "Unknown";
+    const cleanBranch = worktree.branch.startsWith("/")
+      ? worktree.branch.slice(1)
+      : worktree.branch;
+
+    return (
+      <>
+        <div className="min-h-screen bg-background flex flex-col">
+          <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="p-4 flex items-center gap-3">
+              <Button asChild variant="ghost" size="sm" className="p-2">
+                <Link to="/workspace">
+                  <span className="text-lg font-bold">‹</span>
+                </Link>
+              </Button>
+              <div className="flex-1">
+                <h1 className="text-lg font-semibold">
+                  {repoName}/{workspace}
+                </h1>
+                <p className="text-sm text-muted-foreground">{cleanBranch}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 p-4 space-y-4">
+            <Textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe your task..."
+              className="min-h-[120px]"
+            />
+            <Button
+              onClick={startSession}
+              disabled={!prompt.trim()}
+              className="w-full"
+            >
+              Start
+            </Button>
+          </div>
+        </div>
+
+        {/* Pull Request Dialog */}
+        <PullRequestDialog
+          open={prDialogOpen}
+          onOpenChange={setPrDialogOpen}
+          worktree={worktree}
+          repository={repository}
+          prStatus={undefined}
+          summary={undefined}
+          onRefreshPrStatuses={async () => {
+            console.log("Refreshing PR statuses...");
+          }}
+        />
+      </>
+    );
+  }
+
   if (phase === "todos") {
     return (
-      <div className="p-4 space-y-4">
-        <div className="text-sm text-muted-foreground">
-          Claude is working...
+      <>
+        <div className="p-4 space-y-4">
+          <div className="text-sm text-muted-foreground">
+            Claude is working...
+          </div>
+          <TodoDisplay todos={currentWorktree?.todos || []} />
         </div>
-        <TodoDisplay todos={currentWorktree?.todos || []} />
-      </div>
+
+        {/* Pull Request Dialog */}
+        <PullRequestDialog
+          open={prDialogOpen}
+          onOpenChange={setPrDialogOpen}
+          worktree={worktree}
+          repository={repository}
+          prStatus={undefined}
+          summary={undefined}
+          onRefreshPrStatuses={async () => {
+            console.log("Refreshing PR statuses...");
+          }}
+        />
+      </>
+    );
+  }
+
+  if (phase === "completed") {
+    // Extract workspace name and use fallback for repo name
+    const parts = worktree.name.split("/");
+    const workspace = parts[1] || parts[0];
+    const repoName = repository.name || parts[0] || "Unknown";
+    const cleanBranch = worktree.branch.startsWith("/")
+      ? worktree.branch.slice(1)
+      : worktree.branch;
+
+    return (
+      <>
+        <div className="min-h-screen bg-background flex flex-col">
+          <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="p-4 flex items-center gap-3">
+              <Button asChild variant="ghost" size="sm" className="p-2">
+                <Link to="/workspace">
+                  <span className="text-lg font-bold">‹</span>
+                </Link>
+              </Button>
+              <div className="flex-1">
+                <h1 className="text-lg font-semibold">
+                  {repoName}/{workspace}
+                </h1>
+                <p className="text-sm text-muted-foreground">{cleanBranch}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col">
+            <div className="flex-1 p-4 overflow-y-auto">
+              <TextContent
+                content={latestMessage || "Session completed successfully"}
+              />
+            </div>
+
+            <div className="border-t px-4 pb-20">
+              <DiffViewer
+                worktreeId={worktree.id}
+                isOpen={true}
+                onClose={() => {}}
+              />
+            </div>
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 bg-background border-t p-4">
+            {showNewPrompt ? (
+              <div className="space-y-4">
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe what you'd like to change..."
+                  className="min-h-[120px]"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    onClick={startSession}
+                    disabled={!prompt.trim()}
+                    className="flex-1"
+                  >
+                    Send
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowNewPrompt(false);
+                      setPrompt("");
+                    }}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setShowNewPrompt(true)}
+                  className="flex-1"
+                >
+                  Ask for changes
+                </Button>
+                <Button
+                  onClick={() => {
+                    console.log("PR button clicked, opening dialog...");
+                    setPrDialogOpen(true);
+                  }}
+                  variant="outline"
+                  className="flex-1"
+                  disabled={
+                    !worktree.commit_count || worktree.commit_count === 0
+                  }
+                  title={
+                    !worktree.commit_count || worktree.commit_count === 0
+                      ? "No commits in this worktree"
+                      : worktree.pull_request_url
+                        ? "View existing pull request"
+                        : "Create new pull request"
+                  }
+                >
+                  {worktree.pull_request_url ? (
+                    <>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      View PR
+                    </>
+                  ) : (
+                    <>
+                      <GitMerge className="h-4 w-4 mr-2" />
+                      Create PR
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Pull Request Dialog */}
+        <PullRequestDialog
+          open={prDialogOpen}
+          onOpenChange={setPrDialogOpen}
+          worktree={worktree}
+          repository={repository}
+          prStatus={undefined}
+          summary={undefined}
+          onRefreshPrStatuses={async () => {
+            console.log("Refreshing PR statuses...");
+          }}
+        />
+      </>
     );
   }
 
@@ -362,10 +712,25 @@ export function WorkspaceMobile({
   }
 
   return (
-    <div className="p-4 space-y-4">
-      <div className="text-center text-muted-foreground">
-        Unknown phase: {phase}
+    <>
+      <div className="p-4 space-y-4">
+        <div className="text-center text-muted-foreground">
+          Unknown phase: {phase}
+        </div>
       </div>
-    </div>
+
+      {/* Pull Request Dialog */}
+      <PullRequestDialog
+        open={prDialogOpen}
+        onOpenChange={setPrDialogOpen}
+        worktree={worktree}
+        repository={repository}
+        prStatus={undefined}
+        summary={undefined}
+        onRefreshPrStatuses={async () => {
+          console.log("Refreshing PR statuses...");
+        }}
+      />
+    </>
   );
 }
