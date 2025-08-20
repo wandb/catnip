@@ -63,9 +63,12 @@ func (sm *ShellManager) CreateSession(sessionID string) *ShellSession {
 	return session
 }
 
-func (sm *ShellManager) ConnectSession(sessionID string) error {
+func (sm *ShellManager) ConnectSession(sessionID string, baseURL string) error {
 	if session, exists := sm.sessions[sessionID]; exists {
-		err := session.Client.Connect("http://localhost:8080")
+		if baseURL == "" {
+			baseURL = "http://localhost:6369" // Fallback to default
+		}
+		err := session.Client.Connect(baseURL)
 		if err == nil {
 			session.Connected = true
 		}
@@ -79,7 +82,7 @@ func (sm *ShellManager) GetSession(sessionID string) *ShellSession {
 }
 
 // Helper function to create and connect a new shell session
-func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
+func createAndConnectShell(sessionID string, width, height int, baseURL string) tea.Cmd {
 	return func() tea.Msg {
 		if globalShellManager == nil {
 			return shellErrorMsg{
@@ -92,7 +95,7 @@ func createAndConnectShell(sessionID string, width, height int) tea.Cmd {
 
 		// Connect in background and send initial size
 		go func() {
-			err := globalShellManager.ConnectSession(sessionID)
+			err := globalShellManager.ConnectSession(sessionID, baseURL)
 			if err != nil {
 				debugLog("Failed to connect shell session %s: %v", sessionID, err)
 				return

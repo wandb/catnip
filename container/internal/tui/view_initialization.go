@@ -222,7 +222,7 @@ func (v *InitializationViewImpl) Update(m *Model, msg tea.Msg) (*Model, tea.Cmd)
 		v.status = "Container is healthy and ready!"
 		// Trigger version check and switch to overview after a brief delay
 		return m, tea.Batch(
-			CheckContainerVersionCmd(m.version),
+			CheckContainerVersionCmd(m.version, m),
 			tea.Tick(time.Second, func(time.Time) tea.Msg {
 				return SwitchViewMsg{ViewType: OverviewView}
 			}),
