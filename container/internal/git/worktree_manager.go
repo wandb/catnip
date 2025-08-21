@@ -700,26 +700,41 @@ func (w *WorktreeManager) GetWorktreeDiff(worktree *models.Worktree, sourceRef s
 		}
 	}
 
-	// Check for untracked files
-	if untrackedOutput, err := w.operations.ExecuteGit(worktree.Path, "ls-files", "--others", "--exclude-standard"); err == nil {
-		untrackedFiles := strings.Split(strings.TrimSpace(string(untrackedOutput)), "\n")
-		for _, filePath := range untrackedFiles {
-			if filePath == "" {
-				continue
-			}
+	// Check for untracked files (if we haven't hit file limit yet)
+	if len(fileDiffs) < maxDiffFiles {
+		if untrackedOutput, err := w.safeExecuteGit(worktree.Path, "ls-files", "--others", "--exclude-standard"); err == nil {
+			untrackedFiles := strings.Split(strings.TrimSpace(string(untrackedOutput)), "\n")
 
-			fileDiff := FileDiff{
-				FilePath:   filePath,
-				ChangeType: "added (untracked)",
-				IsExpanded: false, // Collapse by default
-			}
+			for _, filePath := range untrackedFiles {
+				// Check file limit
+				if len(fileDiffs) >= maxDiffFiles {
+					logger.Warnf("⚠️ Reached maximum diff files limit (%d), stopping untracked file processing", maxDiffFiles)
+					break
+				}
 
-			// Read file content for untracked files
-			if content, err := os.ReadFile(filepath.Join(worktree.Path, filePath)); err == nil {
-				fileDiff.NewContent = string(content)
-			}
+				if filePath == "" {
+					continue
+				}
 
-			fileDiffs = append(fileDiffs, fileDiff)
+				fileDiff := FileDiff{
+					FilePath:   filePath,
+					ChangeType: "added (untracked)",
+					IsExpanded: false, // Collapse by default
+				}
+
+				// Read file content for untracked files with safety checks
+				fullPath := filepath.Join(worktree.Path, filePath)
+				if w.isFileSizeAcceptable(fullPath) {
+					if content, err := os.ReadFile(fullPath); err == nil {
+						contentStr := string(content)
+						fileDiff.NewContent = w.truncateContent(contentStr)
+					}
+				} else {
+					fileDiff.NewContent = "[File too large to display]"
+				}
+
+				fileDiffs = append(fileDiffs, fileDiff)
+			}
 		}
 	}
 
@@ -733,6 +748,11 @@ func (w *WorktreeManager) GetWorktreeDiff(worktree *models.Worktree, sourceRef s
 		summary = "1 file changed"
 	default:
 		summary = fmt.Sprintf("%d files changed", totalFiles)
+	}
+
+	// Add warning if we hit the file limit
+	if totalFiles >= maxDiffFiles {
+		summary += fmt.Sprintf(" (showing first %d files)", maxDiffFiles)
 	}
 
 	return &WorktreeDiffResponse{
