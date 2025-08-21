@@ -32,6 +32,27 @@ func NewWorktreeManager(operations Operations) *WorktreeManager {
 	}
 }
 
+// safeExecuteGit executes git commands with timeout protection
+func (w *WorktreeManager) safeExecuteGit(workingDir string, args ...string) ([]byte, error) {
+	return w.operations.ExecuteGitWithTimeout(workingDir, gitOperationTimeout, args...)
+}
+
+// isFileSizeAcceptable checks if a file is small enough to read safely
+func (w *WorktreeManager) isFileSizeAcceptable(filePath string) bool {
+	if info, err := os.Stat(filePath); err == nil {
+		return info.Size() <= maxFileSize
+	}
+	return false
+}
+
+// truncateContent truncates content if it's too long
+func (w *WorktreeManager) truncateContent(content string) string {
+	if len(content) <= maxContentLength {
+		return content
+	}
+	return content[:maxContentLength] + "\n\n[... Content truncated due to size limits ...]"
+}
+
 // CreateWorktreeRequest contains parameters for worktree creation
 type CreateWorktreeRequest struct {
 	Repository   *models.Repository
