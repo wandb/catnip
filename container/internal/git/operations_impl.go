@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
@@ -52,6 +53,10 @@ func NewOperationsWithExecutor(exec executor.CommandExecutor) Operations {
 
 func (o *OperationsImpl) ExecuteGit(workingDir string, args ...string) ([]byte, error) {
 	return o.executor.ExecuteGitWithWorkingDir(workingDir, args...)
+}
+
+func (o *OperationsImpl) ExecuteGitWithTimeout(workingDir string, timeout time.Duration, args ...string) ([]byte, error) {
+	return o.executor.ExecuteWithEnvAndTimeout(workingDir, nil, timeout, args...)
 }
 
 func (o *OperationsImpl) ExecuteCommand(command string, args ...string) ([]byte, error) {
