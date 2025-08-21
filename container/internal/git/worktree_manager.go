@@ -502,10 +502,11 @@ type WorktreeDiffResponse struct {
 
 // GetWorktreeDiff calculates diff for a worktree against its source branch
 func (w *WorktreeManager) GetWorktreeDiff(worktree *models.Worktree, sourceRef string, fetchLatestRef func(*models.Worktree) error) (*WorktreeDiffResponse, error) {
-	// Try to get diff without fetching first (much faster for local changes)
+	logger.Debugf("🔍 Getting diff for worktree %s against %s", worktree.Name, sourceRef)
 
-	// Attempt to find merge base with existing references
-	mergeBaseOutput, err := w.operations.ExecuteGit(worktree.Path, "merge-base", "HEAD", sourceRef)
+	// Try to get diff without fetching first (much faster for local changes)
+	// Attempt to find merge base with existing references using timeout
+	mergeBaseOutput, err := w.safeExecuteGit(worktree.Path, "merge-base", "HEAD", sourceRef)
 
 	// If merge base fails, try fetching the latest reference and retry
 	if err != nil {
@@ -516,22 +517,29 @@ func (w *WorktreeManager) GetWorktreeDiff(worktree *models.Worktree, sourceRef s
 			}
 		}
 
-		mergeBaseOutput, err = w.operations.ExecuteGit(worktree.Path, "merge-base", "HEAD", sourceRef)
+		mergeBaseOutput, err = w.safeExecuteGit(worktree.Path, "merge-base", "HEAD", sourceRef)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find merge base: %v", err)
 		}
 	}
 
 	forkCommit := strings.TrimSpace(string(mergeBaseOutput))
+	logger.Debugf("🔍 Fork commit: %s", forkCommit)
 
-	// Get the list of changed files from the fork point
-	output, err := w.operations.ExecuteGit(worktree.Path, "diff", "--name-status", fmt.Sprintf("%s..HEAD", forkCommit))
+	// Get the list of changed files from the fork point using timeout
+	output, err := w.safeExecuteGit(worktree.Path, "diff", "--name-status", fmt.Sprintf("%s..HEAD", forkCommit))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get diff list: %v", err)
 	}
 
 	var fileDiffs []FileDiff
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	// Apply file count limit
+	if len(lines) > maxDiffFiles {
+		logger.Warnf("⚠️ Diff has %d files, limiting to %d files", len(lines), maxDiffFiles)
+		lines = lines[:maxDiffFiles]
+	}
 
 	// Process committed changes
 	for _, line := range lines {
@@ -567,19 +575,22 @@ func (w *WorktreeManager) GetWorktreeDiff(worktree *models.Worktree, sourceRef s
 			fileDiff.IsExpanded = true
 		}
 
-		// Get the old content (from fork commit)
-		if oldOutput, err := w.operations.ExecuteGit(worktree.Path, "show", fmt.Sprintf("%s:%s", forkCommit, filePath)); err == nil {
-			fileDiff.OldContent = string(oldOutput)
+		// Get the old content (from fork commit) with safety checks
+		if oldOutput, err := w.safeExecuteGit(worktree.Path, "show", fmt.Sprintf("%s:%s", forkCommit, filePath)); err == nil {
+			content := string(oldOutput)
+			fileDiff.OldContent = w.truncateContent(content)
 		}
 
-		// Get the new content (current HEAD)
-		if newOutput, err := w.operations.ExecuteGit(worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath)); err == nil {
-			fileDiff.NewContent = string(newOutput)
+		// Get the new content (current HEAD) with safety checks
+		if newOutput, err := w.safeExecuteGit(worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath)); err == nil {
+			content := string(newOutput)
+			fileDiff.NewContent = w.truncateContent(content)
 		}
 
-		// Also keep the unified diff for fallback
-		if diffOutput, err := w.operations.ExecuteGit(worktree.Path, "diff", fmt.Sprintf("%s..HEAD", forkCommit), "--", filePath); err == nil {
-			fileDiff.DiffText = string(diffOutput)
+		// Also keep the unified diff for fallback with safety checks
+		if diffOutput, err := w.safeExecuteGit(worktree.Path, "diff", fmt.Sprintf("%s..HEAD", forkCommit), "--", filePath); err == nil {
+			content := string(diffOutput)
+			fileDiff.DiffText = w.truncateContent(content)
 		}
 
 		fileDiffs = append(fileDiffs, fileDiff)
