@@ -12,6 +12,75 @@ import { GitMerge, ExternalLink } from "lucide-react";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 import type { ClaudeSessionSummary } from "@/lib/claude-api";
 
+interface PRSummary {
+  title: string;
+  description: string;
+}
+
+function parsePRSummary(content: string): PRSummary | null {
+  console.log("parsePRSummary called with content:", content);
+  console.log("Content length:", content.length);
+  console.log("Content type:", typeof content);
+
+  try {
+    let jsonContent = content.trim();
+
+    // Check if content is wrapped in a fenced code block
+    if (jsonContent.startsWith("```json\n") && jsonContent.endsWith("\n```")) {
+      // Remove the fenced code block wrapper
+      jsonContent = jsonContent.slice(8, -4).trim(); // Remove ```json\n from start and \n``` from end
+      console.log("Extracted JSON from fenced code block:", jsonContent);
+    } else if (
+      jsonContent.startsWith("```json") &&
+      jsonContent.endsWith("```")
+    ) {
+      // Handle case without newlines
+      jsonContent = jsonContent.slice(7, -3).trim(); // Remove ```json from start and ``` from end
+      console.log(
+        "Extracted JSON from fenced code block (no newlines):",
+        jsonContent,
+      );
+    }
+
+    console.log("Final JSON content to parse:", jsonContent);
+    const parsed = JSON.parse(jsonContent);
+    console.log("Parsed JSON:", parsed);
+
+    // Check if it has the required fields
+    if (
+      parsed &&
+      typeof parsed.title === "string" &&
+      typeof parsed.description === "string"
+    ) {
+      console.log("Found valid PR summary:", parsed);
+      return {
+        title: parsed.title,
+        description: parsed.description,
+      };
+    } else {
+      console.log("JSON doesn't have required title/description fields");
+    }
+  } catch (error) {
+    console.log("JSON parse error:", error);
+  }
+
+  console.log("Returning null - not a valid PR summary");
+  return null;
+}
+
+function PRSummaryDisplay({ summary }: { summary: PRSummary }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-xl font-semibold mb-2">{summary.title}</h2>
+      </div>
+      <div className="prose prose-sm max-w-none dark:prose-invert">
+        <TextContent content={summary.description} />
+      </div>
+    </div>
+  );
+}
+
 interface WorkspaceMobileProps {
   worktree: Worktree;
   repository: LocalRepository;
@@ -175,13 +244,19 @@ export function WorkspaceMobile({
 
           <div className="flex-1 flex flex-col">
             <div className="flex-1 p-4 overflow-y-auto">
-              <TextContent
-                content={
+              {(() => {
+                const content =
                   latestMessage ||
                   claudeSession.header ||
-                  "No session content available."
+                  "No session content available.";
+                const prSummary = parsePRSummary(content);
+
+                if (prSummary) {
+                  return <PRSummaryDisplay summary={prSummary} />;
                 }
-              />
+
+                return <TextContent content={content} />;
+              })()}
             </div>
 
             <div className="border-t px-4 pb-20">
@@ -232,8 +307,12 @@ export function WorkspaceMobile({
                 </Button>
                 <Button
                   onClick={() => {
-                    console.log("PR button clicked, opening dialog...");
-                    setPrDialogOpen(true);
+                    if (worktree.pull_request_url) {
+                      window.open(worktree.pull_request_url, "_blank");
+                    } else {
+                      console.log("PR button clicked, opening dialog...");
+                      setPrDialogOpen(true);
+                    }
                   }}
                   variant="outline"
                   className="flex-1"
@@ -337,9 +416,17 @@ export function WorkspaceMobile({
 
           <div className="flex-1 flex flex-col">
             <div className="flex-1 p-4 overflow-y-auto">
-              <TextContent
-                content={latestMessage || "Session completed successfully"}
-              />
+              {(() => {
+                const content =
+                  latestMessage || "Session completed successfully";
+                const prSummary = parsePRSummary(content);
+
+                if (prSummary) {
+                  return <PRSummaryDisplay summary={prSummary} />;
+                }
+
+                return <TextContent content={content} />;
+              })()}
             </div>
 
             <div className="border-t px-4 pb-20">
@@ -390,8 +477,12 @@ export function WorkspaceMobile({
                 </Button>
                 <Button
                   onClick={() => {
-                    console.log("PR button clicked, opening dialog...");
-                    setPrDialogOpen(true);
+                    if (worktree.pull_request_url) {
+                      window.open(worktree.pull_request_url, "_blank");
+                    } else {
+                      console.log("PR button clicked, opening dialog...");
+                      setPrDialogOpen(true);
+                    }
                   }}
                   variant="outline"
                   className="flex-1"

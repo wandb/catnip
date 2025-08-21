@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ interface WorkspaceCardProps {
   lastAssistantMessage?: string;
   commitCount?: number;
   isDirty?: boolean;
+  pullRequestTitle?: string;
 }
 
 function WorkspaceCard({
@@ -28,6 +29,7 @@ function WorkspaceCard({
   lastAssistantMessage,
   commitCount,
   isDirty,
+  pullRequestTitle,
 }: WorkspaceCardProps) {
   const parts = name.split("/");
   const project = parts[0];
@@ -46,10 +48,10 @@ function WorkspaceCard({
     <Card className="p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
-          <h3 className="font-semibold text-lg">
+          <h3 className="font-semibold text-lg">{cleanBranch}</h3>
+          <div className="text-sm text-muted-foreground">
             {repoName}/{workspace}
-          </h3>
-          <div className="text-sm text-muted-foreground">{cleanBranch}</div>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {diffStats && (
@@ -73,7 +75,13 @@ function WorkspaceCard({
         </div>
       </div>
 
-      {hasSession && lastAssistantMessage && (
+      {pullRequestTitle && (
+        <div className="text-sm font-medium text-muted-foreground line-clamp-2">
+          {pullRequestTitle}
+        </div>
+      )}
+
+      {hasSession && lastAssistantMessage && !pullRequestTitle && (
         <div className="space-y-2">
           <div className="text-sm text-muted-foreground">Last response:</div>
           <div className="text-sm bg-muted p-3 rounded-md line-clamp-3">
@@ -112,6 +120,7 @@ export function WorkspaceMobileIndex() {
     {},
   );
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   const { getAllWorktreeSessionSummaries, getWorktreeLatestAssistantMessage } =
     useClaudeApi();
@@ -228,7 +237,7 @@ export function WorkspaceMobileIndex() {
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-4 pb-20">
         {availableWorktrees.map((worktree) => {
           const repository = getRepositoryById(worktree.repo_id);
           if (!repository) return null;
@@ -248,9 +257,20 @@ export function WorkspaceMobileIndex() {
               lastAssistantMessage={latestMessages[worktree.path]}
               commitCount={worktree.commit_count}
               isDirty={worktree.is_dirty}
+              pullRequestTitle={worktree.pull_request_title}
             />
           );
         })}
+      </div>
+
+      {/* Fixed New Workspace Button */}
+      <div className="fixed bottom-0 left-0 right-0 bg-background border-t p-4">
+        <Button
+          onClick={() => navigate({ to: "/workspace/new" })}
+          className="w-full"
+        >
+          New Workspace
+        </Button>
       </div>
     </div>
   );

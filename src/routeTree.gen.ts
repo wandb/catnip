@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorkspaceIndexRouteImport } from './routes/workspace.index'
 import { Route as TranscriptIndexRouteImport } from './routes/transcript.index'
 import { Route as TerminalIndexRouteImport } from './routes/terminal.index'
+import { Route as WorkspaceNewRouteImport } from './routes/workspace.new'
 import { Route as TranscriptDemoRouteImport } from './routes/transcript.demo'
 import { Route as TranscriptSessionIdRouteImport } from './routes/transcript.$sessionId'
 import { Route as TerminalSessionIdRouteImport } from './routes/terminal.$sessionId'
@@ -50,6 +51,11 @@ const TranscriptIndexRoute = TranscriptIndexRouteImport.update({
 const TerminalIndexRoute = TerminalIndexRouteImport.update({
   id: '/terminal/',
   path: '/terminal/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkspaceNewRoute = WorkspaceNewRouteImport.update({
+  id: '/workspace/new',
+  path: '/workspace/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TranscriptDemoRoute = TranscriptDemoRouteImport.update({
@@ -93,6 +99,7 @@ export interface FileRoutesByFullPath {
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
   '/transcript/$sessionId': typeof TranscriptSessionIdRoute
   '/transcript/demo': typeof TranscriptDemoRoute
+  '/workspace/new': typeof WorkspaceNewRoute
   '/terminal': typeof TerminalIndexRoute
   '/transcript': typeof TranscriptIndexRoute
   '/workspace': typeof WorkspaceIndexRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
   '/transcript/$sessionId': typeof TranscriptSessionIdRoute
   '/transcript/demo': typeof TranscriptDemoRoute
+  '/workspace/new': typeof WorkspaceNewRoute
   '/terminal': typeof TerminalIndexRoute
   '/transcript': typeof TranscriptIndexRoute
   '/workspace': typeof WorkspaceIndexRoute
@@ -122,6 +130,7 @@ export interface FileRoutesById {
   '/terminal/$sessionId': typeof TerminalSessionIdRoute
   '/transcript/$sessionId': typeof TranscriptSessionIdRoute
   '/transcript/demo': typeof TranscriptDemoRoute
+  '/workspace/new': typeof WorkspaceNewRoute
   '/terminal/': typeof TerminalIndexRoute
   '/transcript/': typeof TranscriptIndexRoute
   '/workspace/': typeof WorkspaceIndexRoute
@@ -138,6 +147,7 @@ export interface FileRouteTypes {
     | '/terminal/$sessionId'
     | '/transcript/$sessionId'
     | '/transcript/demo'
+    | '/workspace/new'
     | '/terminal'
     | '/transcript'
     | '/workspace'
@@ -152,6 +162,7 @@ export interface FileRouteTypes {
     | '/terminal/$sessionId'
     | '/transcript/$sessionId'
     | '/transcript/demo'
+    | '/workspace/new'
     | '/terminal'
     | '/transcript'
     | '/workspace'
@@ -166,6 +177,7 @@ export interface FileRouteTypes {
     | '/terminal/$sessionId'
     | '/transcript/$sessionId'
     | '/transcript/demo'
+    | '/workspace/new'
     | '/terminal/'
     | '/transcript/'
     | '/workspace/'
@@ -181,6 +193,7 @@ export interface RootRouteChildren {
   TerminalSessionIdRoute: typeof TerminalSessionIdRoute
   TranscriptSessionIdRoute: typeof TranscriptSessionIdRoute
   TranscriptDemoRoute: typeof TranscriptDemoRoute
+  WorkspaceNewRoute: typeof WorkspaceNewRoute
   TerminalIndexRoute: typeof TerminalIndexRoute
   TranscriptIndexRoute: typeof TranscriptIndexRoute
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
@@ -229,6 +242,13 @@ declare module '@tanstack/react-router' {
       path: '/terminal'
       fullPath: '/terminal'
       preLoaderRoute: typeof TerminalIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workspace/new': {
+      id: '/workspace/new'
+      path: '/workspace/new'
+      fullPath: '/workspace/new'
+      preLoaderRoute: typeof WorkspaceNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/transcript/demo': {
@@ -285,6 +305,7 @@ const rootRouteChildren: RootRouteChildren = {
   TerminalSessionIdRoute: TerminalSessionIdRoute,
   TranscriptSessionIdRoute: TranscriptSessionIdRoute,
   TranscriptDemoRoute: TranscriptDemoRoute,
+  WorkspaceNewRoute: WorkspaceNewRoute,
   TerminalIndexRoute: TerminalIndexRoute,
   TranscriptIndexRoute: TranscriptIndexRoute,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
