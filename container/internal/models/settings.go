@@ -21,7 +21,8 @@ type Settings struct {
 	homePath     string
 	lastModTimes map[string]time.Time
 	debounceMap  map[string]*time.Timer // For debouncing file changes
-	syncMutex    sync.Mutex             // Protects lastModTimes and debounceMap
+	lastDirSync  map[string]time.Time   // For tracking directory sync times
+	syncMutex    sync.Mutex             // Protects lastModTimes, debounceMap, and lastDirSync
 }
 
 // NewSettings creates a new settings manager
@@ -31,6 +32,7 @@ func NewSettings() *Settings {
 		homePath:     config.Runtime.HomeDir,
 		lastModTimes: make(map[string]time.Time),
 		debounceMap:  make(map[string]*time.Timer),
+		lastDirSync:  make(map[string]time.Time),
 		done:         make(chan bool),
 	}
 }
@@ -45,6 +47,9 @@ func (s *Settings) Start() {
 
 	// Restore IDE directory if it exists
 	s.restoreIDEDirectory()
+
+	// Restore Claude projects directory if it exists
+	s.restoreClaudeProjectsDirectory()
 
 	// Start the ticker to watch for changes
 	s.ticker = time.NewTicker(5 * time.Second)
@@ -93,6 +98,16 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 	} else {
 		if err := os.Chown(volumeClaudeNestedDir, 1000, 1000); err != nil {
 			logger.Warnf("⚠️  Failed to chown nested volume directory %s: %v", volumeClaudeNestedDir, err)
+		}
+	}
+
+	// Create nested directory for Claude projects (session .jsonl files)
+	volumeProjectsDir := filepath.Join(volumeClaudeNestedDir, "projects")
+	if err := os.MkdirAll(volumeProjectsDir, 0755); err != nil {
+		logger.Errorf("❌ Failed to create volume projects directory %s: %v", volumeProjectsDir, err)
+	} else {
+		if err := os.Chown(volumeProjectsDir, 1000, 1000); err != nil {
+			logger.Warnf("⚠️  Failed to chown volume projects directory %s: %v", volumeProjectsDir, err)
 		}
 	}
 
@@ -165,6 +180,31 @@ func (s *Settings) restoreIDEDirectory() {
 		logger.Errorf("❌ Failed to restore IDE directory: %v", err)
 	} else {
 		logger.Info("✅ Restored IDE directory from volume")
+	}
+}
+
+// restoreClaudeProjectsDirectory copies the Claude projects directory from volume to home if it exists
+func (s *Settings) restoreClaudeProjectsDirectory() {
+	volumeProjectsDir := filepath.Join(s.volumePath, ".claude", ".claude", "projects")
+	homeProjectsDir := filepath.Join(s.homePath, ".claude", "projects")
+
+	// Check if volume projects directory exists
+	if _, err := os.Stat(volumeProjectsDir); os.IsNotExist(err) {
+		return
+	}
+
+	logger.Info("📂 Restoring Claude projects directory from volume")
+
+	// Remove existing home projects directory if it exists
+	if err := os.RemoveAll(homeProjectsDir); err != nil {
+		logger.Warnf("⚠️  Failed to remove existing projects directory: %v", err)
+	}
+
+	// Copy the entire directory
+	if err := s.copyDirectory(volumeProjectsDir, homeProjectsDir); err != nil {
+		logger.Errorf("❌ Failed to restore Claude projects directory: %v", err)
+	} else {
+		logger.Info("✅ Restored Claude projects directory from volume")
 	}
 }
 
@@ -301,6 +341,119 @@ func (s *Settings) watchForChanges() {
 	}
 }
 
+// checkAndSyncClaudeProjects monitors the Claude projects directory for changes and syncs .jsonl files
+func (s *Settings) checkAndSyncClaudeProjects() {
+	homeProjectsDir := filepath.Join(s.homePath, ".claude", "projects")
+	volumeProjectsDir := filepath.Join(s.volumePath, ".claude", ".claude", "projects")
+
+	// Check if home projects directory exists
+	if _, err := os.Stat(homeProjectsDir); os.IsNotExist(err) {
+		return
+	}
+
+	// Check if it's time to sync (throttle to every 10 seconds for directory scanning)
+	lastSync, exists := s.lastDirSync[homeProjectsDir]
+	if exists && time.Since(lastSync) < 10*time.Second {
+		return
+	}
+
+	// Walk through the projects directory and sync .jsonl files that have changed
+	err := filepath.Walk(homeProjectsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Continue walking even if there's an error with one file
+		}
+
+		// Only process .jsonl files
+		if info.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+
+		// Check if file has been modified since last sync
+		lastMod, exists := s.lastModTimes[path]
+		if exists && info.ModTime().Equal(lastMod) {
+			return nil
+		}
+
+		// Calculate relative path from projects directory
+		relPath, err := filepath.Rel(homeProjectsDir, path)
+		if err != nil {
+			logger.Errorf("❌ Error calculating relative path for %s: %v", path, err)
+			return nil
+		}
+
+		// Schedule sync for this .jsonl file
+		volumeFilePath := filepath.Join(volumeProjectsDir, relPath)
+		s.scheduleClaudeProjectFileSync(path, volumeFilePath, info.ModTime())
+
+		return nil
+	})
+
+	if err != nil {
+		logger.Errorf("❌ Error walking Claude projects directory: %v", err)
+	}
+
+	// Update last sync time for directory
+	s.lastDirSync[homeProjectsDir] = time.Now()
+}
+
+// scheduleClaudeProjectFileSync schedules a debounced sync for a Claude project file
+func (s *Settings) scheduleClaudeProjectFileSync(sourcePath, destPath string, modTime time.Time) {
+	// Cancel existing timer if it exists
+	if timer, exists := s.debounceMap[sourcePath]; exists {
+		timer.Stop()
+	}
+
+	// Create new debounced timer (shorter delay for session files)
+	debounceDelay := 1 * time.Second
+
+	s.debounceMap[sourcePath] = time.AfterFunc(debounceDelay, func() {
+		s.performClaudeProjectFileSync(sourcePath, destPath, modTime)
+	})
+}
+
+// performClaudeProjectFileSync performs the actual sync of a Claude project file
+func (s *Settings) performClaudeProjectFileSync(sourcePath, destPath string, expectedModTime time.Time) {
+	s.syncMutex.Lock()
+	defer s.syncMutex.Unlock()
+
+	// Double-check the file still exists and hasn't changed again
+	info, err := os.Stat(sourcePath)
+	if os.IsNotExist(err) {
+		logger.Debugf("⚠️  File %s no longer exists, skipping sync", sourcePath)
+		return
+	}
+	if err != nil {
+		logger.Errorf("❌ Error re-checking file %s: %v", sourcePath, err)
+		return
+	}
+
+	// If file has been modified again since we scheduled this sync, skip it
+	if !info.ModTime().Equal(expectedModTime) {
+		logger.Debugf("⚠️  File %s was modified again, skipping this sync", sourcePath)
+		return
+	}
+
+	// Ensure destination directory exists
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		logger.Errorf("❌ Failed to create directory for %s: %v", destPath, err)
+		return
+	}
+
+	// Copy the file
+	if err := s.copyFile(sourcePath, destPath); err != nil {
+		logger.Errorf("❌ Failed to sync Claude project file %s: %v", filepath.Base(sourcePath), err)
+		return
+	}
+
+	// Try to fix ownership
+	_ = os.Chown(destPath, 1000, 1000)
+
+	// Update last modification time
+	s.lastModTimes[sourcePath] = info.ModTime()
+
+	logger.Debugf("📋 Synced Claude project file %s to volume", filepath.Base(sourcePath))
+}
+
 // checkAndSyncFiles checks if files have changed and schedules debounced syncing to volume
 func (s *Settings) checkAndSyncFiles() {
 	files := []struct {
@@ -318,6 +471,7 @@ func (s *Settings) checkAndSyncFiles() {
 	s.syncMutex.Lock()
 	defer s.syncMutex.Unlock()
 
+	// Check individual files
 	for _, file := range files {
 		// Check if source file exists
 		info, err := os.Stat(file.sourcePath)
@@ -338,6 +492,9 @@ func (s *Settings) checkAndSyncFiles() {
 		// File has changed - schedule debounced sync
 		s.scheduleDebounceSync(file.sourcePath, file.volumeDir, file.destName, file.sensitive, info.ModTime())
 	}
+
+	// Check Claude projects directory for changes
+	s.checkAndSyncClaudeProjects()
 }
 
 // scheduleDebounceSync schedules a debounced sync operation for a file
