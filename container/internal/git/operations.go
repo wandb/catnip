@@ -1,5 +1,7 @@
 package git
 
+import "time"
+
 // WorktreeStatus represents the status of a worktree
 type WorktreeStatus struct {
 	Branch         string
