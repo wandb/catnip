@@ -15,6 +15,7 @@ type WorktreeStatus struct {
 type Operations interface {
 	// Core command execution
 	ExecuteGit(workingDir string, args ...string) ([]byte, error)
+	ExecuteGitWithTimeout(workingDir string, timeout time.Duration, args ...string) ([]byte, error)
 	ExecuteCommand(command string, args ...string) ([]byte, error)
 
 	// Branch operations

@@ -12,6 +12,14 @@ import (
 	"github.com/vanpelt/catnip/internal/models"
 )
 
+const (
+	// Diff operation safety limits
+	maxDiffFiles        = 100              // Maximum number of files to include in diff
+	maxFileSize         = 1024 * 1024      // 1MB max file size to read content
+	maxContentLength    = 100 * 1024       // 100KB max content per file
+	gitOperationTimeout = 30 * time.Second // 30 second timeout for git operations
+)
+
 // WorktreeManager handles all worktree lifecycle operations
 type WorktreeManager struct {
 	operations Operations
