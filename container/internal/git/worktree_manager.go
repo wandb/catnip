@@ -596,82 +596,106 @@ func (w *WorktreeManager) GetWorktreeDiff(worktree *models.Worktree, sourceRef s
 		fileDiffs = append(fileDiffs, fileDiff)
 	}
 
-	// Also check for unstaged changes
-	if unstagedOutput, err := w.operations.ExecuteGit(worktree.Path, "diff", "--name-status"); err == nil {
-		unstagedLines := strings.Split(strings.TrimSpace(string(unstagedOutput)), "\n")
-		for _, line := range unstagedLines {
-			if line == "" {
-				continue
-			}
+	// Also check for unstaged changes (if we haven't hit file limit yet)
+	if len(fileDiffs) < maxDiffFiles {
+		if unstagedOutput, err := w.safeExecuteGit(worktree.Path, "diff", "--name-status"); err == nil {
+			unstagedLines := strings.Split(strings.TrimSpace(string(unstagedOutput)), "\n")
 
-			parts := strings.Split(line, "\t")
-			if len(parts) < 2 {
-				continue
-			}
-
-			changeType := parts[0]
-			filePath := parts[1]
-
-			// Check if this file already exists in our diff list
-			found := false
-			for i := range fileDiffs {
-				if fileDiffs[i].FilePath == filePath {
-					// Update the existing entry to show it has unstaged changes
-					if fileDiffs[i].ChangeType == "added" {
-						fileDiffs[i].ChangeType = "added + modified (unstaged)"
-					} else {
-						fileDiffs[i].ChangeType = "modified (unstaged)"
-					}
-
-					// Update content to show working directory state
-					if newContent, err := os.ReadFile(filepath.Join(worktree.Path, filePath)); err == nil {
-						fileDiffs[i].NewContent = string(newContent)
-					}
-
-					// Update diff to show unstaged changes
-					if diffOutput, err := w.operations.ExecuteGit(worktree.Path, "diff", "--", filePath); err == nil {
-						fileDiffs[i].DiffText = string(diffOutput)
-					}
-
-					fileDiffs[i].IsExpanded = true
-					found = true
+			for _, line := range unstagedLines {
+				// Check file limit
+				if len(fileDiffs) >= maxDiffFiles {
+					logger.Warnf("⚠️ Reached maximum diff files limit (%d), stopping unstaged file processing", maxDiffFiles)
 					break
 				}
-			}
 
-			if !found {
-				fileDiff := FileDiff{
-					FilePath:   filePath,
-					IsExpanded: true, // Unstaged changes should be visible
+				if line == "" {
+					continue
 				}
 
-				switch changeType {
-				case "A":
-					fileDiff.ChangeType = "added (unstaged)"
-				case "D":
-					fileDiff.ChangeType = "deleted (unstaged)"
-				case "M":
-					fileDiff.ChangeType = "modified (unstaged)"
-				default:
-					fileDiff.ChangeType = "modified (unstaged)"
+				parts := strings.Split(line, "\t")
+				if len(parts) < 2 {
+					continue
 				}
 
-				// Get old content (HEAD version)
-				if oldOutput, err := w.operations.ExecuteGit(worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath)); err == nil {
-					fileDiff.OldContent = string(oldOutput)
+				changeType := parts[0]
+				filePath := parts[1]
+
+				// Check if this file already exists in our diff list
+				found := false
+				for i := range fileDiffs {
+					if fileDiffs[i].FilePath == filePath {
+						// Update the existing entry to show it has unstaged changes
+						if fileDiffs[i].ChangeType == "added" {
+							fileDiffs[i].ChangeType = "added + modified (unstaged)"
+						} else {
+							fileDiffs[i].ChangeType = "modified (unstaged)"
+						}
+
+						// Update content to show working directory state with safety checks
+						fullPath := filepath.Join(worktree.Path, filePath)
+						if w.isFileSizeAcceptable(fullPath) {
+							if newContent, err := os.ReadFile(fullPath); err == nil {
+								content := string(newContent)
+								fileDiffs[i].NewContent = w.truncateContent(content)
+							}
+						} else {
+							fileDiffs[i].NewContent = "[File too large to display]"
+						}
+
+						// Update diff to show unstaged changes with safety checks
+						if diffOutput, err := w.safeExecuteGit(worktree.Path, "diff", "--", filePath); err == nil {
+							content := string(diffOutput)
+							fileDiffs[i].DiffText = w.truncateContent(content)
+						}
+
+						fileDiffs[i].IsExpanded = true
+						found = true
+						break
+					}
 				}
 
-				// Get new content (working directory)
-				if newContent, err := os.ReadFile(filepath.Join(worktree.Path, filePath)); err == nil {
-					fileDiff.NewContent = string(newContent)
-				}
+				if !found {
+					fileDiff := FileDiff{
+						FilePath:   filePath,
+						IsExpanded: true, // Unstaged changes should be visible
+					}
 
-				// Get unstaged diff content as fallback
-				if diffOutput, err := w.operations.ExecuteGit(worktree.Path, "diff", "--", filePath); err == nil {
-					fileDiff.DiffText = string(diffOutput)
-				}
+					switch changeType {
+					case "A":
+						fileDiff.ChangeType = "added (unstaged)"
+					case "D":
+						fileDiff.ChangeType = "deleted (unstaged)"
+					case "M":
+						fileDiff.ChangeType = "modified (unstaged)"
+					default:
+						fileDiff.ChangeType = "modified (unstaged)"
+					}
 
-				fileDiffs = append(fileDiffs, fileDiff)
+					// Get old content (HEAD version) with safety checks
+					if oldOutput, err := w.safeExecuteGit(worktree.Path, "show", fmt.Sprintf("HEAD:%s", filePath)); err == nil {
+						content := string(oldOutput)
+						fileDiff.OldContent = w.truncateContent(content)
+					}
+
+					// Get new content (working directory) with safety checks
+					fullPath := filepath.Join(worktree.Path, filePath)
+					if w.isFileSizeAcceptable(fullPath) {
+						if newContent, err := os.ReadFile(fullPath); err == nil {
+							content := string(newContent)
+							fileDiff.NewContent = w.truncateContent(content)
+						}
+					} else {
+						fileDiff.NewContent = "[File too large to display]"
+					}
+
+					// Get unstaged diff content as fallback with safety checks
+					if diffOutput, err := w.safeExecuteGit(worktree.Path, "diff", "--", filePath); err == nil {
+						content := string(diffOutput)
+						fileDiff.DiffText = w.truncateContent(content)
+					}
+
+					fileDiffs = append(fileDiffs, fileDiff)
+				}
 			}
 		}
 	}
