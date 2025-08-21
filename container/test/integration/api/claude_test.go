@@ -53,7 +53,7 @@ func TestClaudeSessionMessagesEndpoint(t *testing.T) {
 	t.Logf("Claude response: %+v", claudeResp)
 
 	// Test session summary retrieval with the actual worktree path
-	resp, body, err = ts.MakeRequest("GET", "/v1/claude/session?worktree_path="+worktreePath, nil)
+	resp, body, err = ts.MakeRequest("GET", "/v1/claude/session?worktreePath="+worktreePath, nil)
 	require.NoError(t, err)
 
 	t.Logf("Session summary response (%d): %s", resp.StatusCode, string(body))

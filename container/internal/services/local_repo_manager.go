@@ -296,15 +296,34 @@ func (lrm *LocalRepoManager) createTemporaryCommit(worktreePath string) (string,
 
 // getRemoteOriginInfo gets the remote origin URL and determines if it's a GitHub repository
 func (lrm *LocalRepoManager) getRemoteOriginInfo(repoPath string) (string, bool) {
+	logger.Debugf("🔍 Getting remote origin info for path: %s", repoPath)
 	remoteURL, err := lrm.operations.GetRemoteURL(repoPath)
 	if err != nil {
-		logger.Debugf("🔍 No remote origin found for %s: %v", repoPath, err)
+		// For debugging: if GetRemoteURL fails, let's try git command directly
+		logger.Debugf("🔍 GetRemoteURL failed, trying git command directly for %s", repoPath)
+		if directURL := lrm.tryDirectGitCommand(repoPath); directURL != "" {
+			isGitHub := strings.Contains(directURL, "github.com")
+			logger.Infof("✅ Direct git command found remote for %s: %s (GitHub: %v)", repoPath, directURL, isGitHub)
+			return directURL, isGitHub
+		}
+		logger.Errorf("❌ No remote origin found for %s: %v", repoPath, err)
 		return "", false
 	}
 
 	// Check if it's a GitHub URL
 	isGitHub := strings.Contains(remoteURL, "github.com")
 
-	logger.Debugf("🔍 Remote origin for %s: %s (GitHub: %v)", repoPath, remoteURL, isGitHub)
+	logger.Infof("✅ Remote origin for %s: %s (GitHub: %v)", repoPath, remoteURL, isGitHub)
 	return remoteURL, isGitHub
+}
+
+// tryDirectGitCommand attempts to get remote URL using git command directly as fallback
+func (lrm *LocalRepoManager) tryDirectGitCommand(repoPath string) string {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }

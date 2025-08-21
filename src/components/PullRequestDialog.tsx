@@ -12,6 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { RefreshCw, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { GitErrorDialog } from "./GitErrorDialog";
@@ -22,6 +32,7 @@ import {
   gitApi,
 } from "@/lib/git-api";
 import { type WorktreeSummary } from "@/lib/worktree-summary";
+import { cn } from "@/lib/utils";
 
 interface PullRequestDialogProps {
   open: boolean;
@@ -43,6 +54,77 @@ interface ErrorResponse {
   error: string;
 }
 
+function PullRequestForm({
+  className,
+  title,
+  description,
+  isGenerating,
+  onTitleChange,
+  onDescriptionChange,
+}: {
+  className?: string;
+  title: string;
+  description: string;
+  isGenerating: boolean;
+  onTitleChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+}) {
+  return (
+    <div className={cn("grid gap-6 py-4", className)}>
+      <div className="grid gap-2">
+        <Label htmlFor="pr-title" className="text-sm font-medium">
+          Title
+        </Label>
+        {isGenerating && !title ? (
+          <div className="space-y-2">
+            <div className="text-sm text-muted-foreground italic">
+              Claude is generating a PR summary...
+            </div>
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : (
+          <Input
+            id="pr-title"
+            value={title}
+            onChange={(e) => onTitleChange(e.target.value)}
+            className="w-full"
+            placeholder="Enter a descriptive title for your pull request"
+          />
+        )}
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="pr-body" className="text-sm font-medium">
+          Description
+        </Label>
+        {isGenerating && !description ? (
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground italic">
+              Generating detailed description...
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          </div>
+        ) : (
+          <textarea
+            id="pr-body"
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            className="w-full min-h-[300px] rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm resize-vertical"
+            placeholder="Enter pull request description..."
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function PullRequestDialog({
   open,
   onOpenChange,
@@ -59,6 +141,7 @@ export function PullRequestDialog({
   const lastClaudeCallRef = useRef<number>(0);
   const [loading, setLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   const [errorDialog, setErrorDialog] = useState<{
     open: boolean;
     error: string;
@@ -564,96 +647,108 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
     }
   };
 
+  if (isDesktop) {
+    return (
+      <Dialog open={open && !showCreateRepoDialog} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {isUpdate ? "Update Pull Request" : "Create Pull Request"}
+            </DialogTitle>
+            <DialogDescription>
+              {isUpdate
+                ? `Update the pull request for worktree ${worktree.branch}`
+                : `Create a pull request for worktree ${worktree.branch}`}
+            </DialogDescription>
+          </DialogHeader>
+          <PullRequestForm
+            title={title}
+            description={description}
+            isGenerating={isGenerating}
+            onTitleChange={setTitle}
+            onDescriptionChange={setDescription}
+          />
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={
+                isGenerating
+                  ? handleCancelGeneration
+                  : () => void handleSubmit()
+              }
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                  {isUpdate ? "Updating PR..." : "Creating PR..."}
+                </>
+              ) : isGenerating ? (
+                "Cancel Generation"
+              ) : isUpdate ? (
+                "Update PR"
+              ) : (
+                "Create PR"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
-    <Dialog open={open && !showCreateRepoDialog} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {isUpdate ? "Update Pull Request" : "Create Pull Request"}
-          </DialogTitle>
-          <DialogDescription>
-            {isUpdate
-              ? `Update the pull request for worktree ${worktree.branch}`
-              : `Create a pull request for worktree ${worktree.branch}`}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-6 py-4">
-          <div className="grid gap-2">
-            <Label htmlFor="pr-title" className="text-sm font-medium">
-              Title
-            </Label>
-            {isGenerating && !title ? (
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground italic">
-                  Claude is generating a PR summary...
-                </div>
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : (
-              <Input
-                id="pr-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full"
-                placeholder="Enter a descriptive title for your pull request"
-              />
-            )}
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="pr-body" className="text-sm font-medium">
-              Description
-            </Label>
-            {isGenerating && !description ? (
-              <div className="space-y-3">
-                <div className="text-sm text-muted-foreground italic">
-                  Generating detailed description...
-                </div>
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-5/6" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-2/3" />
-                </div>
-              </div>
-            ) : (
-              <textarea
-                id="pr-body"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full min-h-[300px] rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm resize-vertical"
-                placeholder="Enter pull request description..."
-              />
-            )}
-          </div>
-        </div>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={
-              isGenerating ? handleCancelGeneration : () => void handleSubmit()
-            }
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <RefreshCw className="animate-spin h-4 w-4 mr-2" />
-                {isUpdate ? "Updating PR..." : "Creating PR..."}
-              </>
-            ) : isGenerating ? (
-              "Cancel Generation"
-            ) : isUpdate ? (
-              "Update PR"
-            ) : (
-              "Create PR"
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
+    <>
+      <Drawer open={open && !showCreateRepoDialog} onOpenChange={onOpenChange}>
+        <DrawerContent>
+          <DrawerHeader className="text-left">
+            <DrawerTitle>
+              {isUpdate ? "Update Pull Request" : "Create Pull Request"}
+            </DrawerTitle>
+            <DrawerDescription>
+              {isUpdate
+                ? `Update the pull request for worktree ${worktree.branch}`
+                : `Create a pull request for worktree ${worktree.branch}`}
+            </DrawerDescription>
+          </DrawerHeader>
+          <PullRequestForm
+            className="px-4"
+            title={title}
+            description={description}
+            isGenerating={isGenerating}
+            onTitleChange={setTitle}
+            onDescriptionChange={setDescription}
+          />
+          <DrawerFooter className="pt-2">
+            <Button
+              onClick={
+                isGenerating
+                  ? handleCancelGeneration
+                  : () => void handleSubmit()
+              }
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                  {isUpdate ? "Updating PR..." : "Creating PR..."}
+                </>
+              ) : isGenerating ? (
+                "Cancel Generation"
+              ) : isUpdate ? (
+                "Update PR"
+              ) : (
+                "Create PR"
+              )}
+            </Button>
+            <DrawerClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DrawerClose>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
 
       <GitErrorDialog
         open={errorDialog.open}
@@ -667,86 +762,169 @@ Avoid overly lengthy explanations or step-by-step implementation details.`;
       />
 
       {/* Create GitHub Repository Dialog */}
-      <Dialog
-        open={showCreateRepoDialog}
-        onOpenChange={setShowCreateRepoDialog}
-      >
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Create GitHub Repository</DialogTitle>
-            <DialogDescription>
-              This local repository doesn't have a GitHub remote. Create a
-              GitHub repository to enable pull requests.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="repo-name">Repository Name</Label>
-              <Input
-                id="repo-name"
-                value={repoCreationForm.name}
-                onChange={(e) =>
-                  setRepoCreationForm((prev) => ({
-                    ...prev,
-                    name: e.target.value,
-                  }))
-                }
-                placeholder="my-awesome-project"
-              />
+      {isDesktop ? (
+        <Dialog
+          open={showCreateRepoDialog}
+          onOpenChange={setShowCreateRepoDialog}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Create GitHub Repository</DialogTitle>
+              <DialogDescription>
+                This local repository doesn't have a GitHub remote. Create a
+                GitHub repository to enable pull requests.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="repo-name">Repository Name</Label>
+                <Input
+                  id="repo-name"
+                  value={repoCreationForm.name}
+                  onChange={(e) =>
+                    setRepoCreationForm((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }))
+                  }
+                  placeholder="my-awesome-project"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="repo-description">Description</Label>
+                <Input
+                  id="repo-description"
+                  value={repoCreationForm.description}
+                  onChange={(e) =>
+                    setRepoCreationForm((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }))
+                  }
+                  placeholder="A brief description of your project"
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="repo-private"
+                  checked={repoCreationForm.isPrivate}
+                  onCheckedChange={(checked: boolean) =>
+                    setRepoCreationForm((prev) => ({
+                      ...prev,
+                      isPrivate: checked,
+                    }))
+                  }
+                />
+                <Label htmlFor="repo-private" className="text-sm font-normal">
+                  Make repository private
+                </Label>
+              </div>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="repo-description">Description</Label>
-              <Input
-                id="repo-description"
-                value={repoCreationForm.description}
-                onChange={(e) =>
-                  setRepoCreationForm((prev) => ({
-                    ...prev,
-                    description: e.target.value,
-                  }))
-                }
-                placeholder="A brief description of your project"
-              />
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowCreateRepoDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateGitHubRepository}
+                disabled={loading || !repoCreationForm.name}
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create Repository"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <Drawer
+          open={showCreateRepoDialog}
+          onOpenChange={setShowCreateRepoDialog}
+        >
+          <DrawerContent>
+            <DrawerHeader className="text-left">
+              <DrawerTitle>Create GitHub Repository</DrawerTitle>
+              <DrawerDescription>
+                This local repository doesn't have a GitHub remote. Create a
+                GitHub repository to enable pull requests.
+              </DrawerDescription>
+            </DrawerHeader>
+            <div className="grid gap-4 px-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="repo-name-mobile">Repository Name</Label>
+                <Input
+                  id="repo-name-mobile"
+                  value={repoCreationForm.name}
+                  onChange={(e) =>
+                    setRepoCreationForm((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }))
+                  }
+                  placeholder="my-awesome-project"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="repo-description-mobile">Description</Label>
+                <Input
+                  id="repo-description-mobile"
+                  value={repoCreationForm.description}
+                  onChange={(e) =>
+                    setRepoCreationForm((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }))
+                  }
+                  placeholder="A brief description of your project"
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="repo-private-mobile"
+                  checked={repoCreationForm.isPrivate}
+                  onCheckedChange={(checked: boolean) =>
+                    setRepoCreationForm((prev) => ({
+                      ...prev,
+                      isPrivate: checked,
+                    }))
+                  }
+                />
+                <Label
+                  htmlFor="repo-private-mobile"
+                  className="text-sm font-normal"
+                >
+                  Make repository private
+                </Label>
+              </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="repo-private"
-                checked={repoCreationForm.isPrivate}
-                onCheckedChange={(checked: boolean) =>
-                  setRepoCreationForm((prev) => ({
-                    ...prev,
-                    isPrivate: checked,
-                  }))
-                }
-              />
-              <Label htmlFor="repo-private" className="text-sm font-normal">
-                Make repository private
-              </Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowCreateRepoDialog(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateGitHubRepository}
-              disabled={loading || !repoCreationForm.name}
-            >
-              {loading ? (
-                <>
-                  <RefreshCw className="animate-spin h-4 w-4 mr-2" />
-                  Creating...
-                </>
-              ) : (
-                "Create Repository"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Dialog>
+            <DrawerFooter className="pt-2">
+              <Button
+                onClick={handleCreateGitHubRepository}
+                disabled={loading || !repoCreationForm.name}
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create Repository"
+                )}
+              </Button>
+              <DrawerClose asChild>
+                <Button variant="outline">Cancel</Button>
+              </DrawerClose>
+            </DrawerFooter>
+          </DrawerContent>
+        </Drawer>
+      )}
+    </>
   );
 }

@@ -361,6 +361,87 @@ func (s *ClaudeService) fileHasTimestamps(filePath string) bool {
 	return hasTimestamp
 }
 
+// findLatestSessionFileWithContent finds the most recent session file that contains assistant messages
+func (s *ClaudeService) findLatestSessionFileWithContent(projectDir string) (string, error) {
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("project directory does not exist: %s", projectDir)
+		}
+		return "", fmt.Errorf("failed to read project directory: %w", err)
+	}
+
+	var sessionFiles []fs.DirEntry
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
+			sessionFiles = append(sessionFiles, entry)
+		}
+	}
+
+	if len(sessionFiles) == 0 {
+		return "", fmt.Errorf("no session files found in %s", projectDir)
+	}
+
+	// Sort by modification time (most recent first)
+	sort.Slice(sessionFiles, func(i, j int) bool {
+		infoI, _ := sessionFiles[i].Info()
+		infoJ, _ := sessionFiles[j].Info()
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	// Check each file (starting with most recent) to see if it has assistant content
+	for _, entry := range sessionFiles {
+		filePath := filepath.Join(projectDir, entry.Name())
+		if s.fileHasAssistantContent(filePath) {
+			return filePath, nil
+		}
+	}
+
+	// If no files have assistant content, return the most recent one anyway (fallback)
+	return filepath.Join(projectDir, sessionFiles[0].Name()), nil
+}
+
+// fileHasAssistantContent checks if a session file contains at least one assistant message with text content
+func (s *ClaudeService) fileHasAssistantContent(filePath string) bool {
+	hasContent := false
+
+	err := readJSONLines(filePath, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Check if this is an assistant message with text content
+		if message.Type == "assistant" && message.Message != nil {
+			messageData := message.Message
+			if content, exists := messageData["content"]; exists {
+				if contentArray, ok := content.([]interface{}); ok {
+					for _, contentItem := range contentArray {
+						if contentMap, ok := contentItem.(map[string]interface{}); ok {
+							if contentType, exists := contentMap["type"]; exists && contentType == "text" {
+								if text, exists := contentMap["text"]; exists {
+									if textStr, ok := text.(string); ok && len(strings.TrimSpace(textStr)) > 0 {
+										hasContent = true
+										return fmt.Errorf("found content") // Use error to exit early
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return nil
+	})
+
+	// If we got an error because we found content, return true
+	if err != nil && err.Error() == "found content" {
+		return true
+	}
+
+	return hasContent
+}
+
 // readSessionTiming reads the first and last timestamps from a session file
 func (s *ClaudeService) readSessionTiming(sessionFilePath string) (*SessionTiming, error) {
 	var firstTimestamp, lastTimestamp *time.Time
@@ -787,6 +868,70 @@ func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, erro
 	}
 
 	return latestTodos, nil
+}
+
+// GetLatestAssistantMessage gets the most recent assistant message from the session history
+func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, error) {
+	// Convert worktree path to project directory name
+	// /workspace/vllmulator/midnight -> -workspace-vllmulator-midnight
+	// Claude replaces both "/" and "." with "-"
+	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
+	projectDirName = strings.TrimPrefix(projectDirName, "-")
+	projectDirName = "-" + projectDirName // Add back the leading dash
+	projectDir := s.findProjectDirectory(projectDirName)
+
+	if projectDir == "" {
+		return "", fmt.Errorf("project directory not found for worktree: %s", worktreePath)
+	}
+
+	// Find the most recent session file with actual assistant content
+	sessionFile, err := s.findLatestSessionFileWithContent(projectDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to find latest session file with content: %w", err)
+	}
+
+	// Look for the most recent assistant message in the session
+	var latestAssistantMessage string
+
+	err = readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Check if this is an assistant message
+		if message.Type == "assistant" && message.Message != nil {
+			messageData := message.Message
+			if content, exists := messageData["content"]; exists {
+				if contentArray, ok := content.([]interface{}); ok {
+					var textContent strings.Builder
+					for _, contentItem := range contentArray {
+						if contentMap, ok := contentItem.(map[string]interface{}); ok {
+							if contentType, exists := contentMap["type"]; exists && contentType == "text" {
+								if text, exists := contentMap["text"]; exists {
+									if textStr, ok := text.(string); ok {
+										textContent.WriteString(textStr)
+									}
+								}
+							}
+						}
+					}
+					if textContent.Len() > 0 {
+						latestAssistantMessage = textContent.String()
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	return latestAssistantMessage, nil
 }
 
 // CreateCompletion creates a completion using the claude CLI subprocess

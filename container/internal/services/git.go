@@ -1040,19 +1040,20 @@ func (s *GitService) detectLocalRepos() {
 
 	// Add detected repos to our repository map via state manager
 	for repoID, repo := range repos {
-		// Check if repository already exists in state and update default branch if needed
+		// Check if repository already exists in state and update fields if needed
 		if existingRepo, exists := s.stateManager.GetRepository(repoID); exists {
-			// Update default branch if it has changed
-			if existingRepo.DefaultBranch != repo.DefaultBranch {
-				logger.Infof("🔄 Updating default branch for %s: %s -> %s", repoID, existingRepo.DefaultBranch, repo.DefaultBranch)
-				existingRepo.DefaultBranch = repo.DefaultBranch
-				existingRepo.LastAccessed = repo.LastAccessed
-				repo = existingRepo // Use the existing repo with updated default branch
-			} else {
-				// Just update LastAccessed
-				existingRepo.LastAccessed = repo.LastAccessed
-				repo = existingRepo
+			// Always update these fields from fresh detection
+			existingRepo.DefaultBranch = repo.DefaultBranch
+			existingRepo.LastAccessed = repo.LastAccessed
+			existingRepo.HasGitHubRemote = repo.HasGitHubRemote
+			existingRepo.RemoteOrigin = repo.RemoteOrigin
+
+			// Log if GitHub remote detection changed
+			if existingRepo.HasGitHubRemote != repo.HasGitHubRemote {
+				logger.Infof("🔄 Updating GitHub remote status for %s: %v -> %v", repoID, existingRepo.HasGitHubRemote, repo.HasGitHubRemote)
 			}
+
+			repo = existingRepo // Use the existing repo with updated fields
 		}
 
 		if err := s.stateManager.AddRepository(repo); err != nil {

@@ -106,6 +106,38 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/claude/latest-message": {
+            "get": {
+                "description": "Returns the most recent assistant message from Claude Code session for a specific worktree",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Get worktree latest assistant message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree path",
+                        "name": "worktreePath",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/messages": {
             "post": {
                 "description": "Creates a completion using the claude CLI tool as a subprocess, supporting both streaming and non-streaming responses, with resume functionality",
@@ -172,7 +204,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "Worktree path",
-                        "name": "worktree_path",
+                        "name": "worktreePath",
                         "in": "query",
                         "required": true
                     }
@@ -305,7 +337,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "Worktree path",
-                        "name": "worktree_path",
+                        "name": "worktreePath",
                         "in": "query",
                         "required": true
                     }

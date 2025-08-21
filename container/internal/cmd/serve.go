@@ -245,6 +245,7 @@ func startServer(cmd *cobra.Command) {
 	v1.Get("/claude/session/:uuid", claudeHandler.GetSessionByUUID)
 	v1.Get("/claude/sessions", claudeHandler.GetAllWorktreeSessionSummaries)
 	v1.Get("/claude/todos", claudeHandler.GetWorktreeTodos)
+	v1.Get("/claude/latest-message", claudeHandler.GetWorktreeLatestAssistantMessage)
 	v1.Post("/claude/messages", claudeHandler.CreateCompletion)
 	v1.Get("/claude/settings", claudeHandler.GetClaudeSettings)
 	v1.Put("/claude/settings", claudeHandler.UpdateClaudeSettings)

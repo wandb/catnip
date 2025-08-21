@@ -1094,6 +1094,28 @@ paths:
       summary: Handle Claude hook events
       tags:
       - claude
+  /v1/claude/latest-message:
+    get:
+      description: Returns the most recent assistant message from Claude Code session
+        for a specific worktree
+      parameters:
+      - description: Worktree path
+        in: query
+        name: worktreePath
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get worktree latest assistant message
+      tags:
+      - claude
   /v1/claude/messages:
     post:
       consumes:
@@ -1135,7 +1157,7 @@ paths:
       parameters:
       - description: Worktree path
         in: query
-        name: worktree_path
+        name: worktreePath
         required: true
         type: string
       produces:
@@ -1226,7 +1248,7 @@ paths:
       parameters:
       - description: Worktree path
         in: query
-        name: worktree_path
+        name: worktreePath
         required: true
         type: string
       produces:
