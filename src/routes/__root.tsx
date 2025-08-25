@@ -15,12 +15,14 @@ import { useGitHubAuth } from "@/lib/hooks";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { NotificationProvider } from "@/components/NotificationProvider";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function RootLayout() {
   const location = useLocation();
   const { isConnected } = useWebSocket();
   const { isAuthenticated, isLoading, authRequired } = useAuth();
   const { showAuthModal, setShowAuthModal } = useGitHubAuth();
+  const isMobile = useIsMobile();
 
   // Check if we're on a workspace route
   const isWorkspaceRoute = location.pathname.startsWith("/workspace");
@@ -103,7 +105,8 @@ function RootLayout() {
       {/* GitHub Auth Modal */}
       <GitHubAuthModal open={showAuthModal} onOpenChange={setShowAuthModal} />
 
-      <TanStackRouterDevtools position="bottom-right" />
+      {/* Router Devtools - Only show on desktop */}
+      {!isMobile && <TanStackRouterDevtools position="bottom-right" />}
     </>
   );
 }

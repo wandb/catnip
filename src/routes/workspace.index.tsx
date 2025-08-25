@@ -3,12 +3,15 @@ import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppStore } from "@/stores/appStore";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
+import { WorkspaceMobileIndex } from "@/components/WorkspaceMobileIndex";
 import { BackendErrorScreen } from "@/components/BackendErrorScreen";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function WorkspaceRedirect() {
   const navigate = useNavigate();
   const hasRedirected = useRef(false);
+  const isMobile = useIsMobile();
 
   // Use stable selectors to avoid infinite loops
   const initialLoading = useAppStore((state) => state.initialLoading);
@@ -19,8 +22,8 @@ function WorkspaceRedirect() {
   const getRepositoryById = useAppStore((state) => state.getRepositoryById);
 
   useEffect(() => {
-    if (hasRedirected.current || initialLoading || loadError) {
-      return; // Prevent multiple redirects or wait for data to load
+    if (hasRedirected.current || initialLoading || loadError || isMobile) {
+      return; // Prevent multiple redirects or wait for data to load, or if mobile show index
     }
 
     if (worktreesCount > 0) {
@@ -54,7 +57,14 @@ function WorkspaceRedirect() {
     }
 
     // Don't redirect if no available workspaces - show welcome screen instead
-  }, [initialLoading, loadError, worktreesCount, navigate, getRepositoryById]);
+  }, [
+    initialLoading,
+    loadError,
+    worktreesCount,
+    navigate,
+    getRepositoryById,
+    isMobile,
+  ]);
 
   // Show error screen if backend is unavailable
   if (loadError) {
@@ -64,6 +74,11 @@ function WorkspaceRedirect() {
   // Show welcome screen if no workspaces
   if (!initialLoading && worktreesCount === 0) {
     return <WorkspaceWelcome />;
+  }
+
+  // Show mobile index if on mobile and workspaces are available
+  if (isMobile && !initialLoading && worktreesCount > 0) {
+    return <WorkspaceMobileIndex />;
   }
 
   // Show loading while checking for workspaces

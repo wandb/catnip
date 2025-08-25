@@ -216,6 +216,34 @@ func (h *ClaudeHandler) GetWorktreeTodos(c *fiber.Ctx) error {
 	return c.JSON(todos)
 }
 
+// GetWorktreeLatestAssistantMessage returns the most recent assistant message from the session history for a specific worktree
+// @Summary Get worktree latest assistant message
+// @Description Returns the most recent assistant message from Claude Code session for a specific worktree
+// @Tags claude
+// @Produce json
+// @Param worktree_path query string true "Worktree path"
+// @Success 200 {object} map[string]string
+// @Router /v1/claude/latest-message [get]
+func (h *ClaudeHandler) GetWorktreeLatestAssistantMessage(c *fiber.Ctx) error {
+	worktreePath := c.Query("worktree_path")
+	if worktreePath == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "worktreePath query parameter is required",
+		})
+	}
+
+	message, err := h.claudeService.GetLatestAssistantMessage(worktreePath)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": message,
+	})
+}
+
 // GetClaudeSettings returns Claude configuration settings from ~/.claude.json
 // @Summary Get Claude settings
 // @Description Returns Claude Code configuration settings including theme, authentication status, and other metadata

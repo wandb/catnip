@@ -296,15 +296,16 @@ func (lrm *LocalRepoManager) createTemporaryCommit(worktreePath string) (string,
 
 // getRemoteOriginInfo gets the remote origin URL and determines if it's a GitHub repository
 func (lrm *LocalRepoManager) getRemoteOriginInfo(repoPath string) (string, bool) {
+	logger.Debugf("🔍 Getting remote origin info for path: %s", repoPath)
 	remoteURL, err := lrm.operations.GetRemoteURL(repoPath)
 	if err != nil {
-		logger.Debugf("🔍 No remote origin found for %s: %v", repoPath, err)
+		logger.Errorf("❌ No remote origin found for %s: %v", repoPath, err)
 		return "", false
 	}
 
 	// Check if it's a GitHub URL
 	isGitHub := strings.Contains(remoteURL, "github.com")
 
-	logger.Debugf("🔍 Remote origin for %s: %s (GitHub: %v)", repoPath, remoteURL, isGitHub)
+	logger.Infof("✅ Remote origin for %s: %s (GitHub: %v)", repoPath, remoteURL, isGitHub)
 	return remoteURL, isGitHub
 }

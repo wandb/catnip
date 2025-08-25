@@ -9,6 +9,8 @@ import { WorkspaceMainContent } from "@/components/WorkspaceMainContent";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { BackendErrorScreen } from "@/components/BackendErrorScreen";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { WorkspaceMobile } from "@/components/WorkspaceMobile";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function WorkspacePage() {
   const { project, workspace } = useParams({
@@ -38,6 +40,7 @@ function WorkspacePage() {
 
   // Construct the workspace name from URL params
   const workspaceName = `${project}/${workspace}`;
+  const isMobile = useIsMobile();
 
   // Use stable selectors to avoid infinite loops - only get counts first
   const worktreesCount = useAppStore(
@@ -118,6 +121,10 @@ function WorkspacePage() {
         </div>
       </div>
     );
+  }
+
+  if (isMobile) {
+    return <WorkspaceMobile worktree={worktree} repository={repository} />;
   }
 
   // Render the full workspace layout with sidebars and main content
