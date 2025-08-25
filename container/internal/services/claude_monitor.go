@@ -12,6 +12,7 @@ import (
 
 	"bytes"
 	"encoding/json"
+
 	"github.com/fsnotify/fsnotify"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
@@ -819,12 +820,7 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 		return
 	}
 
-	// Convert worktree path to project directory
-	// Claude replaces both "/" and "." with "-"
-	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
-	projectDirName = strings.TrimPrefix(projectDirName, "-")
-	projectDirName = "-" + projectDirName
+	projectDirName := WorktreePathToProjectDir(worktreePath)
 	logger.Debugf("🔍 Looking for project directory: %s", projectDirName)
 	projectDir := s.findProjectDirectory(projectDirName)
 

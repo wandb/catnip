@@ -213,6 +213,24 @@ export const gitApi = {
     }
   },
 
+  async fetchWorktreeLatestAssistantMessage(
+    worktreePath: string,
+  ): Promise<string> {
+    try {
+      const response = await fetch(
+        `/v1/claude/latest-message?worktree_path=${encodeURIComponent(worktreePath)}`,
+      );
+      if (response.ok) {
+        const result = await response.json();
+        return result.message || "";
+      }
+      return "";
+    } catch (error) {
+      console.error("Failed to fetch latest assistant message:", error);
+      return "";
+    }
+  },
+
   async fetchActiveSessions(): Promise<Record<string, any>> {
     try {
       const response = await fetch("/v1/sessions/active");
