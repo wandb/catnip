@@ -197,7 +197,7 @@ func (h *ClaudeHandler) GetWorktreeTodos(c *fiber.Ctx) error {
 	worktreePath := c.Query("worktree_path")
 	if worktreePath == "" {
 		return c.Status(400).JSON(fiber.Map{
-			"error": "worktreePath query parameter is required",
+			"error": "worktree_path query parameter is required",
 		})
 	}
 

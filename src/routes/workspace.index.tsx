@@ -1,22 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAppStore } from "@/stores/appStore";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { WorkspaceMobileIndex } from "@/components/WorkspaceMobileIndex";
 import { BackendErrorScreen } from "@/components/BackendErrorScreen";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function WorkspaceRedirect() {
   const navigate = useNavigate();
   const hasRedirected = useRef(false);
-  const [isMobile, setIsMobile] = useState(() => {
-    // Initialize with correct mobile state to prevent redirect race condition
-    if (typeof window !== "undefined") {
-      return window.matchMedia("(max-width: 768px)").matches;
-    }
-    return false;
-  });
+  const isMobile = useIsMobile();
 
   // Use stable selectors to avoid infinite loops
   const initialLoading = useAppStore((state) => state.initialLoading);
@@ -25,27 +20,6 @@ function WorkspaceRedirect() {
     (state) => state.getWorktreesList().length,
   );
   const getRepositoryById = useAppStore((state) => state.getRepositoryById);
-
-  // Detect mobile viewport
-  useEffect(() => {
-    const mql = window.matchMedia("(max-width: 768px)");
-    const handler = (e: MediaQueryListEvent | MediaQueryList) => {
-      setIsMobile("matches" in e ? e.matches : (e as MediaQueryList).matches);
-    };
-    handler(mql);
-    if (mql.addEventListener) {
-      mql.addEventListener("change", handler);
-    } else {
-      mql.addListener(handler);
-    }
-    return () => {
-      if (mql.removeEventListener) {
-        mql.removeEventListener("change", handler);
-      } else {
-        mql.removeListener(handler);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (hasRedirected.current || initialLoading || loadError || isMobile) {

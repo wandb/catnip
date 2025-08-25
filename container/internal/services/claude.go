@@ -82,6 +82,15 @@ func readJSONLines(filePath string, handler func([]byte) error) error {
 	return nil
 }
 
+func WorktreePathToProjectDir(worktreePath string) string {
+	// Claude replaces both "/" and "." with "-"
+	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
+	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
+	projectDirName = strings.TrimPrefix(projectDirName, "-")
+	projectDirName = "-" + projectDirName
+	return projectDirName
+}
+
 // NewClaudeService creates a new Claude service
 func NewClaudeService() *ClaudeService {
 	// Use runtime-appropriate directories
@@ -152,10 +161,7 @@ func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.
 		return nil, nil
 	}
 
-	// Check if the project directory exists in either location
-	// Claude replaces both "/" and "." with "-"
-	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
+	projectDirName := WorktreePathToProjectDir(worktreePath)
 	projectDir := s.findProjectDirectory(projectDirName)
 	if projectDir == "" {
 		// Project directory doesn't exist in either location, skip this session
@@ -251,11 +257,7 @@ type SessionTimingWithID struct {
 
 // getSessionTiming extracts session start and end times from session files
 func (s *ClaudeService) getSessionTiming(worktreePath string) (*SessionTimingWithID, error) {
-	// Convert worktree path to project directory name
-	// "/workspace/openui/debug-quokka" -> "-workspace-openui-debug-quokka"
-	// Claude replaces both "/" and "." with "-"
-	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
+	projectDirName := WorktreePathToProjectDir(worktreePath)
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -576,10 +578,7 @@ func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData 
 
 // GetAllSessionsForWorkspace returns all session IDs for a workspace with metadata
 func (s *ClaudeService) GetAllSessionsForWorkspace(worktreePath string) ([]models.SessionListEntry, error) {
-	// Convert worktree path to project directory name
-	// Claude replaces both "/" and "." with "-"
-	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
+	projectDirName := WorktreePathToProjectDir(worktreePath)
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -644,10 +643,7 @@ func (s *ClaudeService) GetAllSessionsForWorkspace(worktreePath string) ([]model
 
 // GetSessionMessages reads all messages from a specific session file
 func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]models.ClaudeSessionMessage, error) {
-	// Convert worktree path to project directory name
-	// Claude replaces both "/" and "." with "-"
-	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
+	projectDirName := WorktreePathToProjectDir(worktreePath)
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -778,13 +774,7 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 
 // GetLatestTodos gets the most recent Todo structure from the session history
 func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, error) {
-	// Convert worktree path to project directory name
-	// /workspace/vllmulator/midnight -> -workspace-vllmulator-midnight
-	// Claude replaces both "/" and "." with "-"
-	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
-	projectDirName = strings.TrimPrefix(projectDirName, "-")
-	projectDirName = "-" + projectDirName // Add back the leading dash
+	projectDirName := WorktreePathToProjectDir(worktreePath)
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
@@ -872,13 +862,7 @@ func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, erro
 
 // GetLatestAssistantMessage gets the most recent assistant message from the session history
 func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, error) {
-	// Convert worktree path to project directory name
-	// /workspace/vllmulator/midnight -> -workspace-vllmulator-midnight
-	// Claude replaces both "/" and "." with "-"
-	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
-	projectDirName = strings.ReplaceAll(projectDirName, ".", "-")
-	projectDirName = strings.TrimPrefix(projectDirName, "-")
-	projectDirName = "-" + projectDirName // Add back the leading dash
+	projectDirName := WorktreePathToProjectDir(worktreePath)
 	projectDir := s.findProjectDirectory(projectDirName)
 
 	if projectDir == "" {
