@@ -218,7 +218,7 @@ export const gitApi = {
   ): Promise<string> {
     try {
       const response = await fetch(
-        `/v1/claude/latest-message?worktreePath=${encodeURIComponent(worktreePath)}`,
+        `/v1/claude/latest-message?worktree_path=${encodeURIComponent(worktreePath)}`,
       );
       if (response.ok) {
         const result = await response.json();

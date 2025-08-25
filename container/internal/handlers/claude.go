@@ -36,14 +36,14 @@ func (h *ClaudeHandler) WithEvents(eventsHandler *EventsHandler) *ClaudeHandler 
 // @Description Returns Claude Code session metadata for a specific worktree
 // @Tags claude
 // @Produce json
-// @Param worktreePath query string true "Worktree path"
+// @Param worktree_path query string true "Worktree path"
 // @Success 200 {object} models.ClaudeSessionSummary
 // @Router /v1/claude/session [get]
 func (h *ClaudeHandler) GetWorktreeSessionSummary(c *fiber.Ctx) error {
-	worktreePath := c.Query("worktreePath")
+	worktreePath := c.Query("worktree_path")
 	if worktreePath == "" {
 		return c.Status(400).JSON(fiber.Map{
-			"error": "worktreePath query parameter is required",
+			"error": "worktree_path query parameter is required",
 		})
 	}
 
@@ -190,11 +190,11 @@ func (h *ClaudeHandler) CreateCompletion(c *fiber.Ctx) error {
 // @Description Returns the most recent TodoWrite structure from Claude Code session for a specific worktree
 // @Tags claude
 // @Produce json
-// @Param worktreePath query string true "Worktree path"
+// @Param worktree_path query string true "Worktree path"
 // @Success 200 {array} models.Todo
 // @Router /v1/claude/todos [get]
 func (h *ClaudeHandler) GetWorktreeTodos(c *fiber.Ctx) error {
-	worktreePath := c.Query("worktreePath")
+	worktreePath := c.Query("worktree_path")
 	if worktreePath == "" {
 		return c.Status(400).JSON(fiber.Map{
 			"error": "worktreePath query parameter is required",
@@ -221,11 +221,11 @@ func (h *ClaudeHandler) GetWorktreeTodos(c *fiber.Ctx) error {
 // @Description Returns the most recent assistant message from Claude Code session for a specific worktree
 // @Tags claude
 // @Produce json
-// @Param worktreePath query string true "Worktree path"
+// @Param worktree_path query string true "Worktree path"
 // @Success 200 {object} map[string]string
 // @Router /v1/claude/latest-message [get]
 func (h *ClaudeHandler) GetWorktreeLatestAssistantMessage(c *fiber.Ctx) error {
-	worktreePath := c.Query("worktreePath")
+	worktreePath := c.Query("worktree_path")
 	if worktreePath == "" {
 		return c.Status(400).JSON(fiber.Map{
 			"error": "worktreePath query parameter is required",

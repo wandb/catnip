@@ -120,7 +120,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "Worktree path",
-                        "name": "worktreePath",
+                        "name": "worktree_path",
                         "in": "query",
                         "required": true
                     }
@@ -204,7 +204,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "Worktree path",
-                        "name": "worktreePath",
+                        "name": "worktree_path",
                         "in": "query",
                         "required": true
                     }
@@ -337,7 +337,7 @@ const docTemplate = `{
                     {
                         "type": "string",
                         "description": "Worktree path",
-                        "name": "worktreePath",
+                        "name": "worktree_path",
                         "in": "query",
                         "required": true
                     }

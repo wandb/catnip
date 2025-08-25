@@ -1101,7 +1101,7 @@ paths:
       parameters:
       - description: Worktree path
         in: query
-        name: worktreePath
+        name: worktree_path
         required: true
         type: string
       produces:
@@ -1157,7 +1157,7 @@ paths:
       parameters:
       - description: Worktree path
         in: query
-        name: worktreePath
+        name: worktree_path
         required: true
         type: string
       produces:
@@ -1248,7 +1248,7 @@ paths:
       parameters:
       - description: Worktree path
         in: query
-        name: worktreePath
+        name: worktree_path
         required: true
         type: string
       produces:

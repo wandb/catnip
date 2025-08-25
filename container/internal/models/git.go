@@ -26,8 +26,8 @@ type TitleEntry struct {
 // MergeConflictError represents a merge conflict that occurred during sync or merge operations
 type MergeConflictError struct {
 	Operation     string   `json:"operation"`      // "sync" or "merge"
-	WorktreeName  string   `json:"worktreeName"`   // Name of the worktree
-	WorktreePath  string   `json:"worktreePath"`   // Path to the worktree
+	WorktreeName  string   `json:"worktree_name"`  // Name of the worktree
+	WorktreePath  string   `json:"worktree_path"`  // Path to the worktree
 	ConflictFiles []string `json:"conflict_files"` // List of files with conflicts
 	Message       string   `json:"message"`        // Human-readable error message
 }

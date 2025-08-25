@@ -299,13 +299,6 @@ func (lrm *LocalRepoManager) getRemoteOriginInfo(repoPath string) (string, bool)
 	logger.Debugf("🔍 Getting remote origin info for path: %s", repoPath)
 	remoteURL, err := lrm.operations.GetRemoteURL(repoPath)
 	if err != nil {
-		// For debugging: if GetRemoteURL fails, let's try git command directly
-		logger.Debugf("🔍 GetRemoteURL failed, trying git command directly for %s", repoPath)
-		if directURL := lrm.tryDirectGitCommand(repoPath); directURL != "" {
-			isGitHub := strings.Contains(directURL, "github.com")
-			logger.Infof("✅ Direct git command found remote for %s: %s (GitHub: %v)", repoPath, directURL, isGitHub)
-			return directURL, isGitHub
-		}
 		logger.Errorf("❌ No remote origin found for %s: %v", repoPath, err)
 		return "", false
 	}
@@ -315,15 +308,4 @@ func (lrm *LocalRepoManager) getRemoteOriginInfo(repoPath string) (string, bool)
 
 	logger.Infof("✅ Remote origin for %s: %s (GitHub: %v)", repoPath, remoteURL, isGitHub)
 	return remoteURL, isGitHub
-}
-
-// tryDirectGitCommand attempts to get remote URL using git command directly as fallback
-func (lrm *LocalRepoManager) tryDirectGitCommand(repoPath string) string {
-	cmd := exec.Command("git", "remote", "get-url", "origin")
-	cmd.Dir = repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(output))
 }

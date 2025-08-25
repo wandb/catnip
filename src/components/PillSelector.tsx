@@ -167,7 +167,7 @@ export function RepoSelectorPill({
   const githubOptions: PillSelectorOption[] = filteredGitHubRepos.map(
     (repo) => ({
       value: repo.url,
-      label: repo.fullName ?? repo.name,
+      label: repo.fullName ?? repo.name ?? repo.url,
       description: repo.description || repo.url,
       badge: repo.private ? "Private" : undefined,
     }),
