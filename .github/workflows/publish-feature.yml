@@ -3,13 +3,13 @@ on:
   push:
     branches: [ "main", "feature/codespaces" ]
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Publish devcontainer feature(s)

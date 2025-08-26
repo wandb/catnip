@@ -1,6 +1,6 @@
 # Catnip ❤️ devcontainers
 
-This feature sets up catnip to run inside of a dev container!  Add it with:
+This feature sets up catnip to run inside of a dev container! Add it with:
 
 ```json
 {
