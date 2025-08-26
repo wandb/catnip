@@ -1,0 +1,19 @@
+name: Publish Dev Container Feature
+on:
+  push:
+    branches: [ "main", "feature/codespaces" ]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish devcontainer feature(s)
+        uses: devcontainers/action@v1
+        with:
+          publish-features: "true"
+          base-path-to-features: ".devcontainer/features"

@@ -1,0 +1,22 @@
+{
+  "id": "catnip",
+  "version": "0.0.1",
+  "name": "catnip",
+  "description": "Ensures SSH, installs catnip, Claude CLI, and GitHub CLI.",
+  "options": {
+    "ensureSsh": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install and run openssh-server and openssh-client if missing"
+    },
+    "installCatnip": { "type": "boolean", "default": true },
+    "installClaude": { "type": "boolean", "default": true },
+    "installGh": { "type": "boolean", "default": true }
+  },
+  "entrypoint": "/usr/local/share/catnip-init.sh",
+  "customizations": { "vscode": { "extensions": ["anthropic.claude-code"] } },
+  "containerEnv": {
+    "PATH": "/opt/catnip/bin:/home/vscode/.local/bin:${PATH}"
+  },
+  "installsAfter": ["ghcr.io/devcontainers/features/sshd"]
+}
