@@ -25,7 +25,7 @@
   "mounts": [
     "source=${localWorkspaceFolderBasename}-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume",
     "source=${localWorkspaceFolderBasename}-catnip-volume,target=/home/vscode/.catnip/volume,type=volume",
-    "source=${localWorkspaceFolderBasename}-go-mods,target=/go/pkg/mod,type=volume"
+    "source=${localWorkspaceFolderBasename}-go-mods,target=/go/pkg/mod,type=volume,uid=1000,gid=1000"
   ],
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
