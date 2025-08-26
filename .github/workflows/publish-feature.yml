@@ -17,3 +17,4 @@ jobs:
         with:
           publish-features: "true"
           base-path-to-features: ".devcontainer/features"
+          features-namespace: "wandb"
