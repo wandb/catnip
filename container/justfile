@@ -143,12 +143,45 @@ setup: deps swagger build
 build-frontend:
 	#!/usr/bin/env bash
 	set -euo pipefail
-	echo "Building frontend assets..."
-	cd .. && pnpm install --frozen-lockfile && pnpm build
-	echo "Copying frontend assets to internal/assets/dist..."
-	mkdir -p container/internal/assets/dist
-	if [ -d "dist" ]; then cp -r dist/* container/internal/assets/dist/; else echo "Warning: dist directory not found"; fi
-	echo "✅ Frontend assets built and copied"
+	
+	# Check if we need to rebuild by comparing timestamps
+	cd ..
+	
+	# Check if any source files are newer than the dist directory
+	NEEDS_REBUILD=false
+	if [ ! -d "dist" ] || [ -z "$(ls -A dist 2>/dev/null)" ]; then
+		NEEDS_REBUILD=true
+	else
+		# Check if any source files are newer than the dist directory
+		if find src/ public/ package.json pnpm-lock.yaml vite.config.ts tsconfig*.json -newer dist/ -type f 2>/dev/null | grep -q .; then
+			NEEDS_REBUILD=true
+		fi
+	fi
+	
+	if [ "$NEEDS_REBUILD" = true ]; then
+		echo "Source files are newer than dist, building frontend assets..."
+		pnpm install --frozen-lockfile
+		
+		# Use fast build if TypeScript files haven't changed, full build otherwise
+		if find src/ -name "*.ts" -o -name "*.tsx" -newer dist/ 2>/dev/null | grep -q .; then
+			echo "TypeScript files changed, running full build..."
+			pnpm build
+		else
+			echo "No TypeScript changes, running fast build..."
+			pnpm build:fast
+		fi
+		
+		echo "Copying frontend assets to internal/assets/dist..."
+		mkdir -p container/internal/assets/dist
+		if [ -d "dist" ]; then cp -r dist/* container/internal/assets/dist/; else echo "Warning: dist directory not found"; fi
+		echo "✅ Frontend assets built and copied"
+	else
+		echo "Dist is up to date, skipping build..."
+		# Still ensure the assets are copied to the container location
+		mkdir -p container/internal/assets/dist
+		if [ -d "dist" ]; then cp -r dist/* container/internal/assets/dist/; else echo "Warning: dist directory not found"; fi
+		echo "✅ Frontend assets copied (no rebuild needed)"
+	fi
 
 # Build proxy injection script
 build-scripts:
@@ -222,16 +255,18 @@ create-app-bundle VERSION:
 install: build
 	#!/usr/bin/env bash
 	set -euo pipefail
+
+	echo "📦 Installing catnip locally..."
+	INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
+	mkdir -p "$INSTALL_DIR"
 	
 	if [[ "$(uname)" != "Darwin" ]]; then
-		echo "❌ Local install is currently only supported on macOS"
-		exit 1
+		cp bin/catnip "${INSTALL_DIR}/catnip"
+		echo "✅ catnip installed to ${INSTALL_DIR}/catnip"
+		exit 0
 	fi
 	
-	echo "📦 Installing catnip locally..."
-	
 	# Configuration
-	INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 	APP_SUPPORT_DIR="${HOME}/Library/Application Support/catnip"
 	APP_BUNDLE_PATH="${APP_SUPPORT_DIR}/Catnip.app"
 	
@@ -244,7 +279,6 @@ install: build
 	
 	# Create directories
 	echo "📁 Creating directories..."
-	mkdir -p "$INSTALL_DIR"
 	mkdir -p "$APP_SUPPORT_DIR"
 	
 	# Clean up old installations
