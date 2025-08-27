@@ -147,13 +147,14 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
   async fetch(request: Request): Promise<Response> {
     await this.initKeys();
     const url = new URL(request.url);
-    const githubUser = url.pathname.split("/").pop();
+    const pathParts = url.pathname.split("/");
+    const githubUser = pathParts.pop();
 
     if (request.method === "GET" && githubUser) {
-      // Get credentials by GitHub user
+      // Get most recent credentials by GitHub user
       const rows = this.sql
         .exec(
-          "SELECT * FROM codespace_credentials WHERE github_user = ? LIMIT 1",
+          "SELECT * FROM codespace_credentials WHERE github_user = ? ORDER BY updated_at DESC LIMIT 1",
           githubUser,
         )
         .toArray();
@@ -169,6 +170,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
         iv: row.iv as string,
         encryptedData: row.encrypted_data as string,
         createdAt: row.created_at as number,
+        updatedAt: row.updated_at as number,
       } as StoredCodespaceCredentials;
 
       try {
@@ -176,11 +178,11 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
 
         // Check if credentials are expired (24 hours)
         const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
-        if (credentials.createdAt < twentyFourHoursAgo) {
-          // Clean up expired credentials
+        if (credentials.updatedAt < twentyFourHoursAgo) {
+          // Clean up expired credentials for this codespace
           this.sql.exec(
-            "DELETE FROM codespace_credentials WHERE github_user = ?",
-            githubUser,
+            "DELETE FROM codespace_credentials WHERE codespace_name = ?",
+            credentials.codespaceName,
           );
           return new Response("Credentials expired", { status: 404 });
         }
@@ -201,16 +203,29 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       );
       const now = Date.now();
 
-      // Replace existing credentials for this user
+      // Check if credentials already exist for this codespace
+      const existingRows = this.sql
+        .exec(
+          "SELECT created_at FROM codespace_credentials WHERE codespace_name = ? LIMIT 1",
+          credentials.codespaceName,
+        )
+        .toArray();
+
+      const createdAt =
+        existingRows.length > 0 ? (existingRows[0].created_at as number) : now;
+
+      // Insert or replace credentials for this specific codespace
       this.sql.exec(
         `INSERT OR REPLACE INTO codespace_credentials 
-          (github_user, key_id, salt, iv, encrypted_data, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)`,
-        githubUser,
+          (codespace_name, github_user, key_id, salt, iv, encrypted_data, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        credentials.codespaceName,
+        credentials.githubUser,
         this.currentKeyId,
         salt,
         iv,
         encrypted,
+        createdAt,
         now,
       );
 
@@ -218,7 +233,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
     }
 
     if (request.method === "DELETE" && githubUser) {
-      // Delete credentials
+      // Delete all credentials for this user
       this.sql.exec(
         "DELETE FROM codespace_credentials WHERE github_user = ?",
         githubUser,
@@ -226,11 +241,24 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       return new Response("OK");
     }
 
+    if (request.method === "DELETE" && pathParts.length > 1) {
+      // Delete specific codespace credentials
+      const codespaceName = pathParts[pathParts.length - 2];
+      if (codespaceName && githubUser) {
+        this.sql.exec(
+          "DELETE FROM codespace_credentials WHERE codespace_name = ? AND github_user = ?",
+          codespaceName,
+          githubUser,
+        );
+        return new Response("OK");
+      }
+    }
+
     // Cleanup old credentials (older than 24 hours)
     if (request.method === "POST" && url.pathname.endsWith("/cleanup")) {
       const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
       this.sql.exec(
-        "DELETE FROM codespace_credentials WHERE created_at < ?",
+        "DELETE FROM codespace_credentials WHERE updated_at < ?",
         twentyFourHoursAgo,
       );
       return new Response("OK");

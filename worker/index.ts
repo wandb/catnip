@@ -44,6 +44,7 @@ interface CodespaceCredentials {
   githubUser: string;
   codespaceName: string;
   createdAt: number;
+  updatedAt: number;
 }
 
 type Variables = {
@@ -407,6 +408,7 @@ export function createApp(env: Env) {
         githubUser: GITHUB_USER,
         codespaceName: CODESPACE_NAME,
         createdAt: Date.now(),
+        updatedAt: Date.now(),
       };
 
       const storeResponse = await codespaceStore.fetch(
