@@ -46,8 +46,8 @@ USERHOME="${USERHOME:-/home/$USERNAME}"
 [[ "$USERNAME" == "root" ]] && USERHOME="/root"
 
 CATNIP_ROOT="${USERHOME}/.catnip"
-VOLUME_DIR="${CATNIP_ROOT}/volume"
 OPT_DIR="/opt/catnip"
+VOLUME_DIR="${OPT_DIR}/state"
 
 # Root helper
 run_as_root() {
@@ -151,49 +151,17 @@ install_catnip() {
   run_as_user "curl -sSfL install.catnip.sh | sh"
 
   log "🏠 Setting up codespace directories for ${USERNAME}..."
-  for d in "$CATNIP_ROOT" "$VOLUME_DIR"; do
+  for d in "$CATNIP_ROOT" "$VOLUME_DIR" "$OPT_DIR/bin" "/worktrees"; do
     ensure_dir_mode "$d" 0755
     ensure_owner "$d" "$USERNAME" "$USERGROUP"
     ok "Prepared: $d"
   done
 
-  # /opt/catnip hierarchy
-  run_as_root mkdir -p "$OPT_DIR/bin"
-  ensure_owner "$OPT_DIR" "$USERNAME" "$USERGROUP"
-  ok "Prepared: $OPT_DIR"
-
-  # 1) User-owned runner that handles nohup/log/pid (runtime expansion)
-  tee "$OPT_DIR/bin/catnip-run.sh" >/dev/null <<'USR'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-
-echo "[$(date -Is)] runner starting as $(id -un) uid=$(id -u) pwd=$PWD"
-
-export PATH="/opt/catnip/bin:$HOME/.local/bin:$PATH"
-
-# Use /opt/catnip for log/pid (not /tmp)
-mkdir -p /opt/catnip
-LOG=/opt/catnip/catnip.log
-: > "$LOG"   # force file creation every start
-echo "[$(date -Is)] touching $LOG"
-echo "[$(date -Is)] PATH=$PATH" >> "$LOG"
-
-export CATNIP_WORKSPACE_DIR=/opt/catnip
-export CATNIP_HOME_DIR="${HOME}"
-export CATNIP_VOLUME_DIR="${HOME}/.catnip/volume"
-export CATNIP_LIVE_DIR=/workspaces
-
-if command -v catnip >/dev/null 2>&1; then
-  echo "[$(date -Is)] launching catnip with nohup"
-  nohup catnip serve >>"$LOG" 2>&1 &
-  echo $! > /opt/catnip/catnip.pid
-  echo "[$(date -Is)] catnip pid $(cat /opt/catnip/catnip.pid)" >> "$LOG"
-else
-  echo "[$(date -Is)] catnip not on PATH=$PATH" >> "$LOG"
-fi
-USR
-  run_as_root chmod +x "$OPT_DIR/bin/catnip-run.sh"
+  # 1) User-owned runners that handle daemonization and logging
+  cp $(dirname $0)/catnip-run.sh "$OPT_DIR/bin/catnip-run.sh"
+  cp $(dirname $0)/catnip-stop.sh "$OPT_DIR/bin/catnip-stop.sh"
   ensure_owner "$OPT_DIR/bin/catnip-run.sh" "$USERNAME" "$USERGROUP"
+  ensure_owner "$OPT_DIR/bin/catnip-stop.sh" "$USERNAME" "$USERGROUP"
 
   # 2) Root-owned init that just invokes the runner as $USERNAME
   tee /usr/local/share/catnip-init.sh >/dev/null <<EOF

@@ -20,11 +20,11 @@
     }
   },
   "forwardPorts": [5173, 6369],
-  "onCreateCommand": "bash .devcontainer/post-create.sh",
+  "onCreateCommand": "bash .devcontainer/on-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
   "remoteUser": "vscode",
   "mounts": [
     "source=${localWorkspaceFolderBasename}-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume",
-    "source=${localWorkspaceFolderBasename}-catnip-volume,target=/home/vscode/.catnip/volume,type=volume",
     "source=${localWorkspaceFolderBasename}-go-mods,target=/go/pkg/mod,type=volume"
   ],
   "features": {

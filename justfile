@@ -314,7 +314,7 @@ dev:
     fi
     
     # Show port info
-    echo "🔗 Backend PORT: ${PORT:-8080}"
+    echo "🔗 Backend PORT: ${PORT:-6369}"
     echo "🔗 Frontend VITE_PORT: $VITE_PORT"
     echo ""
     
@@ -341,7 +341,7 @@ dev:
     sleep 2
     
     # Start Air (backend) in background
-    echo "🚀 Starting Air (backend) on port ${PORT:-8080}..."
+    echo "🚀 Starting Air (backend) on port ${PORT:-6369}..."
     export CATNIP_DEV=true
     cd container && air &
     AIR_PID=$!
@@ -350,8 +350,8 @@ dev:
     echo ""
     echo "🎉 Development servers started!"
     echo "   📱 Frontend: http://localhost:$VITE_PORT"
-    echo "   🔧 Backend:  http://localhost:${PORT:-8080}"
-    echo "   📚 API Docs: http://localhost:${PORT:-8080}/docs/"
+    echo "   🔧 Backend:  http://localhost:${PORT:-6369}"
+    echo "   📚 API Docs: http://localhost:${PORT:-6369}/docs/"
     echo ""
     echo "Press Ctrl+C to stop both servers"
     echo ""
