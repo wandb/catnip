@@ -9,10 +9,10 @@ interface CodespaceCredentials {
 }
 
 interface StoredCodespaceCredentials {
-  keyId: number;
-  salt: string;
-  iv: string;
-  encryptedData: string;
+  keyId: number | null;
+  salt: string | null;
+  iv: string | null;
+  encryptedData: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -32,10 +32,10 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       CREATE TABLE IF NOT EXISTS codespace_credentials (
         codespace_name TEXT PRIMARY KEY,
         github_user TEXT NOT NULL,
-        key_id INTEGER NOT NULL,
-        salt TEXT NOT NULL,
-        iv TEXT NOT NULL,
-        encrypted_data TEXT NOT NULL,
+        key_id INTEGER,
+        salt TEXT,
+        iv TEXT,
+        encrypted_data TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -165,13 +165,23 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
 
       const row = rows[0];
       const result = {
-        keyId: row.key_id as number,
-        salt: row.salt as string,
-        iv: row.iv as string,
-        encryptedData: row.encrypted_data as string,
+        keyId: row.key_id as number | null,
+        salt: row.salt as string | null,
+        iv: row.iv as string | null,
+        encryptedData: row.encrypted_data as string | null,
         createdAt: row.created_at as number,
         updatedAt: row.updated_at as number,
       } as StoredCodespaceCredentials;
+
+      // Check if credentials are already nullified (expired)
+      if (
+        !result.encryptedData ||
+        !result.salt ||
+        !result.iv ||
+        !result.keyId
+      ) {
+        return new Response("Credentials expired", { status: 404 });
+      }
 
       try {
         const credentials = await this.decrypt(result);
@@ -179,9 +189,9 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
         // Check if credentials are expired (24 hours)
         const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
         if (credentials.updatedAt < twentyFourHoursAgo) {
-          // Clean up expired credentials for this codespace
+          // Null out expired credentials but keep codespace record
           this.sql.exec(
-            "DELETE FROM codespace_credentials WHERE codespace_name = ?",
+            "UPDATE codespace_credentials SET key_id = NULL, salt = NULL, iv = NULL, encrypted_data = NULL WHERE codespace_name = ?",
             credentials.codespaceName,
           );
           return new Response("Credentials expired", { status: 404 });
@@ -254,11 +264,11 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       }
     }
 
-    // Cleanup old credentials (older than 24 hours)
+    // Cleanup old credentials (older than 24 hours) - null out encrypted data but keep records
     if (request.method === "POST" && url.pathname.endsWith("/cleanup")) {
       const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
       this.sql.exec(
-        "DELETE FROM codespace_credentials WHERE updated_at < ?",
+        "UPDATE codespace_credentials SET key_id = NULL, salt = NULL, iv = NULL, encrypted_data = NULL WHERE updated_at < ? AND encrypted_data IS NOT NULL",
         twentyFourHoursAgo,
       );
       return new Response("OK");
