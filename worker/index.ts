@@ -19,6 +19,7 @@ export interface Env {
   CATNIP_CONTAINER: DurableObjectNamespace<CatnipContainer>;
   ASSETS: Fetcher;
   SESSIONS: DurableObjectNamespace;
+  CODESPACE_STORE: DurableObjectNamespace;
   CATNIP_ASSETS: R2Bucket;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;
@@ -36,6 +37,13 @@ interface SessionData {
   refreshToken?: string;
   expiresAt: number;
   refreshTokenExpiresAt?: number;
+}
+
+interface CodespaceCredentials {
+  githubToken: string;
+  githubUser: string;
+  codespaceName: string;
+  createdAt: number;
 }
 
 type Variables = {
@@ -335,6 +343,127 @@ export function createApp(env: Env) {
     } catch (error) {
       console.error("Webhook error:", error);
       return c.text("Webhook processing failed", 500);
+    }
+  });
+
+  // GitHub Codespace credentials endpoint
+  app.post("/v1/auth/github/codespace", async (c) => {
+    try {
+      const body = await c.req.json();
+      const { GITHUB_TOKEN, GITHUB_USER, CODESPACE_NAME } = body;
+
+      if (!GITHUB_TOKEN || !GITHUB_USER || !CODESPACE_NAME) {
+        return c.json(
+          {
+            error:
+              "Missing required fields: GITHUB_TOKEN, GITHUB_USER, CODESPACE_NAME",
+          },
+          400,
+        );
+      }
+
+      // Validate token belongs to user by checking GitHub API
+      try {
+        const validateResponse = await fetch("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${GITHUB_TOKEN}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        });
+
+        if (!validateResponse.ok) {
+          console.error(
+            "GitHub token validation failed:",
+            validateResponse.status,
+            await validateResponse.text(),
+          );
+          return c.json({ error: "Invalid GitHub token" }, 401);
+        }
+
+        const userData = await validateResponse.json();
+        if (userData.login !== GITHUB_USER) {
+          console.error("Token user mismatch:", {
+            expected: GITHUB_USER,
+            actual: userData.login,
+          });
+          return c.json(
+            { error: "GitHub token does not belong to specified user" },
+            403,
+          );
+        }
+      } catch (error) {
+        console.error("Error validating GitHub token:", error);
+        return c.json({ error: "Failed to validate GitHub token" }, 500);
+      }
+
+      // Store credentials in Durable Object
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      const credentials: CodespaceCredentials = {
+        githubToken: GITHUB_TOKEN,
+        githubUser: GITHUB_USER,
+        codespaceName: CODESPACE_NAME,
+        createdAt: Date.now(),
+      };
+
+      const storeResponse = await codespaceStore.fetch(
+        `https://internal/codespace/${GITHUB_USER}`,
+        {
+          method: "PUT",
+          body: JSON.stringify(credentials),
+        },
+      );
+
+      if (!storeResponse.ok) {
+        console.error("Failed to store codespace credentials");
+        return c.json({ error: "Failed to store credentials" }, 500);
+      }
+
+      return c.json({
+        success: true,
+        message: "Codespace credentials stored successfully",
+      });
+    } catch (error) {
+      console.error("Codespace endpoint error:", error);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  });
+
+  // Get codespace credentials endpoint
+  app.get("/v1/auth/github/codespace/:user", async (c) => {
+    const user = c.req.param("user");
+
+    if (!user) {
+      return c.json({ error: "User parameter required" }, 400);
+    }
+
+    try {
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      const response = await codespaceStore.fetch(
+        `https://internal/codespace/${user}`,
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return c.json(
+            { error: "No codespace credentials found for user" },
+            404,
+          );
+        }
+        return c.json({ error: "Failed to retrieve credentials" }, 500);
+      }
+
+      const credentials = await response.json();
+      return c.json(credentials);
+    } catch (error) {
+      console.error("Error retrieving codespace credentials:", error);
+      return c.json({ error: "Internal server error" }, 500);
     }
   });
 
