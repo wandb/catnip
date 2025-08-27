@@ -1,0 +1,21 @@
+name: Publish Dev Container Feature
+on:
+  push:
+    branches: [ "main", "feature/codespaces" ]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish devcontainer feature(s)
+        uses: devcontainers/action@v1
+        with:
+          publish-features: "true"
+          base-path-to-features: ".devcontainer/features"
+          features-namespace: "wandb"
