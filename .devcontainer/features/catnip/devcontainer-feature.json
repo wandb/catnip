@@ -24,9 +24,9 @@
   },
   "mounts": [
     {
-        "source": "catnip-state",
-        "target": "/opt/catnip/state",
-        "type": "volume"
+      "source": "catnip-state",
+      "target": "/opt/catnip/state",
+      "type": "volume"
     }
   ],
   "postCreateCommand": "bash /opt/catnip/bin/catnip-run.sh",
