@@ -674,3 +674,4 @@ export default {
 
 // Export Durable Objects
 export { SessionStore } from "./sessions";
+export { CodespaceStore } from "./codespace-store";
