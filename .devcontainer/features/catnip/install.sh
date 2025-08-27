@@ -195,11 +195,46 @@ EOF
 install_claude() {
   if have claude; then
     log "claude already installed"
+    # Wrap existing claude with purr interceptor
+    wrap_claude_with_purr
     return
   fi
   ensure_base_tools
   # Per vendor docs: curl -fsSL https://claude.ai/install.sh | bash
   run_as_user "curl -fsSL https://claude.ai/install.sh | bash"
+  # After installation, wrap with purr interceptor
+  wrap_claude_with_purr
+}
+
+wrap_claude_with_purr() {
+  local claude_path
+  claude_path=$(run_as_user "command -v claude" 2>/dev/null || echo "")
+  
+  if [[ -z "$claude_path" ]]; then
+    warn "Could not find claude binary to wrap"
+    return
+  fi
+  
+  log "Wrapping claude at $claude_path with purr interceptor"
+  
+  # Move original claude to claude-real
+  run_as_root mv "$claude_path" "${claude_path}-real"
+  
+  # Create wrapper script
+  run_as_root tee "$claude_path" >/dev/null <<'EOF'
+#!/bin/bash
+# Claude wrapper script that uses catnip purr for title interception
+exec catnip purr "${0}-real" "$@"
+EOF
+  
+  # Make wrapper executable
+  run_as_root chmod +x "$claude_path"
+  
+  # Ensure proper ownership
+  ensure_owner "$claude_path" "$USERNAME" "$USERGROUP"
+  ensure_owner "${claude_path}-real" "$USERNAME" "$USERGROUP"
+  
+  ok "Wrapped claude with purr interceptor at $claude_path"
 }
 
 # --- GitHub CLI ------------------------------------------------------------
