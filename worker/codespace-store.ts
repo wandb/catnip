@@ -5,6 +5,7 @@ interface CodespaceCredentials {
   githubUser: string;
   codespaceName: string;
   createdAt: number;
+  updatedAt: number;
 }
 
 interface StoredCodespaceCredentials {
@@ -13,6 +14,7 @@ interface StoredCodespaceCredentials {
   iv: string;
   encryptedData: string;
   createdAt: number;
+  updatedAt: number;
 }
 
 export class CodespaceStore extends DurableObject<Record<string, any>> {
@@ -28,14 +30,18 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
     // Initialize database schema
     this.sql.exec(`
       CREATE TABLE IF NOT EXISTS codespace_credentials (
-        github_user TEXT PRIMARY KEY,
+        codespace_name TEXT PRIMARY KEY,
+        github_user TEXT NOT NULL,
         key_id INTEGER NOT NULL,
         salt TEXT NOT NULL,
         iv TEXT NOT NULL,
         encrypted_data TEXT NOT NULL,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS idx_github_user ON codespace_credentials(github_user);
       CREATE INDEX IF NOT EXISTS idx_created_at ON codespace_credentials(created_at);
+      CREATE INDEX IF NOT EXISTS idx_updated_at ON codespace_credentials(updated_at);
     `);
   }
 
