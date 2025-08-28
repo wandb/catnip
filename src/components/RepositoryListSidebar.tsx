@@ -59,43 +59,62 @@ export function RepositoryListSidebar() {
 
   // Get repositories that have worktrees, grouped by repository
   const repositoriesWithWorktrees = useMemo(() => {
-    if (worktreesCount === 0) return [];
+    try {
+      if (worktreesCount === 0) return [];
 
-    const worktreesList = useAppStore.getState().getWorktreesList();
-    const repoIds = new Set(worktreesList.map((w: Worktree) => w.repo_id));
+      const worktreesList = useAppStore.getState().getWorktreesList();
+      const repoIds = new Set(worktreesList.map((w: Worktree) => w.repo_id));
 
-    return Array.from(repoIds)
-      .map((repoId) => {
-        const repo = getRepository(repoId) as Repository | undefined;
-        const worktrees = getWorktreesByRepo(repoId) as Worktree[];
-        
-        if (!repo) return null;
-        
-        // Get the most recent worktree for this project
-        const sortedWorktrees = worktrees.sort((a, b) => {
-          const aAccessed = new Date(a.last_accessed).getTime();
-          const bAccessed = new Date(b.last_accessed).getTime();
-          return bAccessed - aAccessed;
+      return Array.from(repoIds)
+        .map((repoId) => {
+          try {
+            const repo = getRepository(repoId) as Repository | undefined;
+            const worktrees = getWorktreesByRepo(repoId) as Worktree[];
+            
+            if (!repo || !Array.isArray(worktrees)) return null;
+            
+            // Get the most recent worktree for this project
+            const sortedWorktrees = worktrees.sort((a, b) => {
+              try {
+                const aAccessed = new Date(a.last_accessed).getTime();
+                const bAccessed = new Date(b.last_accessed).getTime();
+                return bAccessed - aAccessed;
+              } catch {
+                return 0; // If date parsing fails, keep current order
+              }
+            });
+            
+            const mostRecentWorktree = sortedWorktrees[0];
+            const projectName = mostRecentWorktree && mostRecentWorktree.name ? 
+              mostRecentWorktree.name.split("/")[0] : 
+              repo?.name || repo?.id || 'Unknown';
+            
+            return { 
+              ...repo, 
+              worktrees: sortedWorktrees, 
+              projectName,
+              kittyCount: worktrees.length,
+              lastActivity: mostRecentWorktree ? mostRecentWorktree.last_accessed : repo.id
+            } as RepositoryWithWorktrees;
+          } catch (error) {
+            console.warn(`Error processing repository ${repoId}:`, error);
+            return null;
+          }
+        })
+        .filter((repo): repo is RepositoryWithWorktrees => repo !== null)
+        .sort((a, b) => {
+          try {
+            const nameA = a.projectName || a.name || a.id;
+            const nameB = b.projectName || b.name || b.id;
+            return nameA.localeCompare(nameB);
+          } catch {
+            return 0; // If comparison fails, keep current order
+          }
         });
-        
-        const mostRecentWorktree = sortedWorktrees[0];
-        const projectName = mostRecentWorktree ? mostRecentWorktree.name.split("/")[0] : repo?.name || repo?.id;
-        
-        return { 
-          ...repo, 
-          worktrees: sortedWorktrees, 
-          projectName,
-          kittyCount: worktrees.length,
-          lastActivity: mostRecentWorktree ? mostRecentWorktree.last_accessed : repo.id
-        } as RepositoryWithWorktrees;
-      })
-      .filter((repo): repo is RepositoryWithWorktrees => repo !== null)
-      .sort((a, b) => {
-        // Sort repositories by name in lexical order
-        const nameA = a.projectName || a.name || a.id;
-        const nameB = b.projectName || b.name || b.id;
-        return nameA.localeCompare(nameB);
-      });
+    } catch (error) {
+      console.error('Error building repositories list:', error);
+      return [];
+    }
   }, [worktreesCount, worktrees, getWorktreesByRepo, getRepository]);
 
   const handleRepositoryClick = (repo: RepositoryWithWorktrees) => {
