@@ -235,8 +235,22 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 
 // isWorktreeDirectory checks if a directory is a git worktree
 func (s *ClaudeMonitorService) isWorktreeDirectory(dir string) bool {
-	// Check if directory is under /workspace
-	if !strings.HasPrefix(dir, "/workspace/") {
+	// Check if directory is under /workspace (managed worktrees)
+	if strings.HasPrefix(dir, "/workspace/") {
+		// Check if it's a git repository
+		gitDir := filepath.Join(dir, ".git")
+		if _, err := os.Stat(gitDir); err != nil {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+// isExternalGitRepository checks if a directory is a Git repository outside our managed workspace
+func (s *ClaudeMonitorService) isExternalGitRepository(dir string) bool {
+	// Skip if it's already under our managed workspace
+	if strings.HasPrefix(dir, "/workspace/") {
 		return false
 	}
 
@@ -246,6 +260,113 @@ func (s *ClaudeMonitorService) isWorktreeDirectory(dir string) bool {
 		return false
 	}
 	return true
+}
+
+// createAutoWorkspaceForExternalRepo attempts to create an auto-workspace for an external repo
+func (s *ClaudeMonitorService) createAutoWorkspaceForExternalRepo(repoPath string) error {
+	logger.Infof("🔍 Detected Claude session in external repository: %s", repoPath)
+
+	// Extract repository name from path
+	repoName := filepath.Base(repoPath)
+	if repoName == "" || repoName == "." {
+		return fmt.Errorf("invalid repository path: %s", repoPath)
+	}
+
+	// Create repository ID with special prefix for auto-detected repos
+	repoID := fmt.Sprintf("auto-detected/%s", repoName)
+
+	// Check if this repository is already managed
+	if _, exists := s.stateManager.GetRepository(repoID); exists {
+		logger.Debugf("📦 Repository %s already exists in state, skipping auto-creation", repoID)
+		return nil
+	}
+
+	// Get default branch for the repository
+	defaultBranch, err := s.getRepositoryDefaultBranch(repoPath)
+	if err != nil {
+		logger.Warnf("⚠️ Could not determine default branch for %s: %v", repoPath, err)
+		defaultBranch = "main" // fallback
+	}
+
+	// Get remote origin info
+	remoteOrigin, hasGitHubRemote := s.getRemoteOriginInfo(repoPath)
+
+	// Create repository object
+	repo := &models.Repository{
+		ID:                repoID,
+		URL:               "file://" + repoPath,
+		Path:              repoPath,
+		DefaultBranch:     defaultBranch,
+		CreatedAt:         time.Now(),
+		LastAccessed:      time.Now(),
+		RemoteOrigin:      remoteOrigin,
+		HasGitHubRemote:   hasGitHubRemote,
+		IsAutoDetected:    true, // Flag to indicate this was auto-detected
+		DeletionProtected: true, // Protect from accidental deletion
+	}
+
+	// Add repository to state
+	if err := s.stateManager.AddRepository(repo); err != nil {
+		return fmt.Errorf("failed to add auto-detected repository to state: %v", err)
+	}
+
+	// Create initial worktree for the repository
+	funName := s.gitService.generateUniqueSessionName(repoPath)
+	worktree, err := s.gitService.createLocalWorktreeForAutoRepo(repo, defaultBranch, funName)
+	if err != nil {
+		logger.Warnf("⚠️ Failed to create initial worktree for auto-detected repo %s: %v", repoID, err)
+		// Don't fail the repository creation if worktree creation fails
+		// User can create worktrees manually later
+	} else {
+		logger.Infof("✅ Created auto-workspace for external repository: %s -> %s", repoPath, worktree.Name)
+	}
+
+	return nil
+}
+
+// getRepositoryDefaultBranch determines the default branch of a repository
+func (s *ClaudeMonitorService) getRepositoryDefaultBranch(repoPath string) (string, error) {
+	// Try to get the default branch from HEAD symbolic ref
+	output, err := s.gitService.operations.ExecuteGit(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
+	if err == nil {
+		// Output looks like "refs/remotes/origin/main"
+		parts := strings.Split(strings.TrimSpace(string(output)), "/")
+		if len(parts) > 0 {
+			return parts[len(parts)-1], nil
+		}
+	}
+
+	// Fallback: try to guess from common branches
+	branches := []string{"main", "master", "develop", "dev"}
+	for _, branch := range branches {
+		if _, err := s.gitService.operations.ExecuteGit(repoPath, "rev-parse", "--verify", "refs/heads/"+branch); err == nil {
+			return branch, nil
+		}
+	}
+
+	// Last resort: get current branch if possible
+	output, err = s.gitService.operations.ExecuteGit(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err == nil {
+		currentBranch := strings.TrimSpace(string(output))
+		if currentBranch != "HEAD" && currentBranch != "" {
+			return currentBranch, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not determine default branch")
+}
+
+// getRemoteOriginInfo gets the remote origin URL and GitHub detection
+func (s *ClaudeMonitorService) getRemoteOriginInfo(repoPath string) (string, bool) {
+	output, err := s.gitService.operations.ExecuteGit(repoPath, "remote", "get-url", "origin")
+	if err != nil {
+		return "", false
+	}
+
+	originURL := strings.TrimSpace(string(output))
+	hasGitHubRemote := strings.Contains(originURL, "github.com")
+
+	return originURL, hasGitHubRemote
 }
 
 // handleTitleChange processes a title change for a worktree with duplicate detection
