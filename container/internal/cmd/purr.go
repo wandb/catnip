@@ -1,17 +1,20 @@
 package cmd
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var purrCmd = &cobra.Command{
@@ -30,8 +33,10 @@ Environment variables:
 	Example: `  catnip purr claude --version
   catnip purr /home/vscode/.local/bin/claude-real chat
   CATNIP_TITLE_LOG=/tmp/titles.log catnip purr some-command`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runPurr,
+	Args:                  cobra.MinimumNArgs(1),
+	DisableFlagParsing:    true,
+	DisableFlagsInUseLine: true,
+	RunE:                  runPurr,
 }
 
 func init() {
@@ -74,74 +79,92 @@ func execDirect(args []string) error {
 
 func execWithTitleInterception(args []string, titleLogPath string) error {
 	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Stdin = os.Stdin
 
-	// Create pipes for stdout and stderr
-	stdoutPipe, err := cmd.StdoutPipe()
+	// Start the command with a PTY
+	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		return fmt.Errorf("failed to create stdout pipe: %w", err)
+		return fmt.Errorf("failed to start command with PTY: %w", err)
 	}
+	defer ptmx.Close()
 
-	stderrPipe, err := cmd.StderrPipe()
+	// Put stdin in raw mode to preserve terminal behavior
+	oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
 	if err != nil {
-		return fmt.Errorf("failed to create stderr pipe: %w", err)
+		return fmt.Errorf("failed to make stdin raw: %w", err)
 	}
+	defer func() {
+		if err := term.Restore(int(os.Stdin.Fd()), oldState); err != nil {
+			fmt.Fprintf(os.Stderr, "purr: failed to restore terminal: %v\n", err)
+		}
+	}()
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start command: %w", err)
-	}
+	// Handle window size changes
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGWINCH)
+	go func() {
+		for range ch {
+			_ = pty.InheritSize(os.Stdin, ptmx) // Ignore resize errors
+		}
+	}()
+	ch <- syscall.SIGWINCH // Initial resize
 
-	// Process stdout and stderr concurrently
+	// Handle input/output concurrently
 	done := make(chan error, 2)
 
+	// Copy input from stdin to PTY in raw mode
 	go func() {
-		done <- processOutput(stdoutPipe, os.Stdout, titleLogPath)
+		_, err := io.Copy(ptmx, os.Stdin)
+		done <- err
 	}()
 
+	// Process output from PTY - transparent passthrough with title scanning
 	go func() {
-		done <- processOutput(stderrPipe, os.Stderr, titleLogPath)
+		done <- scanAndPassthrough(ptmx, os.Stdout, titleLogPath)
 	}()
 
-	// Wait for both goroutines to complete
-	for i := 0; i < 2; i++ {
-		if err := <-done; err != nil {
-			// Log error but don't fail the command
-			fmt.Fprintf(os.Stderr, "purr: output processing error: %v\n", err)
-		}
+	// Wait for either goroutine to complete
+	err = <-done
+	if err != nil && err != io.EOF {
+		fmt.Fprintf(os.Stderr, "purr: I/O error: %v\n", err)
 	}
 
 	// Wait for the command to complete
 	return cmd.Wait()
 }
 
-func processOutput(reader io.Reader, writer io.Writer, titleLogPath string) error {
-	scanner := bufio.NewScanner(reader)
-
-	// Compile regex for title sequences
+func scanAndPassthrough(reader io.Reader, writer io.Writer, titleLogPath string) error {
+	buf := make([]byte, 4096)
 	titleRegex := regexp.MustCompile(`\x1b\]0;([^\x07]*)\x07`)
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			data := buf[:n]
 
-		// Write line to output
-		if _, err := fmt.Fprintln(writer, line); err != nil {
-			return fmt.Errorf("failed to write output: %w", err)
-		}
+			// Pass data through unchanged - preserve all formatting, colors, cursor positioning
+			if _, writeErr := writer.Write(data); writeErr != nil {
+				return fmt.Errorf("failed to write output: %w", writeErr)
+			}
 
-		// Check for title sequences
-		matches := titleRegex.FindAllStringSubmatch(line, -1)
-		for _, match := range matches {
-			if len(match) > 1 {
-				title := strings.TrimSpace(match[1])
-				if title != "" {
-					logTitleChange(titleLogPath, title)
+			// Scan for title sequences in the raw data
+			matches := titleRegex.FindAllSubmatch(data, -1)
+			for _, match := range matches {
+				if len(match) > 1 {
+					title := strings.TrimSpace(string(match[1]))
+					if title != "" {
+						logTitleChange(titleLogPath, title)
+					}
 				}
 			}
 		}
-	}
 
-	return scanner.Err()
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("failed to read PTY output: %w", err)
+		}
+	}
 }
 
 func logTitleChange(titleLogPath, title string) {
