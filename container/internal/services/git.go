@@ -1158,6 +1158,37 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	return worktree, nil
 }
 
+// createLocalWorktreeForAutoRepo creates a worktree for an auto-detected repository
+func (s *GitService) createLocalWorktreeForAutoRepo(repo *models.Repository, branch, name string) (*models.Worktree, error) {
+	// Use git WorktreeManager to create the local worktree
+	worktree, err := s.gitWorktreeManager.CreateLocalWorktree(git.CreateWorktreeRequest{
+		Repository:   repo,
+		SourceBranch: branch,
+		BranchName:   name,
+		WorkspaceDir: getWorkspaceDir(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Store worktree in service map
+	if err := s.stateManager.AddWorktree(worktree); err != nil {
+		logger.Warnf("⚠️ Failed to add auto-detected worktree to state: %v", err)
+	}
+
+	// Notify ClaudeMonitor service about the new worktree
+	if s.claudeMonitor != nil {
+		s.claudeMonitor.OnWorktreeCreated(worktree.ID, worktree.Path)
+	}
+
+	// Don't automatically set as current for auto-detected repos to avoid disrupting user workflow
+
+	// Skip setup.sh execution for auto-detected repos to avoid unexpected side effects
+	logger.Debugf("📝 Skipping setup.sh execution for auto-detected repository worktree: %s", worktree.Path)
+
+	return worktree, nil
+}
+
 // getLocalRepoBranches returns the local branches for a local repository
 func (s *GitService) getLocalRepoBranches(repoPath string) ([]string, error) {
 	return s.operations.GetLocalBranches(repoPath)
