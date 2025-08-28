@@ -88,12 +88,19 @@ export function WorkspaceTerminal({
     lastConnectionAttempt.current = 0;
     setError(null);
 
+    // Clear terminal display to prevent prompt stacking between workspaces
+    if (instance) {
+      instance.clear();
+      // Force a complete reset of terminal state
+      instance.reset();
+    }
+
     // Close existing WebSocket if any
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
-  }, [worktree.id]);
+  }, [worktree.id, instance]);
 
   useEffect(() => {
     if (wsReady.current && dims) {
@@ -145,6 +152,7 @@ export function WorkspaceTerminal({
         ? worktree.name
         : `${worktree.name}:${terminalId}`;
     urlParams.set("session", sessionName);
+    // Don't force reset for regular bash sessions - let them maintain state
     // Don't set agent parameter - this should be a regular bash terminal
 
     const socketUrl = `${protocol}//${window.location.host}/v1/pty?${urlParams.toString()}`;
