@@ -3,19 +3,8 @@ import { useEffect, useRef } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { BackendErrorScreen } from "@/components/BackendErrorScreen";
+import type { Worktree, Repository } from "@/types/workspace";
 
-interface Worktree {
-  id: string;
-  name: string;
-  repo_id: string;
-  last_accessed: string;
-}
-
-interface Repository {
-  id: string;
-  name?: string;
-  available?: boolean;
-}
 
 function ProjectWorkspaceRedirect() {
   const { project } = createFileRoute("/workspace/$project").useParams();

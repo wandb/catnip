@@ -19,26 +19,8 @@ import { useState, useMemo } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
 import { useGlobalKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import type { Worktree, Repository, RepositoryWithWorktrees } from "@/types/workspace";
 
-interface Worktree {
-  id: string;
-  name: string;
-  repo_id: string;
-  last_accessed: string;
-}
-
-interface Repository {
-  id: string;
-  name?: string;
-  available?: boolean;
-}
-
-interface RepositoryWithWorktrees extends Repository {
-  worktrees: Worktree[];
-  projectName: string;
-  kittyCount: number;
-  lastActivity: string;
-}
 
 export function RepositoryListSidebar() {
   const navigate = useNavigate();
