@@ -21,8 +21,6 @@ const (
 	ContainerMode RuntimeMode = "container"
 	// NativeMode indicates running on the host system
 	NativeMode RuntimeMode = "native"
-	// CodespaceMode indicates running inside a GitHub Codespace
-	CodespaceMode RuntimeMode = "codespace"
 )
 
 // RuntimeConfig holds configuration for different runtime environments
@@ -83,22 +81,6 @@ func DetectRuntime() *RuntimeConfig {
 		config.SyncEnabled = true
 		config.PortMonitorEnabled = true
 
-	case CodespaceMode:
-		// GitHub Codespace specific directories
-		config.WorkspaceDir = getEnvOrDefault("CATNIP_WORKSPACE_DIR", "/opt/catnip")
-		config.VolumeDir = getEnvOrDefault("CATNIP_VOLUME_DIR", "/home/vscode/.catnip/volume")
-		config.LiveDir = getEnvOrDefault("CATNIP_LIVE_DIR", "/workspaces")
-		config.HomeDir = getEnvOrDefault("CATNIP_HOME_DIR", "/home/vscode")
-		config.TempDir = getEnvOrDefault("CATNIP_TEMP_DIR", "/tmp")
-		config.SyncEnabled = true
-		config.PortMonitorEnabled = true
-
-		// Ensure codespace directories exist
-		if err := ensureDir(config.VolumeDir); err != nil {
-			logger.Debugf("Warning: Failed to create volume directory %s: %v", config.VolumeDir, err)
-		}
-		// Note: /opt/catnip is created by bootstrap command with proper permissions
-
 	case NativeMode:
 		// Create catnip directory in user's home
 		catnipDir := filepath.Join(homeDir, ".catnip")
@@ -140,16 +122,19 @@ func detectMode() RuntimeMode {
 		case "container", "apple":
 			return ContainerMode
 		case "codespace":
-			return CodespaceMode
+			// Treat codespaces as Docker mode
+			return DockerMode
 		case "true":
 			// Legacy support - assume Docker
 			return DockerMode
 		}
 	}
 
-	// Check for GitHub Codespace environment
-	if isCodespace() {
-		return CodespaceMode
+	// Check for GitHub Codespace environment - treat as Docker
+	if os.Getenv("CODESPACES") == "true" ||
+		os.Getenv("CODESPACE_NAME") != "" ||
+		os.Getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN") != "" {
+		return DockerMode
 	}
 
 	// Check for Docker-specific files/environment
@@ -171,14 +156,6 @@ func detectMode() RuntimeMode {
 
 	// Default to native mode
 	return NativeMode
-}
-
-// isCodespace checks if we're running inside a GitHub Codespace
-func isCodespace() bool {
-	// GitHub Codespaces set these environment variables
-	return os.Getenv("CODESPACES") == "true" ||
-		os.Getenv("CODESPACE_NAME") != "" ||
-		os.Getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN") != ""
 }
 
 // detectGitRepo checks if we're running from within a git repository
@@ -245,17 +222,18 @@ func (rc *RuntimeConfig) ResolvePath(containerPath string) string {
 func (rc *RuntimeConfig) GetClaudeBinaryPaths() []string {
 	switch rc.Mode {
 	case DockerMode, ContainerMode:
-		return []string{
-			"/opt/catnip/nvm/versions/node/*/bin/claude",
-			"/usr/local/bin/claude",
+		paths := []string{
+			"/opt/catnip/bin/claude",                     // Codespace wrapped binary
+			"/opt/catnip/nvm/versions/node/*/bin/claude", // Standard container path
+			"/usr/local/bin/claude",                      // Standard system path
 		}
-	case CodespaceMode:
-		// In codespaces, claude is installed via the bootstrap command
-		return []string{
-			"/home/vscode/.local/bin/claude",
-			"/usr/local/bin/claude",
-			"claude", // Will use PATH lookup
+
+		// Add user's local bin directory if we can determine it
+		if homeDir := rc.HomeDir; homeDir != "" {
+			paths = append(paths[:1], append([]string{filepath.Join(homeDir, ".local/bin/claude")}, paths[1:]...)...)
 		}
+
+		return paths
 	case NativeMode:
 		// In native mode, assume claude is in PATH
 		return []string{
@@ -288,12 +266,7 @@ func (rc *RuntimeConfig) IsNative() bool {
 	return rc.Mode == NativeMode
 }
 
-// IsCodespace returns true if running in Codespace mode
-func (rc *RuntimeConfig) IsCodespace() bool {
-	return rc.Mode == CodespaceMode
-}
-
-// IsContainerized returns true if running in any container (Docker, Apple, or Codespace)
+// IsContainerized returns true if running in any container (Docker or Apple)
 func (rc *RuntimeConfig) IsContainerized() bool {
-	return rc.Mode == DockerMode || rc.Mode == ContainerMode || rc.Mode == CodespaceMode
+	return rc.Mode == DockerMode || rc.Mode == ContainerMode
 }

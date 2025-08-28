@@ -206,6 +206,60 @@ install_claude() {
   wrap_claude_with_purr
 }
 
+
+create_claude_alias() {
+  log "Creating claude alias to use catnip wrapper"
+  
+  local alias_line="alias claude='/opt/catnip/bin/claude'"
+  local alias_marker="# catnip: claude alias"
+  
+  # Add to ~/.bash_aliases if it exists or is sourced by bashrc
+  local bash_aliases="$USERHOME/.bash_aliases"
+  if [[ -f "$bash_aliases" ]] || run_as_user "touch '$bash_aliases'"; then
+    ensure_owner "$bash_aliases" "$USERNAME" "$USERGROUP"
+    
+    if ! grep -q "$alias_marker" "$bash_aliases" 2>/dev/null; then
+      log "Adding claude alias to $bash_aliases"
+      run_as_user "echo '' >> '$bash_aliases'"
+      run_as_user "echo '$alias_marker' >> '$bash_aliases'"
+      run_as_user "echo '$alias_line' >> '$bash_aliases'"
+      ok "Added claude alias to $bash_aliases"
+    else
+      log "Claude alias already set in $bash_aliases"
+    fi
+  fi
+  
+  # Also add to ~/.bashrc for systems that don't use .bash_aliases
+  local bashrc="$USERHOME/.bashrc"
+  if [[ -f "$bashrc" ]]; then
+    if ! grep -q "$alias_marker" "$bashrc" 2>/dev/null; then
+      log "Adding claude alias to $bashrc"
+      run_as_user "echo '' >> '$bashrc'"
+      run_as_user "echo '$alias_marker' >> '$bashrc'"
+      run_as_user "echo '$alias_line' >> '$bashrc'"
+      ok "Added claude alias to $bashrc"
+    else
+      log "Claude alias already set in $bashrc"
+    fi
+  fi
+  
+  # Add to ~/.zshrc for zsh users
+  local zshrc="$USERHOME/.zshrc"
+  if [[ -f "$zshrc" ]] || run_as_user "touch '$zshrc'"; then
+    ensure_owner "$zshrc" "$USERNAME" "$USERGROUP"
+    
+    if ! grep -q "$alias_marker" "$zshrc" 2>/dev/null; then
+      log "Adding claude alias to $zshrc"
+      run_as_user "echo '' >> '$zshrc'"
+      run_as_user "echo '$alias_marker' >> '$zshrc'"
+      run_as_user "echo '$alias_line' >> '$zshrc'"
+      ok "Added claude alias to $zshrc"
+    else
+      log "Claude alias already set in $zshrc"
+    fi
+  fi
+}
+
 wrap_claude_with_purr() {
   local claude_path
   claude_path=$(run_as_user "command -v claude" 2>/dev/null || echo "")
@@ -215,26 +269,25 @@ wrap_claude_with_purr() {
     return
   fi
   
-  log "Wrapping claude at $claude_path with purr interceptor"
+  log "Creating catnip claude wrapper at /opt/catnip/bin/claude"
   
-  # Move original claude to claude-real
-  run_as_root mv "$claude_path" "${claude_path}-real"
-  
-  # Create wrapper script
-  run_as_root tee "$claude_path" >/dev/null <<'EOF'
+  # Create wrapper script that calls the real claude binary via purr
+  run_as_root tee "/opt/catnip/bin/claude" >/dev/null <<EOF
 #!/bin/bash
-# Claude wrapper script that uses catnip purr for title interception
-exec catnip purr "${0}-real" "$@"
+# Catnip Claude wrapper - calls claude via purr for title interception
+exec catnip purr "$claude_path" "\$@"
 EOF
   
   # Make wrapper executable
-  run_as_root chmod +x "$claude_path"
+  run_as_root chmod +x "/opt/catnip/bin/claude"
   
   # Ensure proper ownership
-  ensure_owner "$claude_path" "$USERNAME" "$USERGROUP"
-  ensure_owner "${claude_path}-real" "$USERNAME" "$USERGROUP"
+  ensure_owner "/opt/catnip/bin/claude" "$USERNAME" "$USERGROUP"
   
-  ok "Wrapped claude with purr interceptor at $claude_path"
+  ok "Created catnip claude wrapper at /opt/catnip/bin/claude"
+  
+  # Create bash alias to ensure our wrapper is always used
+  create_claude_alias
 }
 
 # --- GitHub CLI ------------------------------------------------------------
