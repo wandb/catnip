@@ -111,6 +111,16 @@ func renderMarkdownHelp(cmd *cobra.Command) {
 		helpContent.WriteString("\n\n")
 	}
 
+	// Add version if available
+	if cmd.Version != "" {
+		helpContent.WriteString("## 📦 Version\n\n")
+		helpContent.WriteString(fmt.Sprintf("**%s**", cmd.Version))
+		if commit != "none" && commit != "unknown" && commit != "" {
+			helpContent.WriteString(fmt.Sprintf(" (commit: %s)", commit))
+		}
+		helpContent.WriteString("\n\n")
+	}
+
 	// Add usage
 	helpContent.WriteString("## 📖 Usage\n\n")
 	helpContent.WriteString("```bash\n")
