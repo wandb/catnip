@@ -789,7 +789,7 @@ export function WorkspaceMainContent({
                   </div>
 
                   <span className="text-xs text-muted-foreground ml-2">
-                    /workspace/{worktree.name}
+                    {worktree.path}
                   </span>
                 </div>
 

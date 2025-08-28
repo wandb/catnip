@@ -289,7 +289,18 @@ export function WorkspaceLeftSidebar() {
             <SidebarTrigger className="h-6 w-6" />
           </div>
           <div className="flex items-center gap-2">
-            <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
+            <Link to="/workspace" className="relative w-9 h-9 block">
+              <img
+                src="/logo.png"
+                alt="Catnip"
+                className="w-9 h-9 hover:opacity-0"
+              />
+              <img
+                src="/wink.png"
+                alt="Catnip Wink"
+                className="w-9 h-9 absolute top-0 left-0 opacity-0 hover:opacity-100"
+              />
+            </Link>
           </div>
         </SidebarHeader>
         <SidebarContent>
