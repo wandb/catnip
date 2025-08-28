@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
@@ -148,6 +149,13 @@ func (css *CommitSyncService) AddWorktreeWatcher(worktreePath string) {
 // addWorktreeWatcher adds a watcher for a specific worktree (internal)
 func (css *CommitSyncService) addWorktreeWatcher(worktreePath string) {
 	if css.watcher == nil {
+		return
+	}
+
+	// Skip worktrees that are outside our managed workspace directory
+	workspaceDir := config.Runtime.WorkspaceDir
+	if workspaceDir != "" && !strings.HasPrefix(worktreePath, workspaceDir+"/") {
+		logger.Debugf("🚫 Skipping filesystem watcher for worktree outside WORKSPACE_DIR: %s", worktreePath)
 		return
 	}
 
