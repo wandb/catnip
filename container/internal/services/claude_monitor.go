@@ -321,62 +321,54 @@ func (s *ClaudeMonitorService) createAutoWorkspaceForExternalRepo(repoPath strin
 	return nil
 }
 
-// getRepositoryDefaultBranch determines the default branch of a repository
-func (s *ClaudeMonitorService) getRepositoryDefaultBranch(repoPath string) (string, error) {
-	// Try to get the default branch from HEAD symbolic ref
-	output, err := s.gitService.operations.ExecuteGit(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")
-	if err == nil {
-		// Output looks like "refs/remotes/origin/main"
-		parts := strings.Split(strings.TrimSpace(string(output)), "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1], nil
+// findRepositoryByRemoteURL finds an existing repository that matches the given remote URL
+func (s *ClaudeMonitorService) findRepositoryByRemoteURL(remoteURL string) *models.Repository {
+	// Get all repositories from the state manager
+	status := s.gitService.GetStatus()
+	for _, repo := range status.Repositories {
+		// Check if the remote origin matches
+		if repo.RemoteOrigin == remoteURL {
+			return repo
+		}
+		// Also check the main URL field as fallback
+		if repo.URL == remoteURL {
+			return repo
 		}
 	}
-
-	// Fallback: try to guess from common branches
-	branches := []string{"main", "master", "develop", "dev"}
-	for _, branch := range branches {
-		if _, err := s.gitService.operations.ExecuteGit(repoPath, "rev-parse", "--verify", "refs/heads/"+branch); err == nil {
-			return branch, nil
-		}
-	}
-
-	// Last resort: get current branch if possible
-	output, err = s.gitService.operations.ExecuteGit(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
-	if err == nil {
-		currentBranch := strings.TrimSpace(string(output))
-		if currentBranch != "HEAD" && currentBranch != "" {
-			return currentBranch, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not determine default branch")
+	return nil
 }
 
-// getRemoteOriginInfo gets the remote origin URL and GitHub detection
-func (s *ClaudeMonitorService) getRemoteOriginInfo(repoPath string) (string, bool) {
-	output, err := s.gitService.operations.ExecuteGit(repoPath, "remote", "get-url", "origin")
+// getCurrentBranch gets the current branch from a repository using existing operations
+func (s *ClaudeMonitorService) getCurrentBranch(repoPath string) (string, error) {
+	// Use the existing GetDisplayBranch operation to get the current branch
+	// This handles both regular branches and any custom refs properly
+	output, err := s.gitService.operations.ExecuteGit(repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return "", false
+		return "", err
 	}
 
-	originURL := strings.TrimSpace(string(output))
-	hasGitHubRemote := strings.Contains(originURL, "github.com")
+	currentBranch := strings.TrimSpace(string(output))
+	if currentBranch == "HEAD" || currentBranch == "" {
+		return "", fmt.Errorf("repository is in detached HEAD state")
+	}
 
-	return originURL, hasGitHubRemote
+	return currentBranch, nil
 }
 
 // handleExternalRepoTitleChange handles title changes for external repositories
 func (s *ClaudeMonitorService) handleExternalRepoTitleChange(repoPath, newTitle, source string) {
 	// The external repo should now have an auto-workspace created
-	// We need to find the corresponding worktree and handle the title change there
+	// Find the corresponding worktree and handle the title change there
 
-	// Get all worktrees and find one matching this repo path
+	// Get all worktrees and find one with a matching repository that has this external path
 	allWorktrees := s.stateManager.GetAllWorktrees()
 	for _, worktree := range allWorktrees {
-		// Check if this worktree belongs to an auto-detected repository that matches our path
+		// Get the repository for this worktree
 		if repo, exists := s.stateManager.GetRepository(worktree.RepoID); exists {
-			if repo.IsAutoDetected && repo.Path == repoPath {
+			// Check if this worktree was created from an external repo with matching remote
+			// by comparing the remote URL from the external repo path
+			remoteURL, err := s.gitService.operations.GetRemoteURL(repoPath)
+			if err == nil && repo.RemoteOrigin == remoteURL {
 				// Found the matching worktree, handle title change for its path
 				logger.Debugf("🎯 Routing external repo title change to worktree: %s -> %s", repoPath, worktree.Path)
 				s.handleTitleChange(worktree.Path, newTitle, source)
@@ -385,7 +377,7 @@ func (s *ClaudeMonitorService) handleExternalRepoTitleChange(repoPath, newTitle,
 		}
 	}
 
-	logger.Warnf("⚠️ Could not find worktree for external repo: %s", repoPath)
+	logger.Debugf("📍 Could not find matching worktree for external repo: %s", repoPath)
 }
 
 // handleTitleChange processes a title change for a worktree with duplicate detection

@@ -59,10 +59,6 @@ type Repository struct {
 	RemoteOrigin string `json:"remote_origin,omitempty" example:"https://github.com/anthropics/claude-code.git"`
 	// Whether the remote origin is a GitHub repository
 	HasGitHubRemote bool `json:"has_github_remote" example:"true"`
-	// Whether this repository was auto-detected from external Claude sessions
-	IsAutoDetected bool `json:"is_auto_detected" example:"false"`
-	// Whether this repository is protected from deletion
-	DeletionProtected bool `json:"deletion_protected" example:"false"`
 }
 
 // Worktree represents a Git worktree
