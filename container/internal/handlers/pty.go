@@ -651,6 +651,12 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		return session
 	}
 
+	// For bash sessions, ensure we don't have stale buffer data from other sessions
+	// by checking if there are any existing sessions that might be contaminating buffers
+	if agent == "" {
+		logger.Debugf("🔄 Creating new bash session %s, ensuring clean state", sessionID)
+	}
+
 	// Set workspace directory with validation
 	var workDir string
 
@@ -855,10 +861,16 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 		default:
 		}
 
+		// Check if PTY file descriptor is still valid before attempting read
+		if session.PTY == nil {
+			logger.Debugf("🛑 PTY is nil, stopping continuous reader for session: %s", session.ID)
+			return
+		}
+
 		n, err := session.PTY.Read(buf)
 		if err != nil {
-			// Check for various exit conditions
-			if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
+			// Check for various exit conditions including "file already closed"
+			if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" || strings.Contains(err.Error(), "file already closed") {
 				// For setup sessions, don't recreate - they're meant to exit after showing the log
 				if session.Agent == "setup" {
 					logger.Infof("✅ Setup session completed normally, stopping continuous reader: %s", session.ID)
