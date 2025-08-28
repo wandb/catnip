@@ -394,8 +394,12 @@ function ClaudeTerminal({
 
     // Set up FileDropAddon
     const sendData = (data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        if (isReadOnly) {
+          triggerReadOnlyShake();
+          return;
+        }
+        wsRef.current.send(data);
       }
     };
     const fileDropAddon = new FileDropAddon(sendData);
@@ -443,12 +447,12 @@ function ClaudeTerminal({
     });
 
     const disposer = instance?.onData((data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         if (isReadOnly) {
           triggerReadOnlyShake();
           return;
         }
-        ws.send(data);
+        wsRef.current.send(data);
       }
     });
 

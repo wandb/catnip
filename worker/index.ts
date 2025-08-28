@@ -382,7 +382,7 @@ export function createApp(env: Env) {
           return c.json({ error: "Invalid GitHub token" }, 401);
         }
 
-        const userData = await validateResponse.json();
+        const userData = (await validateResponse.json()) as { login?: string };
         if (userData.login !== GITHUB_USER) {
           console.error("Token user mismatch:", {
             expected: GITHUB_USER,
@@ -461,7 +461,7 @@ export function createApp(env: Env) {
         return c.json({ error: "Failed to retrieve credentials" }, 500);
       }
 
-      const credentials = await response.json();
+      const credentials = (await response.json()) as Record<string, unknown>;
       return c.json(credentials);
     } catch (error) {
       console.error("Error retrieving codespace credentials:", error);

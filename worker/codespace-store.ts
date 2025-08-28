@@ -121,6 +121,19 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
   private async decrypt(
     stored: StoredCodespaceCredentials,
   ): Promise<CodespaceCredentials> {
+    if (stored.keyId === null) {
+      throw new Error("Key ID is null");
+    }
+    if (stored.salt === null) {
+      throw new Error("Salt is null");
+    }
+    if (stored.iv === null) {
+      throw new Error("IV is null");
+    }
+    if (stored.encryptedData === null) {
+      throw new Error("Encrypted data is null");
+    }
+
     const key = this.keys.get(stored.keyId);
     if (!key) throw new Error(`Key ${stored.keyId} not found`);
 

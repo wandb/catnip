@@ -27,6 +27,11 @@ export function WorkspaceTerminal({
   const bufferingRef = useRef(false);
   const isSetup = useRef(false);
   const lastConnectionAttempt = useRef(0);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 10;
+  const isConnecting = useRef(false);
+  const shouldReconnect = useRef(true);
   const fitAddon = useRef<FitAddon | null>(null);
   const webLinksAddon = useRef<WebLinksAddon | null>(null);
   const renderAddon = useRef<WebglAddon | null>(null);
@@ -38,6 +43,7 @@ export function WorkspaceTerminal({
   );
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [shakeReadOnlyBadge, setShakeReadOnlyBadge] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
 
   // Trigger shake animation for read-only badge
   const triggerReadOnlyShake = useCallback(() => {
@@ -79,47 +85,24 @@ export function WorkspaceTerminal({
     wsRef.current.send(JSON.stringify({ type: "ready" }));
   }, []);
 
-  // Reset state when worktree changes
-  useEffect(() => {
-    isSetup.current = false;
-    wsReady.current = false;
-    terminalReady.current = false;
-    bufferingRef.current = false;
-    lastConnectionAttempt.current = 0;
-    setError(null);
+  // Calculate reconnect delay with exponential backoff
+  const getReconnectDelay = useCallback(() => {
+    const baseDelay = 1000; // 1 second
+    const maxDelay = 30000; // 30 seconds
+    const delay = Math.min(
+      baseDelay * Math.pow(2, reconnectAttempts.current),
+      maxDelay,
+    );
+    return delay;
+  }, []);
 
-    // Clear terminal display to prevent prompt stacking between workspaces
-    if (instance) {
-      instance.clear();
-      // Force a complete reset of terminal state
-      instance.reset();
-    }
-
-    // Close existing WebSocket if any
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-  }, [worktree.id, instance]);
-
-  useEffect(() => {
-    if (wsReady.current && dims) {
-      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
-    }
-  }, [dims, wsReady.current]);
-
-  // Set up terminal when instance and ref become available
-  useEffect(() => {
-    if (!instance || !ref.current) {
+  // WebSocket connection setup function
+  const connectWebSocket = useCallback(() => {
+    if (isConnecting.current || !shouldReconnect.current) {
       return;
     }
 
-    // Only set up once per session
-    if (isSetup.current) {
-      return;
-    }
-
-    // Rate limit reconnections to once per second maximum
+    // Rate limit reconnections
     const now = Date.now();
     if (now - lastConnectionAttempt.current < 1000) {
       console.log(
@@ -128,9 +111,6 @@ export function WorkspaceTerminal({
       return;
     }
     lastConnectionAttempt.current = now;
-
-    isSetup.current = true;
-    instance.clear();
 
     // Check if we're running against mock server - skip WebSocket if so
     const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
@@ -142,6 +122,11 @@ export function WorkspaceTerminal({
       });
       return;
     }
+
+    isConnecting.current = true;
+    console.log(
+      `[Workspace Terminal] Connecting to WebSocket (attempt ${reconnectAttempts.current + 1})`,
+    );
 
     // Set up WebSocket connection for bash terminal in the workspace directory
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -156,27 +141,56 @@ export function WorkspaceTerminal({
     // Don't set agent parameter - this should be a regular bash terminal
 
     const socketUrl = `${protocol}//${window.location.host}/v1/pty?${urlParams.toString()}`;
-
     const ws = new WebSocket(socketUrl);
     wsRef.current = ws;
     const buffer: Uint8Array[] = [];
 
     ws.onopen = () => {
+      console.log("[Workspace Terminal] WebSocket connected");
       setIsConnected(true);
+      isConnecting.current = false;
+      reconnectAttempts.current = 0; // Reset attempts on successful connection
       wsReady.current = true;
       sendReadySignal();
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      console.log(
+        `[Workspace Terminal] WebSocket closed (code: ${event.code}, reason: ${event.reason})`,
+      );
       setIsConnected(false);
+      isConnecting.current = false;
+      wsReady.current = false;
+
+      // Only attempt reconnect if we should and haven't exceeded max attempts
+      if (
+        shouldReconnect.current &&
+        reconnectAttempts.current < maxReconnectAttempts
+      ) {
+        reconnectAttempts.current += 1;
+        const delay = getReconnectDelay();
+        console.log(
+          `[Workspace Terminal] Scheduling reconnect in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
+        );
+
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connectWebSocket();
+        }, delay);
+      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        console.error("[Workspace Terminal] Max reconnection attempts reached");
+        setError({
+          title: "Connection Lost",
+          message: "Unable to reconnect to terminal. Please refresh the page.",
+        });
+      }
     };
 
     ws.onerror = (error) => {
       console.error("❌ Workspace Terminal WebSocket error:", error);
       setIsConnected(false);
+      isConnecting.current = false;
 
       // Handle WebSocket errors gracefully - don't crash the app
-      // Check if we're running against mock server (VITE_USE_MOCK=true)
       const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
       if (isMockMode) {
         // In mock mode, show helpful message instead of crashing
@@ -185,7 +199,6 @@ export function WorkspaceTerminal({
           message:
             "Terminal functionality is not available in mock mode. This is expected when running without the Catnip backend.",
         });
-        // Don't throw or cause app crash
         return;
       }
 
@@ -269,6 +282,65 @@ export function WorkspaceTerminal({
         instance.write(data);
       }
     };
+  }, [worktree.name, terminalId, instance, sendReadySignal, getReconnectDelay]);
+
+  // Reset state when worktree changes
+  useEffect(() => {
+    isSetup.current = false;
+    wsReady.current = false;
+    terminalReady.current = false;
+    bufferingRef.current = false;
+    lastConnectionAttempt.current = 0;
+    reconnectAttempts.current = 0;
+    shouldReconnect.current = true;
+    isConnecting.current = false;
+    setError(null);
+    setIsConnected(false);
+
+    // Clear any pending reconnection attempts
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Clear terminal display to prevent prompt stacking between workspaces
+    if (instance) {
+      instance.clear();
+      // Force a complete reset of terminal state
+      instance.reset();
+    }
+
+    // Close existing WebSocket if any
+    if (wsRef.current) {
+      shouldReconnect.current = false; // Prevent reconnection during cleanup
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, [worktree.id, instance]);
+
+  useEffect(() => {
+    if (wsReady.current && dims) {
+      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+    }
+  }, [dims, wsReady.current]);
+
+  // Set up terminal when instance and ref become available
+  useEffect(() => {
+    if (!instance || !ref.current) {
+      return;
+    }
+
+    // Only set up once per session
+    if (isSetup.current) {
+      return;
+    }
+
+    isSetup.current = true;
+    shouldReconnect.current = true; // Enable reconnection
+    instance.clear();
+
+    // Start WebSocket connection
+    connectWebSocket();
 
     // Configure terminal options
     if (instance.options) {
@@ -372,6 +444,11 @@ export function WorkspaceTerminal({
 
     // Cleanup function
     return () => {
+      shouldReconnect.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -397,6 +474,7 @@ export function WorkspaceTerminal({
     terminalId,
     setDims,
     sendReadySignal,
+    connectWebSocket,
   ]);
 
   // Handle read-only data input separately to avoid re-rendering the entire terminal
@@ -436,6 +514,12 @@ export function WorkspaceTerminal({
 
   return (
     <div className="h-full w-full bg-black relative">
+      {/* Connection status indicator */}
+      {!isConnected && !error && (
+        <div className="absolute top-2 left-2 z-10 bg-amber-600/20 border border-amber-500/50 text-amber-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm">
+          {isConnecting.current ? "🔄 Connecting..." : "📡 Reconnecting..."}
+        </div>
+      )}
       {/* Read-only indicator */}
       {isReadOnly && (
         <div
