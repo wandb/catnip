@@ -1,4 +1,4 @@
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useParams, useLocation, useNavigate as useRouterNavigate } from "@tanstack/react-router";
 import {
   ChevronRight,
   Folder,
@@ -59,12 +59,22 @@ import {
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { useGitApi } from "@/hooks/useGitApi";
-import { useNavigate } from "@tanstack/react-router";
 
 export function WorkspaceLeftSidebar() {
-  const { project, workspace } = useParams({
-    from: "/workspace/$project/$workspace",
-  });
+  const location = useLocation();
+  const routerNavigate = useRouterNavigate();
+  
+  // Detect if we're in project-specific mode or repository list mode
+  const isProjectSpecific = location.pathname.includes('/workspace/') && 
+    location.pathname.split('/').length >= 4 && // /workspace/project/workspace
+    !location.pathname.endsWith('/workspace/');
+  
+  // Only get params when we're on a project-specific route
+  const routeParams = isProjectSpecific ? 
+    useParams({ from: "/workspace/$project/$workspace" }) : 
+    { project: undefined, workspace: undefined };
+  
+  const { project, workspace } = routeParams;
 
   // Global keyboard shortcuts
   const { newWorkspaceDialogOpen, setNewWorkspaceDialogOpen } =
@@ -294,7 +304,32 @@ export function WorkspaceLeftSidebar() {
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
-            <SidebarGroupLabel>Workspaces</SidebarGroupLabel>
+            <div className="flex items-center justify-between mb-2">
+              <SidebarGroupLabel>
+                {isProjectSpecific ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => routerNavigate({ to: "/workspace" })}
+                      className="p-1 hover:bg-accent rounded"
+                      title="Back to repositories"
+                      aria-label="Back to repositories"
+                    >
+                      <ChevronRight className="h-3 w-3 rotate-180" aria-hidden="true" />
+                    </button>
+                    <span>{project}</span>
+                  </div>
+                ) : (
+                  "Repositories"
+                )}
+              </SidebarGroupLabel>
+              {isProjectSpecific && (
+                <span className="text-xs text-muted-foreground">
+                  {repositoriesWithWorktrees.reduce((sum, repo) => 
+                    sum + repo.worktrees.filter(w => w.name.split('/')[0] === project).length, 0
+                  )}
+                </span>
+              )}
+            </div>
             <SidebarGroupContent>
               <SidebarMenu>
                 {repositoriesWithWorktrees.map((repo) => {
@@ -569,15 +604,17 @@ export function WorkspaceLeftSidebar() {
                   );
                 })}
               </SidebarMenu>
-              {/* Global New Workspace Button */}
-              <SidebarMenu className="mt-3">
+              {/* New Workspace/Repository Button */}
+              <SidebarMenu className={isProjectSpecific ? "mt-3" : "mb-3 order-first"}>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     onClick={() => setNewWorkspaceDialogOpen(true)}
                     className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-xs"
                   >
                     <Plus className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">New workspace</span>
+                    <span className="truncate">
+                      {isProjectSpecific ? "New workspace" : "New repository"}
+                    </span>
                     <span className="ml-auto text-xs text-muted-foreground">
                       ⌘N
                     </span>
