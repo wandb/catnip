@@ -217,12 +217,28 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 
 		logger.Debugf("🪧 Title change detected at %s: %q in %s", timestamp, title, cwd)
 
-		// Check if this is a worktree directory
+		// Check if this is a managed worktree directory
 		if s.isWorktreeDirectory(cwd) {
 			// Clean the title before processing
 			cleanedTitle := cleanTitle(title)
 			if cleanedTitle != "" { // Only process if title isn't empty after cleaning
 				s.handleTitleChange(cwd, cleanedTitle, "log")
+			}
+		} else if s.isExternalGitRepository(cwd) {
+			// Handle external Git repository - attempt to auto-create workspace
+			logger.Debugf("🔍 External Git repository detected: %s", cwd)
+
+			// Try to create auto-workspace (this will be a no-op if already exists)
+			if err := s.createAutoWorkspaceForExternalRepo(cwd); err != nil {
+				logger.Warnf("⚠️ Failed to create auto-workspace for %s: %v", cwd, err)
+			} else {
+				// After successful workspace creation, process the title change normally
+				cleanedTitle := cleanTitle(title)
+				if cleanedTitle != "" {
+					// The workspace now exists, so we can handle it as a normal worktree
+					// But first check if it got added to managed worktrees
+					s.handleExternalRepoTitleChange(cwd, cleanedTitle, "log")
+				}
 			}
 		}
 	}
@@ -367,6 +383,28 @@ func (s *ClaudeMonitorService) getRemoteOriginInfo(repoPath string) (string, boo
 	hasGitHubRemote := strings.Contains(originURL, "github.com")
 
 	return originURL, hasGitHubRemote
+}
+
+// handleExternalRepoTitleChange handles title changes for external repositories
+func (s *ClaudeMonitorService) handleExternalRepoTitleChange(repoPath, newTitle, source string) {
+	// The external repo should now have an auto-workspace created
+	// We need to find the corresponding worktree and handle the title change there
+
+	// Get all worktrees and find one matching this repo path
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
+		// Check if this worktree belongs to an auto-detected repository that matches our path
+		if repo, exists := s.stateManager.GetRepository(worktree.RepoID); exists {
+			if repo.IsAutoDetected && repo.Path == repoPath {
+				// Found the matching worktree, handle title change for its path
+				logger.Debugf("🎯 Routing external repo title change to worktree: %s -> %s", repoPath, worktree.Path)
+				s.handleTitleChange(worktree.Path, newTitle, source)
+				return
+			}
+		}
+	}
+
+	logger.Warnf("⚠️ Could not find worktree for external repo: %s", repoPath)
 }
 
 // handleTitleChange processes a title change for a worktree with duplicate detection
