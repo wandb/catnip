@@ -1982,11 +1982,6 @@ const docTemplate = `{
                     "type": "string",
                     "example": "main"
                 },
-                "deletion_protected": {
-                    "description": "Whether this repository is protected from deletion",
-                    "type": "boolean",
-                    "example": false
-                },
                 "description": {
                     "description": "Repository description",
                     "type": "string",
@@ -2001,11 +1996,6 @@ const docTemplate = `{
                     "description": "Repository identifier in owner/repo format",
                     "type": "string",
                     "example": "anthropics/claude-code"
-                },
-                "is_auto_detected": {
-                    "description": "Whether this repository was auto-detected from external Claude sessions",
-                    "type": "boolean",
-                    "example": false
                 },
                 "last_accessed": {
                     "description": "When this repository was last accessed",

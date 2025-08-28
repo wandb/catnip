@@ -345,10 +345,6 @@ definitions:
         description: Default branch name for this repository
         example: main
         type: string
-      deletion_protected:
-        description: Whether this repository is protected from deletion
-        example: false
-        type: boolean
       description:
         description: Repository description
         example: AI coding assistant
@@ -361,11 +357,6 @@ definitions:
         description: Repository identifier in owner/repo format
         example: anthropics/claude-code
         type: string
-      is_auto_detected:
-        description: Whether this repository was auto-detected from external Claude
-          sessions
-        example: false
-        type: boolean
       last_accessed:
         description: When this repository was last accessed
         example: "2024-01-15T16:45:30Z"
