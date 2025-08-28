@@ -27,10 +27,20 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
+// WorkspaceFailureTracker tracks recreation failures per workspace
+type WorkspaceFailureTracker struct {
+	FailureCount   int
+	FirstFailureAt time.Time
+	LastFailureAt  time.Time
+	BackoffUntil   time.Time
+}
+
 // PTYHandler handles PTY WebSocket connections
 type PTYHandler struct {
 	sessions       map[string]*Session
 	sessionMutex   sync.RWMutex
+	failureTracker map[string]*WorkspaceFailureTracker
+	failureMutex   sync.RWMutex
 	gitService     *services.GitService
 	sessionService *services.SessionService
 	portService    *services.PortAllocationService
@@ -149,8 +159,9 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 
 // NewPTYHandler creates a new PTY handler
 func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService, portMonitor *services.PortMonitor) *PTYHandler {
-	return &PTYHandler{
+	h := &PTYHandler{
 		sessions:       make(map[string]*Session),
+		failureTracker: make(map[string]*WorkspaceFailureTracker),
 		gitService:     gitService,
 		sessionService: sessionService,
 		portService:    services.NewPortAllocationService(),
@@ -158,6 +169,11 @@ func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.Clau
 		ptyService:     services.NewPTYService(),
 		claudeMonitor:  claudeMonitor,
 	}
+
+	// Start periodic cleanup routine for non-existent workspaces
+	go h.periodicWorkspaceCleanup()
+
+	return h
 }
 
 // findClaudeExecutable finds the claude executable using robust path lookup
@@ -877,19 +893,40 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 					return
 				}
 
-				// Rate limit recreation to prevent CPU pegging
-				now := time.Now()
-				if now.Sub(session.LastRecreation) < time.Second {
-					logger.Infof("⏸️ Rate limiting PTY recreation for session %s (last recreation: %v ago)", session.ID, now.Sub(session.LastRecreation))
-					time.Sleep(time.Second)
+				// Enhanced rate limiting with exponential backoff per workspace
+				canRecreate, waitDuration := h.canRecreateSession(session)
+				if !canRecreate {
+					workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+					// If wait duration is 0, it means workspace doesn't exist - clean up immediately
+					if waitDuration == 0 && !h.workspaceExists(workspaceID) {
+						logger.Warnf("🧹 Cleaning up session for non-existent workspace %s: %s", workspaceID, session.ID)
+						h.cleanupSession(session)
+						return
+					}
+
+					if waitDuration >= time.Minute {
+						logger.Infof("🚫 Exponential backoff active for workspace %s - waiting %v before next recreation attempt", workspaceID, waitDuration)
+					} else {
+						logger.Infof("⏸️ Rate limiting PTY recreation for session %s (workspace: %s) - waiting %v", session.ID, workspaceID, waitDuration)
+					}
+					time.Sleep(waitDuration)
 					continue
 				}
-				session.LastRecreation = now
 
+				session.LastRecreation = time.Now()
 				logger.Infof("🔄 PTY closed (shell exited: %v), creating new session...", err)
+
+				// Track this as a potential failure before attempting recreation
+				h.trackRecreationFailure(session)
 
 				// Create new PTY (this will clear the buffer)
 				h.recreateSession(session)
+
+				// If recreation was successful, reset failure tracking
+				if session.PTY != nil {
+					h.resetRecreationFailures(session)
+				}
 
 				// Continue reading from new PTY
 				continue
@@ -1171,6 +1208,155 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 		cmd.Dir = workDir
 	}
 	return cmd
+}
+
+// extractWorkspaceFromSessionID extracts the workspace name from session ID (e.g., "catnip/zigzag:claude" -> "catnip/zigzag")
+func extractWorkspaceFromSessionID(sessionID string) string {
+	parts := strings.Split(sessionID, ":")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return sessionID
+}
+
+// workspaceExists checks if a workspace directory exists
+func (h *PTYHandler) workspaceExists(workspaceID string) bool {
+	if workspaceID == "default" {
+		// For default workspace, check the current symlink
+		currentSymlinkPath := filepath.Join(config.Runtime.WorkspaceDir, "current")
+		if target, err := os.Readlink(currentSymlinkPath); err == nil {
+			if info, err := os.Stat(target); err == nil && info.IsDir() {
+				return true
+			}
+		}
+		return false
+	} else if strings.Contains(workspaceID, "/") {
+		// Check if workspace ID is in repo/branch format (e.g., "catnip/zigzag")
+		parts := strings.SplitN(workspaceID, "/", 2)
+		if len(parts) == 2 {
+			repoName := parts[0]
+			branchName := parts[1]
+			branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repoName, branchName)
+			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
+				return true
+			}
+		}
+		return false
+	} else {
+		// Single name workspace - check if directory exists
+		workspaceDir := filepath.Join(config.Runtime.WorkspaceDir, workspaceID)
+		if info, err := os.Stat(workspaceDir); err == nil && info.IsDir() {
+			return true
+		}
+		return false
+	}
+}
+
+// canRecreateSession checks if session recreation is allowed based on rate limiting and backoff
+func (h *PTYHandler) canRecreateSession(session *Session) (bool, time.Duration) {
+	now := time.Now()
+	workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+	// Check if the workspace still exists before attempting recreation
+	if !h.workspaceExists(workspaceID) {
+		logger.Warnf("🚫 Workspace %s no longer exists - session %s will be cleaned up", workspaceID, session.ID)
+		return false, 0 // Don't recreate, cleanup will happen elsewhere
+	}
+
+	// Basic rate limiting - once per second
+	if now.Sub(session.LastRecreation) < time.Second {
+		return false, time.Second - now.Sub(session.LastRecreation)
+	}
+
+	// Check workspace-level failure tracking for exponential backoff
+	h.failureMutex.RLock()
+	tracker, exists := h.failureTracker[workspaceID]
+	h.failureMutex.RUnlock()
+
+	if exists && now.Before(tracker.BackoffUntil) {
+		return false, tracker.BackoffUntil.Sub(now)
+	}
+
+	return true, 0
+}
+
+// trackRecreationFailure tracks failed recreation attempts per workspace
+func (h *PTYHandler) trackRecreationFailure(session *Session) {
+	now := time.Now()
+	workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+	h.failureMutex.Lock()
+	defer h.failureMutex.Unlock()
+
+	tracker, exists := h.failureTracker[workspaceID]
+	if !exists {
+		tracker = &WorkspaceFailureTracker{
+			FirstFailureAt: now,
+		}
+		h.failureTracker[workspaceID] = tracker
+	}
+
+	tracker.FailureCount++
+	tracker.LastFailureAt = now
+
+	// If we have 3+ failures within 5 seconds, implement exponential backoff
+	if tracker.FailureCount >= 3 && now.Sub(tracker.FirstFailureAt) <= 5*time.Second {
+		// Start with 1 minute backoff, can be extended later if needed
+		backoffDuration := time.Minute
+		tracker.BackoffUntil = now.Add(backoffDuration)
+		logger.Warnf("🚫 Workspace %s has %d failures in %v - backing off for %v",
+			workspaceID, tracker.FailureCount, now.Sub(tracker.FirstFailureAt), backoffDuration)
+	}
+}
+
+// resetRecreationFailures resets failure tracking for successful recreations
+func (h *PTYHandler) resetRecreationFailures(session *Session) {
+	workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+	h.failureMutex.Lock()
+	defer h.failureMutex.Unlock()
+
+	delete(h.failureTracker, workspaceID)
+}
+
+// periodicWorkspaceCleanup runs every 5 minutes to clean up sessions for non-existent workspaces
+func (h *PTYHandler) periodicWorkspaceCleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		h.sessionMutex.RLock()
+		var sessionsToCleanup []*Session
+
+		for _, session := range h.sessions {
+			workspaceID := extractWorkspaceFromSessionID(session.ID)
+			if !h.workspaceExists(workspaceID) {
+				sessionsToCleanup = append(sessionsToCleanup, session)
+			}
+		}
+		h.sessionMutex.RUnlock()
+
+		// Clean up sessions for non-existent workspaces
+		for _, session := range sessionsToCleanup {
+			workspaceID := extractWorkspaceFromSessionID(session.ID)
+			logger.Warnf("🧹 Periodic cleanup: removing session %s for non-existent workspace %s", session.ID, workspaceID)
+			h.cleanupSession(session)
+		}
+
+		// Also clean up failure tracking for non-existent workspaces
+		h.failureMutex.Lock()
+		var trackersToDelete []string
+		for workspaceID := range h.failureTracker {
+			if !h.workspaceExists(workspaceID) {
+				trackersToDelete = append(trackersToDelete, workspaceID)
+			}
+		}
+		for _, workspaceID := range trackersToDelete {
+			delete(h.failureTracker, workspaceID)
+			logger.Debugf("🧹 Cleaned up failure tracker for non-existent workspace: %s", workspaceID)
+		}
+		h.failureMutex.Unlock()
+	}
 }
 
 func (h *PTYHandler) recreateSession(session *Session) {
