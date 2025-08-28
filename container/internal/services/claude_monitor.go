@@ -251,8 +251,9 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 
 // isWorktreeDirectory checks if a directory is a git worktree
 func (s *ClaudeMonitorService) isWorktreeDirectory(dir string) bool {
-	// Check if directory is under /workspace (managed worktrees)
-	if strings.HasPrefix(dir, "/workspace/") {
+	// Check if directory is under the configured workspace directory (managed worktrees)
+	workspaceDir := config.Runtime.WorkspaceDir
+	if workspaceDir != "" && strings.HasPrefix(dir, workspaceDir+"/") {
 		// Check if it's a git repository
 		gitDir := filepath.Join(dir, ".git")
 		if _, err := os.Stat(gitDir); err != nil {
@@ -266,7 +267,8 @@ func (s *ClaudeMonitorService) isWorktreeDirectory(dir string) bool {
 // isExternalGitRepository checks if a directory is a Git repository outside our managed workspace
 func (s *ClaudeMonitorService) isExternalGitRepository(dir string) bool {
 	// Skip if it's already under our managed workspace
-	if strings.HasPrefix(dir, "/workspace/") {
+	workspaceDir := config.Runtime.WorkspaceDir
+	if workspaceDir != "" && strings.HasPrefix(dir, workspaceDir+"/") {
 		return false
 	}
 
