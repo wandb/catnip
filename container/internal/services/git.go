@@ -1078,6 +1078,61 @@ func (s *GitService) detectLocalRepos() {
 			}
 		}
 	}
+
+	// Check and update any stale catnip-live remotes in existing worktrees
+	s.updateStaleRemotes()
+}
+
+// updateStaleRemotes checks all existing worktrees for stale catnip-live remotes and updates them
+func (s *GitService) updateStaleRemotes() {
+	logger.Debug("🔍 Checking for stale catnip-live remotes in existing worktrees...")
+
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
+		// Only check local repo worktrees
+		if !s.isLocalRepo(worktree.RepoID) {
+			continue
+		}
+
+		// Get the repository for this worktree
+		repo, exists := s.stateManager.GetRepository(worktree.RepoID)
+		if !exists {
+			continue
+		}
+
+		// Check if worktree path exists
+		if _, err := os.Stat(worktree.Path); os.IsNotExist(err) {
+			continue
+		}
+
+		// Get existing remotes
+		remotes, err := s.operations.GetRemotes(worktree.Path)
+		if err != nil {
+			continue
+		}
+
+		// Check if catnip-live remote exists and points to correct path
+		if existingURL, exists := remotes["catnip-live"]; exists {
+			if existingURL != repo.Path {
+				logger.Infof("🔄 Updating stale 'catnip-live' remote in %s from %s to %s",
+					worktree.Name, existingURL, repo.Path)
+				if err := s.operations.SetRemoteURL(worktree.Path, "catnip-live", repo.Path); err != nil {
+					logger.Warnf("⚠️ Failed to update catnip-live remote in %s: %v", worktree.Name, err)
+				} else {
+					logger.Infof("✅ Updated 'catnip-live' remote in %s", worktree.Name)
+				}
+			}
+		}
+	}
+}
+
+// UpdateAllStaleRemotes is a public method that can be called to manually check and update all stale catnip-live remotes
+func (s *GitService) UpdateAllStaleRemotes() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	logger.Info("🔄 Manually checking and updating all stale catnip-live remotes...")
+	s.updateStaleRemotes()
+	logger.Info("✅ Manual stale remote update completed")
 }
 
 // shouldCreateInitialWorktree checks if we should create an initial worktree for a repo
@@ -1489,10 +1544,11 @@ func (s *GitService) cleanupActiveSessions(worktreePath string) {
 
 	// Also try to cleanup any session directories that might exist
 	// Session IDs are typically derived from worktree names
-	parts := strings.Split(strings.TrimPrefix(worktreePath, "/workspace/"), "/")
+	workspaceDir := getWorkspaceDir()
+	parts := strings.Split(strings.TrimPrefix(worktreePath, workspaceDir+"/"), "/")
 	if len(parts) >= 2 {
 		sessionID := fmt.Sprintf("%s/%s", parts[0], parts[1])
-		sessionWorkDir := filepath.Join("/workspace", sessionID)
+		sessionWorkDir := filepath.Join(workspaceDir, sessionID)
 
 		// If there's a session directory different from the worktree, clean it up too
 		if sessionWorkDir != worktreePath {
@@ -2746,7 +2802,7 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 		}
 
 		// Use existing CreateWorktree logic
-		workspaceRoot := "/workspace"
+		workspaceRoot := getWorkspaceDir()
 		logger.Warnf("🔧 Creating fresh worktree with: repo=%s, sourceBranch=%s, branchName=%s, workspaceDir=%s",
 			repo.Path, worktree.SourceBranch, branchRef, workspaceRoot)
 

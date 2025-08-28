@@ -236,8 +236,9 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 
 // isWorktreeDirectory checks if a directory is a git worktree
 func (s *ClaudeMonitorService) isWorktreeDirectory(dir string) bool {
-	// Check if directory is under /workspace
-	if !strings.HasPrefix(dir, "/workspace/") {
+	// Check if directory is under workspace directory
+	workspacePrefix := config.Runtime.WorkspaceDir + "/"
+	if !strings.HasPrefix(dir, workspacePrefix) {
 		return false
 	}
 
