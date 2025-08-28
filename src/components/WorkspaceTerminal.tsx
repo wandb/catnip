@@ -17,10 +17,10 @@ interface WorkspaceTerminalProps {
 export function WorkspaceTerminal({
   worktree,
   terminalId = "default",
-  isFocused = true,
+  isFocused: windowFocused = true, // Rename to clarify this is window focus
 }: WorkspaceTerminalProps) {
   const { instance, ref } = useXTerm();
-  const { setIsConnected } = useWebSocketContext();
+  const { setIsConnected: setGlobalIsConnected } = useWebSocketContext();
   const wsRef = useRef<WebSocket | null>(null);
   const wsReady = useRef(false);
   const terminalReady = useRef(false);
@@ -45,6 +45,10 @@ export function WorkspaceTerminal({
   const [shakeReadOnlyBadge, setShakeReadOnlyBadge] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
 
+  // Per-terminal focus detection
+  const [isTerminalFocused, setIsTerminalFocused] = useState(false);
+  const terminalContainerRef = useRef<HTMLDivElement>(null);
+
   // Trigger shake animation for read-only badge
   const triggerReadOnlyShake = useCallback(() => {
     if (isReadOnly) {
@@ -60,12 +64,39 @@ export function WorkspaceTerminal({
     }
   }, []);
 
-  // Send focus state to backend when isFocused prop changes
+  // Handle terminal focus management
+  const handleTerminalFocus = useCallback(() => {
+    setIsTerminalFocused(true);
+  }, []);
+
+  // Send focus state to backend when terminal focus changes
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "focus", focused: isFocused }));
+      const actualFocus = windowFocused && isTerminalFocused;
+      wsRef.current.send(
+        JSON.stringify({ type: "focus", focused: actualFocus }),
+      );
     }
-  }, [isFocused]);
+  }, [windowFocused, isTerminalFocused]);
+
+  // Add global click handler to detect focus changes
+  useEffect(() => {
+    const handleGlobalClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const isClickInsideThisTerminal =
+        terminalContainerRef.current?.contains(target);
+
+      if (!isClickInsideThisTerminal) {
+        // Click was outside this terminal, remove focus
+        setIsTerminalFocused(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleGlobalClick);
+    return () => {
+      document.removeEventListener("mousedown", handleGlobalClick);
+    };
+  }, []);
 
   const fontSize = useCallback((element: Element) => {
     if (element.clientWidth < 400) {
@@ -147,7 +178,17 @@ export function WorkspaceTerminal({
 
     ws.onopen = () => {
       console.log("[Workspace Terminal] WebSocket connected");
+
+      // Reset terminal state on reconnection to prevent duplicate content
+      if (reconnectAttempts.current > 0) {
+        console.log(
+          "[Workspace Terminal] Resetting terminal state on reconnection",
+        );
+        instance.reset();
+      }
+
       setIsConnected(true);
+      setGlobalIsConnected(true);
       isConnecting.current = false;
       reconnectAttempts.current = 0; // Reset attempts on successful connection
       wsReady.current = true;
@@ -159,6 +200,7 @@ export function WorkspaceTerminal({
         `[Workspace Terminal] WebSocket closed (code: ${event.code}, reason: ${event.reason})`,
       );
       setIsConnected(false);
+      setGlobalIsConnected(false);
       isConnecting.current = false;
       wsReady.current = false;
 
@@ -188,6 +230,7 @@ export function WorkspaceTerminal({
     ws.onerror = (error) => {
       console.error("❌ Workspace Terminal WebSocket error:", error);
       setIsConnected(false);
+      setGlobalIsConnected(false);
       isConnecting.current = false;
 
       // Handle WebSocket errors gracefully - don't crash the app
@@ -296,6 +339,7 @@ export function WorkspaceTerminal({
     isConnecting.current = false;
     setError(null);
     setIsConnected(false);
+    setGlobalIsConnected(false);
 
     // Clear any pending reconnection attempts
     if (reconnectTimeoutRef.current) {
@@ -397,8 +441,8 @@ export function WorkspaceTerminal({
 
     // Set up FileDropAddon
     const sendData = (data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(data);
       }
     };
     const fileDropAddon = new FileDropAddon(sendData);
@@ -454,6 +498,7 @@ export function WorkspaceTerminal({
         wsRef.current = null;
       }
       setIsConnected(false);
+      setGlobalIsConnected(false);
       fitAddon.current = null;
       webLinksAddon.current = null;
       renderAddon.current = null;
@@ -513,25 +558,34 @@ export function WorkspaceTerminal({
   }
 
   return (
-    <div className="h-full w-full bg-black relative">
-      {/* Connection status indicator */}
-      {!isConnected && !error && (
-        <div className="absolute top-2 left-2 z-10 bg-amber-600/20 border border-amber-500/50 text-amber-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm">
-          {isConnecting.current ? "🔄 Connecting..." : "📡 Reconnecting..."}
-        </div>
-      )}
-      {/* Read-only indicator */}
-      {isReadOnly && (
-        <div
-          className={`absolute top-2 right-2 z-10 bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm cursor-pointer hover:bg-yellow-600/30 hover:border-yellow-500/70 transition-all duration-200 ${
-            shakeReadOnlyBadge ? "animate-pulse animate-bounce" : ""
-          }`}
-          onClick={handlePromoteRequest}
-          title="Click to request write access"
-        >
-          👁️ Read Only
-        </div>
-      )}
+    <div
+      ref={terminalContainerRef}
+      className="h-full w-full bg-black relative"
+      onMouseDown={handleTerminalFocus}
+      onFocus={handleTerminalFocus}
+      tabIndex={-1}
+    >
+      {/* Connection status and read-only indicators in upper right */}
+      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1 items-end">
+        {/* Connection status indicator */}
+        {!isConnected && !error && (
+          <div className="bg-amber-600/20 border border-amber-500/50 text-amber-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm">
+            {isConnecting.current ? "🔄 Connecting..." : "📡 Reconnecting..."}
+          </div>
+        )}
+        {/* Read-only indicator */}
+        {isReadOnly && (
+          <div
+            className={`bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm cursor-pointer hover:bg-yellow-600/30 hover:border-yellow-500/70 transition-all duration-200 ${
+              shakeReadOnlyBadge ? "animate-pulse animate-bounce" : ""
+            }`}
+            onClick={handlePromoteRequest}
+            title="Click to request write access"
+          >
+            👁️ Read Only
+          </div>
+        )}
+      </div>
       {/* Terminal with minimal padding */}
       <div ref={ref} className="h-full w-full p-2" />
     </div>

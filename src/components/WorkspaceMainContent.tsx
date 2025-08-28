@@ -40,7 +40,7 @@ interface WorkspaceMainContentProps {
 
 function ClaudeTerminal({
   worktree,
-  isFocused,
+  isFocused: windowFocused,
 }: {
   worktree: Worktree;
   isFocused: boolean;
@@ -65,6 +65,10 @@ function ClaudeTerminal({
     null,
   );
 
+  // Per-terminal focus detection
+  const [isTerminalFocused, setIsTerminalFocused] = useState(false);
+  const terminalContainerRef = useRef<HTMLDivElement>(null);
+
   // Trigger shake animation for read-only badge
   const triggerReadOnlyShake = useCallback(() => {
     if (isReadOnly) {
@@ -80,12 +84,39 @@ function ClaudeTerminal({
     }
   }, []);
 
-  // Send focus state to backend when isFocused prop changes
+  // Handle terminal focus management
+  const handleTerminalFocus = useCallback(() => {
+    setIsTerminalFocused(true);
+  }, []);
+
+  // Send focus state to backend when terminal focus changes
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "focus", focused: isFocused }));
+      const actualFocus = windowFocused && isTerminalFocused;
+      wsRef.current.send(
+        JSON.stringify({ type: "focus", focused: actualFocus }),
+      );
     }
-  }, [isFocused]);
+  }, [windowFocused, isTerminalFocused]);
+
+  // Add global click handler to detect focus changes
+  useEffect(() => {
+    const handleGlobalClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const isClickInsideThisTerminal =
+        terminalContainerRef.current?.contains(target);
+
+      if (!isClickInsideThisTerminal) {
+        // Click was outside this terminal, remove focus
+        setIsTerminalFocused(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleGlobalClick);
+    return () => {
+      document.removeEventListener("mousedown", handleGlobalClick);
+    };
+  }, []);
 
   // Scroll terminal to bottom
   const scrollToBottom = useCallback(() => {
@@ -521,7 +552,13 @@ function ClaudeTerminal({
         </div>
       )}
       {/* Terminal */}
-      <div className="h-full w-full p-4">
+      <div
+        ref={terminalContainerRef}
+        className="h-full w-full p-4"
+        onMouseDown={handleTerminalFocus}
+        onFocus={handleTerminalFocus}
+        tabIndex={-1}
+      >
         <div ref={ref} className="h-full w-full" />
       </div>
     </div>
