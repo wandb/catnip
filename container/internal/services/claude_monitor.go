@@ -281,64 +281,43 @@ func (s *ClaudeMonitorService) isExternalGitRepository(dir string) bool {
 }
 
 // createAutoWorkspaceForExternalRepo attempts to create an auto-workspace for an external repo
+// Only creates a workspace if the external repo matches a repository we're already tracking
 func (s *ClaudeMonitorService) createAutoWorkspaceForExternalRepo(repoPath string) error {
 	logger.Infof("🔍 Detected Claude session in external repository: %s", repoPath)
 
-	// Extract repository name from path
-	repoName := filepath.Base(repoPath)
-	if repoName == "" || repoName == "." {
-		return fmt.Errorf("invalid repository path: %s", repoPath)
-	}
-
-	// Create repository ID with special prefix for auto-detected repos
-	repoID := fmt.Sprintf("auto-detected/%s", repoName)
-
-	// Check if this repository is already managed
-	if _, exists := s.stateManager.GetRepository(repoID); exists {
-		logger.Debugf("📦 Repository %s already exists in state, skipping auto-creation", repoID)
+	// Get the remote origin URL from the external repository
+	remoteOrigin, err := s.gitService.operations.GetRemoteURL(repoPath)
+	if err != nil {
+		logger.Debugf("📍 External repo %s has no remote origin, skipping auto-workspace creation", repoPath)
 		return nil
 	}
 
-	// Get default branch for the repository
-	defaultBranch, err := s.getRepositoryDefaultBranch(repoPath)
+	// Find if we already have a repository with this remote URL
+	existingRepo := s.findRepositoryByRemoteURL(remoteOrigin)
+	if existingRepo == nil {
+		logger.Debugf("📍 External repo %s (remote: %s) doesn't match any tracked repositories, skipping auto-workspace creation", repoPath, remoteOrigin)
+		return nil
+	}
+
+	logger.Infof("🎯 External repo %s matches tracked repository %s, creating auto-workspace", repoPath, existingRepo.ID)
+
+	// Get the current branch from the external repository
+	currentBranch, err := s.getCurrentBranch(repoPath)
 	if err != nil {
-		logger.Warnf("⚠️ Could not determine default branch for %s: %v", repoPath, err)
-		defaultBranch = "main" // fallback
+		logger.Warnf("⚠️ Could not determine current branch for %s: %v", repoPath, err)
+		currentBranch = existingRepo.DefaultBranch // fallback to repo's default branch
 	}
 
-	// Get remote origin info
-	remoteOrigin, hasGitHubRemote := s.getRemoteOriginInfo(repoPath)
+	// Generate a unique session name for the worktree
+	funName := s.gitService.generateUniqueSessionName(existingRepo.Path)
 
-	// Create repository object
-	repo := &models.Repository{
-		ID:                repoID,
-		URL:               "file://" + repoPath,
-		Path:              repoPath,
-		DefaultBranch:     defaultBranch,
-		CreatedAt:         time.Now(),
-		LastAccessed:      time.Now(),
-		RemoteOrigin:      remoteOrigin,
-		HasGitHubRemote:   hasGitHubRemote,
-		IsAutoDetected:    true, // Flag to indicate this was auto-detected
-		DeletionProtected: true, // Protect from accidental deletion
-	}
-
-	// Add repository to state
-	if err := s.stateManager.AddRepository(repo); err != nil {
-		return fmt.Errorf("failed to add auto-detected repository to state: %v", err)
-	}
-
-	// Create initial worktree for the repository
-	funName := s.gitService.generateUniqueSessionName(repoPath)
-	worktree, err := s.gitService.createLocalWorktreeForAutoRepo(repo, defaultBranch, funName)
+	// Create worktree using the existing repository and current branch
+	worktree, err := s.gitService.createLocalWorktreeForAutoRepo(existingRepo, currentBranch, funName)
 	if err != nil {
-		logger.Warnf("⚠️ Failed to create initial worktree for auto-detected repo %s: %v", repoID, err)
-		// Don't fail the repository creation if worktree creation fails
-		// User can create worktrees manually later
-	} else {
-		logger.Infof("✅ Created auto-workspace for external repository: %s -> %s", repoPath, worktree.Name)
+		return fmt.Errorf("failed to create auto-workspace for %s: %v", repoPath, err)
 	}
 
+	logger.Infof("✅ Created auto-workspace for external repository: %s -> %s (branch: %s)", repoPath, worktree.Name, currentBranch)
 	return nil
 }
 
