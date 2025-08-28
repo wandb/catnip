@@ -102,29 +102,39 @@ export function RepositoryListSidebar() {
   const handleRepositoryClick = (repo: RepositoryWithWorktrees) => {
     if (!repo.available) return;
     
-    // Navigate to the project route, which will redirect to the most recent workspace
-    const projectName = repo.projectName;
-    void navigate({
-      to: "/workspace/$project",
-      params: { project: projectName },
-    });
+    try {
+      // Navigate to the project route, which will redirect to the most recent workspace
+      const projectName = repo.projectName;
+      void navigate({
+        to: "/workspace/$project",
+        params: { project: projectName },
+      });
+    } catch (error) {
+      console.error('Navigation error:', error);
+    }
   };
 
-  const getTimeAgo = (timestamp: string) => {
-    const now = new Date();
-    const time = new Date(timestamp);
-    const diff = now.getTime() - time.getTime();
-    const minutes = Math.floor(diff / (1000 * 60));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const weeks = Math.floor(diff / (1000 * 60 * 60 * 24 * 7));
+  const getTimeAgo = useMemo(() => {
+    return (timestamp: string) => {
+      try {
+        const now = new Date();
+        const time = new Date(timestamp);
+        const diff = now.getTime() - time.getTime();
+        const minutes = Math.floor(diff / (1000 * 60));
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const weeks = Math.floor(diff / (1000 * 60 * 60 * 24 * 7));
 
-    if (minutes < 1) return "Just now";
-    if (minutes < 60) return `${minutes} minutes ago`;
-    if (hours < 24) return `${hours} hours ago`;
-    if (days < 7) return `${days === 1 ? "1 day" : `${days} days`} ago`;
-    return `${weeks === 1 ? "1 week" : `${weeks} weeks`} ago`;
-  };
+        if (minutes < 1) return "Just now";
+        if (minutes < 60) return `${minutes} minutes ago`;
+        if (hours < 24) return `${hours} hours ago`;
+        if (days < 7) return `${days === 1 ? "1 day" : `${days} days`} ago`;
+        return `${weeks === 1 ? "1 week" : `${weeks} weeks`} ago`;
+      } catch {
+        return "Unknown";
+      }
+    };
+  }, []);
 
   return (
     <>

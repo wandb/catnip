@@ -73,10 +73,17 @@ function ProjectWorkspaceRedirect() {
 
   // Show loading while finding workspace
   return (
-    <div className="flex h-screen items-center justify-center">
+    <div 
+      className="flex h-screen items-center justify-center" 
+      role="main" 
+      aria-live="polite"
+    >
       <div className="text-center space-y-4">
         <LoadingSpinner message="Finding workspace..." size="lg" />
-        <div className="text-sm text-muted-foreground">
+        <div 
+          className="text-sm text-muted-foreground"
+          aria-label={`Looking for recent workspaces in project ${project}`}
+        >
           Looking for recent workspaces in {project}
         </div>
       </div>
