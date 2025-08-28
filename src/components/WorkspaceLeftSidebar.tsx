@@ -333,15 +333,23 @@ export function WorkspaceLeftSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {repositoriesWithWorktrees.map((repo) => {
-                  const worktrees = repo.worktrees;
+                  // In project-specific mode, filter to only show workspaces for the current project
+                  let filteredWorktrees = repo.worktrees;
+                  if (isProjectSpecific && project) {
+                    filteredWorktrees = repo.worktrees.filter(w => 
+                      w.name.split("/")[0] === project
+                    );
+                    if (filteredWorktrees.length === 0) return null;
+                  }
+                  
+                  const worktrees = filteredWorktrees;
                   const isExpanded = expandedRepos.has(repo.id);
                   const isAvailable = repo.available !== false; // Default to true if not specified
 
                   // Get project name from the first worktree
-                  const projectName =
-                    worktrees.length > 0
-                      ? worktrees[0].name.split("/")[0]
-                      : repo.name;
+                  const projectName = isProjectSpecific && project ? 
+                    project : 
+                    (worktrees.length > 0 ? worktrees[0].name.split("/")[0] : repo.name);
 
                   return (
                     <Collapsible
