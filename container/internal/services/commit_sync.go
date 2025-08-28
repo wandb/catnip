@@ -511,6 +511,13 @@ func (css *CommitSyncService) performPeriodicSync() {
 	worktrees := css.gitService.ListWorktrees()
 
 	for _, worktree := range worktrees {
+		// Skip worktrees that are outside our managed workspace directory
+		workspaceDir := config.Runtime.WorkspaceDir
+		if workspaceDir != "" && !strings.HasPrefix(worktree.Path, workspaceDir+"/") {
+			logger.Debugf("🚫 Skipping commit sync for worktree outside WORKSPACE_DIR: %s", worktree.Path)
+			continue
+		}
+
 		// Only sync existing commits to bare repo (no auto-commits)
 		// Let the session-aware CheckpointManager handle creating commits
 		hasUnsynced := css.hasUnsyncedCommits(worktree.Path)
