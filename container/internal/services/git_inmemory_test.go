@@ -589,11 +589,17 @@ func testLocalRepositoryWorktreeLifecycle(t *testing.T, service *GitService, exe
 		assert.True(t, exists1, "Branch should exist in refs/catnip/ namespace: %s", worktree1.Branch)
 		assert.True(t, exists2, "Branch should exist in refs/catnip/ namespace: %s", worktree2.Branch)
 
-		// Delete first worktree and wait for cleanup to complete
+		// Delete first worktree and wait for cleanup to complete (with timeout)
 		done, err := service.DeleteWorktree(worktree1.ID)
 		assert.NoError(t, err)
-		err = <-done
-		assert.NoError(t, err)
+
+		// Wait for deletion with timeout to prevent hanging in CI
+		select {
+		case err = <-done:
+			assert.NoError(t, err)
+		case <-time.After(30 * time.Second):
+			t.Fatal("Worktree deletion timed out after 30 seconds")
+		}
 
 		// Verify only one worktree remains
 		worktrees = service.ListWorktrees()
