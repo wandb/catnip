@@ -161,10 +161,24 @@ func (d *DefaultGitHubAuthChecker) runGitHubAuthStatus() (*AuthUser, error) {
 
 	outputStr := string(output)
 
-	// Parse username
-	usernameRegex := regexp.MustCompile(`account (\w+)`)
+	// Parse username - handle both regular auth and GITHUB_TOKEN formats
+	// Regular auth: "account username"
+	// GITHUB_TOKEN: "Logged in to github.com as username (GITHUB_TOKEN)"
+	usernameRegex := regexp.MustCompile(`(?:account (\w+)|Logged in to github\.com as (\w+))`)
 	usernameMatches := usernameRegex.FindStringSubmatch(outputStr)
 	if len(usernameMatches) < 2 {
+		return nil, fmt.Errorf("could not parse username")
+	}
+
+	// Extract username from either capture group
+	username := ""
+	if usernameMatches[1] != "" {
+		username = usernameMatches[1] // Regular auth format
+	} else if usernameMatches[2] != "" {
+		username = usernameMatches[2] // GITHUB_TOKEN format
+	}
+
+	if username == "" {
 		return nil, fmt.Errorf("could not parse username")
 	}
 
@@ -172,7 +186,7 @@ func (d *DefaultGitHubAuthChecker) runGitHubAuthStatus() (*AuthUser, error) {
 	scopes := d.getTokenScopes()
 
 	return &AuthUser{
-		Username: usernameMatches[1],
+		Username: username,
 		Scopes:   scopes,
 	}, nil
 }
