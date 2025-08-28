@@ -58,7 +58,6 @@ run: build
 
 # Development mode with hot reload (local)
 dev:
-	@command -v air >/dev/null 2>&1 || (echo "Installing Air..." && go install github.com/air-verse/air@latest)
 	air
 
 # Development mode without Air (simple)
@@ -67,7 +66,6 @@ dev-simple:
 
 # Generate Swagger documentation
 swagger:
-	@command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
 	swag init -g internal/cmd/serve.go -o docs --parseDependency --parseInternal
 
 # Run unit tests (excludes integration tests)
@@ -106,8 +104,9 @@ golangci-lint:
 deps: golangci-lint
 	go mod download
 	go mod tidy
-	@command -v air >/dev/null 2>&1 || (echo "Installing Air..." && go install github.com/air-verse/air@latest)
-	@command -v swag >/dev/null 2>&1 || (echo "Installing swag..." && go install github.com/swaggo/swag/cmd/swag@latest)
+	# Install tools defined in tools.go
+	go install github.com/air-verse/air
+	go install github.com/swaggo/swag/cmd/swag
 
 # Format code
 #fmt:
