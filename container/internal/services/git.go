@@ -1264,6 +1264,13 @@ func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
 	}
 
+	// SAFETY CHECK: Refuse to delete worktrees outside our managed workspace directory
+	// This protects against accidentally deleting external repository paths
+	workspaceDir := config.Runtime.WorkspaceDir
+	if workspaceDir != "" && !strings.HasPrefix(worktree.Path, workspaceDir+"/") {
+		return nil, fmt.Errorf("cannot delete worktree %s: path %s is outside managed workspace directory %s", worktree.Name, worktree.Path, workspaceDir)
+	}
+
 	// Clean up any active PTY sessions for this worktree (service-specific)
 	s.cleanupActiveSessions(worktree.Path)
 
