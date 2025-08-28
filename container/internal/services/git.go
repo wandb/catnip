@@ -1264,6 +1264,11 @@ func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
 	}
 
+	// Check if the repository is deletion-protected (e.g., auto-detected repos)
+	if repo.DeletionProtected {
+		return nil, fmt.Errorf("cannot delete worktree %s: repository %s is protected from deletion (auto-detected external repository)", worktree.Name, repo.ID)
+	}
+
 	// Clean up any active PTY sessions for this worktree (service-specific)
 	s.cleanupActiveSessions(worktree.Path)
 
