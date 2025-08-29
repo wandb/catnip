@@ -155,17 +155,17 @@ export function useXTerminalConnection({
     }
   }, [dims, wsReady.current]);
 
-  // Update terminal cursor when read-only state changes (for Claude terminal)
+  // Claude terminal always has hidden cursor since it's a TUI
   useEffect(() => {
     if (instance && instance.options && agent === "claude") {
-      instance.options.cursorBlink = !isReadOnly;
+      instance.options.cursorBlink = false;
       instance.options.theme = {
         ...instance.options.theme,
-        cursor: isReadOnly ? "transparent" : "#0a0a0a",
-        cursorAccent: isReadOnly ? "transparent" : "#0a0a0a",
+        cursor: "#0a0a0a",
+        cursorAccent: "#0a0a0a",
       };
     }
-  }, [isReadOnly, instance, agent]);
+  }, [instance, agent]);
 
   // Set up terminal when instance and ref become available
   useEffect(() => {
@@ -436,9 +436,8 @@ export function useXTerminalConnection({
       instance.options.theme = {
         background: "#0a0a0a",
         foreground: "#e2e8f0",
-        cursor: agent === "claude" && isReadOnly ? "transparent" : "#00ff95",
-        cursorAccent:
-          agent === "claude" && isReadOnly ? "transparent" : "#00ff95",
+        cursor: agent === "claude" ? "#0a0a0a" : "#00ff95",
+        cursorAccent: agent === "claude" ? "#0a0a0a" : "#00ff95",
         selectionBackground: "#333333",
         black: "#0a0a0a",
         red: "#fc8181",
@@ -460,13 +459,12 @@ export function useXTerminalConnection({
 
       // Cursor configuration differs for Claude vs workspace
       if (agent === "claude") {
-        instance.options.theme.cursor = isReadOnly ? "transparent" : "#0a0a0a";
-        instance.options.theme.cursorAccent = isReadOnly
-          ? "transparent"
-          : "#0a0a0a";
+        // Hide cursor for Claude terminal since it's a TUI by matching background color
+        instance.options.theme.cursor = "#0a0a0a";
+        instance.options.theme.cursorAccent = "#0a0a0a";
       }
 
-      instance.options.cursorBlink = agent !== "claude" || !isReadOnly;
+      instance.options.cursorBlink = agent !== "claude";
       instance.options.scrollback = 10000;
       instance.options.allowProposedApi = true;
       instance.options.drawBoldTextInBrightColors = false;
