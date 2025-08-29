@@ -18,38 +18,6 @@
 
 </div>
 
-## 💡 When to Use Catnip
-
-**You should use Catnip if you:**
-
-- Build LLM applications (chatbots, RAG systems, AI agents) and want AI assistants to help code different parts simultaneously
-- Use Claude Code (or plan to) but wish you could run multiple sessions on different features without Git conflicts
-- Want a safe, isolated environment where AI assistants can run terminal commands without risking your main system
-- Build full-stack applications and need multiple services (API, frontend, database) running with automatic port management
-- Work on complex projects and want AI assistants to collaborate on different components in parallel
-
-
-## 🚀 Why Catnip?
-
-Think of Catnip as a **multi-agent coding workspace** that solves the chaos of having AI assistants work together on complex projects.
-
-**The Problem:** You want Claude Code (or other AI assistants) to help build your LLM app, but:
-
-- You can't run multiple Claude sessions on the same project (Git checkout conflicts)
-- AI assistants might break your main development environment
-- Managing different services (API, frontend, database) manually is tedious
-- You lose track of what each AI assistant is working on
-
-**The Solution:** Catnip gives each AI assistant its own isolated workspace while keeping everything synchronized:
-
-- **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK]
-(https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
-- **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
-- **💻 Full Terminal Access**: Open multiple terminals via the web interface, CLI, or directly via SSH.
-- **👀 Preview Changes**: Catnip has a built in proxy and port detection. Start a web service and preview it live!
-- **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is 
-supported.
-
 ## ⚡ Quick Start
 
 ```bash
@@ -293,6 +261,28 @@ This is especially powerful for LLM and agentic application development where yo
 - [ ] 🤖 Support for more AI coding agents
 - [ ] 🌐 Cloud based deployments
 - [ ] 🔧 Plugin ecosystem
+
+
+## 🚀 Why Catnip?
+
+Think of Catnip as a **multi-agent coding workspace** that solves the chaos of having AI assistants work together on complex projects.
+
+**The Problem:** You want Claude Code (or other AI assistants) to help build your LLM app, but:
+
+- You can't run multiple Claude sessions on the same project (Git checkout conflicts)
+- AI assistants might break your main development environment
+- Managing different services (API, frontend, database) manually is tedious
+- You lose track of what each AI assistant is working on
+
+**The Solution:** Catnip gives each AI assistant its own isolated workspace while keeping everything synchronized:
+
+- **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK]
+(https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
+- **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
+- **💻 Full Terminal Access**: Open multiple terminals via the web interface, CLI, or directly via SSH.
+- **👀 Preview Changes**: Catnip has a built in proxy and port detection. Start a web service and preview it live!
+- **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is 
+supported.
 
 ## ❓ FAQ
 
