@@ -8,22 +8,13 @@ interface WorkspaceClaudeProps {
 }
 
 export function WorkspaceClaude({ worktree, isFocused }: WorkspaceClaudeProps) {
-  const { ref, error, isReadOnly, shakeReadOnlyBadge } = useXTerminalConnection(
-    {
+  const { ref, error, isReadOnly, shakeReadOnlyBadge, handlePromoteRequest } =
+    useXTerminalConnection({
       worktree,
       isFocused,
       agent: "claude",
       enableAdvancedBuffering: true,
-    },
-  );
-
-  // Handle read-only badge click to request promotion
-  const handlePromoteRequest = () => {
-    // This is now handled inside the hook
-    // Just trigger the promotion request
-    const event = new CustomEvent("promote-request");
-    window.dispatchEvent(event);
-  };
+    });
 
   // Show error display if there's an error
   if (error) {

@@ -21,6 +21,7 @@ interface XTerminalState {
   error: { title: string; message: string } | null;
   isReadOnly: boolean;
   shakeReadOnlyBadge: boolean;
+  handlePromoteRequest: () => void;
 }
 
 export function useXTerminalConnection({
@@ -592,5 +593,6 @@ export function useXTerminalConnection({
     error,
     isReadOnly,
     shakeReadOnlyBadge,
+    handlePromoteRequest,
   };
 }
