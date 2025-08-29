@@ -462,7 +462,7 @@ export function createApp(env: Env) {
       }
 
       const credentials = await response.json();
-      return c.json(credentials);
+      return c.json(credentials as Record<string, unknown>);
     } catch (error) {
       console.error("Error retrieving codespace credentials:", error);
       return c.json({ error: "Internal server error" }, 500);
