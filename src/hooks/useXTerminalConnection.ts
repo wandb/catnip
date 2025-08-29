@@ -25,7 +25,7 @@ interface XTerminalState {
   isConnected: boolean;
   isConnecting: boolean;
   handleRetryConnection: () => void;
-  terminalContainerRef: React.RefObject<HTMLDivElement>;
+  terminalContainerRef: React.RefObject<HTMLDivElement | null>;
   handleTerminalFocus: () => void;
   isTerminalFocused: boolean;
 }
@@ -709,8 +709,8 @@ export function useXTerminalConnection({
 
     // Set up FileDropAddon
     const sendData = (data: string) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(data);
       }
     };
     const fileDropAddon = new FileDropAddon(sendData);

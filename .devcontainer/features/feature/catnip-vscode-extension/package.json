@@ -1,0 +1,55 @@
+{
+  "name": "catnip-sidebar",
+  "displayName": "Catnip Sidebar",
+  "description": "Catnip logo sidebar with quick access to the development environment",
+  "version": "0.0.1",
+  "publisher": "catnip",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "catnip-sidebar",
+          "name": "🐱 Catnip",
+          "when": "true"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "catnip.openInterface",
+        "title": "Open Catnip Interface",
+        "icon": "$(globe)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "catnip.openInterface",
+          "when": "view == catnip-sidebar",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --out ../catnip-sidebar.vsix",
+    "build": "npm run compile && npm run package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.21.0"
+  }
+}
