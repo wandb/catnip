@@ -142,14 +142,14 @@ function TodosList({ worktree }: { worktree: Worktree }) {
         <ScrollArea className="h-48">
           <div className="space-y-0.5">
             {/* Render todos in original order while preserving styling logic */}
-            {todos.map((todo, _index) => {
+            {todos.map((todo, index) => {
               const isCompleted = todo.status === "completed";
 
               if (isCompleted) {
                 // Completed todo styling
                 return (
                   <div
-                    key={todo.id}
+                    key={todo.id || `todo-${index}`}
                     className="flex items-start gap-2 px-2 py-1 rounded-md"
                   >
                     <CheckCircle className="h-3 w-3 text-green-500 mt-0.5 flex-shrink-0" />
@@ -169,7 +169,7 @@ function TodosList({ worktree }: { worktree: Worktree }) {
 
                 return (
                   <div
-                    key={todo.id}
+                    key={todo.id || `todo-${index}`}
                     className="flex items-start gap-2 px-2 py-1 rounded-md hover:bg-muted/50"
                   >
                     <Circle
@@ -591,12 +591,24 @@ function WorkspacePorts({
     );
   }, [allPorts, worktree.path]);
 
-  const openInNewWindow = (p: { port: number; hostPort?: number }) => {
-    if (p.hostPort) {
-      window.open(`http://localhost:${p.hostPort}/`, "_blank");
-    } else {
-      window.open(`/${p.port}/`, "_blank");
+  // Get settings from the app store
+  const settings = useAppStore((state) => state.settings);
+
+  const getPortUrl = (p: { port: number; hostPort?: number }) => {
+    // Use GitHub Codespace URLs if we're in a codespace
+    if (settings?.isCodespace && settings.codespaceName) {
+      return `https://${settings.codespaceName}-${p.port}.app.github.dev`;
     }
+
+    if (p.hostPort) {
+      return `http://localhost:${p.hostPort}/`;
+    } else {
+      return `/${p.port}/`;
+    }
+  };
+
+  const openInNewWindow = (p: { port: number; hostPort?: number }) => {
+    window.open(getPortUrl(p), "_blank");
   };
 
   const previewPort = (port: number) => {

@@ -96,6 +96,8 @@ type Session struct {
 	// Recreation protection - prevents concurrent recreation attempts
 	recreationInProgress bool
 	recreationMutex      sync.Mutex
+	// External workspace read-only protection
+	IsReadOnlyWorkspace bool
 	// Terminal emulator for Claude sessions (server-side terminal state)
 }
 
@@ -158,6 +160,48 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 
 	title := data[start+len(startSeq) : start+len(startSeq)+end]
 	return sanitizeTitle(string(title)), true
+}
+
+// isExternalWorkspace checks if a workspace directory is outside our managed workspace directory
+func (h *PTYHandler) isExternalWorkspace(workDir string) bool {
+	// Check if the workspace directory is outside our managed WORKSPACE_DIR
+	workspaceDir := config.Runtime.WorkspaceDir
+	if workspaceDir == "" {
+		return false
+	}
+
+	// Clean both paths for comparison
+	cleanWorkspaceDir := filepath.Clean(workspaceDir)
+	cleanWorkDir := filepath.Clean(workDir)
+
+	// Check if workDir is under workspaceDir
+	relPath, err := filepath.Rel(cleanWorkspaceDir, cleanWorkDir)
+	if err != nil {
+		return true // If we can't determine relationship, assume external for safety
+	}
+
+	// If the relative path starts with "..", it means workDir is outside workspaceDir
+	return strings.HasPrefix(relPath, "..")
+}
+
+// findWorktreeByName finds a worktree by its name in the state
+func (h *PTYHandler) findWorktreeByName(name string) *models.Worktree {
+	if h.gitService == nil {
+		return nil
+	}
+
+	stateManager := h.gitService.GetStateManager()
+	if stateManager == nil {
+		return nil
+	}
+
+	allWorktrees := stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
+		if worktree.Name == name {
+			return worktree
+		}
+	}
+	return nil
 }
 
 // NewPTYHandler creates a new PTY handler
@@ -328,9 +372,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	connectionCount := len(session.connections)
 	logger.Debugf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
 
-	// First connection gets write access, subsequent ones are read-only
-	isReadOnly := connectionCount > 0
-	if isReadOnly {
+	// Determine read-only status: external workspaces are always read-only for safety
+	isReadOnly := session.IsReadOnlyWorkspace || connectionCount > 0
+	if session.IsReadOnlyWorkspace {
+		logger.Debugf("🔒 Setting connection [%s] to read-ONLY mode (external workspace)", connID)
+	} else if connectionCount > 0 {
 		logger.Debugf("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
 	} else {
 		logger.Debugf("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
@@ -695,14 +741,14 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	// Set workspace directory with validation
 	var workDir string
 
-	// Extract base session ID without agent suffix for directory lookups
+	// Extract base session ID without agent suffix for worktree lookups
 	baseSessionID := sessionID
 	if idx := strings.LastIndex(sessionID, ":"); idx != -1 {
 		baseSessionID = sessionID[:idx]
 	}
 
 	// Validate session ID and get workspace directory
-	// Only allow "default" or existing worktree directories
+	// Support both "default" symlink and state-based worktree lookups
 	if baseSessionID == "default" {
 		// Check if current symlink exists in workspace directory
 		currentSymlinkPath := filepath.Join(config.Runtime.WorkspaceDir, "current")
@@ -719,44 +765,55 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			logger.Errorf("❌ Default session requested but current symlink does not exist at %s", currentSymlinkPath)
 			return nil
 		}
-	} else if strings.Contains(baseSessionID, "/") {
-		// Check if session ID is in repo/branch format (e.g., "catnip/pirate")
-		parts := strings.SplitN(baseSessionID, "/", 2)
-		if len(parts) == 2 {
-			repo := parts[0]
-			branch := parts[1]
+	} else {
+		// Look up workspace in state by name first (supports external repos and standard workspaces)
+		worktree := h.findWorktreeByName(baseSessionID)
+		if worktree != nil {
+			// Use the path from the worktree state
+			workDir = worktree.Path
+			logger.Infof("📁 Using worktree from state for session %s: %s (name: %s)", baseSessionID, workDir, worktree.Name)
+		} else {
+			// Fallback to legacy directory-based lookup for backward compatibility
+			if strings.Contains(baseSessionID, "/") {
+				// Check if session ID is in repo/branch format (e.g., "catnip/pirate")
+				parts := strings.SplitN(baseSessionID, "/", 2)
+				if len(parts) == 2 {
+					repo := parts[0]
+					branch := parts[1]
 
-			// Check for worktree at workspace/repo/branch (our standard pattern)
-			branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repo, branch)
-			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
-				// Additional validation: check if it's actually a git worktree
-				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
-					workDir = branchWorktreePath
-					logger.Debugf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
+					// Check for worktree at workspace/repo/branch (our standard pattern)
+					branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repo, branch)
+					if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
+						// Additional validation: check if it's actually a git worktree
+						if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
+							workDir = branchWorktreePath
+							logger.Debugf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
+						} else {
+							logger.Errorf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
+							logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
+							return nil
+						}
+					} else {
+						logger.Errorf("❌ Worktree directory does not exist: %s", branchWorktreePath)
+						logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
+						return nil
+					}
 				} else {
-					logger.Errorf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
-					logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
+					logger.Errorf("❌ Invalid session format: %s", baseSessionID)
 					return nil
 				}
 			} else {
-				logger.Errorf("❌ Worktree directory does not exist: %s", branchWorktreePath)
-				logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
-				return nil
+				// Single name session - check if directory exists
+				sessionWorkDir := filepath.Join(config.Runtime.WorkspaceDir, baseSessionID)
+				if info, err := os.Stat(sessionWorkDir); err == nil && info.IsDir() {
+					workDir = sessionWorkDir
+					logger.Infof("📁 Using existing workspace directory: %s", workDir)
+				} else {
+					logger.Errorf("❌ Workspace directory does not exist: %s", sessionWorkDir)
+					logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
+					return nil
+				}
 			}
-		} else {
-			logger.Errorf("❌ Invalid session format: %s", baseSessionID)
-			return nil
-		}
-	} else {
-		// Single name session - check if directory exists
-		sessionWorkDir := filepath.Join(config.Runtime.WorkspaceDir, baseSessionID)
-		if info, err := os.Stat(sessionWorkDir); err == nil && info.IsDir() {
-			workDir = sessionWorkDir
-			logger.Infof("📁 Using existing workspace directory: %s", workDir)
-		} else {
-			logger.Errorf("❌ Workspace directory does not exist: %s", sessionWorkDir)
-			logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
-			return nil
 		}
 	}
 
@@ -827,10 +884,17 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		ptyReadClosed: false,
 		// Initialize recreation protection
 		recreationInProgress: false,
+		// Set read-only mode for external workspaces (Claude sessions only)
+		IsReadOnlyWorkspace: agent == "claude" && h.isExternalWorkspace(workDir),
 	}
 
 	h.sessions[sessionID] = session
 	logger.Debugf("✅ Created new PTY session: %s in %s with agent: %s", sessionID, workDir, agent)
+
+	// Log read-only mode for external workspaces
+	if session.IsReadOnlyWorkspace {
+		logger.Infof("🔒 External workspace detected, session will be read-only for safety: %s", workDir)
+	}
 
 	// Track active session for this workspace
 	if agent == "claude" {
@@ -1220,6 +1284,10 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 	case "claude":
 		// Build Claude command with optional continue or resume flag
 		args := []string{"--dangerously-skip-permissions"}
+
+		// Note: External workspace read-only mode is handled at the WebSocket/PTY level,
+		// not via Claude command flags. See Session.IsReadOnlyWorkspace field.
+
 		if useContinue {
 			args = append(args, "--continue")
 			logger.Infof("🔄 Starting Claude Code with --continue for session: %s", sessionID)
@@ -1993,6 +2061,12 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 	session.connMutex.Lock()
 	defer session.connMutex.Unlock()
 
+	// External workspaces are always read-only - no promotions allowed
+	if session.IsReadOnlyWorkspace {
+		logger.Infof("🚫 Connection promotion denied for external workspace (read-only): %s", session.ID)
+		return
+	}
+
 	requestingConnInfo, exists := session.connections[requestingConn]
 	if !exists {
 		logger.Warnf("❌ Requesting connection not found in session connections")
@@ -2103,8 +2177,8 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 	if focused {
 		logger.Infof("🎯 Connection [%s] gained focus in session %s", connID, session.ID)
 
-		// Auto-promote focused connection if it's read-only
-		if connInfo.IsReadOnly {
+		// Auto-promote focused connection if it's read-only (but not for external workspaces)
+		if connInfo.IsReadOnly && !session.IsReadOnlyWorkspace {
 			// Find and demote the current write connection
 			var currentWriteConn *websocket.Conn
 			var currentWriteConnInfo *ConnectionInfo

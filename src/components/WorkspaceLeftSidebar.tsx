@@ -398,7 +398,11 @@ export function WorkspaceLeftSidebar() {
                               const nameParts = worktree.name.split("/");
                               const status = getWorktreeStatus(worktree);
                               return (
-                                <SidebarMenuSubItem key={worktree.id}>
+                                <SidebarMenuSubItem
+                                  key={
+                                    worktree.id || `worktree-${worktree.name}`
+                                  }
+                                >
                                   <SidebarMenuSubButton
                                     asChild={isAvailable}
                                     isActive={isActive}

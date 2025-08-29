@@ -50,10 +50,20 @@ export function WorkspaceClaude({ worktree, isFocused }: WorkspaceClaudeProps) {
           </div>
         )}
 
-        {/* Connection status indicator - only show when actively connecting */}
+        {/* Connection status indicator - show connecting or disconnected state */}
         {!isConnected && !error && isConnecting && (
           <div className="bg-amber-600/20 border border-amber-500/50 text-amber-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm">
             🔄 Connecting...
+          </div>
+        )}
+
+        {/* Disconnected status indicator */}
+        {!isConnected && !error && !isConnecting && (
+          <div
+            className="bg-red-600/20 border border-red-500/50 text-red-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm cursor-pointer hover:bg-red-600/30 hover:border-red-500/70 transition-all duration-200"
+            onClick={handleRetryConnection}
+          >
+            ⚠️ Disconnected - Click to retry
           </div>
         )}
 

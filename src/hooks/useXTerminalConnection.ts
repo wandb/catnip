@@ -54,10 +54,12 @@ export function useXTerminalConnection({
 
   // Reconnection management
   const reconnectTimeoutRef = useRef<number | null>(null);
+  const readySignalTimeoutRef = useRef<number | null>(null);
   const reconnectAttempts = useRef(0);
-  const maxReconnectAttempts = 10;
-  const shouldReconnect = useRef(true);
+  const maxReconnectAttempts = 5;
   const isConnectingRef = useRef(false);
+  const hasEverConnected = useRef(false);
+  const isWorktreeChanging = useRef(false);
   const terminalContainerRef = useRef<HTMLDivElement>(null);
 
   // Advanced buffering state (for Claude terminal)
@@ -69,9 +71,10 @@ export function useXTerminalConnection({
     null,
   );
   const [isReadOnly, setIsReadOnly] = useState(false);
+
   const [shakeReadOnlyBadge, setShakeReadOnlyBadge] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(true); // Start in connecting state
   const [isTerminalFocused, setIsTerminalFocused] = useState(false);
 
   // Trigger shake animation for read-only badge
@@ -110,7 +113,7 @@ export function useXTerminalConnection({
         JSON.stringify({ type: "focus", focused: actualFocus }),
       );
     }
-  }, [windowFocused, isTerminalFocused]);
+  }, [windowFocused, isTerminalFocused, worktree.name, agent]);
 
   // Add global click handler to detect focus changes
   useEffect(() => {
@@ -172,7 +175,6 @@ export function useXTerminalConnection({
     if (
       !wsReady.current ||
       !wsRef.current ||
-      !fitAddon.current ||
       readySignalSent.current ||
       wsRef.current.readyState !== WebSocket.OPEN
     ) {
@@ -180,32 +182,28 @@ export function useXTerminalConnection({
     }
     readySignalSent.current = true;
     wsRef.current.send(JSON.stringify({ type: "ready" }));
-    console.log("🎯 Ready signal sent to backend");
-  }, []);
+  }, [agent]);
 
-  // Calculate reconnect delay with exponential backoff
+  // Calculate reconnect delay with custom backoff sequence: 1s, 3s, 6s, 9s, 18s
   const getReconnectDelay = useCallback(() => {
-    const baseDelay = 1000; // 1 second
-    const maxDelay = 30000; // 30 seconds
-    const delay = Math.min(
-      baseDelay * Math.pow(2, reconnectAttempts.current),
-      maxDelay,
+    const delays = [1000, 3000, 6000, 9000, 18000]; // 1s, 3s, 6s, 9s, 18s
+    const attemptIndex = Math.min(
+      reconnectAttempts.current - 1,
+      delays.length - 1,
     );
-    return delay;
+    return delays[attemptIndex] || 1000;
   }, []);
 
   // WebSocket connection setup function
   const connectWebSocket = useCallback(() => {
-    if (isConnectingRef.current || !shouldReconnect.current) {
+    if (isConnectingRef.current) {
       return;
     }
 
-    // Rate limit reconnections
+    // Rate limit reconnections (but be more lenient on first connection)
     const now = Date.now();
-    if (now - lastConnectionAttempt.current < 1000) {
-      console.log(
-        `[${agent ? "Claude" : "Workspace"} Terminal] Rate limiting connection attempt, too soon`,
-      );
+    const minDelay = reconnectAttempts.current === 0 ? 100 : 1000;
+    if (now - lastConnectionAttempt.current < minDelay) {
       return;
     }
     lastConnectionAttempt.current = now;
@@ -214,7 +212,6 @@ export function useXTerminalConnection({
     const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
     if (isMockMode) {
       if (agent) {
-        console.log("📝 Skipping Claude terminal WebSocket in mock mode");
         return;
       } else {
         setError({
@@ -228,9 +225,6 @@ export function useXTerminalConnection({
 
     isConnectingRef.current = true;
     setIsConnecting(true);
-    console.log(
-      `[${agent ? "Claude" : "Workspace"} Terminal] Connecting to WebSocket (attempt ${reconnectAttempts.current + 1})`,
-    );
 
     // Set up WebSocket connection
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -253,15 +247,8 @@ export function useXTerminalConnection({
     const buffer: Uint8Array[] = [];
 
     ws.onopen = () => {
-      console.log(
-        `[${agent ? "Claude" : "Workspace"} Terminal] WebSocket connected`,
-      );
-
       // Reset terminal state on reconnection to prevent duplicate content
-      if (reconnectAttempts.current > 0 && !agent) {
-        console.log(
-          `[${agent ? "Claude" : "Workspace"} Terminal] Resetting terminal state on reconnection`,
-        );
+      if (reconnectAttempts.current > 0) {
         instance?.reset();
       }
 
@@ -270,44 +257,55 @@ export function useXTerminalConnection({
       isConnectingRef.current = false;
       setIsConnecting(false);
       reconnectAttempts.current = 0; // Reset attempts on successful connection
+      hasEverConnected.current = true; // Track that we've connected at least once
+      // Clear worktree changing flag - new WebSocket is connected
+      isWorktreeChanging.current = false;
       wsReady.current = true;
       readySignalSent.current = false; // Reset for new connection
       // Add small delay to ensure WebSocket is fully ready
-      setTimeout(() => sendReadySignal(), 10);
+      readySignalTimeoutRef.current = window.setTimeout(
+        () => sendReadySignal(),
+        10,
+      );
     };
 
-    ws.onclose = (event) => {
-      console.log(
-        `[${agent ? "Claude" : "Workspace"} Terminal] WebSocket closed (code: ${event.code}, reason: ${event.reason})`,
-      );
+    ws.onclose = (_event) => {
       setIsConnected(false);
       setGlobalIsConnected(false);
-      isConnectingRef.current = false;
-      setIsConnecting(false);
       wsReady.current = false;
+
+      // Clear any pending ready signal timeout
+      if (readySignalTimeoutRef.current) {
+        clearTimeout(readySignalTimeoutRef.current);
+        readySignalTimeoutRef.current = null;
+      }
 
       if (enableAdvancedBuffering) {
         lastWebSocketClose.current = Date.now();
       }
 
-      // Only attempt reconnect if we should and haven't exceeded max attempts
-      if (
-        shouldReconnect.current &&
-        reconnectAttempts.current < maxReconnectAttempts
-      ) {
+      // Don't reconnect if worktree is changing (prevents stale reconnections)
+      if (isWorktreeChanging.current) {
+        return;
+      }
+
+      // Simple logic: if we haven't exceeded max attempts, try to reconnect
+      if (reconnectAttempts.current < maxReconnectAttempts) {
         reconnectAttempts.current += 1;
         const delay = getReconnectDelay();
-        console.log(
-          `[${agent ? "Claude" : "Workspace"} Terminal] Scheduling reconnect in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
-        );
+
+        // Keep showing connecting state while retrying
+        isConnectingRef.current = false; // Reset for new connection attempt
+        setIsConnecting(true);
 
         reconnectTimeoutRef.current = window.setTimeout(() => {
+          // Force a fresh connectWebSocket call to use current worktree values
           connectWebSocket();
         }, delay);
-      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-        console.error(
-          `[${agent ? "Claude" : "Workspace"} Terminal] Max reconnection attempts reached`,
-        );
+      } else {
+        // Only now show disconnected state and stop connecting
+        isConnectingRef.current = false;
+        setIsConnecting(false);
         setError({
           title: "Connection Lost",
           message: "Unable to reconnect to terminal. Please refresh the page.",
@@ -315,23 +313,21 @@ export function useXTerminalConnection({
       }
     };
 
-    ws.onerror = (error) => {
-      console.error(
-        `❌ ${agent ? "Claude" : "Workspace Terminal"} WebSocket error:`,
-        error,
-      );
+    ws.onerror = (_error) => {
       setIsConnected(false);
       setGlobalIsConnected(false);
-      isConnectingRef.current = false;
-      setIsConnecting(false);
+      wsReady.current = false;
+
+      // Clear any pending ready signal timeout
+      if (readySignalTimeoutRef.current) {
+        clearTimeout(readySignalTimeoutRef.current);
+        readySignalTimeoutRef.current = null;
+      }
 
       // Handle WebSocket errors gracefully
       const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
       if (isMockMode) {
         if (agent) {
-          console.log(
-            "📝 Claude terminal WebSocket failed in mock mode - this is expected",
-          );
           return;
         } else {
           setError({
@@ -344,21 +340,21 @@ export function useXTerminalConnection({
       }
 
       // For real backend errors, attempt reconnection like onclose does
-      if (
-        shouldReconnect.current &&
-        reconnectAttempts.current < maxReconnectAttempts
-      ) {
+      if (reconnectAttempts.current < maxReconnectAttempts) {
         reconnectAttempts.current += 1;
         const delay = getReconnectDelay();
-        console.log(
-          `[${agent ? "Claude" : "Workspace"} Terminal] Scheduling reconnect after error in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
-        );
+
+        // Keep showing connecting state while retrying
+        isConnectingRef.current = false; // Reset for new connection attempt
+        setIsConnecting(true);
 
         reconnectTimeoutRef.current = window.setTimeout(() => {
           connectWebSocket();
         }, delay);
-      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-        // Only set error after exhausting all retry attempts
+      } else {
+        // Only now show disconnected state and stop connecting
+        isConnectingRef.current = false;
+        setIsConnecting(false);
         setError({
           title: "Terminal Connection Failed",
           message:
@@ -424,7 +420,7 @@ export function useXTerminalConnection({
                 if (fitAddon.current) {
                   fitAddon.current.fit();
                   if (agent === "claude") {
-                    scrollToBottom();
+                    smartScrollToBottom();
                     // Force a full refresh after fit for Claude
                     instance?.refresh(0, instance.rows - 1);
                   }
@@ -509,14 +505,18 @@ export function useXTerminalConnection({
   const handleRetryConnection = useCallback(() => {
     setError(null);
     reconnectAttempts.current = 0; // Reset attempts for manual retry
-    shouldReconnect.current = true;
     isConnectingRef.current = false;
-    setIsConnecting(false);
+    setIsConnecting(true); // Start in connecting state for retry
+    hasEverConnected.current = false; // Reset connection history
 
     // Clear any pending timeouts
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
+    }
+    if (readySignalTimeoutRef.current) {
+      clearTimeout(readySignalTimeoutRef.current);
+      readySignalTimeoutRef.current = null;
     }
 
     // Close existing connection if any
@@ -531,6 +531,9 @@ export function useXTerminalConnection({
 
   // Reset state when worktree changes
   useEffect(() => {
+    // Set flag to indicate worktree is changing
+    isWorktreeChanging.current = true;
+
     isSetup.current = false;
     wsReady.current = false;
     terminalReady.current = false;
@@ -538,7 +541,7 @@ export function useXTerminalConnection({
     lastConnectionAttempt.current = 0;
     readySignalSent.current = false;
     reconnectAttempts.current = 0;
-    shouldReconnect.current = true;
+    hasEverConnected.current = false;
 
     if (enableAdvancedBuffering) {
       isFirstConnection.current = true;
@@ -547,12 +550,17 @@ export function useXTerminalConnection({
 
     setError(null);
     setIsConnected(false);
+    setIsConnecting(true); // Start in connecting state for new worktree
     setGlobalIsConnected(false);
 
-    // Clear any pending reconnection attempts
+    // Clear any pending timeouts
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
+    }
+    if (readySignalTimeoutRef.current) {
+      clearTimeout(readySignalTimeoutRef.current);
+      readySignalTimeoutRef.current = null;
     }
 
     // Reset terminal display to prevent prompt stacking between workspaces
@@ -565,17 +573,25 @@ export function useXTerminalConnection({
     // Reset scroll tracking when switching workspaces (all terminals)
     userScrolledUp.current = false;
 
-    // Close existing WebSocket if any
+    // Close existing WebSocket if any (but only if it's not connected and working)
     if (wsRef.current) {
-      shouldReconnect.current = false; // Prevent reconnection during cleanup
-      wsRef.current.close();
-      wsRef.current = null;
+      // Don't close if WebSocket is connected and working properly
+      if (wsRef.current.readyState !== WebSocket.OPEN || !isConnected) {
+        // Temporarily prevent reconnection during cleanup
+        const oldWs = wsRef.current;
+        wsRef.current = null; // Clear reference first to prevent reconnection attempts
+        oldWs.close();
+      }
     }
   }, [worktree.id, enableAdvancedBuffering, instance, agent]);
 
   useEffect(() => {
-    if (wsReady.current && dims) {
-      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+    if (
+      wsReady.current &&
+      dims &&
+      wsRef.current?.readyState === WebSocket.OPEN
+    ) {
+      wsRef.current.send(JSON.stringify({ type: "resize", ...dims }));
     }
   }, [dims, wsReady.current]);
 
@@ -604,6 +620,8 @@ export function useXTerminalConnection({
 
     isSetup.current = true;
 
+    // Don't clear worktree changing flag here - wait until WebSocket connects
+
     // Clear terminal logic
     if (enableAdvancedBuffering) {
       // Advanced logic for Claude terminal
@@ -614,14 +632,6 @@ export function useXTerminalConnection({
           now - lastWebSocketClose.current < 30000);
 
       if (shouldClearTerminal) {
-        console.log(
-          "[Claude Terminal] Clearing terminal - First connection:",
-          isFirstConnection.current,
-          "Recent close:",
-          lastWebSocketClose.current
-            ? now - lastWebSocketClose.current + "ms ago"
-            : "none",
-        );
         instance.clear();
         isFirstConnection.current = false;
         lastWebSocketClose.current = null;
@@ -631,8 +641,7 @@ export function useXTerminalConnection({
       instance.clear();
     }
 
-    // Enable reconnection for this session
-    shouldReconnect.current = true;
+    // Enable reconnection for this session (simplified - no flag needed)
 
     // Start WebSocket connection
     connectWebSocket();
@@ -782,31 +791,23 @@ export function useXTerminalConnection({
       }, 100);
     });
 
-    // Set up data handler for Claude terminal (inline)
-    let disposer: any = null;
-    if (agent === "claude") {
-      disposer = instance?.onData((data: string) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          if (isReadOnly) {
-            triggerReadOnlyShake();
-            return;
-          }
-          wsRef.current.send(data);
-        }
-      });
-    }
+    // Data handler for Claude terminal is now handled by separate useEffect below
+    // This ensures it updates when isReadOnly changes
 
     resizeObserver.observe(ref.current);
     observerRef.current = resizeObserver;
 
     // Cleanup function
     return () => {
-      shouldReconnect.current = false;
+      // Removed shouldReconnect flag completely - was causing race conditions
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      disposer?.dispose();
+      if (readySignalTimeoutRef.current) {
+        clearTimeout(readySignalTimeoutRef.current);
+        readySignalTimeoutRef.current = null;
+      }
       scrollCleanup?.();
       if (wsRef.current) {
         wsRef.current.close();
@@ -832,19 +833,14 @@ export function useXTerminalConnection({
     worktree.id,
     worktree.name,
     terminalId,
-    setDims,
-    triggerReadOnlyShake,
-    isReadOnly,
-    sendReadySignal,
     agent,
     enableAdvancedBuffering,
-    fontSize,
-    smartScrollToBottom,
+    // Removed all callback dependencies that change on every render
   ]);
 
-  // Handle read-only data input separately for workspace terminal to avoid re-rendering
+  // Handle read-only data input for both terminal types
   useEffect(() => {
-    if (!instance || agent === "claude") return; // Claude terminal handles this inline
+    if (!instance) return;
 
     const dataHandler = (data: string) => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

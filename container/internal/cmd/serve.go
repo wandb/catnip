@@ -128,9 +128,12 @@ func startServer(cmd *cobra.Command) {
 	// Settings endpoint - returns environment configuration
 	app.Get("/v1/settings", func(c *fiber.Ctx) error {
 		catnipProxy := os.Getenv("CATNIP_PROXY")
+		codespaceName := os.Getenv("CODESPACE_NAME")
 		return c.JSON(fiber.Map{
-			"catnipProxy":  catnipProxy,
-			"authRequired": catnipProxy != "",
+			"catnipProxy":   catnipProxy,
+			"authRequired":  catnipProxy != "",
+			"codespaceName": codespaceName,
+			"isCodespace":   codespaceName != "",
 		})
 	})
 

@@ -142,7 +142,7 @@ func (d *DefaultGitHubAuthChecker) readGitHubHosts() (*AuthUser, error) {
 
 // runGitHubAuthStatus runs gh auth status command
 func (d *DefaultGitHubAuthChecker) runGitHubAuthStatus() (*AuthUser, error) {
-	cmd := exec.Command("bash", "--login", "-c", "gh auth status --show-token 2>/dev/null")
+	cmd := exec.Command("bash", "--login", "-c", "gh auth status --show-token 2>&1")
 
 	// In containerized mode, override HOME for catnip user
 	// In native mode, use the existing environment
