@@ -54,15 +54,15 @@ export function WorkspaceTerminal({
           </div>
         )}
 
-        {/* Connection status indicator */}
-        {!isConnected && !error && (
+        {/* Connection status indicator - only show when actively connecting */}
+        {!isConnected && !error && isConnecting && (
           <div className="bg-amber-600/20 border border-amber-500/50 text-amber-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm">
-            {isConnecting ? "🔄 Connecting..." : "📡 Reconnecting..."}
+            🔄 Connecting...
           </div>
         )}
 
-        {/* Read-only indicator */}
-        {isReadOnly && (
+        {/* Read-only indicator - only show when connected */}
+        {isConnected && isReadOnly && (
           <div
             className={`bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm cursor-pointer hover:bg-yellow-600/30 hover:border-yellow-500/70 transition-all duration-200 ${
               shakeReadOnlyBadge ? "animate-pulse animate-bounce" : ""
