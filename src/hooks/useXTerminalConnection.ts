@@ -141,12 +141,28 @@ export function useXTerminalConnection({
     }
   }, []);
 
-  // Track if user has scrolled up to view history
+  // Track if user has scrolled up to view history (for all terminals)
   const userScrolledUp = useRef(false);
 
-  // Scroll terminal to bottom only if user hasn't scrolled up (for Claude terminal)
-  const scrollToBottom = useCallback(() => {
-    if (instance && !userScrolledUp.current) {
+  // Smart scroll function that respects user scroll position
+  const smartScrollToBottom = useCallback(() => {
+    if (!instance) return;
+
+    // Always scroll to bottom if user hasn't manually scrolled up
+    if (!userScrolledUp.current) {
+      instance.scrollToBottom();
+      return;
+    }
+
+    // If user has scrolled up, check if they're close to bottom (within 3 lines)
+    // If so, assume they want to follow along and scroll to bottom
+    const scrollTop = instance.buffer.active.viewportY;
+    const scrollHeight = instance.buffer.active.length;
+    const clientHeight = instance.rows;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+
+    if (distanceFromBottom <= 3) {
+      userScrolledUp.current = false; // Reset scroll tracking
       instance.scrollToBottom();
     }
   }, [instance]);
@@ -157,7 +173,8 @@ export function useXTerminalConnection({
       !wsReady.current ||
       !wsRef.current ||
       !fitAddon.current ||
-      readySignalSent.current
+      readySignalSent.current ||
+      wsRef.current.readyState !== WebSocket.OPEN
     ) {
       return;
     }
@@ -255,7 +272,8 @@ export function useXTerminalConnection({
       reconnectAttempts.current = 0; // Reset attempts on successful connection
       wsReady.current = true;
       readySignalSent.current = false; // Reset for new connection
-      sendReadySignal();
+      // Add small delay to ensure WebSocket is fully ready
+      setTimeout(() => sendReadySignal(), 10);
     };
 
     ws.onclose = (event) => {
@@ -413,7 +431,7 @@ export function useXTerminalConnection({
                 }
                 // Send ready signal after initial fit for Claude
                 if (agent === "claude") {
-                  sendReadySignal();
+                  setTimeout(() => sendReadySignal(), 10);
                 }
               });
             }, delay);
@@ -465,15 +483,15 @@ export function useXTerminalConnection({
           instance?.write(chunk);
         }
         buffer.length = 0;
+        // Smart scroll after writing buffered data
+        setTimeout(() => smartScrollToBottom(), 0);
       }
 
       // Write data if not buffering
       if (data && !bufferingRef.current) {
         instance?.write(data);
-        // Reset scroll tracking when new content arrives (Claude terminal only)
-        if (agent === "claude") {
-          userScrolledUp.current = false;
-        }
+        // Smart scroll after writing data to ensure we follow new content
+        setTimeout(() => smartScrollToBottom(), 0);
       }
     };
   }, [
@@ -484,7 +502,7 @@ export function useXTerminalConnection({
     enableAdvancedBuffering,
     sendReadySignal,
     getReconnectDelay,
-    scrollToBottom,
+    smartScrollToBottom,
   ]);
 
   // Manual retry function that doesn't require page reload
@@ -544,10 +562,8 @@ export function useXTerminalConnection({
       instance.reset();
     }
 
-    // Reset scroll tracking when switching workspaces
-    if (agent === "claude") {
-      userScrolledUp.current = false;
-    }
+    // Reset scroll tracking when switching workspaces (all terminals)
+    userScrolledUp.current = false;
 
     // Close existing WebSocket if any
     if (wsRef.current) {
@@ -698,32 +714,30 @@ export function useXTerminalConnection({
     // Open terminal in DOM element
     instance.open(ref.current);
 
-    // Add scroll listener to detect when user scrolls up (Claude terminal only)
+    // Add scroll listener to detect when user scrolls up (all terminals)
     let scrollCleanup: (() => void) | null = null;
-    if (agent === "claude") {
-      const handleScroll = () => {
-        if (instance) {
-          const scrollTop = instance.buffer.active.viewportY;
-          const scrollHeight = instance.buffer.active.length;
-          const clientHeight = instance.rows;
+    const handleScroll = () => {
+      if (instance) {
+        const scrollTop = instance.buffer.active.viewportY;
+        const scrollHeight = instance.buffer.active.length;
+        const clientHeight = instance.rows;
 
-          // Check if user has scrolled up from the bottom
-          const isAtBottom = scrollTop >= scrollHeight - clientHeight;
-          userScrolledUp.current = !isAtBottom;
-        }
-      };
+        // Check if user has scrolled up from the bottom
+        const isAtBottom = scrollTop >= scrollHeight - clientHeight;
+        userScrolledUp.current = !isAtBottom;
+      }
+    };
 
-      // Wait a bit for terminal to initialize, then add scroll listener
-      setTimeout(() => {
-        const terminalElement = ref.current?.querySelector(".xterm-viewport");
-        if (terminalElement) {
-          terminalElement.addEventListener("scroll", handleScroll);
-          scrollCleanup = () => {
-            terminalElement.removeEventListener("scroll", handleScroll);
-          };
-        }
-      }, 200);
-    }
+    // Wait a bit for terminal to initialize, then add scroll listener
+    setTimeout(() => {
+      const terminalElement = ref.current?.querySelector(".xterm-viewport");
+      if (terminalElement) {
+        terminalElement.addEventListener("scroll", handleScroll);
+        scrollCleanup = () => {
+          terminalElement.removeEventListener("scroll", handleScroll);
+        };
+      }
+    }, 200);
 
     // Delay initial fit to allow layout to settle
     const initialFitTimeout = setTimeout(
@@ -732,15 +746,14 @@ export function useXTerminalConnection({
           if (fitAddon.current && instance) {
             fitAddon.current.fit();
 
-            // Scroll to bottom for all terminals on initial load
-            instance.scrollToBottom();
+            // Smart scroll on initial load
+            smartScrollToBottom();
 
             if (agent === "claude") {
-              scrollToBottom();
               // Ensure terminal is properly refreshed after initial fit
               instance.refresh(0, instance.rows - 1);
               // Send ready signal after initial fit is complete
-              sendReadySignal();
+              setTimeout(() => sendReadySignal(), 10);
             }
           }
         });
@@ -762,11 +775,8 @@ export function useXTerminalConnection({
           }
           if (terminalReady.current) {
             fitAddon.current?.fit();
-            // Scroll to bottom for all terminals on resize
-            instance.scrollToBottom();
-            if (agent === "claude") {
-              scrollToBottom();
-            }
+            // Smart scroll on resize
+            smartScrollToBottom();
           }
         }
       }, 100);
@@ -829,7 +839,7 @@ export function useXTerminalConnection({
     agent,
     enableAdvancedBuffering,
     fontSize,
-    scrollToBottom,
+    smartScrollToBottom,
   ]);
 
   // Handle read-only data input separately for workspace terminal to avoid re-rendering
