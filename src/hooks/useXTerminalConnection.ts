@@ -121,12 +121,24 @@ export function useXTerminalConnection({
 
     setError(null);
 
+    // Reset terminal display to prevent prompt stacking between workspaces
+    if (instance) {
+      instance.clear();
+      // Force a complete reset of terminal state
+      instance.reset();
+    }
+
+    // Reset scroll tracking when switching workspaces
+    if (agent === "claude") {
+      userScrolledUp.current = false;
+    }
+
     // Close existing WebSocket if any
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
-  }, [worktree.id, enableAdvancedBuffering]);
+  }, [worktree.id, enableAdvancedBuffering, instance, agent]);
 
   useEffect(() => {
     if (wsReady.current && dims) {
