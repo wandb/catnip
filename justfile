@@ -312,6 +312,11 @@ dev:
         VITE_PORT=5173
         echo "🌐 Using default VITE_PORT=$VITE_PORT (no PORTZ found)"
     fi
+
+    if [ -f /opt/catnip/catnip.pid ]; then
+        echo "🔄 catnip.pid file found, stopping catnip server..."
+        bash "/opt/catnip/bin/catnip-stop.sh"
+    fi
     
     # Show port info
     echo "🔗 Backend PORT: ${PORT:-6369}"
