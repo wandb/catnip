@@ -39,6 +39,7 @@ export function useXTerminalConnection({
   const bufferingRef = useRef(false);
   const isSetup = useRef(false);
   const lastConnectionAttempt = useRef(0);
+  const readySignalSent = useRef(false);
   const fitAddon = useRef<FitAddon | null>(null);
   const webLinksAddon = useRef<WebLinksAddon | null>(null);
   const renderAddon = useRef<WebglAddon | null>(null);
@@ -98,12 +99,19 @@ export function useXTerminalConnection({
     }
   }, [instance]);
 
-  // Send ready signal when both WebSocket and terminal are ready
+  // Send ready signal when both WebSocket and terminal are ready (only once per connection)
   const sendReadySignal = useCallback(() => {
-    if (!wsReady.current || !wsRef.current || !fitAddon.current) {
+    if (
+      !wsReady.current ||
+      !wsRef.current ||
+      !fitAddon.current ||
+      readySignalSent.current
+    ) {
       return;
     }
+    readySignalSent.current = true;
     wsRef.current.send(JSON.stringify({ type: "ready" }));
+    console.log("🎯 Ready signal sent to backend");
   }, []);
 
   // Reset state when worktree changes
@@ -113,6 +121,7 @@ export function useXTerminalConnection({
     terminalReady.current = false;
     bufferingRef.current = false;
     lastConnectionAttempt.current = 0;
+    readySignalSent.current = false;
 
     if (enableAdvancedBuffering) {
       isFirstConnection.current = true;
@@ -247,6 +256,7 @@ export function useXTerminalConnection({
     ws.onopen = () => {
       setIsConnected(true);
       wsReady.current = true;
+      readySignalSent.current = false; // Reset for new connection
       sendReadySignal();
     };
 
