@@ -866,3 +866,19 @@ func (css *CommitSyncService) hasUnsyncedNiceBranch(commitInfo *CommitInfo) bool
 	// Compare commit hashes - if they're different, nice branch needs syncing
 	return strings.TrimSpace(commitInfo.CommitHash) != strings.TrimSpace(niceBranchHash)
 }
+
+// isTemporaryPath checks if a path is in a temporary directory (for tests)
+// Handles both Linux (/tmp/) and macOS (/var/folders/) temporary paths
+func (css *CommitSyncService) isTemporaryPath(path string) bool {
+	// Linux temporary directory
+	if strings.Contains(path, "/tmp/") {
+		return true
+	}
+
+	// macOS temporary directory pattern: /var/folders/xx/xxxxxxxxx/T/
+	if strings.Contains(path, "/var/folders/") && strings.Contains(path, "/T/") {
+		return true
+	}
+
+	return false
+}
