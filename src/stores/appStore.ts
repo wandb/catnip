@@ -624,6 +624,8 @@ export const useAppStore = create<AppState>()(
           githubReposResult.status === "fulfilled"
             ? githubReposResult.value
             : [];
+        const settingsData =
+          settingsResult.status === "fulfilled" ? settingsResult.value : null;
 
         // Transform and set worktrees
         const worktreeMap = new Map<string, Worktree>();
@@ -658,6 +660,7 @@ export const useAppStore = create<AppState>()(
           repositories: repositoryMap,
           gitStatus: gitStatusData,
           githubRepositories: githubReposData,
+          settings: settingsData,
           initialLoading: false,
           loadError: null,
         });
@@ -814,6 +817,10 @@ export const useAppStore = create<AppState>()(
           set({ repositories: repositoryMap });
         }
       }
+    },
+
+    setSettings: (settings: AppSettings) => {
+      set({ settings });
     },
 
     // Getters

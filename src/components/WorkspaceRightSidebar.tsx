@@ -591,11 +591,14 @@ function WorkspacePorts({
     );
   }, [allPorts, worktree.path]);
 
+  // Get settings from the app store
+  const settings = useAppStore((state) => state.settings);
+
   const getPortUrl = (p: { port: number; hostPort?: number }) => {
-    // TODO: Get codespace name from backend/store
-    // if (codespaceName) {
-    //   return `https://${codespaceName}-${p.port}.app.github.dev`;
-    // }
+    // Use GitHub Codespace URLs if we're in a codespace
+    if (settings?.isCodespace && settings.codespaceName) {
+      return `https://${settings.codespaceName}-${p.port}.app.github.dev`;
+    }
 
     if (p.hostPort) {
       return `http://localhost:${p.hostPort}/`;
