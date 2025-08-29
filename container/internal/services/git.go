@@ -1266,9 +1266,9 @@ func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 
 	// SAFETY CHECK: Refuse to delete worktrees outside our managed workspace directory
 	// This protects against accidentally deleting external repository paths
-	// Exception: Allow deletion during tests (paths containing /tmp/ or when testing.Testing() is true)
+	// Exception: Allow deletion during tests (temp directories on Linux/macOS)
 	workspaceDir := config.Runtime.WorkspaceDir
-	isTestPath := strings.Contains(worktree.Path, "/tmp/")
+	isTestPath := s.isTemporaryPath(worktree.Path)
 	if workspaceDir != "" && !strings.HasPrefix(worktree.Path, workspaceDir+"/") && !isTestPath {
 		return nil, fmt.Errorf("cannot delete worktree %s: path %s is outside managed workspace directory %s", worktree.Name, worktree.Path, workspaceDir)
 	}
@@ -2931,4 +2931,20 @@ func (s *GitService) CreateGitHubRepositoryAndSetOrigin(repoID, name, descriptio
 	}
 
 	return repoURL, nil
+}
+
+// isTemporaryPath checks if a path is in a temporary directory (for tests)
+// Handles both Linux (/tmp/) and macOS (/var/folders/) temporary paths
+func (s *GitService) isTemporaryPath(path string) bool {
+	// Linux temporary directory
+	if strings.Contains(path, "/tmp/") {
+		return true
+	}
+
+	// macOS temporary directory pattern: /var/folders/xx/xxxxxxxxx/T/
+	if strings.Contains(path, "/var/folders/") && strings.Contains(path, "/T/") {
+		return true
+	}
+
+	return false
 }
