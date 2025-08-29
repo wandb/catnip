@@ -520,9 +520,16 @@ func (css *CommitSyncService) performPeriodicSync() {
 
 	for _, worktree := range worktrees {
 		// Skip worktrees that are outside our managed workspace directory
+		// Exception: Allow temporary test paths (don't sync them, but don't log errors)
 		workspaceDir := config.Runtime.WorkspaceDir
-		if workspaceDir != "" && !strings.HasPrefix(worktree.Path, workspaceDir+"/") {
+		isTemporaryPath := css.isTemporaryPath(worktree.Path)
+		if workspaceDir != "" && !strings.HasPrefix(worktree.Path, workspaceDir+"/") && !isTemporaryPath {
 			logger.Debugf("🚫 Skipping commit sync for worktree outside WORKSPACE_DIR: %s", worktree.Path)
+			continue
+		}
+
+		// Skip temporary paths entirely from sync (tests don't need commit sync)
+		if isTemporaryPath {
 			continue
 		}
 
