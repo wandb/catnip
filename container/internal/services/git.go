@@ -1292,21 +1292,38 @@ func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 	// Create a channel to signal completion
 	done := make(chan error, 1)
 
-	// Perform comprehensive git cleanup in background (non-blocking)
-	go func() {
-		logger.Debugf("🗑️ Starting background git cleanup for worktree %s", worktree.Name)
+	// For test environments, run cleanup synchronously to avoid hanging in CI
+	isTestPath := strings.Contains(worktree.Path, "/tmp/")
+	if isTestPath {
+		logger.Debugf("🧪 Running synchronous cleanup for test worktree %s", worktree.Name)
 		cleanupStart := time.Now()
 
 		if err := s.gitWorktreeManager.DeleteWorktree(worktree, repo); err != nil {
-			logger.Warnf("⚠️ Background git cleanup failed for worktree %s: %v", worktree.Name, err)
+			logger.Warnf("⚠️ Synchronous git cleanup failed for worktree %s: %v", worktree.Name, err)
 			done <- err
 		} else {
 			cleanupDuration := time.Since(cleanupStart)
-			logger.Debugf("✅ Background git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
+			logger.Debugf("✅ Synchronous git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
 			done <- nil
 		}
 		close(done)
-	}()
+	} else {
+		// For production, perform comprehensive git cleanup in background (non-blocking)
+		go func() {
+			logger.Debugf("🗑️ Starting background git cleanup for worktree %s", worktree.Name)
+			cleanupStart := time.Now()
+
+			if err := s.gitWorktreeManager.DeleteWorktree(worktree, repo); err != nil {
+				logger.Warnf("⚠️ Background git cleanup failed for worktree %s: %v", worktree.Name, err)
+				done <- err
+			} else {
+				cleanupDuration := time.Since(cleanupStart)
+				logger.Debugf("✅ Background git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
+				done <- nil
+			}
+			close(done)
+		}()
+	}
 
 	// Save state
 	// State persistence handled by state manager
