@@ -1,10 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
-import { useXTerm } from "react-xtermjs";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
-import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
-import { FileDropAddon } from "@/lib/file-drop-addon";
+import { useXTerminalConnection } from "@/hooks/useXTerminalConnection";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import type { Worktree } from "@/lib/git-api";
 
