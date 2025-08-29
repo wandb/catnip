@@ -24,3 +24,5 @@ jobs:
         with:
           publish-features: "true"
           base-path-to-features: ".devcontainer/features"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
