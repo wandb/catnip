@@ -591,16 +591,11 @@ function WorkspacePorts({
     );
   }, [allPorts, worktree.path]);
 
-  // Check if we're in GitHub Codespaces by looking at environment variables
-  const codespaceName = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    return import.meta.env.VITE_CODESPACE_NAME || null;
-  }, []);
-
   const getPortUrl = (p: { port: number; hostPort?: number }) => {
-    if (codespaceName) {
-      return `https://${codespaceName}-${p.port}.app.github.dev`;
-    }
+    // TODO: Get codespace name from backend/store
+    // if (codespaceName) {
+    //   return `https://${codespaceName}-${p.port}.app.github.dev`;
+    // }
 
     if (p.hostPort) {
       return `http://localhost:${p.hostPort}/`;
