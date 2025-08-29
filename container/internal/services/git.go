@@ -1293,7 +1293,7 @@ func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 	done := make(chan error, 1)
 
 	// For test environments, run cleanup synchronously to avoid hanging in CI
-	isTestPath := strings.Contains(worktree.Path, "/tmp/")
+	// Note: isTestPath was already declared above for the safety check
 	if isTestPath {
 		logger.Debugf("🧪 Running synchronous cleanup for test worktree %s", worktree.Name)
 		cleanupStart := time.Now()
