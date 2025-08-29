@@ -100,7 +100,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 
 // Start begins monitoring all worktrees
 func (s *ClaudeMonitorService) Start() error {
-	logger.Info("🚀 Starting Claude monitor service")
+	logger.Infof("🚀 Starting Claude monitor service, titles log path: %s", s.titlesLogPath)
 
 	// Create file watcher for titles log
 	watcher, err := fsnotify.NewWatcher()
@@ -153,10 +153,12 @@ func (s *ClaudeMonitorService) monitorTitlesLog() {
 
 	// Watch for changes to the log file
 	dir := filepath.Dir(s.titlesLogPath)
+	logger.Infof("🔍 Adding watcher for directory: %s (watching file: %s)", dir, s.titlesLogPath)
 	if err := s.titlesWatcher.Add(dir); err != nil {
 		logger.Warnf("⚠️  Failed to watch titles log directory: %v", err)
 		return
 	}
+	logger.Infof("✅ Successfully watching directory: %s", dir)
 
 	for {
 		select {
@@ -164,7 +166,9 @@ func (s *ClaudeMonitorService) monitorTitlesLog() {
 			if !ok {
 				return
 			}
+			logger.Debugf("📁 File event: %s %s", event.Op, event.Name)
 			if event.Name == s.titlesLogPath && event.Op&fsnotify.Write == fsnotify.Write {
+				logger.Infof("📝 Titles log updated, reading new entries")
 				s.readTitlesLog()
 			}
 		case err, ok := <-s.titlesWatcher.Errors:
