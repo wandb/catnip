@@ -1,5 +1,5 @@
 {
-  "id": "catnip",
+  "id": "feature",
   "version": "0.0.1",
   "name": "catnip",
   "description": "Ensures SSH, installs catnip, Claude CLI, and GitHub CLI.",
