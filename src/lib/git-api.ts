@@ -125,6 +125,13 @@ export interface ErrorHandler {
   }) => void;
 }
 
+export interface AppSettings {
+  catnipProxy?: string;
+  authRequired: boolean;
+  codespaceName?: string;
+  isCodespace: boolean;
+}
+
 export const gitApi = {
   // STATE FETCHING METHODS
   // Note: These methods are used internally by the appStore for initial data loading.
@@ -182,6 +189,26 @@ export const gitApi = {
     } catch (error) {
       if (error instanceof TimeoutError) {
         console.error("Repositories request timed out");
+        throw new Error(
+          "Request timed out. The backend server may be unavailable.",
+        );
+      }
+      throw error;
+    }
+  },
+
+  async fetchSettings(): Promise<AppSettings> {
+    try {
+      const response = await fetchWithTimeout("/v1/settings", {
+        timeout: 10000,
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      throw new Error("Failed to fetch settings");
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        console.error("Settings request timed out");
         throw new Error(
           "Request timed out. The backend server may be unavailable.",
         );

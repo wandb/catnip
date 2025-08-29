@@ -6,6 +6,7 @@ import type {
   GitStatus,
   Repository,
   LocalRepository,
+  AppSettings,
 } from "../lib/git-api";
 import { gitApi } from "../lib/git-api";
 import { useNotifications } from "../lib/useNotifications";
