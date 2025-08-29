@@ -81,7 +81,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
-		titlesLogPath = filepath.Join(config.Runtime.VolumeDir, "title_events.log")
+		titlesLogPath = filepath.Join(config.Runtime.HomeDir, ".catnip", "title_events.log")
 	}
 
 	return &ClaudeMonitorService{
@@ -100,7 +100,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 
 // Start begins monitoring all worktrees
 func (s *ClaudeMonitorService) Start() error {
-	logger.Info("🚀 Starting Claude monitor service")
+	logger.Infof("🚀 Starting Claude monitor service, titles log path: %s", s.titlesLogPath)
 
 	// Create file watcher for titles log
 	watcher, err := fsnotify.NewWatcher()
