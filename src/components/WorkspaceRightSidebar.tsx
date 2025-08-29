@@ -591,12 +591,26 @@ function WorkspacePorts({
     );
   }, [allPorts, worktree.path]);
 
-  const openInNewWindow = (p: { port: number; hostPort?: number }) => {
-    if (p.hostPort) {
-      window.open(`http://localhost:${p.hostPort}/`, "_blank");
-    } else {
-      window.open(`/${p.port}/`, "_blank");
+  // Check if we're in GitHub Codespaces by looking at environment variables
+  const codespaceName = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return import.meta.env.VITE_CODESPACE_NAME || null;
+  }, []);
+
+  const getPortUrl = (p: { port: number; hostPort?: number }) => {
+    if (codespaceName) {
+      return `https://${codespaceName}-${p.port}.app.github.dev`;
     }
+
+    if (p.hostPort) {
+      return `http://localhost:${p.hostPort}/`;
+    } else {
+      return `/${p.port}/`;
+    }
+  };
+
+  const openInNewWindow = (p: { port: number; hostPort?: number }) => {
+    window.open(getPortUrl(p), "_blank");
   };
 
   const previewPort = (port: number) => {
