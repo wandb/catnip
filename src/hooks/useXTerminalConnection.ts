@@ -22,17 +22,23 @@ interface XTerminalState {
   isReadOnly: boolean;
   shakeReadOnlyBadge: boolean;
   handlePromoteRequest: () => void;
+  isConnected: boolean;
+  isConnecting: boolean;
+  handleRetryConnection: () => void;
+  terminalContainerRef: React.RefObject<HTMLDivElement>;
+  handleTerminalFocus: () => void;
+  isTerminalFocused: boolean;
 }
 
 export function useXTerminalConnection({
   worktree,
   terminalId = "default",
-  isFocused = true,
+  isFocused: windowFocused = true,
   agent,
   enableAdvancedBuffering = false,
 }: XTerminalConfig): XTerminalState {
   const { instance, ref } = useXTerm();
-  const { setIsConnected } = useWebSocketContext();
+  const { setIsConnected: setGlobalIsConnected } = useWebSocketContext();
   const wsRef = useRef<WebSocket | null>(null);
   const wsReady = useRef(false);
   const terminalReady = useRef(false);
@@ -46,6 +52,14 @@ export function useXTerminalConnection({
   const resizeTimeout = useRef<number | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
 
+  // Reconnection management
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 10;
+  const shouldReconnect = useRef(true);
+  const isConnectingRef = useRef(false);
+  const terminalContainerRef = useRef<HTMLDivElement>(null);
+
   // Advanced buffering state (for Claude terminal)
   const isFirstConnection = useRef(true);
   const lastWebSocketClose = useRef<number | null>(null);
@@ -56,6 +70,9 @@ export function useXTerminalConnection({
   );
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [shakeReadOnlyBadge, setShakeReadOnlyBadge] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isTerminalFocused, setIsTerminalFocused] = useState(false);
 
   // Trigger shake animation for read-only badge
   const triggerReadOnlyShake = useCallback(() => {
@@ -72,12 +89,47 @@ export function useXTerminalConnection({
     }
   }, []);
 
-  // Send focus state to backend when isFocused prop changes
+  // Handle terminal focus management
+  const handleTerminalFocus = useCallback(() => {
+    setIsTerminalFocused(true);
+    // Auto-promote on focus when read-only
+    if (
+      isReadOnly &&
+      wsRef.current &&
+      wsRef.current.readyState === WebSocket.OPEN
+    ) {
+      wsRef.current.send(JSON.stringify({ type: "promote" }));
+    }
+  }, [isReadOnly]);
+
+  // Send focus state to backend when terminal focus changes
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "focus", focused: isFocused }));
+      const actualFocus = windowFocused && isTerminalFocused;
+      wsRef.current.send(
+        JSON.stringify({ type: "focus", focused: actualFocus }),
+      );
     }
-  }, [isFocused]);
+  }, [windowFocused, isTerminalFocused]);
+
+  // Add global click handler to detect focus changes
+  useEffect(() => {
+    const handleGlobalClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      const isClickInsideThisTerminal =
+        terminalContainerRef.current?.contains(target);
+
+      if (!isClickInsideThisTerminal) {
+        // Click was outside this terminal, remove focus
+        setIsTerminalFocused(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleGlobalClick);
+    return () => {
+      document.removeEventListener("mousedown", handleGlobalClick);
+    };
+  }, []);
 
   const fontSize = useCallback((element: Element) => {
     if (element.clientWidth < 400) {
@@ -114,71 +166,24 @@ export function useXTerminalConnection({
     console.log("🎯 Ready signal sent to backend");
   }, []);
 
-  // Reset state when worktree changes
-  useEffect(() => {
-    isSetup.current = false;
-    wsReady.current = false;
-    terminalReady.current = false;
-    bufferingRef.current = false;
-    lastConnectionAttempt.current = 0;
-    readySignalSent.current = false;
+  // Calculate reconnect delay with exponential backoff
+  const getReconnectDelay = useCallback(() => {
+    const baseDelay = 1000; // 1 second
+    const maxDelay = 30000; // 30 seconds
+    const delay = Math.min(
+      baseDelay * Math.pow(2, reconnectAttempts.current),
+      maxDelay,
+    );
+    return delay;
+  }, []);
 
-    if (enableAdvancedBuffering) {
-      isFirstConnection.current = true;
-      lastWebSocketClose.current = null;
-    }
-
-    setError(null);
-
-    // Reset terminal display to prevent prompt stacking between workspaces
-    if (instance) {
-      instance.clear();
-      // Force a complete reset of terminal state
-      instance.reset();
-    }
-
-    // Reset scroll tracking when switching workspaces
-    if (agent === "claude") {
-      userScrolledUp.current = false;
-    }
-
-    // Close existing WebSocket if any
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-  }, [worktree.id, enableAdvancedBuffering, instance, agent]);
-
-  useEffect(() => {
-    if (wsReady.current && dims) {
-      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
-    }
-  }, [dims, wsReady.current]);
-
-  // Claude terminal always has hidden cursor since it's a TUI
-  useEffect(() => {
-    if (instance && instance.options && agent === "claude") {
-      instance.options.cursorBlink = false;
-      instance.options.theme = {
-        ...instance.options.theme,
-        cursor: "#0a0a0a",
-        cursorAccent: "#0a0a0a",
-      };
-    }
-  }, [instance, agent]);
-
-  // Set up terminal when instance and ref become available
-  useEffect(() => {
-    if (!instance || !ref.current) {
+  // WebSocket connection setup function
+  const connectWebSocket = useCallback(() => {
+    if (isConnectingRef.current || !shouldReconnect.current) {
       return;
     }
 
-    // Only set up once per session
-    if (isSetup.current) {
-      return;
-    }
-
-    // Rate limit reconnections to once per second maximum
+    // Rate limit reconnections
     const now = Date.now();
     if (now - lastConnectionAttempt.current < 1000) {
       console.log(
@@ -187,34 +192,6 @@ export function useXTerminalConnection({
       return;
     }
     lastConnectionAttempt.current = now;
-
-    isSetup.current = true;
-
-    // Clear terminal logic
-    if (enableAdvancedBuffering) {
-      // Advanced logic for Claude terminal
-      const shouldClearTerminal =
-        isFirstConnection.current ||
-        (lastWebSocketClose.current &&
-          now - lastWebSocketClose.current < 30000);
-
-      if (shouldClearTerminal) {
-        console.log(
-          "[Claude Terminal] Clearing terminal - First connection:",
-          isFirstConnection.current,
-          "Recent close:",
-          lastWebSocketClose.current
-            ? now - lastWebSocketClose.current + "ms ago"
-            : "none",
-        );
-        instance.clear();
-        isFirstConnection.current = false;
-        lastWebSocketClose.current = null;
-      }
-    } else {
-      // Simple clear for workspace terminal
-      instance.clear();
-    }
 
     // Check if we're running against mock server - skip WebSocket if so
     const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
@@ -232,6 +209,12 @@ export function useXTerminalConnection({
       }
     }
 
+    isConnectingRef.current = true;
+    setIsConnecting(true);
+    console.log(
+      `[${agent ? "Claude" : "Workspace"} Terminal] Connecting to WebSocket (attempt ${reconnectAttempts.current + 1})`,
+    );
+
     // Set up WebSocket connection
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const urlParams = new URLSearchParams();
@@ -248,25 +231,69 @@ export function useXTerminalConnection({
     }
 
     const socketUrl = `${protocol}//${window.location.host}/v1/pty?${urlParams.toString()}`;
-
     const ws = new WebSocket(socketUrl);
     wsRef.current = ws;
     const buffer: Uint8Array[] = [];
 
     ws.onopen = () => {
+      console.log(
+        `[${agent ? "Claude" : "Workspace"} Terminal] WebSocket connected`,
+      );
+
+      // Reset terminal state on reconnection to prevent duplicate content
+      if (reconnectAttempts.current > 0 && !agent) {
+        console.log(
+          `[${agent ? "Claude" : "Workspace"} Terminal] Resetting terminal state on reconnection`,
+        );
+        instance?.reset();
+      }
+
       setIsConnected(true);
+      setGlobalIsConnected(true);
+      isConnectingRef.current = false;
+      setIsConnecting(false);
+      reconnectAttempts.current = 0; // Reset attempts on successful connection
       wsReady.current = true;
       readySignalSent.current = false; // Reset for new connection
       sendReadySignal();
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       console.log(
-        `[${agent ? "Claude" : "Workspace"} Terminal] WebSocket closed`,
+        `[${agent ? "Claude" : "Workspace"} Terminal] WebSocket closed (code: ${event.code}, reason: ${event.reason})`,
       );
       setIsConnected(false);
+      setGlobalIsConnected(false);
+      isConnectingRef.current = false;
+      setIsConnecting(false);
+      wsReady.current = false;
+
       if (enableAdvancedBuffering) {
         lastWebSocketClose.current = Date.now();
+      }
+
+      // Only attempt reconnect if we should and haven't exceeded max attempts
+      if (
+        shouldReconnect.current &&
+        reconnectAttempts.current < maxReconnectAttempts
+      ) {
+        reconnectAttempts.current += 1;
+        const delay = getReconnectDelay();
+        console.log(
+          `[${agent ? "Claude" : "Workspace"} Terminal] Scheduling reconnect in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
+        );
+
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connectWebSocket();
+        }, delay);
+      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        console.error(
+          `[${agent ? "Claude" : "Workspace"} Terminal] Max reconnection attempts reached`,
+        );
+        setError({
+          title: "Connection Lost",
+          message: "Unable to reconnect to terminal. Please refresh the page.",
+        });
       }
     };
 
@@ -276,6 +303,9 @@ export function useXTerminalConnection({
         error,
       );
       setIsConnected(false);
+      setGlobalIsConnected(false);
+      isConnectingRef.current = false;
+      setIsConnecting(false);
 
       // Handle WebSocket errors gracefully
       const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
@@ -295,12 +325,26 @@ export function useXTerminalConnection({
         }
       }
 
-      // For real backend errors, set appropriate error state
-      if (!agent) {
+      // For real backend errors, attempt reconnection like onclose does
+      if (
+        shouldReconnect.current &&
+        reconnectAttempts.current < maxReconnectAttempts
+      ) {
+        reconnectAttempts.current += 1;
+        const delay = getReconnectDelay();
+        console.log(
+          `[${agent ? "Claude" : "Workspace"} Terminal] Scheduling reconnect after error in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
+        );
+
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connectWebSocket();
+        }, delay);
+      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        // Only set error after exhausting all retry attempts
         setError({
           title: "Terminal Connection Failed",
           message:
-            "Unable to connect to terminal. Please check your connection and try again.",
+            "Unable to connect to terminal after multiple attempts. The backend may be unavailable.",
         });
       }
     };
@@ -324,7 +368,10 @@ export function useXTerminalConnection({
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "buffer-size") {
-            if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
+            if (
+              instance &&
+              (instance.cols !== msg.cols || instance.rows !== msg.rows)
+            ) {
               instance.resize(msg.cols, msg.rows);
               if (agent === "claude") {
                 // Force synchronous refresh after resize for Claude
@@ -338,9 +385,9 @@ export function useXTerminalConnection({
 
             if (enableAdvancedBuffering && buffer.length > 0) {
               // Advanced buffer handling for Claude terminal
-              instance.clear();
+              instance?.clear();
               for (const chunk of buffer) {
-                instance.write(chunk);
+                instance?.write(chunk);
               }
               buffer.length = 0;
               // Reset scroll tracking when buffer content is written
@@ -361,7 +408,7 @@ export function useXTerminalConnection({
                   if (agent === "claude") {
                     scrollToBottom();
                     // Force a full refresh after fit for Claude
-                    instance.refresh(0, instance.rows - 1);
+                    instance?.refresh(0, instance.rows - 1);
                   }
                 }
                 // Send ready signal after initial fit for Claude
@@ -373,7 +420,9 @@ export function useXTerminalConnection({
 
             // For workspace terminal, send dimensions immediately
             if (!agent) {
-              const dims = { cols: instance.cols, rows: instance.rows };
+              const dims = instance
+                ? { cols: instance.cols, rows: instance.rows }
+                : { cols: 80, rows: 24 };
               wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
             }
             return;
@@ -413,20 +462,164 @@ export function useXTerminalConnection({
       ) {
         rePaint();
         for (const chunk of buffer) {
-          instance.write(chunk);
+          instance?.write(chunk);
         }
         buffer.length = 0;
       }
 
       // Write data if not buffering
       if (data && !bufferingRef.current) {
-        instance.write(data);
+        instance?.write(data);
         // Reset scroll tracking when new content arrives (Claude terminal only)
         if (agent === "claude") {
           userScrolledUp.current = false;
         }
       }
     };
+  }, [
+    worktree.name,
+    terminalId,
+    instance,
+    agent,
+    enableAdvancedBuffering,
+    sendReadySignal,
+    getReconnectDelay,
+    scrollToBottom,
+  ]);
+
+  // Manual retry function that doesn't require page reload
+  const handleRetryConnection = useCallback(() => {
+    setError(null);
+    reconnectAttempts.current = 0; // Reset attempts for manual retry
+    shouldReconnect.current = true;
+    isConnectingRef.current = false;
+    setIsConnecting(false);
+
+    // Clear any pending timeouts
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Close existing connection if any
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    // Start fresh connection
+    connectWebSocket();
+  }, [connectWebSocket]);
+
+  // Reset state when worktree changes
+  useEffect(() => {
+    isSetup.current = false;
+    wsReady.current = false;
+    terminalReady.current = false;
+    bufferingRef.current = false;
+    lastConnectionAttempt.current = 0;
+    readySignalSent.current = false;
+    reconnectAttempts.current = 0;
+    shouldReconnect.current = true;
+
+    if (enableAdvancedBuffering) {
+      isFirstConnection.current = true;
+      lastWebSocketClose.current = null;
+    }
+
+    setError(null);
+    setIsConnected(false);
+    setGlobalIsConnected(false);
+
+    // Clear any pending reconnection attempts
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Reset terminal display to prevent prompt stacking between workspaces
+    if (instance) {
+      instance.clear();
+      // Force a complete reset of terminal state
+      instance.reset();
+    }
+
+    // Reset scroll tracking when switching workspaces
+    if (agent === "claude") {
+      userScrolledUp.current = false;
+    }
+
+    // Close existing WebSocket if any
+    if (wsRef.current) {
+      shouldReconnect.current = false; // Prevent reconnection during cleanup
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, [worktree.id, enableAdvancedBuffering, instance, agent]);
+
+  useEffect(() => {
+    if (wsReady.current && dims) {
+      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+    }
+  }, [dims, wsReady.current]);
+
+  // Claude terminal always has hidden cursor since it's a TUI
+  useEffect(() => {
+    if (instance && instance.options && agent === "claude") {
+      instance.options.cursorBlink = false;
+      instance.options.theme = {
+        ...instance.options.theme,
+        cursor: "#0a0a0a",
+        cursorAccent: "#0a0a0a",
+      };
+    }
+  }, [instance, agent]);
+
+  // Set up terminal when instance and ref become available
+  useEffect(() => {
+    if (!instance || !ref.current) {
+      return;
+    }
+
+    // Only set up once per session
+    if (isSetup.current) {
+      return;
+    }
+
+    isSetup.current = true;
+
+    // Clear terminal logic
+    if (enableAdvancedBuffering) {
+      // Advanced logic for Claude terminal
+      const now = Date.now();
+      const shouldClearTerminal =
+        isFirstConnection.current ||
+        (lastWebSocketClose.current &&
+          now - lastWebSocketClose.current < 30000);
+
+      if (shouldClearTerminal) {
+        console.log(
+          "[Claude Terminal] Clearing terminal - First connection:",
+          isFirstConnection.current,
+          "Recent close:",
+          lastWebSocketClose.current
+            ? now - lastWebSocketClose.current + "ms ago"
+            : "none",
+        );
+        instance.clear();
+        isFirstConnection.current = false;
+        lastWebSocketClose.current = null;
+      }
+    } else {
+      // Simple clear for workspace terminal
+      instance.clear();
+    }
+
+    // Enable reconnection for this session
+    shouldReconnect.current = true;
+
+    // Start WebSocket connection
+    connectWebSocket();
 
     // Configure terminal options
     if (instance.options) {
@@ -538,6 +731,10 @@ export function useXTerminalConnection({
         requestAnimationFrame(() => {
           if (fitAddon.current && instance) {
             fitAddon.current.fit();
+
+            // Scroll to bottom for all terminals on initial load
+            instance.scrollToBottom();
+
             if (agent === "claude") {
               scrollToBottom();
               // Ensure terminal is properly refreshed after initial fit
@@ -565,6 +762,8 @@ export function useXTerminalConnection({
           }
           if (terminalReady.current) {
             fitAddon.current?.fit();
+            // Scroll to bottom for all terminals on resize
+            instance.scrollToBottom();
             if (agent === "claude") {
               scrollToBottom();
             }
@@ -577,12 +776,12 @@ export function useXTerminalConnection({
     let disposer: any = null;
     if (agent === "claude") {
       disposer = instance?.onData((data: string) => {
-        if (ws.readyState === WebSocket.OPEN) {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           if (isReadOnly) {
             triggerReadOnlyShake();
             return;
           }
-          ws.send(data);
+          wsRef.current.send(data);
         }
       });
     }
@@ -592,6 +791,11 @@ export function useXTerminalConnection({
 
     // Cleanup function
     return () => {
+      shouldReconnect.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       disposer?.dispose();
       scrollCleanup?.();
       if (wsRef.current) {
@@ -599,6 +803,7 @@ export function useXTerminalConnection({
         wsRef.current = null;
       }
       setIsConnected(false);
+      setGlobalIsConnected(false);
       fitAddon.current = null;
       webLinksAddon.current = null;
       renderAddon.current = null;
@@ -653,5 +858,11 @@ export function useXTerminalConnection({
     isReadOnly,
     shakeReadOnlyBadge,
     handlePromoteRequest,
+    isConnected,
+    isConnecting,
+    handleRetryConnection,
+    terminalContainerRef,
+    handleTerminalFocus,
+    isTerminalFocused,
   };
 }
