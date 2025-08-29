@@ -46,13 +46,18 @@ function ClaudeTerminal({
   isFocused: boolean;
 }) {
   const { instance, ref } = useXTerm();
-  const { setIsConnected } = useWebSocketContext();
+  const { setIsConnected: setGlobalIsConnected } = useWebSocketContext();
   const wsRef = useRef<WebSocket | null>(null);
   const wsReady = useRef(false);
   const terminalReady = useRef(false);
   const bufferingRef = useRef(false);
   const isSetup = useRef(false);
   const lastConnectionAttempt = useRef(0);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 10;
+  const isConnecting = useRef(false);
+  const shouldReconnect = useRef(true);
   const fitAddon = useRef<FitAddon | null>(null);
   const webLinksAddon = useRef<WebLinksAddon | null>(null);
   const renderAddon = useRef<WebglAddon | null>(null);
@@ -64,6 +69,10 @@ function ClaudeTerminal({
   const [error, setError] = useState<{ title: string; message: string } | null>(
     null,
   );
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "disconnected" | "connecting" | "reconnecting"
+  >("disconnected");
 
   // Per-terminal focus detection
   const [isTerminalFocused, setIsTerminalFocused] = useState(false);
@@ -133,100 +142,58 @@ function ClaudeTerminal({
     wsRef.current.send(JSON.stringify({ type: "ready" }));
   }, []);
 
-  const fontSize = useCallback((element: Element) => {
-    if (element.clientWidth < 400) {
-      return 6;
-    } else if (element.clientWidth < 600 || element.clientHeight < 400) {
-      return 10;
-    } else {
-      return 14;
-    }
+  // Calculate reconnect delay with exponential backoff
+  const getReconnectDelay = useCallback(() => {
+    const baseDelay = 1000; // 1 second
+    const maxDelay = 30000; // 30 seconds
+    const delay = Math.min(
+      baseDelay * Math.pow(2, reconnectAttempts.current),
+      maxDelay,
+    );
+    return delay;
   }, []);
 
-  // Track if this is the very first connection to the worktree
-  const isFirstConnection = useRef(true);
-  // Track the last WebSocket close time to detect recreations
-  const lastWebSocketClose = useRef<number | null>(null);
-
-  // Reset state when worktree changes
-  useEffect(() => {
-    isSetup.current = false;
-    wsReady.current = false;
-    terminalReady.current = false;
-    bufferingRef.current = false;
-    lastConnectionAttempt.current = 0;
-    isFirstConnection.current = true; // Reset first connection flag when worktree changes
-    lastWebSocketClose.current = null; // Reset close tracking when worktree changes
+  // Manual retry function that doesn't require page reload
+  const handleRetryConnection = useCallback(() => {
     setError(null);
+    reconnectAttempts.current = 0; // Reset attempts for manual retry
+    shouldReconnect.current = true;
+    isConnecting.current = false;
 
-    // Close existing WebSocket if any
+    // Clear any pending timeouts
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Close existing connection if any
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
     }
-  }, [worktree.id]);
 
-  useEffect(() => {
-    if (wsReady.current && dims) {
-      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
-    }
-  }, [dims, wsReady.current]);
+    // Reset setup flag to allow reconnection
+    isSetup.current = false;
 
-  // Update terminal cursor when read-only state changes
-  useEffect(() => {
-    if (instance && instance.options) {
-      instance.options.cursorBlink = !isReadOnly;
-      instance.options.theme = {
-        ...instance.options.theme,
-        cursor: isReadOnly ? "transparent" : "#0a0a0a",
-        cursorAccent: isReadOnly ? "transparent" : "#0a0a0a",
-      };
-    }
-  }, [isReadOnly, instance]);
+    // Trigger reconnection by resetting to allow connection attempt
+    setTimeout(() => connectWebSocket(), 100); // Use timeout to avoid dependency cycle
+  }, []);
 
-  // Set up terminal when instance and ref become available
-  useEffect(() => {
-    if (!instance || !ref.current) {
-      return;
-    }
-
-    // Only set up once per session
-    if (isSetup.current) {
-      return;
-    }
-
-    // Rate limit reconnections to once per second maximum
-    const now = Date.now();
-    if (now - lastConnectionAttempt.current < 1000) {
+  // WebSocket connection setup function
+  const connectWebSocket = useCallback(() => {
+    console.log("[Claude Terminal] connectWebSocket called");
+    if (isConnecting.current || !shouldReconnect.current) {
       console.log(
-        "[Claude Terminal] Rate limiting connection attempt, too soon",
+        "[Claude Terminal] Skipping connection - isConnecting:",
+        isConnecting.current,
+        "shouldReconnect:",
+        shouldReconnect.current,
       );
       return;
     }
-    lastConnectionAttempt.current = now;
 
-    isSetup.current = true;
-
-    // Clear terminal logic:
-    // 1. Always clear on first connection to ensure clean state
-    // 2. Clear on reconnections after WebSocket close (PTY recreation scenario)
-    const shouldClearTerminal =
-      isFirstConnection.current ||
-      (lastWebSocketClose.current && now - lastWebSocketClose.current < 30000);
-
-    if (shouldClearTerminal) {
-      console.log(
-        "[Claude Terminal] Clearing terminal - First connection:",
-        isFirstConnection.current,
-        "Recent close:",
-        lastWebSocketClose.current
-          ? now - lastWebSocketClose.current + "ms ago"
-          : "none",
-      );
-      instance.clear();
-      isFirstConnection.current = false;
-      lastWebSocketClose.current = null; // Reset close tracking
-    }
+    // Update last connection attempt time
+    lastConnectionAttempt.current = Date.now();
 
     // Check if we're running against mock server - skip WebSocket if so
     const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
@@ -235,6 +202,14 @@ function ClaudeTerminal({
       return;
     }
 
+    isConnecting.current = true;
+    setConnectionStatus(
+      reconnectAttempts.current > 0 ? "reconnecting" : "connecting",
+    );
+    console.log(
+      `[Claude Terminal] Connecting to WebSocket (attempt ${reconnectAttempts.current + 1})`,
+    );
+
     // Set up WebSocket connection for Claude agent in the workspace directory
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const urlParams = new URLSearchParams();
@@ -242,30 +217,64 @@ function ClaudeTerminal({
     urlParams.set("agent", "claude");
 
     const socketUrl = `${protocol}//${window.location.host}/v1/pty?${urlParams.toString()}`;
-
     const ws = new WebSocket(socketUrl);
     wsRef.current = ws;
     const buffer: Uint8Array[] = [];
 
     ws.onopen = () => {
+      console.log("[Claude Terminal] WebSocket connected");
       setIsConnected(true);
+      setGlobalIsConnected(true);
+      setConnectionStatus("disconnected"); // Reset status when connected
+      isConnecting.current = false;
+      reconnectAttempts.current = 0; // Reset attempts on successful connection
       wsReady.current = true;
       sendReadySignal();
     };
 
-    ws.onclose = () => {
-      console.log("[Claude Terminal] WebSocket closed");
+    ws.onclose = (event) => {
+      console.log(
+        `[Claude Terminal] WebSocket closed (code: ${event.code}, reason: ${event.reason})`,
+      );
       setIsConnected(false);
+      setGlobalIsConnected(false);
+      setConnectionStatus("disconnected");
+      isConnecting.current = false;
+      wsReady.current = false;
       // Track close time to detect PTY recreations
       lastWebSocketClose.current = Date.now();
+
+      // Only attempt reconnect if we should and haven't exceeded max attempts
+      if (
+        shouldReconnect.current &&
+        reconnectAttempts.current < maxReconnectAttempts
+      ) {
+        reconnectAttempts.current += 1;
+        const delay = getReconnectDelay();
+        console.log(
+          `[Claude Terminal] Scheduling reconnect in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
+        );
+
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connectWebSocket();
+        }, delay);
+      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        console.error("[Claude Terminal] Max reconnection attempts reached");
+        setError({
+          title: "Connection Lost",
+          message: "Unable to reconnect to Claude terminal. Please try again.",
+        });
+      }
     };
 
     ws.onerror = (error) => {
       console.error("❌ Claude WebSocket error:", error);
       setIsConnected(false);
+      setGlobalIsConnected(false);
+      setConnectionStatus("disconnected");
+      isConnecting.current = false;
 
       // Handle WebSocket errors gracefully - don't crash the app
-      // Check if we're running against mock server (VITE_USE_MOCK=true)
       const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
       if (isMockMode) {
         // In mock mode, this is expected - don't show error or crash
@@ -275,8 +284,28 @@ function ClaudeTerminal({
         return;
       }
 
-      // For real backend errors, we could set error state here if needed
-      // For now, just log and continue gracefully
+      // For real backend errors, attempt reconnection like onclose does
+      if (
+        shouldReconnect.current &&
+        reconnectAttempts.current < maxReconnectAttempts
+      ) {
+        reconnectAttempts.current += 1;
+        const delay = getReconnectDelay();
+        console.log(
+          `[Claude Terminal] Scheduling reconnect after error in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
+        );
+
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connectWebSocket();
+        }, delay);
+      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        // Only set error after exhausting all retry attempts
+        setError({
+          title: "Claude Terminal Connection Failed",
+          message:
+            "Unable to connect to Claude terminal after multiple attempts. The backend may be unavailable.",
+        });
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -295,7 +324,10 @@ function ClaudeTerminal({
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "buffer-size") {
-            if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
+            if (
+              instance &&
+              (instance.cols !== msg.cols || instance.rows !== msg.rows)
+            ) {
               // Don't clear terminal on buffer-size - let the buffer replay handle it
               // Just resize to match the buffered dimensions
               instance.resize(msg.cols, msg.rows);
@@ -310,9 +342,9 @@ function ClaudeTerminal({
             // Process any remaining buffered data first
             if (buffer.length > 0) {
               // Always clear terminal before replaying buffer to prevent corruption
-              instance.clear();
+              instance?.clear();
               for (const chunk of buffer) {
-                instance.write(chunk);
+                instance?.write(chunk);
               }
               buffer.length = 0;
             } else {
@@ -325,7 +357,7 @@ function ClaudeTerminal({
             // Add a small delay before fitting to ensure content is rendered
             setTimeout(() => {
               requestAnimationFrame(() => {
-                if (fitAddon.current) {
+                if (fitAddon.current && instance) {
                   fitAddon.current.fit();
                   scrollToBottom();
                   // Force a full refresh after fit to fix any rendering issues
@@ -366,9 +398,137 @@ function ClaudeTerminal({
         buffer.length = 0;
       }
       if (data && !bufferingRef.current) {
-        instance.write(data);
+        instance?.write(data);
       }
     };
+  }, [
+    worktree.name,
+    instance,
+    sendReadySignal,
+    getReconnectDelay,
+    scrollToBottom,
+  ]);
+
+  const fontSize = useCallback((element: Element) => {
+    if (element.clientWidth < 400) {
+      return 6;
+    } else if (element.clientWidth < 600 || element.clientHeight < 400) {
+      return 10;
+    } else {
+      return 14;
+    }
+  }, []);
+
+  // Track if this is the very first connection to the worktree
+  const isFirstConnection = useRef(true);
+  // Track the last WebSocket close time to detect recreations
+  const lastWebSocketClose = useRef<number | null>(null);
+
+  // Reset state when worktree changes
+  useEffect(() => {
+    isSetup.current = false;
+    wsReady.current = false;
+    terminalReady.current = false;
+    bufferingRef.current = false;
+    lastConnectionAttempt.current = 0;
+    reconnectAttempts.current = 0;
+    shouldReconnect.current = true;
+    isConnecting.current = false;
+    isFirstConnection.current = true; // Reset first connection flag when worktree changes
+    lastWebSocketClose.current = null; // Reset close tracking when worktree changes
+    setError(null);
+    setIsConnected(false);
+    setGlobalIsConnected(false);
+    setConnectionStatus("disconnected");
+
+    // Clear any pending reconnection attempts
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Close existing WebSocket if any
+    if (wsRef.current) {
+      shouldReconnect.current = false; // Prevent reconnection during cleanup
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+  }, [worktree.id]);
+
+  useEffect(() => {
+    if (wsReady.current && dims) {
+      wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
+    }
+  }, [dims, wsReady.current]);
+
+  // Update terminal cursor when read-only state changes
+  useEffect(() => {
+    if (instance && instance.options) {
+      instance.options.cursorBlink = !isReadOnly;
+      instance.options.theme = {
+        ...instance.options.theme,
+        cursor: isReadOnly ? "transparent" : "#0a0a0a",
+        cursorAccent: isReadOnly ? "transparent" : "#0a0a0a",
+      };
+    }
+  }, [isReadOnly, instance]);
+
+  // Set up terminal when instance and ref become available
+  useEffect(() => {
+    console.log(
+      "[Claude Terminal] Main useEffect called - instance:",
+      !!instance,
+      "ref:",
+      !!ref.current,
+    );
+    if (!instance || !ref.current) {
+      console.log("[Claude Terminal] Missing instance or ref, returning");
+      return;
+    }
+
+    // Only set up once per session
+    if (isSetup.current) {
+      console.log("[Claude Terminal] Already setup, returning");
+      return;
+    }
+
+    // Rate limit reconnections to once per second maximum
+    const now = Date.now();
+    if (now - lastConnectionAttempt.current < 1000) {
+      console.log(
+        "[Claude Terminal] Rate limiting connection attempt, too soon",
+      );
+      return;
+    }
+    lastConnectionAttempt.current = now;
+
+    isSetup.current = true;
+
+    // Clear terminal logic:
+    // 1. Always clear on first connection to ensure clean state
+    // 2. Clear on reconnections after WebSocket close (PTY recreation scenario)
+    const shouldClearTerminal =
+      isFirstConnection.current ||
+      (lastWebSocketClose.current && now - lastWebSocketClose.current < 30000);
+
+    if (shouldClearTerminal) {
+      console.log(
+        "[Claude Terminal] Clearing terminal - First connection:",
+        isFirstConnection.current,
+        "Recent close:",
+        lastWebSocketClose.current
+          ? now - lastWebSocketClose.current + "ms ago"
+          : "none",
+      );
+      instance.clear();
+      isFirstConnection.current = false;
+      lastWebSocketClose.current = null; // Reset close tracking
+    }
+
+    // Start WebSocket connection
+    shouldReconnect.current = true; // Enable reconnection
+    console.log("[Claude Terminal] Attempting to start WebSocket connection");
+    connectWebSocket();
 
     // Configure terminal options
     if (instance.options) {
@@ -492,12 +652,19 @@ function ClaudeTerminal({
 
     // Cleanup function
     return () => {
+      shouldReconnect.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       disposer?.dispose();
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
       setIsConnected(false);
+      setGlobalIsConnected(false);
+      setConnectionStatus("disconnected");
       fitAddon.current = null;
       webLinksAddon.current = null;
       renderAddon.current = null;
@@ -519,6 +686,7 @@ function ClaudeTerminal({
     triggerReadOnlyShake,
     isReadOnly,
     sendReadySignal,
+    connectWebSocket,
   ]);
 
   // Show error display if there's an error
@@ -528,10 +696,7 @@ function ClaudeTerminal({
         <ErrorDisplay
           title={error.title}
           message={error.message}
-          onRetry={() => {
-            setError(null);
-            window.location.reload();
-          }}
+          onRetry={handleRetryConnection}
         />
       </div>
     );
@@ -539,18 +704,41 @@ function ClaudeTerminal({
 
   return (
     <div className="h-full w-full bg-black relative">
-      {/* Read-only indicator */}
-      {isReadOnly && (
-        <div
-          className={`absolute top-4 right-4 z-10 bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-3 py-1 rounded-md text-sm font-medium backdrop-blur-sm cursor-pointer hover:bg-yellow-600/30 hover:border-yellow-500/70 transition-all duration-200 ${
-            shakeReadOnlyBadge ? "animate-pulse animate-bounce" : ""
-          }`}
-          onClick={handlePromoteRequest}
-          title="Click to request write access"
-        >
-          👁️ Read Only
-        </div>
-      )}
+      {/* Connection status, error, and read-only indicators in upper right */}
+      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1 items-end">
+        {/* Connection status indicator */}
+        {!isConnected && !error && (
+          <div className="bg-amber-600/20 border border-amber-500/50 text-amber-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm">
+            {connectionStatus === "connecting" && "🔄 Connecting..."}
+            {connectionStatus === "reconnecting" && "📡 Reconnecting..."}
+            {connectionStatus === "disconnected" && (
+              <div className="flex items-center gap-1">
+                <span>🔗 Disconnected</span>
+                <button
+                  onClick={handleRetryConnection}
+                  className="ml-1 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 hover:border-amber-500/70 text-amber-200 px-1 py-0.5 rounded text-xs transition-all duration-200"
+                  title="Retry connection"
+                >
+                  🔄
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Read-only indicator */}
+        {isReadOnly && (
+          <div
+            className={`bg-yellow-600/20 border border-yellow-500/50 text-yellow-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm cursor-pointer hover:bg-yellow-600/30 hover:border-yellow-500/70 transition-all duration-200 ${
+              shakeReadOnlyBadge ? "animate-pulse animate-bounce" : ""
+            }`}
+            onClick={handlePromoteRequest}
+            title="Click to request write access"
+          >
+            👁️ Read Only
+          </div>
+        )}
+      </div>
       {/* Terminal */}
       <div
         ref={terminalContainerRef}

@@ -631,9 +631,9 @@ function WorkspacePorts({
       <SidebarGroupContent>
         <ScrollArea className="h-32">
           <div className="space-y-1">
-            {workspacePorts.map((port) => (
+            {workspacePorts.map((port, index) => (
               <div
-                key={port.port}
+                key={`${port.port}-${index}`}
                 className={`flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 cursor-pointer group w-full min-w-0 ${
                   showPortPreview === port.port ? "bg-muted" : ""
                 }`}

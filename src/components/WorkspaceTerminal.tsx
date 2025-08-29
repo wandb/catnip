@@ -5,7 +5,6 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
 import { FileDropAddon } from "@/lib/file-drop-addon";
-import { ErrorDisplay } from "@/components/ErrorDisplay";
 import type { Worktree } from "@/lib/git-api";
 
 interface WorkspaceTerminalProps {
@@ -184,7 +183,7 @@ export function WorkspaceTerminal({
         console.log(
           "[Workspace Terminal] Resetting terminal state on reconnection",
         );
-        instance.reset();
+        instance?.reset();
       }
 
       setIsConnected(true);
@@ -245,12 +244,28 @@ export function WorkspaceTerminal({
         return;
       }
 
-      // For real backend errors, set appropriate error state
-      setError({
-        title: "Terminal Connection Failed",
-        message:
-          "Unable to connect to terminal. Please check your connection and try again.",
-      });
+      // For real backend errors, attempt reconnection like onclose does
+      if (
+        shouldReconnect.current &&
+        reconnectAttempts.current < maxReconnectAttempts
+      ) {
+        reconnectAttempts.current += 1;
+        const delay = getReconnectDelay();
+        console.log(
+          `[Workspace Terminal] Scheduling reconnect after error in ${delay}ms (attempt ${reconnectAttempts.current}/${maxReconnectAttempts})`,
+        );
+
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connectWebSocket();
+        }, delay);
+      } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        // Only set error after exhausting all retry attempts
+        setError({
+          title: "Terminal Connection Failed",
+          message:
+            "Unable to connect to terminal after multiple attempts. The backend may be unavailable.",
+        });
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -272,7 +287,10 @@ export function WorkspaceTerminal({
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "buffer-size") {
-            if (instance.cols !== msg.cols || instance.rows !== msg.rows) {
+            if (
+              instance &&
+              (instance.cols !== msg.cols || instance.rows !== msg.rows)
+            ) {
               instance.resize(msg.cols, msg.rows);
             }
             bufferingRef.current = true;
@@ -284,7 +302,9 @@ export function WorkspaceTerminal({
                 fitAddon.current.fit();
               }
             });
-            const dims = { cols: instance.cols, rows: instance.rows };
+            const dims = instance
+              ? { cols: instance.cols, rows: instance.rows }
+              : { cols: 80, rows: 24 };
             wsRef.current?.send(JSON.stringify({ type: "resize", ...dims }));
             return;
           } else if (msg.type === "error") {
@@ -317,15 +337,38 @@ export function WorkspaceTerminal({
       if (!bufferingRef.current && buffer.length > 0) {
         rePaint();
         for (const chunk of buffer) {
-          instance.write(chunk);
+          instance?.write(chunk);
         }
         buffer.length = 0;
       }
       if (data) {
-        instance.write(data);
+        instance?.write(data);
       }
     };
   }, [worktree.name, terminalId, instance, sendReadySignal, getReconnectDelay]);
+
+  // Manual retry function that doesn't require page reload
+  const handleRetryConnection = useCallback(() => {
+    setError(null);
+    reconnectAttempts.current = 0; // Reset attempts for manual retry
+    shouldReconnect.current = true;
+    isConnecting.current = false;
+
+    // Clear any pending timeouts
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Close existing connection if any
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    // Start fresh connection
+    connectWebSocket();
+  }, [connectWebSocket]);
 
   // Reset state when worktree changes
   useEffect(() => {
@@ -541,22 +584,6 @@ export function WorkspaceTerminal({
     return () => disposer?.dispose();
   }, [isReadOnly, triggerReadOnlyShake, instance]);
 
-  // Show error display if there's an error
-  if (error) {
-    return (
-      <div className="h-full w-full bg-background flex items-center justify-center">
-        <ErrorDisplay
-          title={error.title}
-          message={error.message}
-          onRetry={() => {
-            setError(null);
-            window.location.reload();
-          }}
-        />
-      </div>
-    );
-  }
-
   return (
     <div
       ref={terminalContainerRef}
@@ -565,14 +592,29 @@ export function WorkspaceTerminal({
       onFocus={handleTerminalFocus}
       tabIndex={-1}
     >
-      {/* Connection status and read-only indicators in upper right */}
+      {/* Connection status, error, and read-only indicators in upper right */}
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-1 items-end">
+        {/* Error indicator */}
+        {error && (
+          <div className="bg-red-600/20 border border-red-500/50 text-red-300 px-3 py-2 rounded-md text-xs font-medium backdrop-blur-sm flex flex-col gap-2 max-w-xs">
+            <div className="font-semibold">{error.title}</div>
+            <div className="text-xs text-red-200">{error.message}</div>
+            <button
+              onClick={handleRetryConnection}
+              className="self-end bg-red-600/30 hover:bg-red-600/50 border border-red-500/50 hover:border-red-500/70 text-red-200 px-2 py-1 rounded text-xs transition-all duration-200"
+            >
+              🔄 Retry
+            </button>
+          </div>
+        )}
+
         {/* Connection status indicator */}
         {!isConnected && !error && (
           <div className="bg-amber-600/20 border border-amber-500/50 text-amber-300 px-2 py-1 rounded-md text-xs font-medium backdrop-blur-sm">
             {isConnecting.current ? "🔄 Connecting..." : "📡 Reconnecting..."}
           </div>
         )}
+
         {/* Read-only indicator */}
         {isReadOnly && (
           <div
@@ -586,6 +628,7 @@ export function WorkspaceTerminal({
           </div>
         )}
       </div>
+
       {/* Terminal with minimal padding */}
       <div ref={ref} className="h-full w-full p-2" />
     </div>
