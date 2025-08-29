@@ -219,15 +219,21 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 		logger.Debugf("🪧 Title change detected at %s: %q in %s", timestamp, title, cwd)
 
 		// Check if this is a managed worktree directory
-		if s.isWorktreeDirectory(cwd) {
+		isWorktree := s.isWorktreeDirectory(cwd)
+		isExternal := s.isExternalGitRepository(cwd)
+
+		logger.Debugf("📁 Path analysis for %s: isWorktree=%v, isExternal=%v, workspaceDir=%s",
+			cwd, isWorktree, isExternal, config.Runtime.WorkspaceDir)
+
+		if isWorktree {
 			// Clean the title before processing
 			cleanedTitle := cleanTitle(title)
 			if cleanedTitle != "" { // Only process if title isn't empty after cleaning
 				s.handleTitleChange(cwd, cleanedTitle, "log")
 			}
-		} else if s.isExternalGitRepository(cwd) {
+		} else if isExternal {
 			// Handle external Git repository - attempt to auto-create workspace
-			logger.Debugf("🔍 External Git repository detected: %s", cwd)
+			logger.Infof("🔍 External Git repository detected: %s", cwd)
 
 			// Try to create auto-workspace (this will be a no-op if already exists)
 			if err := s.createAutoWorkspaceForExternalRepo(cwd); err != nil {
@@ -241,6 +247,8 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 					s.handleExternalRepoTitleChange(cwd, cleanedTitle, "log")
 				}
 			}
+		} else {
+			logger.Debugf("⚠️ Path %s is neither a worktree nor an external Git repo, ignoring", cwd)
 		}
 	}
 
@@ -289,14 +297,21 @@ func (s *ClaudeMonitorService) createAutoWorkspaceForExternalRepo(repoPath strin
 	// Get the remote origin URL from the external repository
 	remoteOrigin, err := s.gitService.operations.GetRemoteURL(repoPath)
 	if err != nil {
-		logger.Debugf("📍 External repo %s has no remote origin, skipping auto-workspace creation", repoPath)
+		logger.Infof("📍 External repo %s has no remote origin (error: %v), skipping auto-workspace creation", repoPath, err)
 		return nil
 	}
+
+	logger.Infof("📍 External repo %s has remote origin: %s", repoPath, remoteOrigin)
 
 	// Find if we already have a repository with this remote URL
 	existingRepo := s.findRepositoryByRemoteURL(remoteOrigin)
 	if existingRepo == nil {
-		logger.Debugf("📍 External repo %s (remote: %s) doesn't match any tracked repositories, skipping auto-workspace creation", repoPath, remoteOrigin)
+		logger.Infof("📍 External repo %s (remote: %s) doesn't match any tracked repositories, skipping auto-workspace creation", repoPath, remoteOrigin)
+		logger.Debugf("📍 Available tracked repositories:")
+		status := s.gitService.GetStatus()
+		for _, repo := range status.Repositories {
+			logger.Debugf("  - %s: RemoteOrigin=%s, URL=%s", repo.ID, repo.RemoteOrigin, repo.URL)
+		}
 		return nil
 	}
 
