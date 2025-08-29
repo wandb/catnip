@@ -81,7 +81,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
-		titlesLogPath = filepath.Join(config.Runtime.VolumeDir, "title_events.log")
+		titlesLogPath = filepath.Join(config.Runtime.HomeDir, ".catnip", "title_events.log")
 	}
 
 	return &ClaudeMonitorService{
