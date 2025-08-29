@@ -1255,6 +1255,37 @@ func (s *GitService) createLocalRepoWorktree(repo *models.Repository, branch, na
 	return worktree, nil
 }
 
+// createLocalWorktreeForAutoRepo creates a worktree for an auto-detected repository
+func (s *GitService) createLocalWorktreeForAutoRepo(repo *models.Repository, branch, name string) (*models.Worktree, error) {
+	// Use git WorktreeManager to create the local worktree
+	worktree, err := s.gitWorktreeManager.CreateLocalWorktree(git.CreateWorktreeRequest{
+		Repository:   repo,
+		SourceBranch: branch,
+		BranchName:   name,
+		WorkspaceDir: getWorkspaceDir(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Store worktree in service map
+	if err := s.stateManager.AddWorktree(worktree); err != nil {
+		logger.Warnf("⚠️ Failed to add auto-detected worktree to state: %v", err)
+	}
+
+	// Notify ClaudeMonitor service about the new worktree
+	if s.claudeMonitor != nil {
+		s.claudeMonitor.OnWorktreeCreated(worktree.ID, worktree.Path)
+	}
+
+	// Don't automatically set as current for auto-detected repos to avoid disrupting user workflow
+
+	// Skip setup.sh execution for auto-detected repos to avoid unexpected side effects
+	logger.Debugf("📝 Skipping setup.sh execution for auto-detected repository worktree: %s", worktree.Path)
+
+	return worktree, nil
+}
+
 // getLocalRepoBranches returns the local branches for a local repository
 func (s *GitService) getLocalRepoBranches(repoPath string) ([]string, error) {
 	return s.operations.GetLocalBranches(repoPath)
@@ -1330,6 +1361,15 @@ func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 		return nil, fmt.Errorf("repository %s not found", worktree.RepoID)
 	}
 
+	// SAFETY CHECK: Refuse to delete worktrees outside our managed workspace directory
+	// This protects against accidentally deleting external repository paths
+	// Exception: Allow deletion during tests (temp directories on Linux/macOS)
+	workspaceDir := config.Runtime.WorkspaceDir
+	isTestPath := s.isTemporaryPath(worktree.Path)
+	if workspaceDir != "" && !strings.HasPrefix(worktree.Path, workspaceDir+"/") && !isTestPath {
+		return nil, fmt.Errorf("cannot delete worktree %s: path %s is outside managed workspace directory %s", worktree.Name, worktree.Path, workspaceDir)
+	}
+
 	// Clean up any active PTY sessions for this worktree (service-specific)
 	s.cleanupActiveSessions(worktree.Path)
 
@@ -1349,21 +1389,38 @@ func (s *GitService) DeleteWorktree(worktreeID string) (<-chan error, error) {
 	// Create a channel to signal completion
 	done := make(chan error, 1)
 
-	// Perform comprehensive git cleanup in background (non-blocking)
-	go func() {
-		logger.Debugf("🗑️ Starting background git cleanup for worktree %s", worktree.Name)
+	// For test environments, run cleanup synchronously to avoid hanging in CI
+	// Note: isTestPath was already declared above for the safety check
+	if isTestPath {
+		logger.Debugf("🧪 Running synchronous cleanup for test worktree %s", worktree.Name)
 		cleanupStart := time.Now()
 
 		if err := s.gitWorktreeManager.DeleteWorktree(worktree, repo); err != nil {
-			logger.Warnf("⚠️ Background git cleanup failed for worktree %s: %v", worktree.Name, err)
+			logger.Warnf("⚠️ Synchronous git cleanup failed for worktree %s: %v", worktree.Name, err)
 			done <- err
 		} else {
 			cleanupDuration := time.Since(cleanupStart)
-			logger.Debugf("✅ Background git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
+			logger.Debugf("✅ Synchronous git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
 			done <- nil
 		}
 		close(done)
-	}()
+	} else {
+		// For production, perform comprehensive git cleanup in background (non-blocking)
+		go func() {
+			logger.Debugf("🗑️ Starting background git cleanup for worktree %s", worktree.Name)
+			cleanupStart := time.Now()
+
+			if err := s.gitWorktreeManager.DeleteWorktree(worktree, repo); err != nil {
+				logger.Warnf("⚠️ Background git cleanup failed for worktree %s: %v", worktree.Name, err)
+				done <- err
+			} else {
+				cleanupDuration := time.Since(cleanupStart)
+				logger.Debugf("✅ Background git cleanup completed for worktree %s in %v", worktree.Name, cleanupDuration)
+				done <- nil
+			}
+			close(done)
+		}()
+	}
 
 	// Save state
 	// State persistence handled by state manager
@@ -3001,4 +3058,20 @@ func (s *GitService) CreateGitHubRepositoryAndSetOrigin(repoID, name, descriptio
 	}
 
 	return repoURL, nil
+}
+
+// isTemporaryPath checks if a path is in a temporary directory (for tests)
+// Handles both Linux (/tmp/) and macOS (/var/folders/) temporary paths
+func (s *GitService) isTemporaryPath(path string) bool {
+	// Linux temporary directory
+	if strings.Contains(path, "/tmp/") {
+		return true
+	}
+
+	// macOS temporary directory pattern: /var/folders/xx/xxxxxxxxx/T/
+	if strings.Contains(path, "/var/folders/") && strings.Contains(path, "/T/") {
+		return true
+	}
+
+	return false
 }

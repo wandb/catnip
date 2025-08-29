@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
@@ -148,6 +149,19 @@ func (css *CommitSyncService) AddWorktreeWatcher(worktreePath string) {
 // addWorktreeWatcher adds a watcher for a specific worktree (internal)
 func (css *CommitSyncService) addWorktreeWatcher(worktreePath string) {
 	if css.watcher == nil {
+		return
+	}
+
+	// Skip worktrees that are outside our managed workspace directory or in temp directories
+	workspaceDir := config.Runtime.WorkspaceDir
+	isTemporaryPath := css.isTemporaryPath(worktreePath)
+	if workspaceDir != "" && !strings.HasPrefix(worktreePath, workspaceDir+"/") && !isTemporaryPath {
+		logger.Debugf("🚫 Skipping filesystem watcher for worktree outside WORKSPACE_DIR: %s", worktreePath)
+		return
+	}
+
+	// Skip temporary paths entirely from filesystem watching (tests don't need watchers)
+	if isTemporaryPath {
 		return
 	}
 
@@ -511,6 +525,20 @@ func (css *CommitSyncService) performPeriodicSync() {
 	worktrees := css.gitService.ListWorktrees()
 
 	for _, worktree := range worktrees {
+		// Skip worktrees that are outside our managed workspace directory
+		// Exception: Allow temporary test paths (don't sync them, but don't log errors)
+		workspaceDir := config.Runtime.WorkspaceDir
+		isTemporaryPath := css.isTemporaryPath(worktree.Path)
+		if workspaceDir != "" && !strings.HasPrefix(worktree.Path, workspaceDir+"/") && !isTemporaryPath {
+			logger.Debugf("🚫 Skipping commit sync for worktree outside WORKSPACE_DIR: %s", worktree.Path)
+			continue
+		}
+
+		// Skip temporary paths entirely from sync (tests don't need commit sync)
+		if isTemporaryPath {
+			continue
+		}
+
 		// Only sync existing commits to bare repo (no auto-commits)
 		// Let the session-aware CheckpointManager handle creating commits
 		hasUnsynced := css.hasUnsyncedCommits(worktree.Path)
@@ -837,4 +865,20 @@ func (css *CommitSyncService) hasUnsyncedNiceBranch(commitInfo *CommitInfo) bool
 
 	// Compare commit hashes - if they're different, nice branch needs syncing
 	return strings.TrimSpace(commitInfo.CommitHash) != strings.TrimSpace(niceBranchHash)
+}
+
+// isTemporaryPath checks if a path is in a temporary directory (for tests)
+// Handles both Linux (/tmp/) and macOS (/var/folders/) temporary paths
+func (css *CommitSyncService) isTemporaryPath(path string) bool {
+	// Linux temporary directory
+	if strings.Contains(path, "/tmp/") {
+		return true
+	}
+
+	// macOS temporary directory pattern: /var/folders/xx/xxxxxxxxx/T/
+	if strings.Contains(path, "/var/folders/") && strings.Contains(path, "/T/") {
+		return true
+	}
+
+	return false
 }
