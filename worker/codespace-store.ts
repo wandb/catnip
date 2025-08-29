@@ -121,6 +121,15 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
   private async decrypt(
     stored: StoredCodespaceCredentials,
   ): Promise<CodespaceCredentials> {
+    if (
+      stored.keyId === null ||
+      stored.salt === null ||
+      stored.iv === null ||
+      stored.encryptedData === null
+    ) {
+      throw new Error("Invalid stored credentials: missing encryption data");
+    }
+
     const key = this.keys.get(stored.keyId);
     if (!key) throw new Error(`Key ${stored.keyId} not found`);
 
