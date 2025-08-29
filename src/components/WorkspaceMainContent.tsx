@@ -1,13 +1,7 @@
-import { useEffect, useRef, useCallback, useState } from "react";
-import { useXTerm } from "react-xtermjs";
-import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
-import { WebglAddon } from "@xterm/addon-webgl";
+import { useEffect, useCallback, useState } from "react";
 import { Helmet } from "react-helmet-async";
-import { useWebSocket as useWebSocketContext } from "@/lib/hooks";
-import { FileDropAddon } from "@/lib/file-drop-addon";
-import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { WorkspaceTerminal } from "@/components/WorkspaceTerminal";
+import { WorkspaceClaude } from "@/components/WorkspaceClaude";
 import { WorkspaceDiffViewer } from "@/components/WorkspaceDiffViewer";
 import { PortPreview } from "@/components/PortPreview";
 import { Button } from "@/components/ui/button";
