@@ -88,9 +88,12 @@ export function useXTerminalConnection({
     }
   }, []);
 
-  // Scroll terminal to bottom (for Claude terminal)
+  // Track if user has scrolled up to view history
+  const userScrolledUp = useRef(false);
+
+  // Scroll terminal to bottom only if user hasn't scrolled up (for Claude terminal)
   const scrollToBottom = useCallback(() => {
-    if (instance) {
+    if (instance && !userScrolledUp.current) {
       instance.scrollToBottom();
     }
   }, [instance]);
@@ -318,6 +321,10 @@ export function useXTerminalConnection({
                 instance.write(chunk);
               }
               buffer.length = 0;
+              // Reset scroll tracking when buffer content is written
+              if (agent === "claude") {
+                userScrolledUp.current = false;
+              }
             }
 
             // Reset buffering flag
@@ -392,6 +399,10 @@ export function useXTerminalConnection({
       // Write data if not buffering
       if (data && !bufferingRef.current) {
         instance.write(data);
+        // Reset scroll tracking when new content arrives (Claude terminal only)
+        if (agent === "claude") {
+          userScrolledUp.current = false;
+        }
       }
     };
 
@@ -474,6 +485,33 @@ export function useXTerminalConnection({
     // Open terminal in DOM element
     instance.open(ref.current);
 
+    // Add scroll listener to detect when user scrolls up (Claude terminal only)
+    let scrollCleanup: (() => void) | null = null;
+    if (agent === "claude") {
+      const handleScroll = () => {
+        if (instance) {
+          const scrollTop = instance.buffer.active.viewportY;
+          const scrollHeight = instance.buffer.active.length;
+          const clientHeight = instance.rows;
+
+          // Check if user has scrolled up from the bottom
+          const isAtBottom = scrollTop >= scrollHeight - clientHeight;
+          userScrolledUp.current = !isAtBottom;
+        }
+      };
+
+      // Wait a bit for terminal to initialize, then add scroll listener
+      setTimeout(() => {
+        const terminalElement = ref.current?.querySelector(".xterm-viewport");
+        if (terminalElement) {
+          terminalElement.addEventListener("scroll", handleScroll);
+          scrollCleanup = () => {
+            terminalElement.removeEventListener("scroll", handleScroll);
+          };
+        }
+      }, 200);
+    }
+
     // Delay initial fit to allow layout to settle
     const initialFitTimeout = setTimeout(
       () => {
@@ -535,6 +573,7 @@ export function useXTerminalConnection({
     // Cleanup function
     return () => {
       disposer?.dispose();
+      scrollCleanup?.();
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
