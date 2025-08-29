@@ -152,10 +152,16 @@ func (css *CommitSyncService) addWorktreeWatcher(worktreePath string) {
 		return
 	}
 
-	// Skip worktrees that are outside our managed workspace directory
+	// Skip worktrees that are outside our managed workspace directory or in temp directories
 	workspaceDir := config.Runtime.WorkspaceDir
-	if workspaceDir != "" && !strings.HasPrefix(worktreePath, workspaceDir+"/") {
+	isTemporaryPath := css.isTemporaryPath(worktreePath)
+	if workspaceDir != "" && !strings.HasPrefix(worktreePath, workspaceDir+"/") && !isTemporaryPath {
 		logger.Debugf("🚫 Skipping filesystem watcher for worktree outside WORKSPACE_DIR: %s", worktreePath)
+		return
+	}
+
+	// Skip temporary paths entirely from filesystem watching (tests don't need watchers)
+	if isTemporaryPath {
 		return
 	}
 
