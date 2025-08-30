@@ -1,24 +1,25 @@
 {
   "name": "catnip-sidebar",
-  "displayName": "Catnip Sidebar",
-  "description": "Catnip logo sidebar with quick access to the development environment",
+  "displayName": "Catnip",
+  "description": "Catnip - a highly addictive agentic coding environment",
   "version": "0.0.1",
-  "publisher": "catnip",
+  "publisher": "wandb",
   "engines": {
     "vscode": "^1.74.0"
   },
   "categories": [
     "Other"
   ],
+  "icon": "media/catnip.png",
+  "repository": "https://github.com/wandb/catnip",
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "views": {
-      "explorer": [
+      "catnip": [
         {
           "id": "catnip-sidebar",
-          "name": "🐱 Catnip",
-          "when": "true"
+          "name": "🐾 Catnip"
         }
       ]
     },
@@ -26,9 +27,18 @@
       {
         "command": "catnip.openInterface",
         "title": "Open Catnip Interface",
-        "icon": "$(globe)"
+        "icon": "🐾"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "catnip",
+          "title": "Catnip",
+          "icon": "media/catnip.svg"
+        }
+      ]
+    },
     "menus": {
       "view/title": [
         {

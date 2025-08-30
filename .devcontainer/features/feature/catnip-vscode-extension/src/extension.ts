@@ -16,7 +16,7 @@ class CatnipViewProvider implements vscode.TreeDataProvider<CatnipItem> {
     if (!element) {
       return Promise.resolve([
         new CatnipItem(
-          "🚀 Open Catnip Interface",
+          "💻 Open Catnip Interface",
           "Click to open the catnip development environment",
           vscode.TreeItemCollapsibleState.None,
           "catnip.openInterface",
@@ -113,7 +113,7 @@ function getWebviewContent(): string {
 <body>
     <div id="content">
         <div class="error">
-            <h2>🐱 Catnip Development Interface</h2>
+            <h2>🐾 Catnip Development Interface</h2>
             <p>Loading interface from localhost:6369...</p>
             <p><small>If this doesn't load, make sure catnip is running on port 6369</small></p>
         </div>

@@ -326,15 +326,8 @@ install_vscode_extension() {
     return
   fi
   
-  log "Installing pre-built Catnip VS Code extension..."
-  
-  # Install for all users by placing in VS Code extensions directory
-  local extensions_dir="/usr/local/share/vscode-extensions"
-  run_as_root mkdir -p "$extensions_dir"
-  run_as_root cp "$vsix_path" "$extensions_dir/"
-  
-  ok "Catnip VS Code extension installed!"
-  log "Extension will be available in VS Code sidebar as '🐱 Catnip'"
+  log "Copying pre-built Catnip VS Code extension..."
+  cp "$vsix_path" "/opt/catnip/"
 }
 
 # --- entrypoint ------------------------------------------------------------
