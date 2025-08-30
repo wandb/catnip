@@ -125,7 +125,7 @@ echo -e "${GREEN}✅ All dependencies are installed${NC}"
 
 # Install pnpm packages
 echo -e "${YELLOW}📦 Installing pnpm packages...${NC}"
-if pnpm install; then
+if pnpm install --frozen-lockfile; then
     echo -e "${GREEN}✅ pnpm packages installed${NC}"
 else
     echo -e "${RED}❌ Failed to install pnpm packages${NC}"

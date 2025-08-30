@@ -1,14 +1,7 @@
 {
   "name": "Catnip Dev Container",
   "image": "mcr.microsoft.com/devcontainers/go:1-bookworm",
-  "remoteEnv": {
-    "CATNIP_ROOT": "/home/vscode/.catnip",
-    "CATNIP_WORKSPACE_DIR": "/catnip",
-    "CATNIP_VOLUME_DIR": "/home/vscode/.catnip/volume",
-    "CATNIP_LIVE_DIR": "/workspaces",
-    "CATNIP_HOME_DIR": "/home/vscode",
-    "CATNIP_TEMP_DIR": "/tmp"
-  },
+  "remoteEnv": {},
   "customizations": {
     "vscode": {
       "extensions": [
@@ -26,17 +19,20 @@
       }
     }
   },
-  "forwardPorts": [5173, 8080],
-  "onCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [5173, 6369],
+  "onCreateCommand": "bash .devcontainer/on-create.sh",
+  "postStartCommand": "bash .devcontainer/post-start.sh",
   "remoteUser": "vscode",
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume",
+    "source=${localWorkspaceFolderBasename}-go-mods,target=/go/pkg/mod,type=volume"
+  ],
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/node:1": {
       "version": "latest"
     },
-    "ghcr.io/devcontainers/features/sshd:1": {
-      "version": "latest"
-    },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "./features/feature": {}
   }
 }

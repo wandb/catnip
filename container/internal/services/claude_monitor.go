@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/google/uuid"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/logger"
@@ -81,7 +82,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
-		titlesLogPath = filepath.Join(config.Runtime.VolumeDir, "title_events.log")
+		titlesLogPath = filepath.Join(config.Runtime.HomeDir, ".catnip", "title_events.log")
 	}
 
 	return &ClaudeMonitorService{
@@ -100,7 +101,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 
 // Start begins monitoring all worktrees
 func (s *ClaudeMonitorService) Start() error {
-	logger.Info("🚀 Starting Claude monitor service")
+	logger.Infof("🚀 Starting Claude monitor service, titles log path: %s", s.titlesLogPath)
 
 	// Create file watcher for titles log
 	watcher, err := fsnotify.NewWatcher()
@@ -211,36 +212,51 @@ func (s *ClaudeMonitorService) readTitlesLog() {
 			continue
 		}
 
-		timestamp := parts[0]
+		timestampStr := parts[0]
 		// pid := parts[1]
 		cwd := parts[2]
 		title := parts[3]
 
-		logger.Debugf("🪧 Title change detected at %s: %q in %s", timestamp, title, cwd)
+		// Parse timestamp and filter out old events (only process events from last 30 seconds)
+		eventTime, err := time.Parse(time.RFC3339Nano, timestampStr)
+		if err != nil {
+			logger.Warnf("⚠️  Invalid timestamp format: %s", timestampStr)
+			continue
+		}
+
+		// Only process events from the last 30 seconds to avoid processing old log entries
+		if time.Since(eventTime) > 30*time.Second {
+			logger.Debugf("🕒 Skipping old title event (%v ago): %q in %s", time.Since(eventTime), title, cwd)
+			continue
+		}
+
+		logger.Debugf("🪧 Title change detected at %s: %q in %s", timestampStr, title, cwd)
 
 		// Check if this is a managed worktree directory
-		if s.isWorktreeDirectory(cwd) {
+		isWorktree := s.isWorktreeDirectory(cwd)
+		isExternal := s.isExternalGitRepository(cwd)
+
+		logger.Debugf("📁 Path analysis for %s: isWorktree=%v, isExternal=%v, workspaceDir=%s",
+			cwd, isWorktree, isExternal, config.Runtime.WorkspaceDir)
+
+		if isWorktree {
 			// Clean the title before processing
 			cleanedTitle := cleanTitle(title)
 			if cleanedTitle != "" { // Only process if title isn't empty after cleaning
 				s.handleTitleChange(cwd, cleanedTitle, "log")
 			}
-		} else if s.isExternalGitRepository(cwd) {
-			// Handle external Git repository - attempt to auto-create workspace
-			logger.Debugf("🔍 External Git repository detected: %s", cwd)
+		} else if isExternal {
+			// Handle external Git repository - attempt to auto-create workspace reference
+			logger.Infof("🔍 External Git repository detected: %s", cwd)
 
-			// Try to create auto-workspace (this will be a no-op if already exists)
+			// Try to create auto-workspace reference (this will be a no-op if already exists)
 			if err := s.createAutoWorkspaceForExternalRepo(cwd); err != nil {
 				logger.Warnf("⚠️ Failed to create auto-workspace for %s: %v", cwd, err)
-			} else {
-				// After successful workspace creation, process the title change normally
-				cleanedTitle := cleanTitle(title)
-				if cleanedTitle != "" {
-					// The workspace now exists, so we can handle it as a normal worktree
-					// But first check if it got added to managed worktrees
-					s.handleExternalRepoTitleChange(cwd, cleanedTitle, "log")
-				}
 			}
+			// Note: We don't handle title changes for external repos as they're outside our control
+			logger.Debugf("📍 Skipping title handling for external repo (outside our control): %s", cwd)
+		} else {
+			logger.Debugf("⚠️ Path %s is neither a worktree nor an external Git repo, ignoring", cwd)
 		}
 	}
 
@@ -281,26 +297,70 @@ func (s *ClaudeMonitorService) isExternalGitRepository(dir string) bool {
 	return true
 }
 
-// createAutoWorkspaceForExternalRepo attempts to create an auto-workspace for an external repo
-// Only creates a workspace if the external repo matches a repository we're already tracking
+// createAutoWorkspaceForExternalRepo attempts to create an auto-workspace reference for an external repo
+// Only creates a workspace reference if the external repo matches a repository we're already tracking
 func (s *ClaudeMonitorService) createAutoWorkspaceForExternalRepo(repoPath string) error {
 	logger.Infof("🔍 Detected Claude session in external repository: %s", repoPath)
 
 	// Get the remote origin URL from the external repository
 	remoteOrigin, err := s.gitService.operations.GetRemoteURL(repoPath)
 	if err != nil {
-		logger.Debugf("📍 External repo %s has no remote origin, skipping auto-workspace creation", repoPath)
+		logger.Infof("📍 External repo %s has no remote origin (error: %v), skipping auto-workspace creation", repoPath, err)
 		return nil
 	}
+
+	logger.Infof("📍 External repo %s has remote origin: %s", repoPath, remoteOrigin)
 
 	// Find if we already have a repository with this remote URL
 	existingRepo := s.findRepositoryByRemoteURL(remoteOrigin)
 	if existingRepo == nil {
-		logger.Debugf("📍 External repo %s (remote: %s) doesn't match any tracked repositories, skipping auto-workspace creation", repoPath, remoteOrigin)
+		logger.Infof("📍 External repo %s (remote: %s) doesn't match any tracked repositories, skipping auto-workspace creation", repoPath, remoteOrigin)
+		logger.Debugf("📍 Available tracked repositories:")
+		status := s.gitService.GetStatus()
+		for _, repo := range status.Repositories {
+			logger.Debugf("  - %s: RemoteOrigin=%s, URL=%s", repo.ID, repo.RemoteOrigin, repo.URL)
+		}
 		return nil
 	}
 
-	logger.Infof("🎯 External repo %s matches tracked repository %s, creating auto-workspace", repoPath, existingRepo.ID)
+	// Check if we already have a workspace reference pointing to this external path
+	// This prevents creating duplicate workspace references for the same external repository
+	existingWorktree := s.findWorktreeByExternalPath(repoPath)
+	if existingWorktree != nil {
+		logger.Infof("🔍 Found existing workspace reference %s for path %s, updating branch if needed", existingWorktree.Name, repoPath)
+
+		// Get the current branch from the external repository
+		currentBranch, err := s.getCurrentBranch(repoPath)
+		if err != nil {
+			logger.Warnf("⚠️ Could not determine current branch for %s: %v", repoPath, err)
+			// Still return nil since we found an existing workspace - no need to create a new one
+			return nil
+		}
+
+		// Update the branch if it's different
+		if existingWorktree.Branch != currentBranch {
+			logger.Infof("🔄 Updating existing workspace branch from %s to %s", existingWorktree.Branch, currentBranch)
+			// Find worktree ID by exact path match
+			allWorktrees := s.stateManager.GetAllWorktrees()
+			for worktreeID, wt := range allWorktrees {
+				if wt.Path == repoPath {
+					if err := s.stateManager.UpdateWorktree(worktreeID, map[string]interface{}{
+						"branch": currentBranch,
+					}); err != nil {
+						logger.Warnf("⚠️ Failed to update worktree branch: %v", err)
+					} else {
+						logger.Infof("✅ Updated workspace %s branch to %s", existingWorktree.Name, currentBranch)
+					}
+					break
+				}
+			}
+		}
+
+		// Return early - no need to create a new workspace
+		return nil
+	}
+
+	logger.Infof("🎯 External repo %s matches tracked repository %s, creating workspace reference", repoPath, existingRepo.ID)
 
 	// Get the current branch from the external repository
 	currentBranch, err := s.getCurrentBranch(repoPath)
@@ -309,16 +369,37 @@ func (s *ClaudeMonitorService) createAutoWorkspaceForExternalRepo(repoPath strin
 		currentBranch = existingRepo.DefaultBranch // fallback to repo's default branch
 	}
 
-	// Generate a unique session name for the worktree
-	funName := s.gitService.generateUniqueSessionName(existingRepo.Path)
-
-	// Create worktree using the existing repository and current branch
-	worktree, err := s.gitService.createLocalWorktreeForAutoRepo(existingRepo, currentBranch, funName)
-	if err != nil {
-		return fmt.Errorf("failed to create auto-workspace for %s: %v", repoPath, err)
+	// Generate a name based on the external path
+	repoName := filepath.Base(repoPath)
+	var workspaceName string
+	if currentBranch != existingRepo.DefaultBranch {
+		// Replace "/" with "-" in branch names to create valid workspace names
+		safeBranchName := strings.ReplaceAll(currentBranch, "/", "-")
+		workspaceName = fmt.Sprintf("%s/%s", repoName, safeBranchName)
+	} else {
+		workspaceName = repoName
 	}
 
-	logger.Infof("✅ Created auto-workspace for external repository: %s -> %s (branch: %s)", repoPath, worktree.Name, currentBranch)
+	// Create workspace reference (not a physical worktree)
+	worktree, err := s.createWorkspaceReference(existingRepo, repoPath, currentBranch, workspaceName)
+	if err != nil {
+		return fmt.Errorf("failed to create workspace reference for %s: %v", repoPath, err)
+	}
+
+	logger.Infof("✅ Created workspace reference for external repository: %s -> %s (branch: %s)", repoPath, worktree.Name, currentBranch)
+	return nil
+}
+
+// findWorktreeByExternalPath finds an existing worktree that has the exact external path
+func (s *ClaudeMonitorService) findWorktreeByExternalPath(externalPath string) *models.Worktree {
+	// Get all worktrees from the state manager
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
+		// Check if the worktree path exactly matches the external path
+		if worktree.Path == externalPath {
+			return worktree
+		}
+	}
 	return nil
 }
 
@@ -356,29 +437,47 @@ func (s *ClaudeMonitorService) getCurrentBranch(repoPath string) (string, error)
 	return currentBranch, nil
 }
 
-// handleExternalRepoTitleChange handles title changes for external repositories
-func (s *ClaudeMonitorService) handleExternalRepoTitleChange(repoPath, newTitle, source string) {
-	// The external repo should now have an auto-workspace created
-	// Find the corresponding worktree and handle the title change there
+// createWorkspaceReference creates a workspace reference (not a physical worktree) for an external repository
+func (s *ClaudeMonitorService) createWorkspaceReference(repo *models.Repository, externalPath, branch, name string) (*models.Worktree, error) {
+	// Create a unique ID for this workspace reference
+	id := uuid.New().String()
 
-	// Get all worktrees and find one with a matching repository that has this external path
-	allWorktrees := s.stateManager.GetAllWorktrees()
-	for _, worktree := range allWorktrees {
-		// Get the repository for this worktree
-		if repo, exists := s.stateManager.GetRepository(worktree.RepoID); exists {
-			// Check if this worktree was created from an external repo with matching remote
-			// by comparing the remote URL from the external repo path
-			remoteURL, err := s.gitService.operations.GetRemoteURL(repoPath)
-			if err == nil && repo.RemoteOrigin == remoteURL {
-				// Found the matching worktree, handle title change for its path
-				logger.Debugf("🎯 Routing external repo title change to worktree: %s -> %s", repoPath, worktree.Path)
-				s.handleTitleChange(worktree.Path, newTitle, source)
-				return
-			}
-		}
+	// Create a worktree model that references the external path directly
+	worktree := &models.Worktree{
+		ID:                     id,
+		RepoID:                 repo.ID,
+		Name:                   name,
+		Path:                   externalPath, // Point directly to the external path
+		Branch:                 branch,
+		SourceBranch:           repo.DefaultBranch,
+		HasBeenRenamed:         false,
+		CommitHash:             "", // Will be populated by status refresh
+		CommitCount:            0,  // Will be populated by status refresh
+		CommitsBehind:          0,  // Will be populated by status refresh
+		IsDirty:                false,
+		HasConflicts:           false,
+		PullRequestURL:         "",
+		SessionTitle:           nil,
+		SessionTitleHistory:    []models.TitleEntry{},
+		HasActiveClaudeSession: false,
+		ClaudeActivityState:    models.ClaudeInactive,
+		Todos:                  []models.Todo{},
 	}
 
-	logger.Debugf("📍 Could not find matching worktree for external repo: %s", repoPath)
+	// Add the workspace reference to the state manager
+	if err := s.stateManager.AddWorktree(worktree); err != nil {
+		return nil, fmt.Errorf("failed to add workspace reference: %v", err)
+	}
+
+	// Start todo monitoring for the new workspace reference
+	s.OnWorktreeCreated(worktree.ID, worktree.Path)
+
+	// Refresh status to populate commit info
+	if err := s.gitService.RefreshWorktreeStatus(externalPath); err != nil {
+		logger.Warnf("⚠️ Failed to refresh status for external workspace: %v", err)
+	}
+
+	return worktree, nil
 }
 
 // handleTitleChange processes a title change for a worktree with duplicate detection

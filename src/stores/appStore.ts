@@ -6,6 +6,7 @@ import type {
   GitStatus,
   Repository,
   LocalRepository,
+  AppSettings,
 } from "../lib/git-api";
 import { gitApi } from "../lib/git-api";
 import { useNotifications } from "../lib/useNotifications";
@@ -43,6 +44,7 @@ interface AppState {
   containerStatus: "running" | "stopped" | "error";
   containerMessage?: string;
   sshEnabled: boolean;
+  settings: AppSettings | null;
 
   // Notifications
   notifications: ReturnType<typeof useNotifications> | null;
@@ -74,6 +76,7 @@ interface AppState {
   setRepositories: (repositories: Record<string, LocalRepository>) => void;
   setGithubRepositories: (repositories: Repository[]) => void;
   setGitStatus: (status: GitStatus) => void;
+  setSettings: (settings: AppSettings) => void;
 
   // Getters
   getActivePorts: () => Port[];
@@ -103,6 +106,7 @@ export const useAppStore = create<AppState>()(
     gitStatus: {},
     containerStatus: "stopped",
     sshEnabled: false,
+    settings: null,
 
     // Notifications
     notifications: null,
@@ -584,12 +588,17 @@ export const useAppStore = create<AppState>()(
       set({ initialLoading: true, loadError: null });
       try {
         // Load data in parallel with proper error handling
-        const [worktreesResult, gitStatusResult, githubReposResult] =
-          await Promise.allSettled([
-            gitApi.fetchWorktrees(),
-            gitApi.fetchGitStatus(),
-            gitApi.fetchRepositories(),
-          ]);
+        const [
+          worktreesResult,
+          gitStatusResult,
+          githubReposResult,
+          settingsResult,
+        ] = await Promise.allSettled([
+          gitApi.fetchWorktrees(),
+          gitApi.fetchGitStatus(),
+          gitApi.fetchRepositories(),
+          gitApi.fetchSettings(),
+        ]);
 
         // Check if all critical requests failed
         if (
@@ -615,6 +624,8 @@ export const useAppStore = create<AppState>()(
           githubReposResult.status === "fulfilled"
             ? githubReposResult.value
             : [];
+        const settingsData =
+          settingsResult.status === "fulfilled" ? settingsResult.value : null;
 
         // Transform and set worktrees
         const worktreeMap = new Map<string, Worktree>();
@@ -649,6 +660,7 @@ export const useAppStore = create<AppState>()(
           repositories: repositoryMap,
           gitStatus: gitStatusData,
           githubRepositories: githubReposData,
+          settings: settingsData,
           initialLoading: false,
           loadError: null,
         });
@@ -805,6 +817,10 @@ export const useAppStore = create<AppState>()(
           set({ repositories: repositoryMap });
         }
       }
+    },
+
+    setSettings: (settings: AppSettings) => {
+      set({ settings });
     },
 
     // Getters

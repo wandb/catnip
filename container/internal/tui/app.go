@@ -67,6 +67,7 @@ type WorktreeState struct {
 // App represents the main TUI application
 type App struct {
 	containerService *services.ContainerService
+	codespaceService *services.CodespaceService
 	containerName    string
 	program          *tea.Program
 	sseClient        *SSEClient
@@ -93,8 +94,12 @@ func NewApp(containerService *services.ContainerService, containerName, workDir,
 	// Get runtime information from container service
 	runtime := string(containerService.GetRuntime())
 
+	// Initialize codespace service (ignore errors for now)
+	codespaceService, _ := services.NewCodespaceService()
+
 	return &App{
 		containerService: containerService,
+		codespaceService: codespaceService,
 		containerName:    containerName,
 		containerImage:   containerImage,
 		devMode:          devMode,
@@ -171,14 +176,13 @@ func (a *App) getAllWorktreesForPowerManager() []WorktreeInfo {
 }
 
 // loadInitialWorktrees loads worktree data from the backend to populate paths
-func (a *App) loadInitialWorktrees(port string) {
+func (a *App) loadInitialWorktrees(m *Model) {
 	debugLog("Loading initial worktrees from backend...")
 
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
+	client := m.createAuthenticatedClient(5 * time.Second)
+	baseURL := m.getBaseURL("")
 
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/v1/git/worktrees", port))
+	resp, err := client.Get(fmt.Sprintf("%s/v1/git/worktrees", baseURL))
 	if err != nil {
 		debugLog("Failed to load worktrees: %v", err)
 		return
@@ -230,28 +234,23 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	logsViewport := viewport.New(80, 20)
 	shellViewport := viewport.New(80, 24)
 
-	// Determine the actual port from customPorts
-	mainPort := "8080"
-	for _, p := range customPorts {
-		// Parse port mapping (e.g., "8181:8080" or "8080:8080")
-		parts := strings.Split(p, ":")
-		if len(parts) >= 1 {
-			mainPort = parts[0]
-			break
-		}
-	}
+	// Parse port mapping from customPorts (already handled in model creation)
+	// The model will have externalPort and internalPort configured
 
 	// Initialize power manager (only on macOS)
 	a.powerManager = NewHostPowerManager()
 
-	// Initialize SSE client
-	sseClient := NewSSEClient(fmt.Sprintf("http://localhost:%s/v1/events", mainPort), nil)
+	// Create the model first to get proper configuration
+	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag, a.envVars, a.dind)
+	// Pass codespace service to model
+	m.codespaceService = a.codespaceService
 
-	// Set up connection callback to load initial worktrees
-	sseClient.onConnected = func() {
-		// Load initial worktree data once we're connected to the backend
-		a.loadInitialWorktrees(mainPort)
-	}
+	// Initialize SSE client with model's base URL (program will be set later)
+	sseClient := NewSSEClient(m.getBaseURL("")+"/v1/events", nil)
+	// Set authenticated HTTP client if available
+	sseClient.SetHTTPClient(m.createAuthenticatedClient(0))
+
+	// Connection callback will be set after model creation
 
 	// Set up worktree creation hook
 	sseClient.onWorktreeCreated = func(worktree map[string]interface{}) {
@@ -281,8 +280,8 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 		}
 	}
 
-	// Initialize port forwarder (uses backend on mainPort)
-	a.portForwarder = NewPortForwardManager(fmt.Sprintf("http://localhost:%s", mainPort))
+	// Initialize port forwarder with model's base URL
+	a.portForwarder = NewPortForwardManager(m.getBaseURL(""))
 	// Start forwarding when ports open (only if SSH enabled)
 	sseClient.onEvent = func(ev AppEvent) {
 		if !a.sshEnabled || a.portForwarder == nil {
@@ -307,8 +306,7 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 		}
 	}
 
-	// Create the model - always with initialization
-	m := NewModel(a.containerService, a.containerName, workDir, a.containerImage, a.devMode, a.refreshFlag, customPorts, a.sshEnabled, a.version, a.rmFlag, a.envVars, a.dind)
+	// Model was already created above
 	m.logsViewport = logsViewport
 	m.searchInput = searchInput
 	m.shellViewport = shellViewport
@@ -328,6 +326,12 @@ func (a *App) Run(ctx context.Context, workDir string, customPorts []string) (st
 	// Update SSE client with the program reference
 	sseClient.program = a.program
 	a.sseClient = sseClient
+
+	// Set up connection callback now that model is available
+	sseClient.onConnected = func() {
+		// Load initial worktree data once we're connected to the backend
+		a.loadInitialWorktrees(m)
+	}
 
 	// Start SSE client immediately
 	sseClient.Start()
@@ -460,8 +464,10 @@ func loadLogo(width int) []string {
 }
 
 // isAppReady checks if the app is ready by hitting the /health endpoint
-func isAppReady(baseURL string) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
+func isAppReady(baseURL string, client *http.Client) bool {
+	if client == nil {
+		client = &http.Client{Timeout: 2 * time.Second}
+	}
 	resp, err := client.Get(baseURL + "/health")
 	if err != nil {
 		return false
@@ -474,7 +480,7 @@ func isAppReady(baseURL string) bool {
 // renderPortSelector renders the port selection overlay
 func (m Model) renderPortSelector() string {
 	// Create port list with main app option
-	items := []string{"🏠 Main App (localhost:8080)"}
+	items := []string{fmt.Sprintf("🏠 Main App (%s:%s)", m.getHost(), m.externalPort)}
 
 	// Add detected ports
 	for _, port := range m.ports {
@@ -483,7 +489,7 @@ func (m Model) renderPortSelector() string {
 			if title == "" {
 				title = fmt.Sprintf("Port %s", port.Port)
 			}
-			items = append(items, fmt.Sprintf("🔗 %s (localhost:8080/%s)", title, port.Port))
+			items = append(items, fmt.Sprintf("🔗 %s (%s:%s/%s)", title, m.getHost(), m.externalPort, port.Port))
 		}
 	}
 
@@ -548,9 +554,11 @@ type ContainerVersionInfo struct {
 }
 
 // fetchContainerVersion fetches the version information from the running container
-func fetchContainerVersion() (*ContainerVersionInfo, error) {
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://localhost:8080/v1/info")
+func fetchContainerVersion(baseURL string, client *http.Client) (*ContainerVersionInfo, error) {
+	if client == nil {
+		client = &http.Client{Timeout: 2 * time.Second}
+	}
+	resp, err := client.Get(baseURL + "/v1/info")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch container version: %w", err)
 	}

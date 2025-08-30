@@ -21,26 +21,33 @@ The settings synchronization is implemented in `container/internal/models/settin
 
 The system tracks these configuration files:
 
-| File | Home Location | Volume Location | Sensitive |
-|------|---------------|-----------------|-----------|
-| Claude credentials | `~/.claude/.credentials.json` | `/volume/.claude/.claude/.credentials.json` | ✅ |
-| Claude config | `~/.claude.json` | `/volume/.claude/claude.json` | ✅ |
-| GitHub CLI config | `~/.config/gh/config.yml` | `/volume/.github/config.yml` | ❌ |
-| GitHub CLI hosts | `~/.config/gh/hosts.yml` | `/volume/.github/hosts.yml` | ❌ |
+| File               | Home Location                 | Volume Location                             | Sensitive |
+| ------------------ | ----------------------------- | ------------------------------------------- | --------- |
+| Claude credentials | `~/.claude/.credentials.json` | `/volume/.claude/.claude/.credentials.json` | ✅        |
+| Claude config      | `~/.claude.json`              | `/volume/.claude/claude.json`               | ✅        |
+| GitHub CLI config  | `~/.config/gh/config.yml`     | `/volume/.github/config.yml`                | ❌        |
+| GitHub CLI hosts   | `~/.config/gh/hosts.yml`      | `/volume/.github/hosts.yml`                 | ❌        |
 
 ### Boot-time Behavior
 
 On container startup:
+
 - Volume directories are created if they don't exist
-- Files are copied FROM volume TO home directory ONLY if home file doesn't exist
-- No overwriting of existing home files
-- No bidirectional comparison or syncing
+- **Smart restore logic** for `claude.json`:
+  - If home file doesn't exist: copies from volume
+  - If both files exist: compares "configuration level" scores
+  - Prefers the more configured file (higher score)
+  - Creates timestamped backup before overwriting home file
+- Other files: copied FROM volume TO home directory ONLY if home file doesn't exist
+- No bidirectional comparison for non-Claude files
 
 ### Runtime Behavior
 
 During container operation:
+
 - Home directory files are monitored every 5 seconds for changes
 - Changes trigger debounced sync operations to volume
+- **Content validation**: Claude config files are validated before syncing to prevent unconfigured files from overwriting good volume data
 - Regular files: 2-second debounce
 - Sensitive files: 5-second debounce
 - Multiple rapid changes only result in one sync operation
@@ -50,19 +57,24 @@ During container operation:
 Files marked as "sensitive" (Claude configuration files) receive special treatment:
 
 ### Lock File Detection
+
 The system checks for common lock file patterns before syncing:
+
 - `{filename}.lock`
 - `{filename}.tmp`
 - `{directory}/.lock`
 - `{directory}/lock`
 
 ### Concurrent Access Protection
+
 - Attempts to open files exclusively to detect active use
 - Defers sync operations if file appears to be in use
 - Reschedules sync for 10 seconds later if conflict detected
 
 ### Atomic Writes
+
 Sensitive files use atomic write operations:
+
 1. Write to temporary file (`{filename}.tmp.{basename}`)
 2. Atomically rename temp file to final destination
 3. Clean up temp file if operation fails
@@ -70,12 +82,14 @@ Sensitive files use atomic write operations:
 ## Configuration
 
 ### Timing Settings
+
 - **Monitor Frequency**: 5 seconds (file change detection)
 - **Regular File Debounce**: 2 seconds
-- **Sensitive File Debounce**: 5 seconds  
+- **Sensitive File Debounce**: 5 seconds
 - **Conflict Retry Delay**: 10 seconds
 
 ### Directory Structure
+
 ```
 /volume/
 ├── .claude/
@@ -92,14 +106,18 @@ Sensitive files use atomic write operations:
 ### Key Components
 
 - **Settings struct**: Main controller with debounce timers and sync mutex
-- **restoreFromVolumeOnBoot()**: One-time startup restore
-- **checkAndSyncFiles()**: Periodic change detection
+- **restoreFromVolumeOnBoot()**: Smart startup restore with configuration comparison
+- **checkAndSyncFiles()**: Periodic change detection with content validation
 - **scheduleDebounceSync()**: Debounce timer management
 - **performSafeSync()**: Safe sync with conflict detection
 - **isFileBeingAccessed()**: Lock file and concurrent access detection
 - **copyFileAtomic()**: Atomic write operations
+- **shouldPreferVolumeClaudeConfig()**: Configuration level comparison
+- **isClaudeConfigValid()**: Content validation to prevent syncing unconfigured files
+- **backupHomeFile()**: Creates timestamped backups before overwriting
 
 ### Thread Safety
+
 - `syncMutex` protects internal state (lastModTimes, debounceMap)
 - All sync operations are serialized
 - Proper cleanup of debounce timers on shutdown
@@ -126,7 +144,12 @@ Sensitive files use atomic write operations:
 ### Logging
 
 The system provides detailed logging with these prefixes:
+
 - `📥 Boot-time restore`: Startup restore operations
+- `📊 Claude config comparison`: Configuration level scores during comparison
+- `💾 Created backup`: Timestamped backups before overwriting
+- `🚫 Claude config appears unconfigured`: Content validation failures
+- `🕒 Recent firstStartTime detected`: Fresh installation detection
 - `📋 Synced`: Successful sync to volume
 - `🔒 Lock file detected`: Concurrent access prevention
 - `⚠️ File ... appears to be in use`: Conflict deferral
@@ -145,11 +168,15 @@ cp ~/.claude.json /volume/.claude/claude.json
 
 # Check for lock files
 find ~/.claude -name "*.lock" -o -name "*.tmp"
+
+# List backup files in volume
+ls -la /volume/.claude/*.backup.*
 ```
 
 ## Future Improvements
 
 Potential enhancements to consider:
+
 - File system event-based monitoring (inotify) instead of polling
 - Configurable debounce timers
 - More sophisticated lock file detection

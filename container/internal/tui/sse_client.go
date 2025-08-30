@@ -16,6 +16,7 @@ import (
 type SSEClient struct {
 	url                    string
 	program                *tea.Program
+	httpClient             *http.Client // Optional HTTP client for authenticated requests
 	stopChan               chan struct{}
 	connected              bool
 	onEvent                func(AppEvent)
@@ -62,9 +63,15 @@ func NewSSEClient(url string, program *tea.Program) *SSEClient {
 	return &SSEClient{
 		url:                 url,
 		program:             program,
+		httpClient:          nil, // Will be set later if needed
 		stopChan:            make(chan struct{}),
 		notificationHistory: make(map[string]time.Time),
 	}
+}
+
+// SetHTTPClient sets a custom HTTP client for authenticated requests
+func (c *SSEClient) SetHTTPClient(client *http.Client) {
+	c.httpClient = client
 }
 
 // Start begins listening for SSE events
@@ -115,8 +122,11 @@ func (c *SSEClient) connect() {
 }
 
 func (c *SSEClient) handleConnection() error {
-	client := &http.Client{
-		// No timeout for SSE connections - they should be long-lived
+	client := c.httpClient
+	if client == nil {
+		client = &http.Client{
+			// No timeout for SSE connections - they should be long-lived
+		}
 	}
 
 	// Add query parameter to identify TUI client

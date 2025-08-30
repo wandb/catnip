@@ -27,10 +27,20 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
+// WorkspaceFailureTracker tracks recreation failures per workspace
+type WorkspaceFailureTracker struct {
+	FailureCount   int
+	FirstFailureAt time.Time
+	LastFailureAt  time.Time
+	BackoffUntil   time.Time
+}
+
 // PTYHandler handles PTY WebSocket connections
 type PTYHandler struct {
 	sessions       map[string]*Session
 	sessionMutex   sync.RWMutex
+	failureTracker map[string]*WorkspaceFailureTracker
+	failureMutex   sync.RWMutex
 	gitService     *services.GitService
 	sessionService *services.SessionService
 	portService    *services.PortAllocationService
@@ -83,6 +93,11 @@ type Session struct {
 	ptyReadDone   chan struct{}
 	ptyReadClosed bool
 	ptyReadMutex  sync.Mutex
+	// Recreation protection - prevents concurrent recreation attempts
+	recreationInProgress bool
+	recreationMutex      sync.Mutex
+	// External workspace read-only protection
+	IsReadOnlyWorkspace bool
 	// Terminal emulator for Claude sessions (server-side terminal state)
 }
 
@@ -147,10 +162,53 @@ func extractTitleFromEscapeSequence(data []byte) (string, bool) {
 	return sanitizeTitle(string(title)), true
 }
 
+// isExternalWorkspace checks if a workspace directory is outside our managed workspace directory
+func (h *PTYHandler) isExternalWorkspace(workDir string) bool {
+	// Check if the workspace directory is outside our managed WORKSPACE_DIR
+	workspaceDir := config.Runtime.WorkspaceDir
+	if workspaceDir == "" {
+		return false
+	}
+
+	// Clean both paths for comparison
+	cleanWorkspaceDir := filepath.Clean(workspaceDir)
+	cleanWorkDir := filepath.Clean(workDir)
+
+	// Check if workDir is under workspaceDir
+	relPath, err := filepath.Rel(cleanWorkspaceDir, cleanWorkDir)
+	if err != nil {
+		return true // If we can't determine relationship, assume external for safety
+	}
+
+	// If the relative path starts with "..", it means workDir is outside workspaceDir
+	return strings.HasPrefix(relPath, "..")
+}
+
+// findWorktreeByName finds a worktree by its name in the state
+func (h *PTYHandler) findWorktreeByName(name string) *models.Worktree {
+	if h.gitService == nil {
+		return nil
+	}
+
+	stateManager := h.gitService.GetStateManager()
+	if stateManager == nil {
+		return nil
+	}
+
+	allWorktrees := stateManager.GetAllWorktrees()
+	for _, worktree := range allWorktrees {
+		if worktree.Name == name {
+			return worktree
+		}
+	}
+	return nil
+}
+
 // NewPTYHandler creates a new PTY handler
 func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.ClaudeMonitorService, sessionService *services.SessionService, portMonitor *services.PortMonitor) *PTYHandler {
-	return &PTYHandler{
+	h := &PTYHandler{
 		sessions:       make(map[string]*Session),
+		failureTracker: make(map[string]*WorkspaceFailureTracker),
 		gitService:     gitService,
 		sessionService: sessionService,
 		portService:    services.NewPortAllocationService(),
@@ -158,17 +216,38 @@ func NewPTYHandler(gitService *services.GitService, claudeMonitor *services.Clau
 		ptyService:     services.NewPTYService(),
 		claudeMonitor:  claudeMonitor,
 	}
+
+	// Start periodic cleanup routine for non-existent workspaces
+	go h.periodicWorkspaceCleanup()
+
+	return h
 }
 
 // findClaudeExecutable finds the claude executable using robust path lookup
 func (h *PTYHandler) findClaudeExecutable() string {
-	// First try to find claude in PATH
+	// PRIORITY 1: Try Catnip's wrapper script first (for title interception)
+	catnipClaudePath := "/opt/catnip/bin/claude"
+	if _, err := os.Stat(catnipClaudePath); err == nil {
+		logger.Debugf("Found Catnip claude wrapper: %s", catnipClaudePath)
+		return catnipClaudePath
+	}
+
+	// PRIORITY 2: Try standard PATH lookup
 	if path, err := exec.LookPath("claude"); err == nil {
 		logger.Debugf("Found claude in PATH: %s", path)
 		return path
 	}
 
-	// Try NVM_BIN path first since that's where claude is usually installed
+	// PRIORITY 3: Try ~/.local/bin/claude (common user install location)
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		userClaudePath := filepath.Join(homeDir, ".local", "bin", "claude")
+		if _, err := os.Stat(userClaudePath); err == nil {
+			logger.Debugf("Found claude at user location: %s", userClaudePath)
+			return userClaudePath
+		}
+	}
+
+	// PRIORITY 4: Try NVM_BIN path
 	if nvmBin := os.Getenv("NVM_BIN"); nvmBin != "" {
 		nvmClaudePath := filepath.Join(nvmBin, "claude")
 		if _, err := os.Stat(nvmClaudePath); err == nil {
@@ -177,7 +256,7 @@ func (h *PTYHandler) findClaudeExecutable() string {
 		}
 	}
 
-	// Try common Node.js installation paths
+	// PRIORITY 5: Try other common installation paths
 	commonPaths := []string{
 		"/opt/catnip/nvm/versions/node/v22.17.0/bin/claude",
 		"/usr/local/bin/claude",
@@ -187,13 +266,13 @@ func (h *PTYHandler) findClaudeExecutable() string {
 
 	for _, path := range commonPaths {
 		if _, err := os.Stat(path); err == nil {
-			logger.Debugf("Found claude at common path: %s", path)
+			logger.Debugf("Found claude at fallback path: %s", path)
 			return path
 		}
 	}
 
 	// If all else fails, return "claude" and let exec.Command handle the error
-	logger.Warnf("Claude executable not found in any known location, falling back to PATH lookup")
+	logger.Warnf("Claude executable not found in any known location, falling back to basic 'claude' command")
 	return "claude"
 }
 
@@ -293,9 +372,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	connectionCount := len(session.connections)
 	logger.Debugf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
 
-	// First connection gets write access, subsequent ones are read-only
-	isReadOnly := connectionCount > 0
-	if isReadOnly {
+	// Determine read-only status: external workspaces are always read-only for safety
+	isReadOnly := session.IsReadOnlyWorkspace || connectionCount > 0
+	if session.IsReadOnlyWorkspace {
+		logger.Debugf("🔒 Setting connection [%s] to read-ONLY mode (external workspace)", connID)
+	} else if connectionCount > 0 {
 		logger.Debugf("🔒 Setting connection [%s] to read-ONLY mode (existing connections: %d)", connID, connectionCount)
 	} else {
 		logger.Debugf("✍️ Setting connection [%s] to WRITE mode (first connection)", connID)
@@ -651,17 +732,23 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		return session
 	}
 
+	// For bash sessions, ensure we don't have stale buffer data from other sessions
+	// by checking if there are any existing sessions that might be contaminating buffers
+	if agent == "" {
+		logger.Debugf("🔄 Creating new bash session %s, ensuring clean state", sessionID)
+	}
+
 	// Set workspace directory with validation
 	var workDir string
 
-	// Extract base session ID without agent suffix for directory lookups
+	// Extract base session ID without agent suffix for worktree lookups
 	baseSessionID := sessionID
 	if idx := strings.LastIndex(sessionID, ":"); idx != -1 {
 		baseSessionID = sessionID[:idx]
 	}
 
 	// Validate session ID and get workspace directory
-	// Only allow "default" or existing worktree directories
+	// Support both "default" symlink and state-based worktree lookups
 	if baseSessionID == "default" {
 		// Check if current symlink exists in workspace directory
 		currentSymlinkPath := filepath.Join(config.Runtime.WorkspaceDir, "current")
@@ -678,44 +765,55 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 			logger.Errorf("❌ Default session requested but current symlink does not exist at %s", currentSymlinkPath)
 			return nil
 		}
-	} else if strings.Contains(baseSessionID, "/") {
-		// Check if session ID is in repo/branch format (e.g., "catnip/pirate")
-		parts := strings.SplitN(baseSessionID, "/", 2)
-		if len(parts) == 2 {
-			repo := parts[0]
-			branch := parts[1]
+	} else {
+		// Look up workspace in state by name first (supports external repos and standard workspaces)
+		worktree := h.findWorktreeByName(baseSessionID)
+		if worktree != nil {
+			// Use the path from the worktree state
+			workDir = worktree.Path
+			logger.Infof("📁 Using worktree from state for session %s: %s (name: %s)", baseSessionID, workDir, worktree.Name)
+		} else {
+			// Fallback to legacy directory-based lookup for backward compatibility
+			if strings.Contains(baseSessionID, "/") {
+				// Check if session ID is in repo/branch format (e.g., "catnip/pirate")
+				parts := strings.SplitN(baseSessionID, "/", 2)
+				if len(parts) == 2 {
+					repo := parts[0]
+					branch := parts[1]
 
-			// Check for worktree at workspace/repo/branch (our standard pattern)
-			branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repo, branch)
-			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
-				// Additional validation: check if it's actually a git worktree
-				if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
-					workDir = branchWorktreePath
-					logger.Debugf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
+					// Check for worktree at workspace/repo/branch (our standard pattern)
+					branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repo, branch)
+					if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
+						// Additional validation: check if it's actually a git worktree
+						if _, err := os.Stat(filepath.Join(branchWorktreePath, ".git")); err == nil {
+							workDir = branchWorktreePath
+							logger.Debugf("📁 Using Git worktree for session %s: %s", baseSessionID, workDir)
+						} else {
+							logger.Errorf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
+							logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
+							return nil
+						}
+					} else {
+						logger.Errorf("❌ Worktree directory does not exist: %s", branchWorktreePath)
+						logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
+						return nil
+					}
 				} else {
-					logger.Errorf("❌ Directory exists but is not a valid git worktree: %s", branchWorktreePath)
-					logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
+					logger.Errorf("❌ Invalid session format: %s", baseSessionID)
 					return nil
 				}
 			} else {
-				logger.Errorf("❌ Worktree directory does not exist: %s", branchWorktreePath)
-				logger.Infof("❌ CRITICAL: Refusing to create PTY session for non-existent worktree to prevent opening wrong directory")
-				return nil
+				// Single name session - check if directory exists
+				sessionWorkDir := filepath.Join(config.Runtime.WorkspaceDir, baseSessionID)
+				if info, err := os.Stat(sessionWorkDir); err == nil && info.IsDir() {
+					workDir = sessionWorkDir
+					logger.Infof("📁 Using existing workspace directory: %s", workDir)
+				} else {
+					logger.Errorf("❌ Workspace directory does not exist: %s", sessionWorkDir)
+					logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
+					return nil
+				}
 			}
-		} else {
-			logger.Errorf("❌ Invalid session format: %s", baseSessionID)
-			return nil
-		}
-	} else {
-		// Single name session - check if directory exists
-		sessionWorkDir := filepath.Join(config.Runtime.WorkspaceDir, baseSessionID)
-		if info, err := os.Stat(sessionWorkDir); err == nil && info.IsDir() {
-			workDir = sessionWorkDir
-			logger.Infof("📁 Using existing workspace directory: %s", workDir)
-		} else {
-			logger.Errorf("❌ Workspace directory does not exist: %s", sessionWorkDir)
-			logger.Errorf("❌ CRITICAL: Refusing to create PTY session for non-existent workspace to prevent opening wrong directory")
-			return nil
 		}
 	}
 
@@ -784,10 +882,19 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		// Initialize session-level PTY reading control
 		ptyReadDone:   make(chan struct{}),
 		ptyReadClosed: false,
+		// Initialize recreation protection
+		recreationInProgress: false,
+		// Set read-only mode for external workspaces (Claude sessions only)
+		IsReadOnlyWorkspace: agent == "claude" && h.isExternalWorkspace(workDir),
 	}
 
 	h.sessions[sessionID] = session
 	logger.Debugf("✅ Created new PTY session: %s in %s with agent: %s", sessionID, workDir, agent)
+
+	// Log read-only mode for external workspaces
+	if session.IsReadOnlyWorkspace {
+		logger.Infof("🔒 External workspace detected, session will be read-only for safety: %s", workDir)
+	}
 
 	// Track active session for this workspace
 	if agent == "claude" {
@@ -855,34 +962,103 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 		default:
 		}
 
-		n, err := session.PTY.Read(buf)
+		// Check if PTY file descriptor is still valid before attempting read
+		if session.PTY == nil {
+			logger.Debugf("🛑 PTY is nil, stopping continuous reader for session: %s", session.ID)
+			return
+		}
+
+		// Add protective error handling around PTY read operations
+		n, err := func() (int, error) {
+			// Check if PTY is nil before attempting read
+			if session.PTY == nil {
+				return 0, fmt.Errorf("PTY is nil")
+			}
+
+			// Add timeout to prevent hanging reads
+			_ = session.PTY.SetReadDeadline(time.Now().Add(5 * time.Second))
+			defer func() {
+				_ = session.PTY.SetReadDeadline(time.Time{}) // Clear deadline
+			}()
+
+			return session.PTY.Read(buf)
+		}()
+
 		if err != nil {
-			// Check for various exit conditions
-			if err == io.EOF || err.Error() == "read /dev/ptmx: input/output error" {
+			// Check for various exit conditions including "file already closed"
+			if err == io.EOF ||
+				strings.Contains(err.Error(), "read /dev/ptmx: input/output error") ||
+				strings.Contains(err.Error(), "file already closed") ||
+				strings.Contains(err.Error(), "bad file descriptor") ||
+				strings.Contains(err.Error(), "PTY is nil") {
 				// For setup sessions, don't recreate - they're meant to exit after showing the log
 				if session.Agent == "setup" {
 					logger.Infof("✅ Setup session completed normally, stopping continuous reader: %s", session.ID)
 					return
 				}
 
-				// Rate limit recreation to prevent CPU pegging
-				now := time.Now()
-				if now.Sub(session.LastRecreation) < time.Second {
-					logger.Infof("⏸️ Rate limiting PTY recreation for session %s (last recreation: %v ago)", session.ID, now.Sub(session.LastRecreation))
-					time.Sleep(time.Second)
+				// Check if recreation is already in progress to prevent concurrent recreation attempts
+				session.recreationMutex.Lock()
+				if session.recreationInProgress {
+					logger.Debugf("🔄 Recreation already in progress for session %s, exiting reader goroutine", session.ID)
+					session.recreationMutex.Unlock()
+					return
+				}
+				session.recreationInProgress = true
+				session.recreationMutex.Unlock()
+
+				// Enhanced rate limiting with exponential backoff per workspace
+				canRecreate, waitDuration := h.canRecreateSession(session)
+				if !canRecreate {
+					workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+					// If wait duration is 0, it means workspace doesn't exist - clean up immediately
+					if waitDuration == 0 && !h.workspaceExists(workspaceID) {
+						logger.Warnf("🧹 Cleaning up session for non-existent workspace %s: %s", workspaceID, session.ID)
+						// Reset recreation flag before cleanup
+						session.recreationMutex.Lock()
+						session.recreationInProgress = false
+						session.recreationMutex.Unlock()
+						h.cleanupSession(session)
+						return
+					}
+
+					if waitDuration >= time.Minute {
+						logger.Infof("🚫 Exponential backoff active for workspace %s - waiting %v before next recreation attempt", workspaceID, waitDuration)
+					} else {
+						logger.Infof("⏸️ Rate limiting PTY recreation for session %s (workspace: %s) - waiting %v", session.ID, workspaceID, waitDuration)
+					}
+					// Reset recreation flag before sleeping
+					session.recreationMutex.Lock()
+					session.recreationInProgress = false
+					session.recreationMutex.Unlock()
+					time.Sleep(waitDuration)
 					continue
 				}
-				session.LastRecreation = now
 
+				session.LastRecreation = time.Now()
 				logger.Infof("🔄 PTY closed (shell exited: %v), creating new session...", err)
+
+				// Track this as a potential failure before attempting recreation
+				h.trackRecreationFailure(session)
 
 				// Create new PTY (this will clear the buffer)
 				h.recreateSession(session)
 
+				// If recreation was successful, reset failure tracking
+				if session.PTY != nil {
+					h.resetRecreationFailures(session)
+				}
+
 				// Continue reading from new PTY
 				continue
 			}
-			logger.Errorf("❌ PTY read error in continuous reader: %v", err)
+			// Handle timeout errors gracefully without terminating the session
+			if strings.Contains(err.Error(), "i/o timeout") {
+				logger.Debugf("⏰ PTY read timeout for session %s, continuing...", session.ID)
+				continue
+			}
+			logger.Errorf("❌ Unexpected PTY read error in continuous reader: %v", err)
 			return
 		}
 
@@ -1108,6 +1284,10 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 	case "claude":
 		// Build Claude command with optional continue or resume flag
 		args := []string{"--dangerously-skip-permissions"}
+
+		// Note: External workspace read-only mode is handled at the WebSocket/PTY level,
+		// not via Claude command flags. See Session.IsReadOnlyWorkspace field.
+
 		if useContinue {
 			args = append(args, "--continue")
 			logger.Infof("🔄 Starting Claude Code with --continue for session: %s", sessionID)
@@ -1161,8 +1341,185 @@ func (h *PTYHandler) createCommand(sessionID, agent, workDir, resumeSessionID st
 	return cmd
 }
 
+// extractWorkspaceFromSessionID extracts the workspace name from session ID (e.g., "catnip/zigzag:claude" -> "catnip/zigzag")
+func extractWorkspaceFromSessionID(sessionID string) string {
+	parts := strings.Split(sessionID, ":")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+	return sessionID
+}
+
+// workspaceExists checks if a workspace directory exists
+func (h *PTYHandler) workspaceExists(workspaceID string) bool {
+	if workspaceID == "default" {
+		// For default workspace, check the current symlink
+		currentSymlinkPath := filepath.Join(config.Runtime.WorkspaceDir, "current")
+		if target, err := os.Readlink(currentSymlinkPath); err == nil {
+			if info, err := os.Stat(target); err == nil && info.IsDir() {
+				return true
+			}
+		}
+		return false
+	} else if strings.Contains(workspaceID, "/") {
+		// Check if workspace ID is in repo/branch format (e.g., "catnip/zigzag")
+		parts := strings.SplitN(workspaceID, "/", 2)
+		if len(parts) == 2 {
+			repoName := parts[0]
+			branchName := parts[1]
+			branchWorktreePath := filepath.Join(config.Runtime.WorkspaceDir, repoName, branchName)
+			if info, err := os.Stat(branchWorktreePath); err == nil && info.IsDir() {
+				return true
+			}
+		}
+		return false
+	} else {
+		// Single name workspace - check if directory exists
+		workspaceDir := filepath.Join(config.Runtime.WorkspaceDir, workspaceID)
+		if info, err := os.Stat(workspaceDir); err == nil && info.IsDir() {
+			return true
+		}
+		return false
+	}
+}
+
+// canRecreateSession checks if session recreation is allowed based on rate limiting and backoff
+func (h *PTYHandler) canRecreateSession(session *Session) (bool, time.Duration) {
+	now := time.Now()
+	workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+	// Check if the workspace still exists before attempting recreation
+	if !h.workspaceExists(workspaceID) {
+		logger.Warnf("🚫 Workspace %s no longer exists - session %s will be cleaned up", workspaceID, session.ID)
+		return false, 0 // Don't recreate, cleanup will happen elsewhere
+	}
+
+	// Basic rate limiting - once per second
+	if now.Sub(session.LastRecreation) < time.Second {
+		return false, time.Second - now.Sub(session.LastRecreation)
+	}
+
+	// Check workspace-level failure tracking for exponential backoff
+	h.failureMutex.RLock()
+	tracker, exists := h.failureTracker[workspaceID]
+	h.failureMutex.RUnlock()
+
+	if exists && now.Before(tracker.BackoffUntil) {
+		return false, tracker.BackoffUntil.Sub(now)
+	}
+
+	return true, 0
+}
+
+// trackRecreationFailure tracks failed recreation attempts per workspace with aggressive circuit breaking
+func (h *PTYHandler) trackRecreationFailure(session *Session) {
+	now := time.Now()
+	workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+	h.failureMutex.Lock()
+	defer h.failureMutex.Unlock()
+
+	tracker, exists := h.failureTracker[workspaceID]
+	if !exists {
+		tracker = &WorkspaceFailureTracker{
+			FirstFailureAt: now,
+		}
+		h.failureTracker[workspaceID] = tracker
+	}
+
+	tracker.FailureCount++
+	tracker.LastFailureAt = now
+
+	// Aggressive circuit breaker logic to prevent cascade failures
+	if tracker.FailureCount >= 3 {
+		// Calculate exponential backoff based on failure count
+		// Start with 30 seconds, then 2 minutes, 5 minutes, 10 minutes, then 30 minutes max
+		var backoffDuration time.Duration
+		switch {
+		case tracker.FailureCount >= 10:
+			backoffDuration = 30 * time.Minute // Long circuit breaker for severe failures
+		case tracker.FailureCount >= 7:
+			backoffDuration = 10 * time.Minute
+		case tracker.FailureCount >= 5:
+			backoffDuration = 5 * time.Minute
+		case tracker.FailureCount >= 4:
+			backoffDuration = 2 * time.Minute
+		default:
+			backoffDuration = 30 * time.Second
+		}
+
+		tracker.BackoffUntil = now.Add(backoffDuration)
+		logger.Warnf("🚫 CIRCUIT BREAKER: Workspace %s has %d consecutive failures - backing off for %v",
+			workspaceID, tracker.FailureCount, backoffDuration)
+
+		// If failures are happening very rapidly (>5 failures in under 30 seconds), be extra aggressive
+		if tracker.FailureCount >= 5 && now.Sub(tracker.FirstFailureAt) <= 30*time.Second {
+			tracker.BackoffUntil = now.Add(15 * time.Minute) // 15 minute circuit breaker
+			logger.Errorf("🚨 EMERGENCY CIRCUIT BREAKER: Workspace %s had %d failures in %v - emergency 15 minute backoff",
+				workspaceID, tracker.FailureCount, now.Sub(tracker.FirstFailureAt))
+		}
+	}
+}
+
+// resetRecreationFailures resets failure tracking for successful recreations
+func (h *PTYHandler) resetRecreationFailures(session *Session) {
+	workspaceID := extractWorkspaceFromSessionID(session.ID)
+
+	h.failureMutex.Lock()
+	defer h.failureMutex.Unlock()
+
+	delete(h.failureTracker, workspaceID)
+}
+
+// periodicWorkspaceCleanup runs every 5 minutes to clean up sessions for non-existent workspaces
+func (h *PTYHandler) periodicWorkspaceCleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		h.sessionMutex.RLock()
+		var sessionsToCleanup []*Session
+
+		for _, session := range h.sessions {
+			workspaceID := extractWorkspaceFromSessionID(session.ID)
+			if !h.workspaceExists(workspaceID) {
+				sessionsToCleanup = append(sessionsToCleanup, session)
+			}
+		}
+		h.sessionMutex.RUnlock()
+
+		// Clean up sessions for non-existent workspaces
+		for _, session := range sessionsToCleanup {
+			workspaceID := extractWorkspaceFromSessionID(session.ID)
+			logger.Warnf("🧹 Periodic cleanup: removing session %s for non-existent workspace %s", session.ID, workspaceID)
+			h.cleanupSession(session)
+		}
+
+		// Also clean up failure tracking for non-existent workspaces
+		h.failureMutex.Lock()
+		var trackersToDelete []string
+		for workspaceID := range h.failureTracker {
+			if !h.workspaceExists(workspaceID) {
+				trackersToDelete = append(trackersToDelete, workspaceID)
+			}
+		}
+		for _, workspaceID := range trackersToDelete {
+			delete(h.failureTracker, workspaceID)
+			logger.Debugf("🧹 Cleaned up failure tracker for non-existent workspace: %s", workspaceID)
+		}
+		h.failureMutex.Unlock()
+	}
+}
+
 func (h *PTYHandler) recreateSession(session *Session) {
 	logger.Infof("🔄 Recreating PTY for session: %s", session.ID)
+
+	// Ensure recreation flag will be cleared even if recreation fails
+	defer func() {
+		session.recreationMutex.Lock()
+		session.recreationInProgress = false
+		session.recreationMutex.Unlock()
+	}()
 
 	// Close old PTY
 	if session.PTY != nil {
@@ -1704,6 +2061,12 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 	session.connMutex.Lock()
 	defer session.connMutex.Unlock()
 
+	// External workspaces are always read-only - no promotions allowed
+	if session.IsReadOnlyWorkspace {
+		logger.Infof("🚫 Connection promotion denied for external workspace (read-only): %s", session.ID)
+		return
+	}
+
 	requestingConnInfo, exists := session.connections[requestingConn]
 	if !exists {
 		logger.Warnf("❌ Requesting connection not found in session connections")
@@ -1814,8 +2177,8 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 	if focused {
 		logger.Infof("🎯 Connection [%s] gained focus in session %s", connID, session.ID)
 
-		// Auto-promote focused connection if it's read-only
-		if connInfo.IsReadOnly {
+		// Auto-promote focused connection if it's read-only (but not for external workspaces)
+		if connInfo.IsReadOnly && !session.IsReadOnlyWorkspace {
 			// Find and demote the current write connection
 			var currentWriteConn *websocket.Conn
 			var currentWriteConnInfo *ConnectionInfo

@@ -221,7 +221,7 @@ func (lrm *LocalRepoManager) CreateWorktreePreview(repo *models.Repository, work
 
 // ShouldCreateInitialWorktree checks if we should create an initial worktree for a repo
 func (lrm *LocalRepoManager) ShouldCreateInitialWorktree(repoID string) bool {
-	// Check if any worktrees exist for this repo in /workspace
+	// Check if any worktrees exist for this repo in the workspace directory
 	dirName := filepath.Base(strings.TrimPrefix(repoID, "local/"))
 	repoWorkspaceDir := filepath.Join(getWorkspaceDir(), dirName)
 

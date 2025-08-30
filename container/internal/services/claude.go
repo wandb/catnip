@@ -929,6 +929,9 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 	workingDir := req.WorkingDirectory
 	if workingDir == "" {
 		workingDir = filepath.Join(config.Runtime.WorkspaceDir, "current")
+	} else {
+		// Resolve container paths (like /workspace/...) to actual paths
+		workingDir = config.Runtime.ResolvePath(workingDir)
 	}
 
 	// Default SuppressEvents to true for all internal calls
@@ -983,6 +986,9 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 	workingDir := req.WorkingDirectory
 	if workingDir == "" {
 		workingDir = filepath.Join(config.Runtime.WorkspaceDir, "current")
+	} else {
+		// Resolve container paths (like /workspace/...) to actual paths
+		workingDir = config.Runtime.ResolvePath(workingDir)
 	}
 
 	// Default SuppressEvents to true for all internal calls
@@ -1308,17 +1314,30 @@ func (s *ClaudeService) IsSuppressingEvents(worktreePath string) bool {
 
 // normalizeToWorktreeRoot normalizes a subdirectory path to its worktree root using path prefix matching
 func (s *ClaudeService) normalizeToWorktreeRoot(workingDir string) string {
-	// If not under /workspace, return as-is
-	if !strings.HasPrefix(workingDir, "/workspace/") {
+	// If not under workspace directory, return as-is
+	workspacePrefix := config.Runtime.WorkspaceDir + "/"
+	if !strings.HasPrefix(workingDir, workspacePrefix) {
 		return workingDir
 	}
 
-	// Extract the worktree root pattern: /workspace/{repo}/{worktree}
-	// Example: /workspace/catnip/earl/container -> /workspace/catnip/earl
+	// Extract the worktree root pattern: {workspaceDir}/{repo}/{worktree}
+	// Example: /worktrees/catnip/earl/container -> /worktrees/catnip/earl
 	parts := strings.Split(workingDir, "/")
-	if len(parts) >= 4 && parts[0] == "" && parts[1] == "workspace" {
-		// Reconstruct the worktree root path: /workspace/{repo}/{worktree}
-		worktreeRoot := "/" + strings.Join(parts[1:4], "/")
+	workspaceDirName := filepath.Base(config.Runtime.WorkspaceDir)
+
+	// Find the workspace directory in the path parts
+	workspaceDirIndex := -1
+	for i, part := range parts {
+		if part == workspaceDirName {
+			workspaceDirIndex = i
+			break
+		}
+	}
+
+	// If we found the workspace directory and have enough parts for repo/worktree
+	if workspaceDirIndex >= 0 && len(parts) >= workspaceDirIndex+3 {
+		// Reconstruct the worktree root path: {workspaceDir}/{repo}/{worktree}
+		worktreeRoot := "/" + strings.Join(parts[1:workspaceDirIndex+3], "/")
 		return worktreeRoot
 	}
 
