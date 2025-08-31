@@ -30,6 +30,6 @@
     }
   ],
   "postCreateCommand": "bash /opt/catnip/bin/catnip-run.sh",
-  "postAttachCommand": "bash /opt/catnip/bin/catnip-vsix.sh",
+  "postStartCommand": "bash /opt/catnip/bin/catnip-vsix.sh",
   "installsAfter": ["ghcr.io/devcontainers/features/sshd"]
 }
