@@ -160,8 +160,10 @@ install_catnip() {
   # 1) User-owned runners that handle daemonization and logging
   cp $(dirname $0)/catnip-run.sh "$OPT_DIR/bin/catnip-run.sh"
   cp $(dirname $0)/catnip-stop.sh "$OPT_DIR/bin/catnip-stop.sh"
+  cp $(dirname $0)/catnip-vsix.sh "$OPT_DIR/bin/catnip-vsix.sh"
   ensure_owner "$OPT_DIR/bin/catnip-run.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-stop.sh" "$USERNAME" "$USERGROUP"
+  ensure_owner "$OPT_DIR/bin/catnip-vsix.sh" "$USERNAME" "$USERGROUP"
 
   # 2) Root-owned init that just invokes the runner as $USERNAME
   tee /usr/local/share/catnip-init.sh >/dev/null <<EOF
@@ -318,7 +320,7 @@ install_gh() {
 }
 
 # --- VS Code Extension ----------------------------------------------------
-install_vscode_extension() {
+copy_vscode_extension() {
   local vsix_path="$(dirname $0)/catnip-sidebar.vsix"
   
   if [[ ! -f "$vsix_path" ]]; then
@@ -337,7 +339,7 @@ main() {
   ${INSTALLCATNIP:-true} && install_catnip
   ${INSTALLCLAUDE:-true} && install_claude
   ${INSTALLGH:-true} && install_gh
-  install_vscode_extension
+  copy_vscode_extension
   shopt -u nocasematch
 }
 main "$@"
