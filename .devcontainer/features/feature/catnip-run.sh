@@ -20,7 +20,18 @@ export CATNIP_HOME_DIR="$HOME"
 export CATNIP_VOLUME_DIR="$OPT_DIR/state"
 export CATNIP_LIVE_DIR=/workspaces
 
-bash "$OPT_DIR/bin/catnip-stop.sh"
+# Check for stale PID file before stopping
+if [[ -f $OPT_DIR/catnip.pid ]]; then
+  PID=$(cat $OPT_DIR/catnip.pid)
+  if ! kill -0 $PID 2>/dev/null; then
+    warn "PID $PID from $OPT_DIR/catnip.pid no longer exists, removing stale PID file"
+    rm -f $OPT_DIR/catnip.pid
+  else
+    bash "$OPT_DIR/bin/catnip-stop.sh"
+  fi
+else
+  bash "$OPT_DIR/bin/catnip-stop.sh"
+fi
 
 if command -v catnip >/dev/null 2>&1; then
   log "launching catnip with nohup"

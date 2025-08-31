@@ -8,8 +8,16 @@ warn(){ printf "[catnip] ⚠️  %s\n" "$*" >&2; }
 OPT_DIR="/opt/catnip"
 
 if [[ -f $OPT_DIR/catnip.pid ]]; then
-  log "catnip is already running, reinstalling and restarting it"
   PID=$(cat $OPT_DIR/catnip.pid)
+  
+  # Check if the process actually exists
+  if ! kill -0 $PID 2>/dev/null; then
+    warn "PID $PID from $OPT_DIR/catnip.pid no longer exists, removing stale PID file"
+    rm -f $OPT_DIR/catnip.pid
+    exit 0
+  fi
+  
+  log "catnip is already running, reinstalling and restarting it"
   
   # First try graceful termination with SIGTERM
   log "sending SIGTERM to catnip process (PID: $PID)..."
