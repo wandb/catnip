@@ -1,7 +1,7 @@
 {
   "name": "catnip-sidebar",
-  "displayName": "Catnip",
-  "description": "Catnip - a highly addictive agentic coding environment",
+  "displayName": "W&B Catnip",
+  "description": "W&B Catnip - a highly addictive agentic coding environment",
   "version": "0.0.1",
   "publisher": "wandb",
   "engines": {
