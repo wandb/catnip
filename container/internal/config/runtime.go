@@ -112,7 +112,7 @@ func DetectRuntime() *RuntimeConfig {
 	return config
 }
 
-// detectMode determines if we're running in Docker, Apple Container, or natively
+// detectMode determines if we're running in Docker, Apple Container, GitHub Codespace, or natively
 func detectMode() RuntimeMode {
 	// Check for container environment variable first (can override detection)
 	if containerType := os.Getenv("CATNIP_RUNTIME"); containerType != "" {
@@ -121,10 +121,20 @@ func detectMode() RuntimeMode {
 			return DockerMode
 		case "container", "apple":
 			return ContainerMode
+		case "codespace":
+			// Treat codespaces as Docker mode
+			return DockerMode
 		case "true":
 			// Legacy support - assume Docker
 			return DockerMode
 		}
+	}
+
+	// Check for GitHub Codespace environment - treat as Docker
+	if os.Getenv("CODESPACES") == "true" ||
+		os.Getenv("CODESPACE_NAME") != "" ||
+		os.Getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN") != "" {
+		return DockerMode
 	}
 
 	// Check for Docker-specific files/environment
@@ -212,10 +222,18 @@ func (rc *RuntimeConfig) ResolvePath(containerPath string) string {
 func (rc *RuntimeConfig) GetClaudeBinaryPaths() []string {
 	switch rc.Mode {
 	case DockerMode, ContainerMode:
-		return []string{
-			"/opt/catnip/nvm/versions/node/*/bin/claude",
-			"/usr/local/bin/claude",
+		paths := []string{
+			"/opt/catnip/bin/claude",                     // Codespace wrapped binary
+			"/opt/catnip/nvm/versions/node/*/bin/claude", // Standard container path
+			"/usr/local/bin/claude",                      // Standard system path
 		}
+
+		// Add user's local bin directory if we can determine it
+		if homeDir := rc.HomeDir; homeDir != "" {
+			paths = append(paths[:1], append([]string{filepath.Join(homeDir, ".local/bin/claude")}, paths[1:]...)...)
+		}
+
+		return paths
 	case NativeMode:
 		// In native mode, assume claude is in PATH
 		return []string{

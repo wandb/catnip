@@ -156,7 +156,7 @@ func (m Model) handleGlobalKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			// No other ports, open main app directly
 			overviewView := m.views[OverviewView].(*OverviewViewImpl)
 			go func() {
-				_ = overviewView.openBrowser("http://localhost:8080")
+				_ = overviewView.openBrowser(m.getBaseURL(""))
 			}()
 		} else {
 			// App is not ready, show bold feedback
@@ -347,10 +347,11 @@ func (m Model) handleHealthStatus(msg healthStatusMsg) (tea.Model, tea.Cmd) {
 	if m.appHealthy && !wasHealthy && !m.browserOpened {
 		m.browserOpened = true
 		overviewView := m.views[OverviewView].(*OverviewViewImpl)
-		if err := overviewView.openBrowser("http://localhost:8080"); err != nil {
+		baseURL := m.getBaseURL("")
+		if err := overviewView.openBrowser(baseURL); err != nil {
 			debugLog("Failed to open browser: %v", err)
 		} else {
-			debugLog("Automatically opened browser at http://localhost:8080")
+			debugLog("Automatically opened browser at %s", baseURL)
 		}
 	}
 
@@ -373,10 +374,11 @@ func (m Model) handleSSEConnected(msg sseConnectedMsg) (tea.Model, tea.Cmd) {
 	if m.appHealthy && !wasHealthy && !m.browserOpened {
 		m.browserOpened = true
 		overviewView := m.views[OverviewView].(*OverviewViewImpl)
-		if err := overviewView.openBrowser("http://localhost:8080"); err != nil {
+		baseURL := m.getBaseURL("")
+		if err := overviewView.openBrowser(baseURL); err != nil {
 			debugLog("Failed to open browser: %v", err)
 		} else {
-			debugLog("Automatically opened browser at http://localhost:8080")
+			debugLog("Automatically opened browser at %s", baseURL)
 		}
 	}
 
@@ -479,16 +481,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		var url string
 		if m.selectedPortIndex == 0 {
 			// Main app selected (first item)
-			// Determine the actual port from customPorts
-			mainPort := "8080"
-			for _, p := range m.customPorts {
-				parts := strings.Split(p, ":")
-				if len(parts) >= 1 {
-					mainPort = parts[0]
-					break
-				}
-			}
-			url = fmt.Sprintf("http://localhost:%s", mainPort)
+			url = m.getBaseURL("")
 		} else {
 			// Find the corresponding port (skip index 0 which is main app)
 			portIndex := 0
@@ -496,7 +489,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 				if port.Port != "8080" {
 					portIndex++
 					if portIndex == m.selectedPortIndex {
-						url = fmt.Sprintf("http://localhost:8080/%s", port.Port)
+						url = fmt.Sprintf("%s/%s", m.getBaseURL(""), port.Port)
 						break
 					}
 				}
@@ -506,7 +499,9 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		if url != "" {
 			overviewView := m.views[OverviewView].(*OverviewViewImpl)
 			go func() {
-				if overviewView.isAppReady("http://localhost:8080") {
+				baseURL := m.getBaseURL("") // Use model's configured port
+				client := m.createAuthenticatedClient(2 * time.Second)
+				if overviewView.isAppReady(baseURL, client) {
 					_ = overviewView.openBrowser(url)
 				}
 			}()
@@ -565,7 +560,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 				var url string
 				if index == 0 {
 					// Main app selected (first item)
-					url = "http://localhost:8080"
+					url = m.getBaseURL("")
 				} else {
 					// Find the corresponding port (skip index 0 which is main app)
 					portIndex := 0
@@ -573,7 +568,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 						if port.Port != "8080" {
 							portIndex++
 							if portIndex == index {
-								url = fmt.Sprintf("http://localhost:8080/%s", port.Port)
+								url = fmt.Sprintf("%s/%s", m.getBaseURL(""), port.Port)
 								break
 							}
 						}
@@ -583,7 +578,9 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 				if url != "" {
 					overviewView := m.views[OverviewView].(*OverviewViewImpl)
 					go func() {
-						if overviewView.isAppReady("http://localhost:8080") {
+						baseURL := m.getBaseURL("") // Use model's configured port
+						client := m.createAuthenticatedClient(2 * time.Second)
+						if overviewView.isAppReady(baseURL, client) {
 							_ = overviewView.openBrowser(url)
 						}
 					}()

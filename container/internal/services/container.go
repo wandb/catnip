@@ -25,6 +25,8 @@ const (
 	RuntimeDocker ContainerRuntime = "docker"
 	// RuntimeApple represents the Apple container runtime
 	RuntimeApple ContainerRuntime = "container"
+	// RuntimeCodespace represents GitHub Codespace runtime
+	RuntimeCodespace ContainerRuntime = "codespace"
 )
 
 type ContainerService struct {
@@ -57,10 +59,15 @@ func NewContainerServiceWithRuntime(preferredRuntime string) (*ContainerService,
 				return nil, fmt.Errorf("container runtime requested but container command not found")
 			}
 			runtime = RuntimeApple
+		case "codespace":
+			if !commandExists("gh") {
+				return nil, fmt.Errorf("codespace runtime requested but gh CLI not found. Run 'catnip bootstrap' to install it")
+			}
+			runtime = RuntimeCodespace
 		case "native":
 			return nil, fmt.Errorf("native runtime is not supported for container operations. Use 'catnip serve' for native mode")
 		default:
-			return nil, fmt.Errorf("unknown runtime: %s (valid options: docker, container)", preferredRuntime)
+			return nil, fmt.Errorf("unknown runtime: %s (valid options: docker, container, codespace)", preferredRuntime)
 		}
 	} else {
 		// Auto-detect runtime

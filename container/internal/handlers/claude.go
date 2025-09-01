@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
 	"github.com/vanpelt/catnip/internal/services"
@@ -228,7 +229,7 @@ func (h *ClaudeHandler) GetWorktreeLatestAssistantMessage(c *fiber.Ctx) error {
 	worktreePath := c.Query("worktree_path")
 	if worktreePath == "" {
 		return c.Status(400).JSON(fiber.Map{
-			"error": "worktreePath query parameter is required",
+			"error": "worktree_path query parameter is required",
 		})
 	}
 
@@ -456,8 +457,8 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 			if settings, err := h.claudeService.GetClaudeSettings(); err == nil && settings.NotificationsEnabled {
 				logger.Debugf("🔔 Emitting notification event: %s", title)
 
-				// Generate workspace URL - remove /workspace prefix if present
-				workspacePath := strings.TrimPrefix(workspaceDir, "/workspace")
+				// Generate workspace URL - remove workspace prefix if present
+				workspacePath := strings.TrimPrefix(workspaceDir, config.Runtime.WorkspaceDir)
 				workspaceURL := fmt.Sprintf("http://localhost:8080/workspace%s", workspacePath)
 
 				h.eventsHandler.broadcastEvent(AppEvent{
