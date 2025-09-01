@@ -1,6 +1,6 @@
 {
   "id": "feature",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "name": "catnip",
   "description": "Ensures SSH, installs catnip, Claude CLI, GitHub CLI, and Catnip VS Code sidebar extension.",
   "options": {
@@ -14,7 +14,7 @@
     "installGh": { "type": "boolean", "default": true }
   },
   "entrypoint": "/usr/local/share/catnip-init.sh",
-  "customizations": { "vscode": { "extensions": ["anthropic.claude-code"] } },
+  "customizations": { "vscode": { "extensions": ["anthropic.claude-code", "wandb.catnip-sidebar"] } },
   "containerEnv": {
     "PATH": "/opt/catnip/bin:/home/vscode/.local/bin:${PATH}",
     "CATNIP_WORKSPACE_DIR": "/worktrees",
@@ -30,6 +30,5 @@
     }
   ],
   "postCreateCommand": "bash /opt/catnip/bin/catnip-run.sh",
-  "postAttachCommand": "bash /opt/catnip/bin/catnip-vsix.sh",
   "installsAfter": ["ghcr.io/devcontainers/features/sshd"]
 }
