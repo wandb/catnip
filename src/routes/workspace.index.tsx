@@ -1,13 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { WorkspaceMobileIndex } from "@/components/WorkspaceMobileIndex";
 import { BackendErrorScreen } from "@/components/BackendErrorScreen";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
-import { RepositoryList } from "@/components/RepositoryList";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 function WorkspaceIndex() {
+  const navigate = useNavigate();
   const isMobile = useIsMobile();
 
   // Use stable selectors to avoid infinite loops
@@ -16,6 +17,39 @@ function WorkspaceIndex() {
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
   );
+
+  // Effect to redirect to most recent workspace
+  useEffect(() => {
+    if (!initialLoading && !loadError && worktreesCount > 0) {
+      const worktreesList = useAppStore.getState().getWorktreesList();
+
+      // Sort by last_accessed (descending) to get most recent
+      const sortedWorktrees = [...worktreesList].sort((a, b) => {
+        const aAccessed = new Date(a.last_accessed || a.created_at).getTime();
+        const bAccessed = new Date(b.last_accessed || b.created_at).getTime();
+        return bAccessed - aAccessed;
+      });
+
+      const mostRecentWorktree = sortedWorktrees[0];
+      if (mostRecentWorktree) {
+        const nameParts = mostRecentWorktree.name.split("/");
+        if (nameParts.length >= 2) {
+          void navigate({
+            to: "/workspace/$project/$workspace",
+            params: {
+              project: nameParts[0],
+              workspace: nameParts[1],
+            },
+            replace: true,
+          });
+          return;
+        }
+      }
+
+      // Fallback to repos if we can't find a valid workspace
+      void navigate({ to: "/workspace/repos", replace: true });
+    }
+  }, [initialLoading, loadError, worktreesCount, navigate]);
 
   // Show error screen if backend is unavailable
   if (loadError) {
@@ -26,7 +60,7 @@ function WorkspaceIndex() {
   if (initialLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <LoadingSpinner message="Loading repositories..." size="lg" />
+        <LoadingSpinner message="Loading workspaces..." size="lg" />
       </div>
     );
   }
@@ -41,8 +75,12 @@ function WorkspaceIndex() {
     return <WorkspaceMobileIndex />;
   }
 
-  // Show repository list for desktop users
-  return <RepositoryList />;
+  // Show loading while redirecting
+  return (
+    <div className="flex h-screen items-center justify-center">
+      <LoadingSpinner message="Redirecting to workspace..." size="lg" />
+    </div>
+  );
 }
 
 export const Route = createFileRoute("/workspace/")({

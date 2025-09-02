@@ -1,14 +1,13 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Folder, Plus, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Folder,
+  Plus,
+  AlertTriangle,
+  ChevronRight,
+  ChevronsLeft,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
 import type { Worktree } from "@/lib/git-api";
@@ -116,28 +115,41 @@ export function RepositoryList() {
   };
 
   return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Repositories</h1>
-          <p className="text-muted-foreground mt-2">
-            {repositoriesWithWorktrees.length}{" "}
-            {repositoriesWithWorktrees.length === 1
-              ? "repository"
-              : "repositories"}
-          </p>
+    <div className="flex h-full flex-col bg-sidebar">
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-border/20 space-y-3">
+        {/* Logo and collapse button */}
+        <div className="flex items-center justify-between">
+          <img src="/logo@2x.png" alt="Catnip" className="w-8 h-8" />
+          <button className="h-6 w-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors">
+            <ChevronsLeft className="h-4 w-4" />
+          </button>
         </div>
-        <Button
-          onClick={() => setNewWorkspaceDialogOpen(true)}
-          size="lg"
-          className="gap-2"
-        >
-          <Plus className="h-5 w-5" />
-          New repository
-        </Button>
+
+        {/* Repositories header with badge and new repo button */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              REPOSITORIES
+            </h1>
+            <span className="bg-black/20 text-muted-foreground text-xs px-1.5 py-0.5 rounded-md font-medium">
+              {repositoriesWithWorktrees.length}
+            </span>
+          </div>
+          <Button
+            onClick={() => setNewWorkspaceDialogOpen(true)}
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="h-3 w-3" />
+            <span className="ml-1 text-xs">New repo</span>
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-4">
+      {/* Repository list */}
+      <div className="flex-1 overflow-auto p-2 space-y-2">
         {repositoriesWithWorktrees.map((repo) => {
           const projectName =
             repo.worktrees[0]?.name.split("/")[0] || repo.name;
@@ -146,80 +158,71 @@ export function RepositoryList() {
           const lastActivity = getMostRecentActivity(repo);
 
           return (
-            <Card
+            <div
               key={repo.id}
-              className={`cursor-pointer transition-all hover:shadow-md ${
+              className={`p-3 cursor-pointer transition-all hover:bg-muted/50 rounded-md ${
                 !isAvailable ? "opacity-60" : ""
               }`}
               onClick={() => isAvailable && handleRepositoryClick(repo)}
             >
-              <CardHeader className="pb-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-muted rounded-lg">
-                      <Folder className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-xl flex items-center gap-2">
-                        {projectName}
-                        {!isAvailable && (
-                          <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                        )}
-                      </CardTitle>
-                      <CardDescription className="mt-1">
-                        {repo.worktrees.length}{" "}
-                        {repo.worktrees.length === 1
-                          ? "workspace"
-                          : "workspaces"}
-                        {lastActivity && <span> · {lastActivity}</span>}
-                      </CardDescription>
-                    </div>
-                  </div>
-                  {status && (
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <div
-                        className={`w-2 h-2 rounded-full ${status.color} animate-pulse`}
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {status.label}
+                      {status && (
+                        <div
+                          className={`w-2 h-2 rounded-full ${status.color} animate-pulse flex-shrink-0`}
+                          title={status.label}
+                        />
+                      )}
+                      <span className="font-medium text-sm truncate">
+                        {projectName}
                       </span>
+                      {!isAvailable && (
+                        <AlertTriangle className="h-3 w-3 text-yellow-500 flex-shrink-0" />
+                      )}
                     </div>
-                  )}
-                </div>
-              </CardHeader>
-              {!isAvailable && (
-                <CardContent className="pt-0">
-                  <div className="bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900 rounded-lg p-3">
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      Repository not available in container. Run{" "}
-                      <code className="px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/50 rounded text-xs font-mono">
-                        catnip run
-                      </code>{" "}
-                      from the git repo on your host.
-                    </p>
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
+                      <span>{repo.worktrees.length} kitties</span>
+                      {lastActivity && (
+                        <>
+                          <span>·</span>
+                          <span className="truncate">{lastActivity}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                </CardContent>
+                </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+              </div>
+              {!isAvailable && (
+                <div className="mt-2 p-2 bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900 rounded text-xs">
+                  <p className="text-yellow-800 dark:text-yellow-200">
+                    Not available. Run{" "}
+                    <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900/50 rounded font-mono text-[10px]">
+                      catnip run
+                    </code>{" "}
+                    from repo.
+                  </p>
+                </div>
               )}
-            </Card>
+            </div>
           );
         })}
 
         {repositoriesWithWorktrees.length === 0 && (
-          <Card className="p-12 text-center">
-            <CardContent>
-              <Folder className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">
-                No repositories yet
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                Create your first repository to get started
-              </p>
-              <Button onClick={() => setNewWorkspaceDialogOpen(true)} size="lg">
-                <Plus className="h-5 w-5 mr-2" />
-                New repository
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="flex flex-col items-center justify-center p-8 text-center">
+            <Folder className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="font-semibold mb-2">No repositories yet</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Create your first repository to get started
+            </p>
+            <Button onClick={() => setNewWorkspaceDialogOpen(true)} size="sm">
+              <Plus className="h-4 w-4 mr-2" />
+              New repository
+            </Button>
+          </div>
         )}
       </div>
 

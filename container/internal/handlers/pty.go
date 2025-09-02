@@ -827,11 +827,9 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	var resumeSessionID string
 	var useContinue bool
 	if agent == "claude" && !reset {
-		if existingState, err := h.sessionService.FindSessionByDirectory(workDir); err == nil && existingState != nil {
-			// For existing sessions, use --continue instead of --resume
-			useContinue = true
-			logger.Infof("🔄 Found existing Claude session in %s, will use --continue", workDir)
-		}
+		// Simply use --continue which handles session resumption automatically
+		useContinue = true
+		logger.Infof("🔄 Using --continue for Claude session in %s", workDir)
 	}
 
 	// Allocate ports for this session
@@ -1547,13 +1545,8 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	}
 	session.connMutex.Unlock()
 
-	// Check for existing Claude session to resume (for recreated sessions)
+	// For Claude recreations, use --continue which handles session resumption automatically
 	var resumeSessionID string
-	if session.Agent == "claude" {
-		if existingState, err := h.sessionService.FindSessionByDirectory(session.WorkDir); err == nil && existingState != nil {
-			resumeSessionID = existingState.ClaudeSessionID
-		}
-	}
 
 	// Get ports for this session (should already be allocated)
 	ports, exists := h.portService.GetPortsForSession(session.ID)
@@ -1567,8 +1560,9 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		}
 	}
 
-	// Create new command using the same agent (use old resume logic for recreation)
-	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID, false, ports)
+	// Create new command using the same agent (use --continue for Claude recreations)
+	useContinue := session.Agent == "claude"
+	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID, useContinue, ports)
 
 	// Start new PTY
 	ptmx, err := pty.Start(cmd)
