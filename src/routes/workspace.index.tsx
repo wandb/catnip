@@ -1,6 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { WorkspaceWelcome } from "@/components/WorkspaceWelcome";
 import { WorkspaceMobileIndex } from "@/components/WorkspaceMobileIndex";
@@ -8,9 +7,8 @@ import { BackendErrorScreen } from "@/components/BackendErrorScreen";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-function WorkspaceRedirect() {
+function WorkspaceIndex() {
   const navigate = useNavigate();
-  const hasRedirected = useRef(false);
   const isMobile = useIsMobile();
 
   // Use stable selectors to avoid infinite loops
@@ -19,76 +17,72 @@ function WorkspaceRedirect() {
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
   );
-  const getRepositoryById = useAppStore((state) => state.getRepositoryById);
 
+  // Effect to redirect to most recent workspace
   useEffect(() => {
-    if (hasRedirected.current || initialLoading || loadError || isMobile) {
-      return; // Prevent multiple redirects or wait for data to load, or if mobile show index
-    }
+    if (!initialLoading && !loadError && worktreesCount > 0) {
+      const worktreesList = useAppStore.getState().getWorktreesList();
 
-    if (worktreesCount > 0) {
-      // Find the first available worktree
-      const worktrees = useAppStore.getState().getWorktreesList();
-      let firstAvailableWorktree = null;
+      // Sort by last_accessed (descending) to get most recent
+      const sortedWorktrees = [...worktreesList].sort((a, b) => {
+        const aAccessed = new Date(a.last_accessed || a.created_at).getTime();
+        const bAccessed = new Date(b.last_accessed || b.created_at).getTime();
+        return bAccessed - aAccessed;
+      });
 
-      for (const worktree of worktrees) {
-        const repo = getRepositoryById(worktree.repo_id);
-        if (repo && repo.available) {
-          firstAvailableWorktree = worktree;
-          break;
-        }
-      }
-
-      if (firstAvailableWorktree) {
-        // Extract project/workspace from the workspace name (e.g., "vibes/tiger")
-        const nameParts = firstAvailableWorktree.name.split("/");
+      const mostRecentWorktree = sortedWorktrees[0];
+      if (mostRecentWorktree) {
+        const nameParts = mostRecentWorktree.name.split("/");
         if (nameParts.length >= 2) {
-          hasRedirected.current = true;
           void navigate({
             to: "/workspace/$project/$workspace",
             params: {
               project: nameParts[0],
               workspace: nameParts[1],
             },
+            replace: true,
           });
           return;
         }
       }
-    }
 
-    // Don't redirect if no available workspaces - show welcome screen instead
-  }, [
-    initialLoading,
-    loadError,
-    worktreesCount,
-    navigate,
-    getRepositoryById,
-    isMobile,
-  ]);
+      // Fallback to repos if we can't find a valid workspace
+      void navigate({ to: "/workspace/repos", replace: true });
+    }
+  }, [initialLoading, loadError, worktreesCount, navigate]);
 
   // Show error screen if backend is unavailable
   if (loadError) {
     return <BackendErrorScreen />;
   }
 
+  // Show loading while checking for workspaces
+  if (initialLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <LoadingSpinner message="Loading workspaces..." size="lg" />
+      </div>
+    );
+  }
+
   // Show welcome screen if no workspaces
-  if (!initialLoading && worktreesCount === 0) {
+  if (worktreesCount === 0) {
     return <WorkspaceWelcome />;
   }
 
-  // Show mobile index if on mobile and workspaces are available
-  if (isMobile && !initialLoading && worktreesCount > 0) {
+  // Show mobile index if on mobile - keeps the same behavior
+  if (isMobile) {
     return <WorkspaceMobileIndex />;
   }
 
-  // Show loading while checking for workspaces
+  // Show loading while redirecting
   return (
     <div className="flex h-screen items-center justify-center">
-      <LoadingSpinner message="Finding workspace..." size="lg" />
+      <LoadingSpinner message="Redirecting to workspace..." size="lg" />
     </div>
   );
 }
 
 export const Route = createFileRoute("/workspace/")({
-  component: WorkspaceRedirect,
+  component: WorkspaceIndex,
 });

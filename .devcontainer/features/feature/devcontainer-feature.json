@@ -14,7 +14,11 @@
     "installGh": { "type": "boolean", "default": true }
   },
   "entrypoint": "/usr/local/share/catnip-init.sh",
-  "customizations": { "vscode": { "extensions": ["anthropic.claude-code", "wandb.catnip-sidebar"] } },
+  "customizations": {
+    "vscode": {
+      "extensions": ["anthropic.claude-code", "wandb.catnip-sidebar"]
+    }
+  },
   "containerEnv": {
     "PATH": "/opt/catnip/bin:/home/vscode/.local/bin:${PATH}",
     "CATNIP_WORKSPACE_DIR": "/worktrees",
