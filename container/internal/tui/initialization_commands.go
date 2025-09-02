@@ -581,13 +581,13 @@ func ExecuteStreamingContainerLogsCmd(cmd *exec.Cmd, containerName string, conta
 						return
 					}
 
-					// After 2 seconds, start checking if port 8080 is accessible
+					// After 2 seconds, start checking if port 6369 is accessible
 					if time.Since(startTime) > 2*time.Second {
-						// Try to connect to port 8080
-						conn, err := net.Dial("tcp", "localhost:8080")
+						// Try to connect to port 6369
+						conn, err := net.Dial("tcp", "localhost:6369")
 						if err == nil {
 							conn.Close()
-							outputChan <- "✅ Container is healthy and port 8080 is accessible"
+							outputChan <- "✅ Container is healthy and port 6369 is accessible"
 							healthyChan <- true
 							return
 						}

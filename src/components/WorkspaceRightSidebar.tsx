@@ -713,6 +713,7 @@ export function WorkspaceRightSidebar({
       collapsible="none"
       className="sticky top-0 hidden h-svh border-l lg:flex w-64 flex-shrink-0"
       side="right"
+      style={{ backgroundColor: "oklch(0.205 0 0)" }}
     >
       <SidebarContent>
         <GitStatus worktree={worktree} />

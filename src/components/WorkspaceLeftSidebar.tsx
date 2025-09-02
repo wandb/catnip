@@ -1,12 +1,13 @@
 import { Link, useParams } from "@tanstack/react-router";
 import {
   ArrowLeft,
-  Folder,
   GitBranch,
   Plus,
   Settings,
   Trash2,
   ExternalLink,
+  MoreHorizontal,
+  ChevronsLeft,
 } from "lucide-react";
 import {
   Sidebar,
@@ -22,10 +23,11 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
 import { useState, useMemo } from "react";
@@ -47,11 +49,15 @@ import { useGitApi } from "@/hooks/useGitApi";
 import { useNavigate } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useSidebar } from "@/hooks/use-sidebar";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
     from: "/workspace/$project/$workspace",
   });
+
+  // Sidebar controls
+  const { toggleSidebar } = useSidebar();
 
   // Global keyboard shortcuts
   const { newWorkspaceDialogOpen, setNewWorkspaceDialogOpen } =
@@ -85,8 +91,6 @@ export function WorkspaceLeftSidebar() {
       hasChanges: false,
       commitCount: 0,
     });
-
-  const [hoveredWorkspace, setHoveredWorkspace] = useState<string | null>(null);
 
   const { deleteWorktree } = useGitApi();
   const navigate = useNavigate();
@@ -214,20 +218,20 @@ export function WorkspaceLeftSidebar() {
     return formatDistanceToNow(new Date(lastActivity), { addSuffix: true });
   };
 
-  // Generate a workspace title (can be customized later)
+  // Generate a workspace title with proper priority
   const getWorkspaceTitle = (worktree: Worktree) => {
-    // For now, use the workspace name, but this could be enhanced
-    // to show PR titles, commit messages, or custom descriptions
-    const workspaceName = worktree.name.split("/")[1] || worktree.name;
-
-    // If there's a PR, include that in the title
-    if (worktree.pull_request_url) {
-      const prNumber = worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1];
-      if (prNumber) {
-        return `PR #${prNumber} - ${workspaceName}`;
-      }
+    // Priority 1: Use PR title if available
+    if (worktree.pull_request_title) {
+      return worktree.pull_request_title;
     }
 
+    // Priority 2: Use session title if available
+    if (worktree.session_title?.title) {
+      return worktree.session_title.title;
+    }
+
+    // Priority 3: Use workspace name
+    const workspaceName = worktree.name.split("/")[1] || worktree.name;
     return workspaceName;
   };
 
@@ -354,10 +358,29 @@ export function WorkspaceLeftSidebar() {
                                     {getWorkspaceTitle(worktree)}
                                   </div>
                                   <div className="text-xs text-muted-foreground flex items-center gap-1">
-                                    <GitBranch className="h-3 w-3" />
-                                    <span className="truncate">
-                                      {worktree.branch}
-                                    </span>
+                                    <GitBranch className="h-3 w-3 flex-shrink-0" />
+                                    {worktree.pull_request_url ? (
+                                      <a
+                                        href={worktree.pull_request_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="truncate text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-0.5"
+                                        onClick={(e) => e.stopPropagation()}
+                                        title={`${worktree.branch} (PR #${worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"})`}
+                                      >
+                                        <span className="truncate">
+                                          {worktree.branch}
+                                        </span>
+                                        <ExternalLink className="h-2.5 w-2.5 flex-shrink-0" />
+                                      </a>
+                                    ) : (
+                                      <span
+                                        className="truncate"
+                                        title={worktree.branch}
+                                      >
+                                        {worktree.branch}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               </Link>
@@ -372,8 +395,11 @@ export function WorkspaceLeftSidebar() {
                                     {getWorkspaceTitle(worktree)}
                                   </div>
                                   <div className="text-xs text-muted-foreground flex items-center gap-1">
-                                    <GitBranch className="h-3 w-3" />
-                                    <span className="truncate">
+                                    <GitBranch className="h-3 w-3 flex-shrink-0" />
+                                    <span
+                                      className="truncate"
+                                      title={worktree.branch}
+                                    >
                                       {worktree.branch}
                                     </span>
                                   </div>
@@ -425,40 +451,49 @@ export function WorkspaceLeftSidebar() {
       <Sidebar className="border-r-0 w-80">
         <SidebarHeader className="relative">
           <div className="absolute top-2 right-2 z-10 mt-0 -mr-1">
-            <SidebarTrigger className="h-6 w-6" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={toggleSidebar}
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </Button>
           </div>
           <div className="flex items-center gap-2">
             <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
           </div>
         </SidebarHeader>
         <SidebarContent>
-          {/* Back to repositories button */}
+          {/* Repo name with back button */}
           <div className="px-3 pb-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
-              onClick={() => navigate({ to: "/workspace" })}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Repositories</span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => navigate({ to: "/workspace/repos" })}
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <span className="font-medium text-foreground">{projectName}</span>
+            </div>
           </div>
 
           <SidebarGroup>
             <SidebarGroupLabel className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Folder className="h-4 w-4" />
-                <span>{projectName}</span>
-              </div>
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                WORKSPACES
+              </span>
               {isAvailable && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0"
+                  className="h-6 px-2 text-muted-foreground hover:text-foreground flex items-center gap-1"
                   onClick={handleAddWorkspace}
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-3 w-3" />
+                  <span className="text-xs">New workspace</span>
                 </Button>
               )}
             </SidebarGroupLabel>
@@ -517,10 +552,43 @@ export function WorkspaceLeftSidebar() {
                               className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0 mt-1.5`}
                               title={status.label}
                             />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between gap-2 mb-0.5">
+                            <div className="flex-1 min-w-0 relative">
+                              {/* Floating Actions Menu */}
+                              <div className="absolute top-0 right-0 z-10">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                      }}
+                                    >
+                                      <MoreHorizontal className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        handleSingleWorkspaceDelete(worktree);
+                                      }}
+                                      className="text-red-600"
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Delete Workspace
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+
+                              {/* Title */}
+                              <div className="mb-0.5 pr-8">
                                 <span
-                                  className={`font-medium truncate ${
+                                  className={`font-medium truncate block ${
                                     worktree.pull_request_state === "CLOSED" ||
                                     worktree.pull_request_state === "MERGED"
                                       ? "line-through opacity-60"
@@ -529,86 +597,18 @@ export function WorkspaceLeftSidebar() {
                                 >
                                   {title}
                                 </span>
-                                <Popover
-                                  open={hoveredWorkspace === worktree.id}
-                                  onOpenChange={() => {}}
-                                >
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                      onMouseEnter={() =>
-                                        setHoveredWorkspace(worktree.id)
-                                      }
-                                      onMouseLeave={() =>
-                                        setHoveredWorkspace(null)
-                                      }
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent
-                                    side="bottom"
-                                    align="end"
-                                    className="w-64 p-3"
-                                    onMouseEnter={() =>
-                                      setHoveredWorkspace(worktree.id)
-                                    }
-                                    onMouseLeave={() =>
-                                      setHoveredWorkspace(null)
-                                    }
-                                  >
-                                    <div className="space-y-3">
-                                      <div>
-                                        <div className="text-sm font-medium mb-1">
-                                          Delete workspace?
-                                        </div>
-                                        <div className="text-xs text-muted-foreground">
-                                          {worktree.name}
-                                        </div>
-                                      </div>
-                                      <Button
-                                        variant="destructive"
-                                        size="sm"
-                                        className="w-full"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          e.preventDefault();
-                                          handleSingleWorkspaceDelete(worktree);
-                                        }}
-                                      >
-                                        Delete Workspace
-                                      </Button>
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <div className="flex items-center gap-1">
-                                  <GitBranch className="h-3 w-3" />
-                                  <span className="truncate">
-                                    {worktree.branch}
-                                  </span>
-                                </div>
-                                {timeAgo && (
-                                  <>
-                                    <span className="text-muted-foreground/50">
-                                      ·
-                                    </span>
-                                    <span>{timeAgo}</span>
-                                  </>
-                                )}
-                                {worktree.pull_request_url && (
-                                  <>
-                                    <span className="text-muted-foreground/50">
-                                      ·
-                                    </span>
+
+                              {/* Sub-header - Full Width */}
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground overflow-hidden">
+                                <div className="flex items-center gap-1 min-w-0 max-w-[60%]">
+                                  <GitBranch className="h-3 w-3 flex-shrink-0" />
+                                  {worktree.pull_request_url ? (
                                     <a
                                       href={worktree.pull_request_url}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className={`flex items-center gap-0.5 text-blue-500 hover:text-blue-600 transition-colors ${
+                                      className={`truncate text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-0.5 ${
                                         worktree.pull_request_state ===
                                           "CLOSED" ||
                                         worktree.pull_request_state === "MERGED"
@@ -616,15 +616,28 @@ export function WorkspaceLeftSidebar() {
                                           : ""
                                       }`}
                                       onClick={(e) => e.stopPropagation()}
+                                      title={`${worktree.branch} (PR #${worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"})`}
                                     >
-                                      <span>
-                                        PR #
-                                        {worktree.pull_request_url.match(
-                                          /\/pull\/(\d+)/,
-                                        )?.[1] || "?"}
+                                      <span className="truncate">
+                                        {worktree.branch}
                                       </span>
-                                      <ExternalLink className="h-2.5 w-2.5" />
+                                      <ExternalLink className="h-2.5 w-2.5 flex-shrink-0" />
                                     </a>
+                                  ) : (
+                                    <span
+                                      className="truncate"
+                                      title={worktree.branch}
+                                    >
+                                      {worktree.branch}
+                                    </span>
+                                  )}
+                                </div>
+                                {timeAgo && (
+                                  <>
+                                    <span className="text-muted-foreground/50 flex-shrink-0">
+                                      ·
+                                    </span>
+                                    <span className="truncate">{timeAgo}</span>
                                   </>
                                 )}
                               </div>
@@ -647,19 +660,22 @@ export function WorkspaceLeftSidebar() {
                               >
                                 {title}
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                <div className="flex items-center gap-1">
-                                  <GitBranch className="h-3 w-3" />
-                                  <span className="truncate">
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground overflow-hidden">
+                                <div className="flex items-center gap-1 min-w-0 max-w-[50%]">
+                                  <GitBranch className="h-3 w-3 flex-shrink-0" />
+                                  <span
+                                    className="truncate"
+                                    title={worktree.branch}
+                                  >
                                     {worktree.branch}
                                   </span>
                                 </div>
                                 {timeAgo && (
                                   <>
-                                    <span className="text-muted-foreground/50">
+                                    <span className="text-muted-foreground/50 flex-shrink-0">
                                       ·
                                     </span>
-                                    <span>{timeAgo}</span>
+                                    <span className="truncate">{timeAgo}</span>
                                   </>
                                 )}
                               </div>
@@ -670,23 +686,6 @@ export function WorkspaceLeftSidebar() {
                     </SidebarMenuItem>
                   );
                 })}
-              </SidebarMenu>
-
-              {/* New Workspace Button */}
-              <SidebarMenu className="mt-3">
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={handleAddWorkspace}
-                    className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-xs"
-                    disabled={!isAvailable}
-                  >
-                    <Plus className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">New workspace</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      ⌘N
-                    </span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
