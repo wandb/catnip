@@ -95,30 +95,32 @@ func (g *GitHubManager) CreatePullRequest(req CreatePullRequestRequest) (*models
 		}
 	}()
 
-	// Parse owner/repo from repository ID
-	ownerRepo := req.Repository.ID
+	// Always try to get the GitHub owner/repo from the origin remote URL first
+	var ownerRepo string
 
-	// For local repos, extract the GitHub owner/repo from the remote URL
-	if strings.HasPrefix(req.Repository.ID, "local/") {
-		// Get the remote URL from the worktree
-		remoteURL, err := g.operations.GetRemoteURL(req.Worktree.Path)
-		if err != nil {
-			return nil, fmt.Errorf("cannot create PR: no remote configured for local repository")
-		}
-
+	// Get the remote URL from the worktree to ensure we use the correct GitHub repo name
+	remoteURL, err := g.operations.GetRemoteURL(req.Worktree.Path)
+	if err == nil {
 		// Extract owner/repo from URL (e.g., git@github.com:owner/repo.git -> owner/repo)
 		ownerRepo = g.extractGitHubRepoFromURL(remoteURL)
-		if ownerRepo == "" {
-			return nil, fmt.Errorf("cannot create PR: remote URL is not a GitHub repository: %s", remoteURL)
+		if ownerRepo != "" {
+			logger.Debugf("🔄 Using GitHub repo %s from origin remote for repository %s", ownerRepo, req.Repository.ID)
+		}
+	}
+
+	// Fallback to repository ID if we couldn't extract from remote URL
+	if ownerRepo == "" {
+		if strings.HasPrefix(req.Repository.ID, "local/") {
+			return nil, fmt.Errorf("cannot create PR: no GitHub remote configured for local repository")
 		}
 
-		logger.Debugf("🔄 Using GitHub repo %s for local repository %s", ownerRepo, req.Repository.ID)
-	} else {
-		// For non-local repos, validate format
+		// For non-local repos, use repository ID and validate format
 		parts := strings.Split(req.Repository.ID, "/")
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid repository ID format: %s (expected owner/repo)", req.Repository.ID)
 		}
+		ownerRepo = req.Repository.ID
+		logger.Debugf("🔄 Using repository ID %s as fallback for GitHub repo", ownerRepo)
 	}
 
 	if req.IsUpdate {
@@ -137,14 +139,20 @@ func (g *GitHubManager) GetPullRequestInfo(worktree *models.Worktree, repository
 		Exists:          false,
 	}
 
-	// For local repos, we can't check for existing PRs without a remote URL
-	if strings.HasPrefix(repository.ID, "local/") {
-		// If there's a remote URL configured, we could check for existing PRs
-		// but for now, just return whether there are commits to push
-		return prInfo, nil
+	// Try to get the GitHub owner/repo from the origin remote URL
+	var ownerRepo string
+	if remoteURL, err := g.operations.GetRemoteURL(worktree.Path); err == nil {
+		ownerRepo = g.extractGitHubRepoFromURL(remoteURL)
 	}
 
-	ownerRepo := repository.ID
+	// Fallback to repository ID if we couldn't extract from remote URL
+	if ownerRepo == "" {
+		if strings.HasPrefix(repository.ID, "local/") {
+			// For local repos without remote URL, we can't check for existing PRs
+			return prInfo, nil
+		}
+		ownerRepo = repository.ID
+	}
 
 	// Try to find existing PR
 	if err := g.checkExistingPR(worktree, ownerRepo, prInfo); err != nil {
