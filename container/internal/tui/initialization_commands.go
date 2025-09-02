@@ -365,7 +365,7 @@ func StartContainerCmd(m *Model) tea.Cmd {
 		} else {
 			if runningName, runningImage, ok := containerService.FindRunningCatnipContainer(ctx); ok {
 				// Found another catnip container running - validate it's compatible
-				if isContainerCompatible(runningName, name, runningImage, cliVersion) {
+				if isContainerCompatible(runningName, name, runningImage, cliVersion, m) {
 					// Compatible container found, connect to it
 					return ContainerStartedMsg{
 						ContainerName:    runningName,
@@ -667,9 +667,11 @@ type VersionCheckMsg struct {
 }
 
 // CheckContainerVersionCmd checks if the container version differs from CLI version
-func CheckContainerVersionCmd(cliVersion string) tea.Cmd {
+func CheckContainerVersionCmd(cliVersion string, m *Model) tea.Cmd {
 	return func() tea.Msg {
-		containerVersionInfo, err := fetchContainerVersion()
+		baseURL := m.getBaseURL("") // Use model's configured port
+		client := m.createAuthenticatedClient(2 * time.Second)
+		containerVersionInfo, err := fetchContainerVersion(baseURL, client)
 		if err != nil {
 			// If we can't fetch the version, don't show upgrade warning
 			debugLog("CheckContainerVersionCmd: failed to fetch container version: %v", err)
@@ -829,7 +831,7 @@ func extractOutput(errStr string) string {
 }
 
 // isContainerCompatible checks if a running container is compatible with the desired container
-func isContainerCompatible(runningName, desiredName, runningImage, cliVersion string) bool {
+func isContainerCompatible(runningName, desiredName, runningImage, cliVersion string, m *Model) bool {
 	// Extract base names (without -dev suffix) for comparison
 	runningBaseName := strings.TrimSuffix(runningName, "-dev")
 	desiredBaseName := strings.TrimSuffix(desiredName, "-dev")
@@ -841,7 +843,7 @@ func isContainerCompatible(runningName, desiredName, runningImage, cliVersion st
 	}
 
 	// Check version compatibility if we can reach the container API
-	if err := checkRunningContainerVersion(cliVersion); err != nil {
+	if err := checkRunningContainerVersion(cliVersion, m); err != nil {
 		debugLog("Container version incompatible: %v", err)
 		return false
 	}
@@ -851,9 +853,10 @@ func isContainerCompatible(runningName, desiredName, runningImage, cliVersion st
 }
 
 // checkRunningContainerVersion checks if the running container version matches CLI version
-func checkRunningContainerVersion(cliVersion string) error {
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://localhost:8080/v1/info")
+func checkRunningContainerVersion(cliVersion string, m *Model) error {
+	baseURL := m.getBaseURL("") // Use model's configured port
+	client := m.createAuthenticatedClient(2 * time.Second)
+	resp, err := client.Get(baseURL + "/v1/info")
 	if err != nil {
 		// If we can't reach the API, assume incompatible
 		return fmt.Errorf("cannot reach container API: %w", err)

@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,13 @@ import (
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 )
+
+// ClaudeConfig represents the structure of claude.json for validation
+type ClaudeConfig struct {
+	FirstStartTime *string                `json:"firstStartTime,omitempty"`
+	UserID         string                 `json:"userID,omitempty"`
+	Projects       map[string]interface{} `json:"projects,omitempty"`
+}
 
 // Settings manages persistence of Claude and GitHub configuration files
 type Settings struct {
@@ -131,9 +139,30 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 			continue
 		}
 
-		// Check if destination file already exists - if so, skip (boot-time only restore)
-		if _, err := os.Stat(file.destPath); err == nil {
+		// Smart restore logic: prefer volume file if home file doesn't exist OR if volume file is more configured
+		shouldRestore := false
+		if _, err := os.Stat(file.destPath); os.IsNotExist(err) {
+			// Home file doesn't exist - restore from volume
+			shouldRestore = true
+			logger.Debugf("🔄 Restoring %s - home file doesn't exist", file.filename)
+		} else if file.filename == "claude.json" {
+			// Both files exist - compare configuration level for Claude config
+			if s.shouldPreferVolumeClaudeConfig(sourcePath, file.destPath) {
+				shouldRestore = true
+				// Create backup of existing home file before overwriting
+				if err := s.backupHomeFile(file.destPath, file.volumePath, file.filename); err != nil {
+					logger.Warnf("⚠️  Failed to backup existing %s: %v", file.filename, err)
+				}
+				logger.Debugf("🔄 Restoring %s - volume file appears more configured", file.filename)
+			} else {
+				logger.Debugf("⚪ Keeping existing %s - home file appears more or equally configured", file.filename)
+			}
+		} else {
+			// For non-Claude files, keep existing home file
 			logger.Debugf("⚪ Skipping restore of %s - file already exists in home directory", file.filename)
+		}
+
+		if !shouldRestore {
 			continue
 		}
 
@@ -489,6 +518,14 @@ func (s *Settings) checkAndSyncFiles() {
 			continue
 		}
 
+		// For sensitive files, check if this is a valid/configured file before syncing
+		if file.sensitive && file.destName == "claude.json" {
+			if !s.isClaudeConfigValid(file.sourcePath) {
+				logger.Warnf("⚠️  Skipping sync of %s - appears to be unconfigured or invalid", file.sourcePath)
+				continue
+			}
+		}
+
 		// File has changed - schedule debounced sync
 		s.scheduleDebounceSync(file.sourcePath, file.volumeDir, file.destName, file.sensitive, info.ModTime())
 	}
@@ -686,5 +723,142 @@ func (s *Settings) ValidateSettings() error {
 		}
 	}
 
+	return nil
+}
+
+// shouldPreferVolumeClaudeConfig compares two claude.json files and determines if the volume file should be preferred
+func (s *Settings) shouldPreferVolumeClaudeConfig(volumePath, homePath string) bool {
+	volumeConfig := s.parseClaudeConfig(volumePath)
+	homeConfig := s.parseClaudeConfig(homePath)
+
+	// If either file is invalid, prefer the valid one
+	if volumeConfig == nil && homeConfig != nil {
+		return false // Keep home
+	}
+	if volumeConfig != nil && homeConfig == nil {
+		return true // Use volume
+	}
+	if volumeConfig == nil && homeConfig == nil {
+		return false // Both invalid, keep current
+	}
+
+	// Both are valid - compare configuration level
+	volumeConfigLevel := s.getClaudeConfigLevel(volumeConfig)
+	homeConfigLevel := s.getClaudeConfigLevel(homeConfig)
+
+	logger.Debugf("📊 Claude config comparison - Volume: %d, Home: %d", volumeConfigLevel, homeConfigLevel)
+
+	// Prefer the more configured file
+	return volumeConfigLevel > homeConfigLevel
+}
+
+// parseClaudeConfig safely parses a claude.json file
+func (s *Settings) parseClaudeConfig(filePath string) *ClaudeConfig {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil
+	}
+
+	var config ClaudeConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil
+	}
+
+	return &config
+}
+
+// getClaudeConfigLevel returns a score indicating how "configured" a Claude config is
+func (s *Settings) getClaudeConfigLevel(config *ClaudeConfig) int {
+	score := 0
+
+	// Has userID (basic configuration)
+	if config.UserID != "" {
+		score += 10
+	}
+
+	// Has projects with actual configuration
+	if config.Projects != nil {
+		for _, project := range config.Projects {
+			if projectMap, ok := project.(map[string]interface{}); ok {
+				// Check for configured tools, MCP servers, etc.
+				if tools, exists := projectMap["allowedTools"]; exists {
+					if toolsArray, ok := tools.([]interface{}); ok && len(toolsArray) > 0 {
+						score += 20
+					}
+				}
+				if history, exists := projectMap["history"]; exists {
+					if historyArray, ok := history.([]interface{}); ok && len(historyArray) > 0 {
+						score += 30
+					}
+				}
+				if mcpServers, exists := projectMap["mcpServers"]; exists {
+					if serversMap, ok := mcpServers.(map[string]interface{}); ok && len(serversMap) > 0 {
+						score += 25
+					}
+				}
+				if trusted, exists := projectMap["hasTrustDialogAccepted"]; exists {
+					if trustBool, ok := trusted.(bool); ok && trustBool {
+						score += 15
+					}
+				}
+			}
+		}
+	}
+
+	// Penalize very recent firstStartTime (likely fresh installation)
+	if config.FirstStartTime != nil {
+		if startTime, err := time.Parse(time.RFC3339, *config.FirstStartTime); err == nil {
+			if time.Since(startTime) < 1*time.Hour {
+				score -= 50 // Heavy penalty for very recent start times
+				logger.Debugf("🕒 Recent firstStartTime detected: %s (penalty applied)", *config.FirstStartTime)
+			}
+		}
+	}
+
+	return score
+}
+
+// isClaudeConfigValid checks if a claude.json file is valid and appears configured
+func (s *Settings) isClaudeConfigValid(filePath string) bool {
+	config := s.parseClaudeConfig(filePath)
+	if config == nil {
+		return false
+	}
+
+	// Check for signs of a fresh/unconfigured installation
+	configLevel := s.getClaudeConfigLevel(config)
+
+	// If config level is too low (likely fresh installation), don't sync it
+	if configLevel < 5 {
+		logger.Debugf("🚫 Claude config appears unconfigured (score: %d)", configLevel)
+		return false
+	}
+
+	return true
+}
+
+// backupHomeFile creates a timestamped backup of a home file in the volume directory
+func (s *Settings) backupHomeFile(homeFilePath, volumeDir, filename string) error {
+	// Generate timestamped backup filename
+	timestamp := time.Now().Format("20060102-150405")
+	backupFilename := fmt.Sprintf("%s.backup.%s", filename, timestamp)
+	backupPath := filepath.Join(volumeDir, backupFilename)
+
+	// Create backup directory if needed
+	if err := os.MkdirAll(volumeDir, 0755); err != nil {
+		return fmt.Errorf("failed to create backup directory: %v", err)
+	}
+
+	// Copy the home file to backup location
+	if err := s.copyFile(homeFilePath, backupPath); err != nil {
+		return fmt.Errorf("failed to copy file to backup: %v", err)
+	}
+
+	// Set proper ownership
+	if err := os.Chown(backupPath, 1000, 1000); err != nil {
+		logger.Warnf("⚠️  Failed to chown backup file %s: %v", backupPath, err)
+	}
+
+	logger.Infof("💾 Created backup: %s", backupFilename)
 	return nil
 }

@@ -1,0 +1,65 @@
+{
+  "name": "catnip-sidebar",
+  "displayName": "W&B Catnip",
+  "description": "W&B Catnip - a highly addictive agentic coding environment",
+  "version": "0.0.1",
+  "publisher": "wandb",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "media/catnip.png",
+  "repository": "https://github.com/wandb/catnip",
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "catnip": [
+        {
+          "id": "catnip-sidebar",
+          "name": "🐾 Catnip"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "catnip.openInterface",
+        "title": "Open Catnip Interface",
+        "icon": "🐾"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "catnip",
+          "title": "Catnip",
+          "icon": "media/catnip.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "catnip.openInterface",
+          "when": "view == catnip-sidebar",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --out ../catnip-sidebar.vsix",
+    "build": "npm run compile && npm run package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.74.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0",
+    "@vscode/vsce": "^2.21.0"
+  }
+}
