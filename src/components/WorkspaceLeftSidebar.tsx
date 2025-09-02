@@ -5,7 +5,6 @@ import {
   GitBranch,
   Plus,
   Settings,
-  AlertTriangle,
   Trash2,
   ExternalLink,
 } from "lucide-react";
@@ -17,18 +16,11 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   Popover,
   PopoverContent,
@@ -36,7 +28,7 @@ import {
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/appStore";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { NewWorkspaceDialog } from "@/components/NewWorkspaceDialog";
 import { useGlobalKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { SettingsDialog } from "@/components/SettingsDialog";
@@ -108,7 +100,6 @@ export function WorkspaceLeftSidebar() {
   const worktrees = useAppStore((state) => state.worktrees);
   const getWorktreesByRepo = useAppStore((state) => state.getWorktreesByRepo);
   const getRepository = useAppStore((state) => state.getRepositoryById);
-  const getWorktreeById = useAppStore((state) => state.getWorktreeById);
 
   // Find current worktree and repository
   const currentWorkspaceName = `${project}/${workspace}`;
@@ -202,7 +193,7 @@ export function WorkspaceLeftSidebar() {
 
   const handleAddWorkspace = () => {
     if (!currentRepository) return;
-    
+
     let repoUrl = currentRepository.url || currentRepository.id;
 
     // Convert file:// URLs to local/ format for the modal
@@ -228,7 +219,7 @@ export function WorkspaceLeftSidebar() {
     // For now, use the workspace name, but this could be enhanced
     // to show PR titles, commit messages, or custom descriptions
     const workspaceName = worktree.name.split("/")[1] || worktree.name;
-    
+
     // If there's a PR, include that in the title
     if (worktree.pull_request_url) {
       const prNumber = worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1];
@@ -236,7 +227,7 @@ export function WorkspaceLeftSidebar() {
         return `PR #${prNumber} - ${workspaceName}`;
       }
     }
-    
+
     return workspaceName;
   };
 
@@ -332,16 +323,12 @@ export function WorkspaceLeftSidebar() {
                   {allRepositoriesWithWorktrees.map((repo) => {
                     const worktrees = repo.worktrees;
                     const isAvailable = repo.available !== false;
-                    const projectName =
-                      worktrees.length > 0
-                        ? worktrees[0].name.split("/")[0]
-                        : repo.name;
 
                     return worktrees.map((worktree: Worktree) => {
                       const isActive = worktree.name === currentWorkspaceName;
                       const nameParts = worktree.name.split("/");
                       const status = getWorktreeStatus(worktree);
-                      
+
                       return (
                         <SidebarMenuItem key={worktree.id}>
                           <SidebarMenuButton
@@ -368,7 +355,9 @@ export function WorkspaceLeftSidebar() {
                                   </div>
                                   <div className="text-xs text-muted-foreground flex items-center gap-1">
                                     <GitBranch className="h-3 w-3" />
-                                    <span className="truncate">{worktree.branch}</span>
+                                    <span className="truncate">
+                                      {worktree.branch}
+                                    </span>
                                   </div>
                                 </div>
                               </Link>
@@ -384,7 +373,9 @@ export function WorkspaceLeftSidebar() {
                                   </div>
                                   <div className="text-xs text-muted-foreground flex items-center gap-1">
                                     <GitBranch className="h-3 w-3" />
-                                    <span className="truncate">{worktree.branch}</span>
+                                    <span className="truncate">
+                                      {worktree.branch}
+                                    </span>
                                   </div>
                                 </div>
                               </span>
@@ -453,7 +444,7 @@ export function WorkspaceLeftSidebar() {
               <span>Repositories</span>
             </Button>
           </div>
-          
+
           <SidebarGroup>
             <SidebarGroupLabel className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -492,7 +483,7 @@ export function WorkspaceLeftSidebar() {
                   const status = getWorktreeStatus(worktree);
                   const timeAgo = getTimeAgo(worktree);
                   const title = getWorkspaceTitle(worktree);
-                  
+
                   return (
                     <SidebarMenuItem key={worktree.id}>
                       <SidebarMenuButton
@@ -547,8 +538,12 @@ export function WorkspaceLeftSidebar() {
                                       variant="ghost"
                                       size="sm"
                                       className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                      onMouseEnter={() => setHoveredWorkspace(worktree.id)}
-                                      onMouseLeave={() => setHoveredWorkspace(null)}
+                                      onMouseEnter={() =>
+                                        setHoveredWorkspace(worktree.id)
+                                      }
+                                      onMouseLeave={() =>
+                                        setHoveredWorkspace(null)
+                                      }
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
@@ -557,12 +552,18 @@ export function WorkspaceLeftSidebar() {
                                     side="bottom"
                                     align="end"
                                     className="w-64 p-3"
-                                    onMouseEnter={() => setHoveredWorkspace(worktree.id)}
-                                    onMouseLeave={() => setHoveredWorkspace(null)}
+                                    onMouseEnter={() =>
+                                      setHoveredWorkspace(worktree.id)
+                                    }
+                                    onMouseLeave={() =>
+                                      setHoveredWorkspace(null)
+                                    }
                                   >
                                     <div className="space-y-3">
                                       <div>
-                                        <div className="text-sm font-medium mb-1">Delete workspace?</div>
+                                        <div className="text-sm font-medium mb-1">
+                                          Delete workspace?
+                                        </div>
                                         <div className="text-xs text-muted-foreground">
                                           {worktree.name}
                                         </div>
@@ -586,23 +587,30 @@ export function WorkspaceLeftSidebar() {
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <div className="flex items-center gap-1">
                                   <GitBranch className="h-3 w-3" />
-                                  <span className="truncate">{worktree.branch}</span>
+                                  <span className="truncate">
+                                    {worktree.branch}
+                                  </span>
                                 </div>
                                 {timeAgo && (
                                   <>
-                                    <span className="text-muted-foreground/50">·</span>
+                                    <span className="text-muted-foreground/50">
+                                      ·
+                                    </span>
                                     <span>{timeAgo}</span>
                                   </>
                                 )}
                                 {worktree.pull_request_url && (
                                   <>
-                                    <span className="text-muted-foreground/50">·</span>
+                                    <span className="text-muted-foreground/50">
+                                      ·
+                                    </span>
                                     <a
                                       href={worktree.pull_request_url}
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className={`flex items-center gap-0.5 text-blue-500 hover:text-blue-600 transition-colors ${
-                                        worktree.pull_request_state === "CLOSED" ||
+                                        worktree.pull_request_state ===
+                                          "CLOSED" ||
                                         worktree.pull_request_state === "MERGED"
                                           ? "line-through opacity-60"
                                           : ""
@@ -610,7 +618,10 @@ export function WorkspaceLeftSidebar() {
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       <span>
-                                        PR #{worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"}
+                                        PR #
+                                        {worktree.pull_request_url.match(
+                                          /\/pull\/(\d+)/,
+                                        )?.[1] || "?"}
                                       </span>
                                       <ExternalLink className="h-2.5 w-2.5" />
                                     </a>
@@ -639,11 +650,15 @@ export function WorkspaceLeftSidebar() {
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <div className="flex items-center gap-1">
                                   <GitBranch className="h-3 w-3" />
-                                  <span className="truncate">{worktree.branch}</span>
+                                  <span className="truncate">
+                                    {worktree.branch}
+                                  </span>
                                 </div>
                                 {timeAgo && (
                                   <>
-                                    <span className="text-muted-foreground/50">·</span>
+                                    <span className="text-muted-foreground/50">
+                                      ·
+                                    </span>
                                     <span>{timeAgo}</span>
                                   </>
                                 )}
@@ -656,7 +671,7 @@ export function WorkspaceLeftSidebar() {
                   );
                 })}
               </SidebarMenu>
-              
+
               {/* New Workspace Button */}
               <SidebarMenu className="mt-3">
                 <SidebarMenuItem>

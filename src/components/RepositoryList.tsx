@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Folder, Plus, AlertTriangle, ExternalLink } from "lucide-react";
+import { Folder, Plus, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,7 +20,7 @@ export function RepositoryList() {
 
   // Get repositories and worktrees from store
   const worktreesCount = useAppStore(
-    (state) => state.getWorktreesList().length
+    (state) => state.getWorktreesList().length,
   );
   const worktrees = useAppStore((state) => state.worktrees);
   const getWorktreesByRepo = useAppStore((state) => state.getWorktreesByRepo);
@@ -54,13 +54,17 @@ export function RepositoryList() {
       .filter((repo): repo is NonNullable<typeof repo> => repo !== null)
       .sort((a, b) => {
         // Sort repositories by most recent activity
-        const aMostRecent = a.worktrees[0]?.last_accessed || a.worktrees[0]?.created_at;
-        const bMostRecent = b.worktrees[0]?.last_accessed || b.worktrees[0]?.created_at;
-        
+        const aMostRecent =
+          a.worktrees[0]?.last_accessed || a.worktrees[0]?.created_at;
+        const bMostRecent =
+          b.worktrees[0]?.last_accessed || b.worktrees[0]?.created_at;
+
         if (aMostRecent && bMostRecent) {
-          return new Date(bMostRecent).getTime() - new Date(aMostRecent).getTime();
+          return (
+            new Date(bMostRecent).getTime() - new Date(aMostRecent).getTime()
+          );
         }
-        
+
         // Fallback to name sorting
         const nameA = a.name || a.id;
         const nameB = b.name || b.id;
@@ -86,13 +90,13 @@ export function RepositoryList() {
   };
 
   const getRepositoryStatus = (repo: any) => {
-    const activeCount = repo.worktrees.filter((w: Worktree) => 
-      w.claude_activity_state === "active"
+    const activeCount = repo.worktrees.filter(
+      (w: Worktree) => w.claude_activity_state === "active",
     ).length;
-    const runningCount = repo.worktrees.filter((w: Worktree) => 
-      w.claude_activity_state === "running"
+    const runningCount = repo.worktrees.filter(
+      (w: Worktree) => w.claude_activity_state === "running",
     ).length;
-    
+
     if (activeCount > 0) {
       return { color: "bg-green-500", label: `${activeCount} active` };
     } else if (runningCount > 0) {
@@ -104,10 +108,10 @@ export function RepositoryList() {
   const getMostRecentActivity = (repo: any) => {
     const mostRecent = repo.worktrees[0];
     if (!mostRecent) return null;
-    
+
     const lastActivity = mostRecent.last_accessed || mostRecent.created_at;
     if (!lastActivity) return null;
-    
+
     return formatDistanceToNow(new Date(lastActivity), { addSuffix: true });
   };
 
@@ -117,7 +121,10 @@ export function RepositoryList() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Repositories</h1>
           <p className="text-muted-foreground mt-2">
-            {repositoriesWithWorktrees.length} {repositoriesWithWorktrees.length === 1 ? 'repository' : 'repositories'}
+            {repositoriesWithWorktrees.length}{" "}
+            {repositoriesWithWorktrees.length === 1
+              ? "repository"
+              : "repositories"}
           </p>
         </div>
         <Button
@@ -132,7 +139,8 @@ export function RepositoryList() {
 
       <div className="grid gap-4">
         {repositoriesWithWorktrees.map((repo) => {
-          const projectName = repo.worktrees[0]?.name.split("/")[0] || repo.name;
+          const projectName =
+            repo.worktrees[0]?.name.split("/")[0] || repo.name;
           const isAvailable = repo.available !== false;
           const status = getRepositoryStatus(repo);
           const lastActivity = getMostRecentActivity(repo);
@@ -159,15 +167,22 @@ export function RepositoryList() {
                         )}
                       </CardTitle>
                       <CardDescription className="mt-1">
-                        {repo.worktrees.length} {repo.worktrees.length === 1 ? 'workspace' : 'workspaces'}
+                        {repo.worktrees.length}{" "}
+                        {repo.worktrees.length === 1
+                          ? "workspace"
+                          : "workspaces"}
                         {lastActivity && <span> · {lastActivity}</span>}
                       </CardDescription>
                     </div>
                   </div>
                   {status && (
                     <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${status.color} animate-pulse`} />
-                      <span className="text-sm text-muted-foreground">{status.label}</span>
+                      <div
+                        className={`w-2 h-2 rounded-full ${status.color} animate-pulse`}
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {status.label}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -193,7 +208,9 @@ export function RepositoryList() {
           <Card className="p-12 text-center">
             <CardContent>
               <Folder className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No repositories yet</h3>
+              <h3 className="text-lg font-semibold mb-2">
+                No repositories yet
+              </h3>
               <p className="text-muted-foreground mb-4">
                 Create your first repository to get started
               </p>
