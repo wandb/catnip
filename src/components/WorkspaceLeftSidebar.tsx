@@ -1,6 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router";
 import {
-  ChevronRight,
+  ArrowLeft,
   Folder,
   GitBranch,
   Plus,
@@ -9,11 +9,6 @@ import {
   Trash2,
   ExternalLink,
 } from "lucide-react";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -26,8 +21,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
@@ -60,6 +53,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useGitApi } from "@/hooks/useGitApi";
 import { useNavigate } from "@tanstack/react-router";
+import { formatDistanceToNow } from "date-fns";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export function WorkspaceLeftSidebar() {
   const { project, workspace } = useParams({
@@ -103,6 +98,7 @@ export function WorkspaceLeftSidebar() {
 
   const { deleteWorktree } = useGitApi();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   // Use stable selectors to avoid infinite loops
   const worktreesCount = useAppStore(
@@ -112,10 +108,48 @@ export function WorkspaceLeftSidebar() {
   const worktrees = useAppStore((state) => state.worktrees);
   const getWorktreesByRepo = useAppStore((state) => state.getWorktreesByRepo);
   const getRepository = useAppStore((state) => state.getRepositoryById);
+  const getWorktreeById = useAppStore((state) => state.getWorktreeById);
 
-  // Get repositories that have worktrees, grouped by repository
-  const repositoriesWithWorktrees = useMemo(() => {
-    if (worktreesCount === 0) return [];
+  // Find current worktree and repository
+  const currentWorkspaceName = `${project}/${workspace}`;
+  const currentWorktree = useMemo(() => {
+    const worktreesList = useAppStore.getState().getWorktreesList();
+    return worktreesList.find((w) => w.name === currentWorkspaceName);
+  }, [currentWorkspaceName, worktrees]);
+
+  // Get current repository and its worktrees
+  const currentRepository = useMemo(() => {
+    if (!currentWorktree) return null;
+    return getRepository(currentWorktree.repo_id);
+  }, [currentWorktree, getRepository]);
+
+  const repositoryWorktrees = useMemo(() => {
+    if (!currentRepository) return [];
+    const worktrees = getWorktreesByRepo(currentRepository.id);
+    // Sort worktrees by created_at (descending), fallback to last_accessed (descending)
+    return worktrees.sort((a, b) => {
+      // Primary sort: created_at (descending - most recent first)
+      const aCreated = new Date(a.created_at).getTime();
+      const bCreated = new Date(b.created_at).getTime();
+      if (aCreated !== bCreated) {
+        return bCreated - aCreated;
+      }
+
+      // Secondary sort: last_accessed (descending - most recent first)
+      const aAccessed = new Date(a.last_accessed).getTime();
+      const bAccessed = new Date(b.last_accessed).getTime();
+      if (aAccessed !== bAccessed) {
+        return bAccessed - aAccessed;
+      }
+
+      // Tertiary sort: name (lexical)
+      return a.name.localeCompare(b.name);
+    });
+  }, [currentRepository, getWorktreesByRepo, worktrees]);
+
+  // For mobile, get all repositories with worktrees
+  const allRepositoriesWithWorktrees = useMemo(() => {
+    if (!isMobile || worktreesCount === 0) return [];
 
     const worktreesList = useAppStore.getState().getWorktreesList();
     const repoIds = new Set(worktreesList.map((w) => w.repo_id));
@@ -124,63 +158,34 @@ export function WorkspaceLeftSidebar() {
       .map((repoId) => {
         const repo = getRepository(repoId);
         const worktrees = getWorktreesByRepo(repoId);
-        // Sort worktrees by created_at (descending), fallback to last_accessed (descending), then name
         const sortedWorktrees = worktrees.sort((a, b) => {
-          // Primary sort: created_at (descending - most recent first)
           const aCreated = new Date(a.created_at).getTime();
           const bCreated = new Date(b.created_at).getTime();
           if (aCreated !== bCreated) {
             return bCreated - aCreated;
           }
-
-          // Secondary sort: last_accessed (descending - most recent first)
           const aAccessed = new Date(a.last_accessed).getTime();
           const bAccessed = new Date(b.last_accessed).getTime();
           if (aAccessed !== bAccessed) {
             return bAccessed - aAccessed;
           }
-
-          // Tertiary sort: name (lexical)
           return a.name.localeCompare(b.name);
         });
         return repo ? { ...repo, worktrees: sortedWorktrees } : null;
       })
       .filter((repo): repo is NonNullable<typeof repo> => repo !== null)
       .sort((a, b) => {
-        // Sort repositories by name in lexical order
         const nameA = a.name || a.id;
         const nameB = b.name || b.id;
         return nameA.localeCompare(nameB);
       });
-  }, [worktreesCount, worktrees, getWorktreesByRepo, getRepository]);
+  }, [isMobile, worktreesCount, worktrees, getWorktreesByRepo, getRepository]);
 
-  // Find current worktree to get its repo_id for expanded state
-  const currentWorkspaceName = `${project}/${workspace}`;
-
-  const [expandedRepos, setExpandedRepos] = useState<Set<string>>(new Set());
   const [selectedRepoForNewWorkspace, setSelectedRepoForNewWorkspace] =
     useState<{
       url: string;
       branch: string;
     } | null>(null);
-
-  // Keep only available repositories expanded by default
-  useEffect(() => {
-    const availableRepos = repositoriesWithWorktrees
-      .filter((repo) => repo.available !== false)
-      .map((repo) => repo.id);
-    setExpandedRepos(new Set(availableRepos));
-  }, [repositoriesWithWorktrees]);
-
-  const toggleRepo = (repoIdToToggle: string) => {
-    const newExpanded = new Set(expandedRepos);
-    if (newExpanded.has(repoIdToToggle)) {
-      newExpanded.delete(repoIdToToggle);
-    } else {
-      newExpanded.add(repoIdToToggle);
-    }
-    setExpandedRepos(newExpanded);
-  };
 
   const getWorktreeStatus = (worktree: Worktree) => {
     // Use the claude_activity_state to determine the status
@@ -195,19 +200,44 @@ export function WorkspaceLeftSidebar() {
     }
   };
 
-  const handleAddWorkspace = (repo: any) => {
-    let repoUrl = repo.url || repo.id;
+  const handleAddWorkspace = () => {
+    if (!currentRepository) return;
+    
+    let repoUrl = currentRepository.url || currentRepository.id;
 
     // Convert file:// URLs to local/ format for the modal
     if (repoUrl.startsWith("file://")) {
-      repoUrl = repo.id; // Use the repo.id which should be in local/... format
+      repoUrl = currentRepository.id; // Use the repo.id which should be in local/... format
     }
 
     setSelectedRepoForNewWorkspace({
       url: repoUrl,
-      branch: repo.default_branch || "main",
+      branch: currentRepository.default_branch || "main",
     });
     setNewWorkspaceDialogOpen(true);
+  };
+
+  const getTimeAgo = (worktree: Worktree) => {
+    const lastActivity = worktree.last_accessed || worktree.created_at;
+    if (!lastActivity) return null;
+    return formatDistanceToNow(new Date(lastActivity), { addSuffix: true });
+  };
+
+  // Generate a workspace title (can be customized later)
+  const getWorkspaceTitle = (worktree: Worktree) => {
+    // For now, use the workspace name, but this could be enhanced
+    // to show PR titles, commit messages, or custom descriptions
+    const workspaceName = worktree.name.split("/")[1] || worktree.name;
+    
+    // If there's a PR, include that in the title
+    if (worktree.pull_request_url) {
+      const prNumber = worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1];
+      if (prNumber) {
+        return `PR #${prNumber} - ${workspaceName}`;
+      }
+    }
+    
+    return workspaceName;
   };
 
   const handleDeleteWorkspaces = () => {
@@ -281,9 +311,127 @@ export function WorkspaceLeftSidebar() {
     }
   };
 
+  // For mobile, render the old multi-repository view
+  if (isMobile) {
+    return (
+      <>
+        <Sidebar className="border-r-0">
+          <SidebarHeader className="relative">
+            <div className="absolute top-2 right-2 z-10 mt-0 -mr-1">
+              <SidebarTrigger className="h-6 w-6" />
+            </div>
+            <div className="flex items-center gap-2">
+              <img src="/logo@2x.png" alt="Catnip" className="w-9 h-9" />
+            </div>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>All Workspaces</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {allRepositoriesWithWorktrees.map((repo) => {
+                    const worktrees = repo.worktrees;
+                    const isAvailable = repo.available !== false;
+                    const projectName =
+                      worktrees.length > 0
+                        ? worktrees[0].name.split("/")[0]
+                        : repo.name;
+
+                    return worktrees.map((worktree: Worktree) => {
+                      const isActive = worktree.name === currentWorkspaceName;
+                      const nameParts = worktree.name.split("/");
+                      const status = getWorktreeStatus(worktree);
+                      
+                      return (
+                        <SidebarMenuItem key={worktree.id}>
+                          <SidebarMenuButton
+                            asChild={isAvailable}
+                            isActive={isActive}
+                            className={!isAvailable ? "opacity-50" : ""}
+                          >
+                            {isAvailable ? (
+                              <Link
+                                to="/workspace/$project/$workspace"
+                                params={{
+                                  project: nameParts[0],
+                                  workspace: nameParts[1],
+                                }}
+                                className="flex items-center gap-2"
+                              >
+                                <div
+                                  className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
+                                  title={status.label}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium truncate">
+                                    {getWorkspaceTitle(worktree)}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <GitBranch className="h-3 w-3" />
+                                    <span className="truncate">{worktree.branch}</span>
+                                  </div>
+                                </div>
+                              </Link>
+                            ) : (
+                              <span className="flex items-center gap-2">
+                                <div
+                                  className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
+                                  title={status.label}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium truncate">
+                                    {getWorkspaceTitle(worktree)}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                    <GitBranch className="h-3 w-3" />
+                                    <span className="truncate">{worktree.branch}</span>
+                                  </div>
+                                </div>
+                              </span>
+                            )}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    });
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+          <div className="mt-auto p-2">
+            <SidebarMenuButton
+              onClick={() => setSettingsOpen(true)}
+              className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+            >
+              <Settings className="h-4 w-4" />
+              <span>Settings</span>
+            </SidebarMenuButton>
+          </div>
+          <SidebarRail />
+        </Sidebar>
+        <NewWorkspaceDialog
+          open={newWorkspaceDialogOpen}
+          onOpenChange={(open) => {
+            setNewWorkspaceDialogOpen(open);
+            if (!open) {
+              setSelectedRepoForNewWorkspace(null);
+            }
+          }}
+          initialRepoUrl={selectedRepoForNewWorkspace?.url}
+          initialBranch={selectedRepoForNewWorkspace?.branch}
+        />
+        <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      </>
+    );
+  }
+
+  // Desktop view - single repository
+  const projectName = currentWorktree ? currentWorktree.name.split("/")[0] : "";
+  const isAvailable = currentRepository?.available !== false;
+
   return (
     <>
-      <Sidebar className="border-r-0">
+      <Sidebar className="border-r-0 w-80">
         <SidebarHeader className="relative">
           <div className="absolute top-2 right-2 z-10 mt-0 -mr-1">
             <SidebarTrigger className="h-6 w-6" />
@@ -293,288 +441,229 @@ export function WorkspaceLeftSidebar() {
           </div>
         </SidebarHeader>
         <SidebarContent>
+          {/* Back to repositories button */}
+          <div className="px-3 pb-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+              onClick={() => navigate({ to: "/workspace" })}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Repositories</span>
+            </Button>
+          </div>
+          
           <SidebarGroup>
-            <SidebarGroupLabel>Workspaces</SidebarGroupLabel>
+            <SidebarGroupLabel className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Folder className="h-4 w-4" />
+                <span>{projectName}</span>
+              </div>
+              {isAvailable && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0"
+                  onClick={handleAddWorkspace}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              )}
+            </SidebarGroupLabel>
             <SidebarGroupContent>
+              {!isAvailable && (
+                <div className="px-3 py-2 mb-2">
+                  <div className="bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-900 rounded-lg p-2">
+                    <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                      Repository not available. Run{" "}
+                      <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900/50 rounded text-xs font-mono">
+                        catnip run
+                      </code>{" "}
+                      from the git repo.
+                    </p>
+                  </div>
+                </div>
+              )}
               <SidebarMenu>
-                {repositoriesWithWorktrees.map((repo) => {
-                  const worktrees = repo.worktrees;
-                  const isExpanded = expandedRepos.has(repo.id);
-                  const isAvailable = repo.available !== false; // Default to true if not specified
-
-                  // Get project name from the first worktree
-                  const projectName =
-                    worktrees.length > 0
-                      ? worktrees[0].name.split("/")[0]
-                      : repo.name;
-
+                {repositoryWorktrees.map((worktree: Worktree) => {
+                  const isActive = worktree.name === currentWorkspaceName;
+                  const nameParts = worktree.name.split("/");
+                  const status = getWorktreeStatus(worktree);
+                  const timeAgo = getTimeAgo(worktree);
+                  const title = getWorkspaceTitle(worktree);
+                  
                   return (
-                    <Collapsible
-                      key={repo.id}
-                      open={isExpanded}
-                      onOpenChange={() => toggleRepo(repo.id)}
-                    >
-                      <SidebarMenuItem>
-                        <div className="flex items-center w-full">
-                          <SidebarMenuButton
-                            onClick={() => toggleRepo(repo.id)}
-                            className={`flex-1 ${!isAvailable ? "opacity-50" : ""}`}
+                    <SidebarMenuItem key={worktree.id}>
+                      <SidebarMenuButton
+                        asChild={isAvailable}
+                        isActive={isActive}
+                        className={`h-auto py-3 ${!isAvailable ? "opacity-50 cursor-not-allowed" : ""}`}
+                        onClick={
+                          !isAvailable
+                            ? (e) => {
+                                e.preventDefault();
+                                setUnavailableRepoAlert({
+                                  open: true,
+                                  repoName: projectName,
+                                  repoId: currentRepository?.id || "",
+                                  worktrees: repositoryWorktrees,
+                                });
+                              }
+                            : undefined
+                        }
+                      >
+                        {isAvailable ? (
+                          <Link
+                            to="/workspace/$project/$workspace"
+                            params={{
+                              project: nameParts[0],
+                              workspace: nameParts[1],
+                            }}
+                            className="flex items-start gap-3 w-full"
                           >
-                            <Folder className="h-4 w-4" />
-                            <span className="truncate">{projectName}</span>
-                          </SidebarMenuButton>
-                          <CollapsibleTrigger asChild>
-                            <SidebarMenuAction className="data-[state=open]:rotate-90">
-                              <ChevronRight />
-                            </SidebarMenuAction>
-                          </CollapsibleTrigger>
-                          {isAvailable ? (
-                            <SidebarMenuAction
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddWorkspace(repo);
-                              }}
-                              className="hover:bg-accent mr-5"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </SidebarMenuAction>
-                          ) : (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <SidebarMenuAction
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setUnavailableRepoAlert({
-                                      open: true,
-                                      repoName: projectName,
-                                      repoId: repo.id,
-                                      worktrees: worktrees,
-                                    });
-                                  }}
-                                  className="mr-5 text-yellow-500 hover:bg-accent cursor-pointer"
+                            <div
+                              className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0 mt-1.5`}
+                              title={status.label}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-2 mb-0.5">
+                                <span
+                                  className={`font-medium truncate ${
+                                    worktree.pull_request_state === "CLOSED" ||
+                                    worktree.pull_request_state === "MERGED"
+                                      ? "line-through opacity-60"
+                                      : ""
+                                  }`}
                                 >
-                                  <AlertTriangle className="h-4 w-4" />
-                                </SidebarMenuAction>
-                              </TooltipTrigger>
-                              <TooltipContent
-                                side="left"
-                                className="max-w-xs space-y-1"
-                              >
-                                <div className="text-sm">
-                                  Repo {projectName} isn't available in the
-                                  container.
-                                </div>
-                                <div className="text-sm">
-                                  Run{" "}
-                                  <code className="inline-block bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded text-xs font-mono">
-                                    catnip run
-                                  </code>{" "}
-                                  from the git repo on your host to make it
-                                  available.
-                                </div>
-                                <div className="text-sm text-muted-foreground">
-                                  Click to open options
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </div>
-                        <CollapsibleContent>
-                          <SidebarMenuSub className="mx-0 mr-0">
-                            {worktrees.map((worktree: Worktree) => {
-                              const isActive =
-                                worktree.name === currentWorkspaceName;
-                              const nameParts = worktree.name.split("/");
-                              const status = getWorktreeStatus(worktree);
-                              return (
-                                <SidebarMenuSubItem key={worktree.id}>
-                                  <SidebarMenuSubButton
-                                    asChild={isAvailable}
-                                    isActive={isActive}
-                                    className={
-                                      !isAvailable
-                                        ? "opacity-50 cursor-not-allowed"
-                                        : ""
-                                    }
-                                    onClick={
-                                      !isAvailable
-                                        ? (e) => {
-                                            e.preventDefault();
-                                            setUnavailableRepoAlert({
-                                              open: true,
-                                              repoName: projectName,
-                                              repoId: repo.id,
-                                              worktrees: worktrees,
-                                            });
-                                          }
-                                        : undefined
-                                    }
+                                  {title}
+                                </span>
+                                <Popover
+                                  open={hoveredWorkspace === worktree.id}
+                                  onOpenChange={() => {}}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onMouseEnter={() => setHoveredWorkspace(worktree.id)}
+                                      onMouseLeave={() => setHoveredWorkspace(null)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent
+                                    side="bottom"
+                                    align="end"
+                                    className="w-64 p-3"
+                                    onMouseEnter={() => setHoveredWorkspace(worktree.id)}
+                                    onMouseLeave={() => setHoveredWorkspace(null)}
                                   >
-                                    {isAvailable ? (
-                                      <Link
-                                        to="/workspace/$project/$workspace"
-                                        params={{
-                                          project: nameParts[0],
-                                          workspace: nameParts[1],
+                                    <div className="space-y-3">
+                                      <div>
+                                        <div className="text-sm font-medium mb-1">Delete workspace?</div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {worktree.name}
+                                        </div>
+                                      </div>
+                                      <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        className="w-full"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          e.preventDefault();
+                                          handleSingleWorkspaceDelete(worktree);
                                         }}
-                                        className="flex items-center gap-1.5 pr-2"
                                       >
-                                        <div
-                                          className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
-                                          title={status.label}
-                                        />
-                                        <span
-                                          className={`truncate ${
-                                            worktree.pull_request_state ===
-                                              "CLOSED" ||
-                                            worktree.pull_request_state ===
-                                              "MERGED"
-                                              ? "line-through opacity-60"
-                                              : ""
-                                          }`}
-                                        >
-                                          {worktree.name.split("/")[1] ||
-                                            worktree.name}
-                                        </span>
-                                        {worktree.branch && (
-                                          <Popover
-                                            open={
-                                              hoveredWorkspace === worktree.id
-                                            }
-                                            onOpenChange={() => {}}
-                                          >
-                                            <PopoverTrigger asChild>
-                                              <div
-                                                className="ml-auto flex items-center gap-0.5 cursor-pointer hover:bg-accent rounded px-1"
-                                                onMouseEnter={() =>
-                                                  setHoveredWorkspace(
-                                                    worktree.id,
-                                                  )
-                                                }
-                                                onMouseLeave={() =>
-                                                  setHoveredWorkspace(null)
-                                                }
-                                              >
-                                                <GitBranch className="h-3 w-3 text-muted-foreground/70" />
-                                                <span className="text-xs text-muted-foreground truncate max-w-24">
-                                                  {worktree.branch}
-                                                </span>
-                                              </div>
-                                            </PopoverTrigger>
-                                            <PopoverContent
-                                              side="bottom"
-                                              align="start"
-                                              className="w-auto p-3"
-                                              onMouseEnter={() =>
-                                                setHoveredWorkspace(worktree.id)
-                                              }
-                                              onMouseLeave={() =>
-                                                setHoveredWorkspace(null)
-                                              }
-                                            >
-                                              <div className="flex items-center justify-between gap-3">
-                                                <div>
-                                                  <div className="text-sm font-medium">
-                                                    {worktree.branch}
-                                                  </div>
-                                                  <div className="text-xs text-muted-foreground flex items-center gap-2">
-                                                    <span>{worktree.name}</span>
-                                                    {worktree.pull_request_url && (
-                                                      <a
-                                                        href={
-                                                          worktree.pull_request_url
-                                                        }
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className={`flex items-center gap-1 text-xs text-blue-500 hover:text-blue-600 transition-colors ${
-                                                          worktree.pull_request_state ===
-                                                            "CLOSED" ||
-                                                          worktree.pull_request_state ===
-                                                            "MERGED"
-                                                            ? "line-through opacity-60"
-                                                            : ""
-                                                        }`}
-                                                        title="Open pull request"
-                                                        onClick={(e) =>
-                                                          e.stopPropagation()
-                                                        }
-                                                      >
-                                                        <span>
-                                                          PR{" "}
-                                                          {worktree.pull_request_url.match(
-                                                            /\/pull\/(\d+)/,
-                                                          )?.[1] || "?"}
-                                                        </span>
-                                                        <ExternalLink className="h-2 w-2" />
-                                                      </a>
-                                                    )}
-                                                  </div>
-                                                </div>
-                                                <Button
-                                                  variant="ghost"
-                                                  size="sm"
-                                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleSingleWorkspaceDelete(
-                                                      worktree,
-                                                    );
-                                                  }}
-                                                  title="Delete workspace"
-                                                >
-                                                  <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                              </div>
-                                            </PopoverContent>
-                                          </Popover>
-                                        )}
-                                      </Link>
-                                    ) : (
-                                      <span className="flex items-center gap-1.5 pr-2">
-                                        <div
-                                          className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
-                                          title={status.label}
-                                        />
-                                        <span
-                                          className={`truncate ${
-                                            worktree.pull_request_state ===
-                                              "CLOSED" ||
-                                            worktree.pull_request_state ===
-                                              "MERGED"
-                                              ? "line-through opacity-60"
-                                              : ""
-                                          }`}
-                                        >
-                                          {worktree.name.split("/")[1] ||
-                                            worktree.name}
-                                        </span>
-                                        {worktree.branch && (
-                                          <span className="ml-auto flex items-center gap-0.5">
-                                            <GitBranch className="h-3 w-3 text-muted-foreground/70" />
-                                            <span className="text-xs text-muted-foreground truncate max-w-24">
-                                              {worktree.branch}
-                                            </span>
-                                          </span>
-                                        )}
+                                        Delete Workspace
+                                      </Button>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <div className="flex items-center gap-1">
+                                  <GitBranch className="h-3 w-3" />
+                                  <span className="truncate">{worktree.branch}</span>
+                                </div>
+                                {timeAgo && (
+                                  <>
+                                    <span className="text-muted-foreground/50">·</span>
+                                    <span>{timeAgo}</span>
+                                  </>
+                                )}
+                                {worktree.pull_request_url && (
+                                  <>
+                                    <span className="text-muted-foreground/50">·</span>
+                                    <a
+                                      href={worktree.pull_request_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={`flex items-center gap-0.5 text-blue-500 hover:text-blue-600 transition-colors ${
+                                        worktree.pull_request_state === "CLOSED" ||
+                                        worktree.pull_request_state === "MERGED"
+                                          ? "line-through opacity-60"
+                                          : ""
+                                      }`}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <span>
+                                        PR #{worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"}
                                       </span>
-                                    )}
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              );
-                            })}
-                          </SidebarMenuSub>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible>
+                                      <ExternalLink className="h-2.5 w-2.5" />
+                                    </a>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </Link>
+                        ) : (
+                          <span className="flex items-start gap-3 w-full">
+                            <div
+                              className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0 mt-1.5`}
+                              title={status.label}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div
+                                className={`font-medium truncate mb-0.5 ${
+                                  worktree.pull_request_state === "CLOSED" ||
+                                  worktree.pull_request_state === "MERGED"
+                                    ? "line-through opacity-60"
+                                    : ""
+                                }`}
+                              >
+                                {title}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <div className="flex items-center gap-1">
+                                  <GitBranch className="h-3 w-3" />
+                                  <span className="truncate">{worktree.branch}</span>
+                                </div>
+                                {timeAgo && (
+                                  <>
+                                    <span className="text-muted-foreground/50">·</span>
+                                    <span>{timeAgo}</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </span>
+                        )}
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                   );
                 })}
               </SidebarMenu>
-              {/* Global New Workspace Button */}
+              
+              {/* New Workspace Button */}
               <SidebarMenu className="mt-3">
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    onClick={() => setNewWorkspaceDialogOpen(true)}
+                    onClick={handleAddWorkspace}
                     className="flex items-center gap-2 text-muted-foreground hover:text-foreground text-xs"
+                    disabled={!isAvailable}
                   >
                     <Plus className="h-4 w-4 flex-shrink-0" />
                     <span className="truncate">New workspace</span>
