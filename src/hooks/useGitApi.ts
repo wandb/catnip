@@ -162,6 +162,7 @@ export function useGitApi() {
     repo: string,
     branch: string = "main",
   ): Promise<{ success: boolean; worktreeName?: string }> => {
+    console.log("checkoutRepository called with:", { org, repo, branch });
     setCheckoutLoading(true);
     try {
       // Build URL with optional branch query parameter
@@ -172,6 +173,7 @@ export function useGitApi() {
       if (branch && branch !== "main") {
         url.searchParams.set("branch", branch);
       }
+      console.log("Making request to:", url.toString());
 
       const response = await fetch(url.toString(), {
         method: "POST",
