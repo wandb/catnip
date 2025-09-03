@@ -673,7 +673,7 @@ function GitPage() {
                                 const repoName = repo.id.includes("/")
                                   ? repo.id.split("/").pop()
                                   : repo.id;
-                                const cloneCommand = `git clone localhost:8080/${repoName}.git`;
+                                const cloneCommand = `git clone localhost:6369/${repoName}.git`;
                                 void navigator.clipboard.writeText(
                                   cloneCommand,
                                 );

@@ -31,7 +31,7 @@ In the Catnip environment, it automatically uses the `PORT` environment variable
 
 ```bash
 # Uses PORT from environment (e.g., in Catnip container)
-PORT=8080 pnpm run dev:mock  # Vite on 8080, mock server on 8081
+PORT=6369 pnpm run dev:mock  # Vite on 8080, mock server on 8081
 ```
 
 ### Run Separately

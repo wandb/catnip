@@ -356,7 +356,7 @@ func StartContainerCmd(m *Model) tea.Cmd {
 		// Use custom ports if provided, otherwise use default
 		ports := customPorts
 		if len(ports) == 0 {
-			ports = []string{"8080:8080"}
+			ports = []string{"6369:6369"}
 		}
 
 		// Check for existing containers and validate compatibility

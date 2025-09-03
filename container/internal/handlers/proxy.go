@@ -13,8 +13,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vanpelt/catnip/internal/logger"
 	"time"
+
+	"github.com/vanpelt/catnip/internal/logger"
 
 	"golang.org/x/net/html"
 
@@ -138,7 +139,7 @@ func rewriteLocalhostPort(val string, basePath string) string {
 	port := u.Port()
 
 	// Skip if it's already our proxy port (8080)
-	if port == "8080" {
+	if port == "6369" {
 		return val
 	}
 

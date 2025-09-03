@@ -335,16 +335,9 @@ RUN git config --global user.name "catnip" && \
 # Switch back to root for final setup
 USER root
 
-# Copy Claude hooks scripts and set them up for the catnip user
-COPY container/scripts/claude-hooks.sh container/scripts/setup-claude-hooks.sh /tmp/claude-scripts/
+# Set up Claude hooks using embedded catnip functionality
 RUN mkdir -p /home/catnip/.claude && \
-    cp /tmp/claude-scripts/claude-hooks.sh /home/catnip/.claude/catnip-activity-hook.sh && \
-    chmod +x /home/catnip/.claude/catnip-activity-hook.sh && \
-    chown -R catnip:catnip /home/catnip/.claude && \
-    # Create initial Claude settings.json with hooks configured
-    echo '{"hooks":{"UserPromptSubmit":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}],"PostToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}],"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"/home/catnip/.claude/catnip-activity-hook.sh"}]}]}}' > /home/catnip/.claude/settings.json && \
-    chown catnip:catnip /home/catnip/.claude/settings.json && \
-    rm -rf /tmp/claude-scripts
+    chown -R catnip:catnip /home/catnip/.claude
 
 # Copy and set up entrypoint script
 COPY container/setup/entrypoint.sh /entrypoint.sh
@@ -355,12 +348,13 @@ RUN chmod +x /entrypoint.sh && \
 
 # Copy the catnip binary from builder stage
 COPY --from=builder /build/catnip ${CATNIP_ROOT}/bin/catnip
-RUN chmod +x ${CATNIP_ROOT}/bin/catnip
+RUN chmod +x ${CATNIP_ROOT}/bin/catnip && \
+    gosu 1000:1000 ${CATNIP_ROOT}/bin/catnip install-hooks --verbose
 
 # Set working directory
 WORKDIR /workspace
 
 # Default command
-EXPOSE 8080
+EXPOSE 6369
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["catnip", "serve"]

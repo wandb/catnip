@@ -484,7 +484,7 @@ func (m Model) renderPortSelector() string {
 
 	// Add detected ports
 	for _, port := range m.ports {
-		if port.Port != "8080" {
+		if port.Port != "6369" {
 			title := port.Title
 			if title == "" {
 				title = fmt.Sprintf("Port %s", port.Port)

@@ -459,7 +459,7 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 
 				// Generate workspace URL - remove workspace prefix if present
 				workspacePath := strings.TrimPrefix(workspaceDir, config.Runtime.WorkspaceDir)
-				workspaceURL := fmt.Sprintf("http://localhost:8080/workspace%s", workspacePath)
+				workspaceURL := fmt.Sprintf("http://localhost:6369/workspace%s", workspacePath)
 
 				h.eventsHandler.broadcastEvent(AppEvent{
 					Type: NotificationEvent,

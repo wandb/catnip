@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useAppStore } from "@/stores/appStore";
 import { useGitApi } from "@/hooks/useGitApi";
@@ -14,6 +14,9 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 function WorkspacePage() {
   const { project, workspace } = useParams({
+    from: "/workspace/$project/$workspace",
+  });
+  const search = useSearch({
     from: "/workspace/$project/$workspace",
   });
 
@@ -108,6 +111,7 @@ function WorkspacePage() {
                             project: parts[0],
                             workspace: parts[1],
                           }}
+                          search={{ prompt: undefined }}
                           className="text-blue-400 hover:text-blue-300"
                         >
                           {wt.name}
@@ -124,7 +128,13 @@ function WorkspacePage() {
   }
 
   if (isMobile) {
-    return <WorkspaceMobile worktree={worktree} repository={repository} />;
+    return (
+      <WorkspaceMobile
+        worktree={worktree}
+        repository={repository}
+        initialPrompt={search.prompt}
+      />
+    );
   }
 
   // Render the full workspace layout with sidebars and main content
@@ -161,4 +171,9 @@ function WorkspacePage() {
 
 export const Route = createFileRoute("/workspace/$project/$workspace")({
   component: WorkspacePage,
+  validateSearch: (search: Record<string, unknown>) => {
+    return {
+      prompt: search.prompt as string | undefined,
+    };
+  },
 });

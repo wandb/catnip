@@ -607,9 +607,9 @@ func (cs *ContainerService) GetContainerPorts(ctx context.Context, containerName
 	}
 
 	// Try to fetch ports from the container's API
-	// This assumes the container is running our catnip server on port 8080
+	// This assumes the container is running our catnip server on port 6369
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://localhost:8080/v1/ports")
+	resp, err := client.Get("http://localhost:6369/v1/ports")
 	if err != nil {
 		// If we can't reach the API, fall back to empty list
 		return []string{}, nil

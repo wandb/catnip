@@ -112,7 +112,7 @@ func (ghs *GitHTTPService) handleGitHTTP(c *fiber.Ctx) error {
 		"GATEWAY_INTERFACE=CGI/1.1",
 		"SERVER_PROTOCOL=HTTP/1.1",
 		fmt.Sprintf("SERVER_NAME=%s", c.Hostname()),
-		"SERVER_PORT=8080",
+		"SERVER_PORT=6369",
 		fmt.Sprintf("REMOTE_ADDR=%s", c.IP()),
 		"HOME="+config.Runtime.HomeDir,
 	)

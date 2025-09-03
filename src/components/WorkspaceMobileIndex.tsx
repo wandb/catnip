@@ -98,6 +98,7 @@ function WorkspaceCard({
             <Link
               to="/workspace/$project/$workspace"
               params={{ project, workspace }}
+              search={{ prompt: undefined }}
             >
               {hasSession ? "Continue" : "Open"}
             </Link>
@@ -220,11 +221,17 @@ export function WorkspaceMobileIndex() {
 
   const worktrees = getWorktreesList();
 
-  // Filter to only show available workspaces
-  const availableWorktrees = worktrees.filter((worktree) => {
-    const repository = getRepositoryById(worktree.repo_id);
-    return repository && repository.available;
-  });
+  // Filter to only show available workspaces and sort by last_accessed
+  const availableWorktrees = worktrees
+    .filter((worktree) => {
+      const repository = getRepositoryById(worktree.repo_id);
+      return repository && repository.available;
+    })
+    .sort((a, b) => {
+      const aAccessed = new Date(a.last_accessed || a.created_at).getTime();
+      const bAccessed = new Date(b.last_accessed || b.created_at).getTime();
+      return bAccessed - aAccessed; // Most recent first
+    });
 
   return (
     <div className="min-h-screen bg-background">

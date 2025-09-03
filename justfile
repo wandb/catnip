@@ -119,8 +119,8 @@ run:
 run-dev: build-dev
     @echo "🚀 Starting catnip full-stack development environment..."
     @echo "   📱 Frontend: http://localhost:5173"
-    @echo "   🔧 Backend:  http://localhost:8080"
-    @echo "   📚 API Docs: http://localhost:8080/swagger/"
+    @echo "   🔧 Backend:  http://localhost:6369"
+    @echo "   📚 API Docs: http://localhost:6369/swagger/"
     @echo "   Press Ctrl+C to stop both servers"
     docker run -it --rm \
         --name catnip-dev \
@@ -132,7 +132,7 @@ run-dev: build-dev
         -e CATNIP_SESSION=catnip \
         -e CATNIP_USERNAME=$USER \
         -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
-        -p 8080:8080 \
+        -p 6369:6369 \
         -p 5173:5173 \
         catnip-dev:dev
 

@@ -45,16 +45,20 @@ export function TodoDisplay({ todos }: TodoDisplayProps) {
         {todos.length} todo{todos.length !== 1 ? "s" : ""}
       </div>
 
-      {todos.map((todo) => {
+      {todos.map((todo, index) => {
         const StatusIcon = STATUS_ICONS[todo.status];
         const statusColor = STATUS_COLORS[todo.status];
         const priorityColor = todo.priority
           ? PRIORITY_COLORS[todo.priority]
           : PRIORITY_COLORS.low;
 
+        // Use a combination of id, index, and content to ensure unique keys
+        const uniqueKey =
+          todo.id || `todo-${index}-${todo.content.slice(0, 20)}`;
+
         return (
           <div
-            key={todo.id}
+            key={uniqueKey}
             className={cn(
               "flex items-start gap-2 p-2 rounded border text-xs",
               todo.status === "completed" && "opacity-75",
@@ -87,9 +91,11 @@ export function TodoDisplay({ todos }: TodoDisplayProps) {
                   {todo.status.replace("_", " ")}
                 </Badge>
 
-                <span className="text-xs text-muted-foreground font-mono">
-                  #{todo.id}
-                </span>
+                {todo.id && (
+                  <span className="text-xs text-muted-foreground font-mono">
+                    #{todo.id}
+                  </span>
+                )}
               </div>
             </div>
           </div>

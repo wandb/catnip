@@ -57,7 +57,7 @@ export function NewWorkspace({ onClose, onSubmit }: NewWorkspaceProps) {
     void fetchGithubRepos();
   }, []);
 
-  // Find the repository with the most workspaces and get its default branch
+  // Find the repository of the most recently updated workspace
   useEffect(() => {
     console.log(
       "useEffect running, availableRepositories.length:",
@@ -68,31 +68,33 @@ export function NewWorkspace({ onClose, onSubmit }: NewWorkspaceProps) {
       return;
     }
 
-    // Count workspaces per repository
-    const worktrees = getWorktreesList();
-    const repoWorkspaceCount: Record<string, number> = {};
+    // Get workspaces sorted by most recent access/creation
+    const worktrees = getWorktreesList()
+      .filter((worktree) => {
+        const repository = getRepositoryById(worktree.repo_id);
+        return repository && repository.available;
+      })
+      .sort((a, b) => {
+        const aAccessed = new Date(a.last_accessed || a.created_at).getTime();
+        const bAccessed = new Date(b.last_accessed || b.created_at).getTime();
+        return bAccessed - aAccessed; // Most recent first
+      });
 
-    worktrees.forEach((worktree) => {
-      repoWorkspaceCount[worktree.repo_id] =
-        (repoWorkspaceCount[worktree.repo_id] || 0) + 1;
-    });
+    // Get the repository of the most recently updated workspace, or first available repo if no workspaces
+    let defaultRepo = availableRepositories[0];
 
-    // Find repo with most workspaces, or first available repo if none have workspaces
-    let mostUsedRepo = availableRepositories[0];
-    let maxCount = 0;
-
-    for (const repo of availableRepositories) {
-      const count = repoWorkspaceCount[repo.id] || 0;
-      if (count > maxCount) {
-        maxCount = count;
-        mostUsedRepo = repo;
+    if (worktrees.length > 0) {
+      const mostRecentWorktree = worktrees[0];
+      const mostRecentRepo = getRepositoryById(mostRecentWorktree.repo_id);
+      if (mostRecentRepo && mostRecentRepo.available) {
+        defaultRepo = mostRecentRepo;
       }
     }
 
-    setSelectedRepo(mostUsedRepo.id);
+    setSelectedRepo(defaultRepo.id);
 
     // Set default branch (prefer "main", then "master", then first available)
-    const defaultBranch = mostUsedRepo.default_branch || "main";
+    const defaultBranch = defaultRepo.default_branch || "main";
     setSelectedBranch(defaultBranch);
 
     // For now, we'll mock some common branches - in a real implementation,
@@ -103,7 +105,7 @@ export function NewWorkspace({ onClose, onSubmit }: NewWorkspaceProps) {
 
     console.log(
       "Selected repo:",
-      mostUsedRepo.id,
+      defaultRepo.id,
       "Selected branch:",
       defaultBranch,
     );

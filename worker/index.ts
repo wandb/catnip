@@ -8,7 +8,7 @@ import { Webhooks } from "@octokit/webhooks";
 
 // Durable Object for container management
 export class CatnipContainer extends Container {
-  defaultPort = 8080;
+  defaultPort = 6369;
   sleepAfter = "10m";
   environmentVariables = {
     CATNIP_PROXY: "https://catnip.run",

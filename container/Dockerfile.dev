@@ -23,7 +23,7 @@ ENV CATNIP_DEV=true
 ENV VITE_DEV_SERVER=http://127.0.0.1:5173
 
 # Expose ports for Go server and Vite dev server
-EXPOSE 8080 5173
+EXPOSE 6369 5173
 USER root
 
 # Use development entrypoint

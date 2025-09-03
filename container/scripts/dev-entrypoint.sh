@@ -42,14 +42,14 @@ echo "📦 Installing Go dependencies..."
 go mod download
 
 # Start Go server with Air hot reloading
-echo "⚡ Starting Go server with hot reloading on port 8080..."
+echo "⚡ Starting Go server with hot reloading on port 6369..."
 air &
 GO_PID=$!
 
 echo "✅ Development environment ready!"
 echo "   📱 Frontend: http://localhost:5173 (with HMR hot reloading)"
-echo "   🔧 Backend:  http://localhost:8080 (with Air hot reloading)"
-echo "   📚 API Docs: http://localhost:8080/swagger/"
+echo "   🔧 Backend:  http://localhost:6369 (with Air hot reloading)"
+echo "   📚 API Docs: http://localhost:6369/swagger/"
 echo ""
 echo "🔥 Hot Module Replacement (HMR) enabled:"
 echo "   • Frontend: File polling active for container compatibility"

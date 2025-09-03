@@ -221,6 +221,7 @@ export function NewWorkspaceDialog({
                 project: parts[0],
                 workspace: parts[1],
               },
+              search: { prompt: undefined },
             });
           }
         }

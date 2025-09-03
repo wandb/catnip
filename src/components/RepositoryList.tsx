@@ -83,6 +83,7 @@ export function RepositoryList() {
             project: nameParts[0],
             workspace: nameParts[1],
           },
+          search: { prompt: undefined },
         });
       }
     }

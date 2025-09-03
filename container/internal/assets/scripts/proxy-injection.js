@@ -152,8 +152,8 @@
           try {
             var wsUrl = new URL(url);
 
-            // If we're already on localhost:8080, check if the path needs basePath prefix
-            if (wsUrl.hostname === "localhost" && wsUrl.port === "8080") {
+            // If we're already on localhost:6369, check if the path needs basePath prefix
+            if (wsUrl.hostname === "localhost" && wsUrl.port === "6369") {
               // Only rewrite if path doesn't already start with basePath
               if (
                 wsUrl.pathname.startsWith("/") &&
@@ -181,15 +181,15 @@
                 );
               }
             }
-            // Handle localhost:PORT URLs - rewrite to localhost:8080/PORT
+            // Handle localhost:PORT URLs - rewrite to localhost:6369/PORT
             else if (
               wsUrl.hostname === "localhost" &&
               wsUrl.port &&
-              wsUrl.port !== "8080"
+              wsUrl.port !== "6369"
             ) {
               var originalPort = wsUrl.port;
               wsUrl.hostname = "localhost";
-              wsUrl.port = "8080";
+              wsUrl.port = "6369";
 
               // Check if the path already starts with the port (avoid double-prefixing)
               var portPrefix = "/" + originalPort;
