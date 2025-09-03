@@ -342,15 +342,17 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 		// Send error message to client before closing
 		errorMsg := struct {
-			Type    string `json:"type"`
-			Error   string `json:"error"`
-			Message string `json:"message"`
-			Code    string `json:"code"`
+			Type      string `json:"type"`
+			Error     string `json:"error"`
+			Message   string `json:"message"`
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
 		}{
-			Type:    "error",
-			Error:   "Worktree not found",
-			Message: fmt.Sprintf("The worktree '%s' does not exist", sessionID),
-			Code:    "WORKTREE_NOT_FOUND",
+			Type:      "error",
+			Error:     "Worktree not found",
+			Message:   fmt.Sprintf("The worktree '%s' does not exist", sessionID),
+			Code:      "WORKTREE_NOT_FOUND",
+			Retryable: false, // This error is not retryable - workspace doesn't exist
 		}
 
 		if data, err := json.Marshal(errorMsg); err == nil {
