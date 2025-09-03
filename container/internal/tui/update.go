@@ -486,7 +486,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			// Find the corresponding port (skip index 0 which is main app)
 			portIndex := 0
 			for _, port := range m.ports {
-				if port.Port != "8080" {
+				if port.Port != "6369" {
 					portIndex++
 					if portIndex == m.selectedPortIndex {
 						url = fmt.Sprintf("%s/%s", m.getBaseURL(""), port.Port)
@@ -514,7 +514,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		// Calculate total items: 1 (main app) + filtered ports
 		totalItems := 1 // main app
 		for _, port := range m.ports {
-			if port.Port != "8080" {
+			if port.Port != "6369" {
 				totalItems++
 			}
 		}
@@ -531,7 +531,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 		// Calculate total items: 1 (main app) + filtered ports
 		totalItems := 1 // main app
 		for _, port := range m.ports {
-			if port.Port != "8080" {
+			if port.Port != "6369" {
 				totalItems++
 			}
 		}
@@ -551,7 +551,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 			// Calculate total items: 1 (main app) + filtered ports
 			totalItems := 1 // main app
 			for _, port := range m.ports {
-				if port.Port != "8080" {
+				if port.Port != "6369" {
 					totalItems++
 				}
 			}
@@ -565,7 +565,7 @@ func (m Model) handlePortSelectorKeys(msg tea.KeyMsg) (*Model, tea.Cmd, bool) {
 					// Find the corresponding port (skip index 0 which is main app)
 					portIndex := 0
 					for _, port := range m.ports {
-						if port.Port != "8080" {
+						if port.Port != "6369" {
 							portIndex++
 							if portIndex == index {
 								url = fmt.Sprintf("%s/%s", m.getBaseURL(""), port.Port)

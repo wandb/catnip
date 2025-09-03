@@ -278,7 +278,7 @@ func (m *PortForwardManager) acceptLoop(f *activeForward) {
 func (m *PortForwardManager) findAvailableHostPort(preferred int) int {
 	debugLog("PFM: findAvailableHostPort preferred=%d", preferred)
 	// try preferred first if not standard reserved
-	if preferred > 0 && preferred != 8080 && preferred != 2222 {
+	if preferred > 0 && preferred != 6369 && preferred != 2222 {
 		if isFreePort(preferred) {
 			debugLog("PFM: using preferred host port %d", preferred)
 			return preferred
@@ -288,7 +288,7 @@ func (m *PortForwardManager) findAvailableHostPort(preferred int) int {
 	for _, base := range []int{3000, 4000, 5000, 6000, 7000, 8000, 9000} {
 		for off := 0; off < 1000; off++ {
 			p := base + off
-			if p == 8080 || p == 2222 {
+			if p == 6369 || p == 2222 {
 				continue
 			}
 			if isFreePort(p) {
@@ -298,7 +298,7 @@ func (m *PortForwardManager) findAvailableHostPort(preferred int) int {
 		}
 	}
 	for p := 10000; p < 61000; p++ {
-		if p == 8080 || p == 2222 {
+		if p == 6369 || p == 2222 {
 			continue
 		}
 		if isFreePort(p) {

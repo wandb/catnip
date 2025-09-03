@@ -246,8 +246,8 @@ func runContainer(cmd *cobra.Command, args []string) error {
 
 		// Update ports array to use the new port
 		for i, p := range ports {
-			if strings.HasPrefix(p, "8080:") || p == "8080:8080" {
-				ports[i] = fmt.Sprintf("%s:8080", availablePort)
+			if strings.HasPrefix(p, "6369:") || p == "6369:6369" {
+				ports[i] = fmt.Sprintf("%s:6369", availablePort)
 			}
 		}
 	}
@@ -715,7 +715,7 @@ func validateExistingContainer(ctx context.Context, containerService *services.C
 func checkContainerVersionCompatibility(containerName string) error {
 	// Try to fetch container version via API
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://localhost:8080/v1/info")
+	resp, err := client.Get("http://localhost:6369/v1/info")
 	if err != nil {
 		// Can't reach container API, assume it needs restart
 		return fmt.Errorf("cannot reach container API: %w", err)
@@ -771,11 +771,11 @@ func validateDockerSocket() error {
 		"  - //./pipe/docker_engine (Windows)")
 }
 
-// findAvailablePort finds an available port starting from 8080, then trying 8181, 8282, etc.
+// findAvailablePort finds an available port starting from 6369, then trying 8181, 8282, etc.
 func findAvailablePort(ctx context.Context, containerService *services.ContainerService) (string, error) {
-	basePort := 8080
+	basePort := 6369
 	for i := 0; i < 10; i++ {
-		port := basePort + (i * 101) // 8080, 8181, 8282, 8383, etc.
+		port := basePort + (i * 101)
 		portStr := fmt.Sprintf("%d", port)
 
 		// Check if port is available by trying to listen on it

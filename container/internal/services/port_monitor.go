@@ -233,9 +233,9 @@ func (pm *PortMonitor) parseProcNetTcp() (map[int]*PortWithPID, error) {
 
 			// Filter out ports we don't want to proxy:
 			// - System ports (< 1024)
-			// - Container's own port (8080)
+			// - Container's own port (6369)
 			// - SSH (22), although it should be < 1024 anyway
-			if portInt >= 1024 && portInt != 8080 && portInt != 22 {
+			if portInt >= 1024 && portInt != 6369 && portInt != 22 {
 				// Parse inode from field 9 (0-indexed)
 				inode, err := strconv.Atoi(fields[9])
 				if err != nil {
@@ -310,7 +310,7 @@ func (pm *PortMonitor) parseNetstatPorts() (map[int]*PortWithPID, error) {
 		}
 
 		// Filter out ports we don't want to proxy (same logic as Linux version)
-		if port >= 1024 && port != 8080 && port != 22 {
+		if port >= 1024 && port != 6369 && port != 22 {
 			// For macOS, we'll resolve PID using lsof in a separate step
 			listeningPorts[port] = &PortWithPID{
 				Port: port,

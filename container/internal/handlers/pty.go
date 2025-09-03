@@ -2171,8 +2171,8 @@ func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte
 		if len(match) >= 4 {
 			portStr := match[3] // Port is now in group 3 due to outer capture group
 			if port, err := strconv.Atoi(portStr); err == nil {
-				// Skip port 8080 (our own proxy port)
-				if port != 8080 && port >= 1024 && port <= 65535 {
+				// Skip port 6369 (our own proxy port)
+				if port != 6369 && port >= 1024 && port <= 65535 {
 					// Register the port with the port monitor
 					h.portMonitor.RegisterPortFromTerminalOutput(port, session.WorkDir)
 				}

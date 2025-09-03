@@ -37,8 +37,8 @@ if [[ -z "$HOOK_EVENT_NAME" || -z "$CWD" ]]; then
     exit 0
 fi
 
-# Default to localhost:8080 for the catnip server
-CATNIP_HOST="${CATNIP_HOST:-localhost:8080}"
+# Default to localhost:6369 for the catnip server
+CATNIP_HOST="${CATNIP_HOST:-localhost:6369}"
 
 # Build the JSON payload for catnip
 JSON_PAYLOAD=$(cat <<EOF
