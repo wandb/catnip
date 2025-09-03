@@ -347,6 +347,7 @@ export function WorkspaceLeftSidebar() {
                                   project: nameParts[0],
                                   workspace: nameParts[1],
                                 }}
+                                search={{ prompt: undefined }}
                                 className="flex items-center gap-2"
                               >
                                 <div
@@ -552,6 +553,7 @@ export function WorkspaceLeftSidebar() {
                               project: nameParts[0],
                               workspace: nameParts[1],
                             }}
+                            search={{ prompt: undefined }}
                             className="flex items-start gap-3 w-full"
                           >
                             <div

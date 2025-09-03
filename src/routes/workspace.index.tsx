@@ -18,9 +18,16 @@ function WorkspaceIndex() {
     (state) => state.getWorktreesList().length,
   );
 
-  // Effect to redirect to most recent workspace
+  // Effect to redirect to most recent workspace (desktop) or repos (mobile)
   useEffect(() => {
     if (!initialLoading && !loadError && worktreesCount > 0) {
+      // On mobile, always redirect to repos
+      if (isMobile) {
+        void navigate({ to: "/workspace/repos", replace: true });
+        return;
+      }
+
+      // Desktop behavior: redirect to most recent workspace
       const worktreesList = useAppStore.getState().getWorktreesList();
 
       // Sort by last_accessed (descending) to get most recent
@@ -40,6 +47,7 @@ function WorkspaceIndex() {
               project: nameParts[0],
               workspace: nameParts[1],
             },
+            search: { prompt: undefined },
             replace: true,
           });
           return;
@@ -49,7 +57,7 @@ function WorkspaceIndex() {
       // Fallback to repos if we can't find a valid workspace
       void navigate({ to: "/workspace/repos", replace: true });
     }
-  }, [initialLoading, loadError, worktreesCount, navigate]);
+  }, [initialLoading, loadError, worktreesCount, navigate, isMobile]);
 
   // Show error screen if backend is unavailable
   if (loadError) {
