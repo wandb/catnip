@@ -976,3 +976,42 @@ func (h *GitHandler) CreateGitHubRepository(c *fiber.Ctx) error {
 		Message: "Repository created and origin updated successfully",
 	})
 }
+
+// DeleteRepository removes a repository and all its worktrees
+// @Summary Delete repository
+// @Description Removes a repository and all its associated worktrees from disk and state management
+// @Tags git
+// @Produce json
+// @Param id path string true "Repository ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Repository not found or deletion failed"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /v1/git/repositories/{id} [delete]
+func (h *GitHandler) DeleteRepository(c *fiber.Ctx) error {
+	repoID := c.Params("id")
+	logger.Infof("🗑️ DeleteRepository called with repoID: '%s'", repoID)
+
+	// URL decode the repository ID
+	decodedRepoID, err := url.QueryUnescape(repoID)
+	if err != nil {
+		logger.Errorf("❌ Failed to URL decode repoID '%s': %v", repoID, err)
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid repository ID: " + err.Error(),
+		})
+	}
+	repoID = decodedRepoID
+	logger.Infof("🗑️ Decoded repoID: '%s'", repoID)
+
+	// Delete the repository
+	if err := h.gitService.DeleteRepository(repoID); err != nil {
+		logger.Errorf("❌ Failed to delete repository '%s': %v", repoID, err)
+		return c.Status(400).JSON(fiber.Map{
+			"error": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"message": fmt.Sprintf("Repository %s deleted successfully", repoID),
+	})
+}

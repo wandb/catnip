@@ -367,6 +367,27 @@ func (wsm *WorktreeStateManager) DeleteWorktree(worktreeID string) error {
 	return nil
 }
 
+// DeleteRepository removes a repository from state management
+func (wsm *WorktreeStateManager) DeleteRepository(repoID string) error {
+	wsm.mu.Lock()
+	defer wsm.mu.Unlock()
+
+	_, exists := wsm.repositories[repoID]
+	if !exists {
+		return fmt.Errorf("repository %s not found", repoID)
+	}
+
+	// Delete from state
+	delete(wsm.repositories, repoID)
+
+	// Save state
+	if err := wsm.saveStateInternal(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // BatchUpdateWorktrees applies updates to multiple worktrees at once
 func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[string]interface{}) error {
 	wsm.mu.Lock()

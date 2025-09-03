@@ -1395,6 +1395,39 @@ paths:
       summary: List GitHub repositories
       tags:
       - git
+  /v1/git/repositories/{id}:
+    delete:
+      description: Removes a repository and all its associated worktrees from disk
+        and state management
+      parameters:
+      - description: Repository ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Repository not found or deletion failed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete repository
+      tags:
+      - git
   /v1/git/repositories/{id}/github:
     post:
       consumes:

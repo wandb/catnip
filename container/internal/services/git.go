@@ -3029,6 +3029,70 @@ func (s *GitService) CreateGitHubRepositoryAndSetOrigin(repoID, name, descriptio
 	return repoURL, nil
 }
 
+// DeleteRepository removes a repository and all its worktrees from disk and state management
+func (s *GitService) DeleteRepository(repoID string) error {
+	logger.Infof("🗑️  Delete repository request: %s", repoID)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Get the repository
+	repo, exists := s.stateManager.GetRepository(repoID)
+	if !exists {
+		return fmt.Errorf("repository not found: %s", repoID)
+	}
+
+	// Get all worktrees for this repository
+	allWorktrees := s.stateManager.GetAllWorktrees()
+	var repoWorktrees []*models.Worktree
+	for _, worktree := range allWorktrees {
+		if worktree.RepoID == repoID {
+			repoWorktrees = append(repoWorktrees, worktree)
+		}
+	}
+
+	// Delete all worktrees first
+	for _, worktree := range repoWorktrees {
+		logger.Infof("🗑️  Deleting worktree %s (%s)", worktree.Name, worktree.ID)
+
+		// Remove worktree directory from disk
+		if _, err := os.Stat(worktree.Path); err == nil {
+			if err := os.RemoveAll(worktree.Path); err != nil {
+				logger.Warnf("⚠️  Failed to remove worktree directory %s: %v", worktree.Path, err)
+				// Continue with deletion even if directory removal fails
+			}
+		}
+
+		// Remove from state management
+		if err := s.stateManager.DeleteWorktree(worktree.ID); err != nil {
+			logger.Warnf("⚠️  Failed to remove worktree from state: %v", err)
+		}
+	}
+
+	// Remove repository directory from disk
+	if _, err := os.Stat(repo.Path); err == nil {
+		if err := os.RemoveAll(repo.Path); err != nil {
+			logger.Warnf("⚠️  Failed to remove repository directory %s: %v", repo.Path, err)
+			// Don't fail the entire operation if directory removal fails
+		} else {
+			logger.Infof("✅ Removed repository directory: %s", repo.Path)
+		}
+	}
+
+	// Remove from state management
+	if err := s.stateManager.DeleteRepository(repoID); err != nil {
+		return fmt.Errorf("failed to remove repository from state: %v", err)
+	}
+
+	// Clear any cached status for all worktrees
+	for _, worktree := range repoWorktrees {
+		s.worktreeCache.RemoveWorktree(worktree.ID, worktree.Path)
+	}
+
+	logger.Infof("✅ Successfully deleted repository %s and %d worktrees", repoID, len(repoWorktrees))
+	return nil
+}
+
 // isTemporaryPath checks if a path is in a temporary directory (for tests)
 // Handles both Linux (/tmp/) and macOS (/var/folders/) temporary paths
 func (s *GitService) isTemporaryPath(path string) bool {
