@@ -15,7 +15,7 @@ import (
 	"github.com/vanpelt/catnip/internal/logger"
 )
 
-// Claude settings structure
+// ClaudeSettings represents Claude Code settings structure
 type ClaudeSettings struct {
 	Hooks map[string][]HookMatcher `json:"hooks,omitempty"`
 }
@@ -30,13 +30,13 @@ type HookSpec struct {
 	Command string `json:"command"`
 }
 
-// Claude hook event payload
+// ClaudeHookEvent represents Claude hook event payload
 type ClaudeHookEvent struct {
 	HookEventName string `json:"hook_event_name"`
 	CWD           string `json:"cwd"`
 }
 
-// Catnip hook API payload
+// CatnipHookPayload represents Catnip hook API payload
 type CatnipHookPayload struct {
 	EventType        string `json:"event_type"`
 	WorkingDirectory string `json:"working_directory"`

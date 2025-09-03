@@ -199,6 +199,8 @@ install_claude() {
     log "claude already installed"
     # Wrap existing claude with purr interceptor
     wrap_claude_with_purr
+    # Install catnip Claude hooks for activity tracking
+    install_claude_hooks
     return
   fi
   ensure_base_tools
@@ -206,6 +208,8 @@ install_claude() {
   run_as_user "curl -fsSL https://claude.ai/install.sh | bash"
   # After installation, wrap with purr interceptor
   wrap_claude_with_purr
+  # Install catnip Claude hooks for activity tracking
+  install_claude_hooks
 }
 
 
@@ -290,6 +294,19 @@ EOF
   
   # Create bash alias to ensure our wrapper is always used
   create_claude_alias
+}
+
+# Install Claude Code hooks using catnip binary
+install_claude_hooks() {
+  log "Installing Claude Code hooks for improved activity tracking..."
+  
+  # Use catnip binary to install hooks (auto-detects correct binary path and server configuration)
+  if run_as_user "catnip install-hooks"; then
+    ok "Claude Code hooks installed successfully"
+  else
+    warn "Failed to install Claude Code hooks - activity tracking may not work optimally"
+    warn "You can manually install hooks later with: catnip install-hooks"
+  fi
 }
 
 # --- GitHub CLI ------------------------------------------------------------

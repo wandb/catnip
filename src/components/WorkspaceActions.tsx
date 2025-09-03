@@ -392,7 +392,7 @@ export function WorkspaceActions({
               Use this command to clone this repository locally:
             </p>
             <div className="bg-muted p-3 rounded-md font-mono text-sm">
-              git clone -o catnip http://localhost:8080/
+              git clone -o catnip http://localhost:6369/
               {worktree.repo_id.split("/").pop()}.git
             </div>
             <p className="text-xs text-muted-foreground">

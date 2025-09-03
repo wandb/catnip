@@ -277,7 +277,7 @@ RUN bash -c 'source /etc/profile.d/catnip.sh && \
 USER root
 
 # Expose port
-EXPOSE 8080
+EXPOSE 6369
 
 # Default entrypoint and command
 ENTRYPOINT ["/entrypoint.sh"]

@@ -59,10 +59,12 @@ If you want to use a custom domain like `catnip.run`:
 To redirect HTTP to HTTPS, you have several options:
 
 **Option A: Cloudflare Dashboard (Recommended)**
+
 1. Go to **SSL/TLS** → **Edge Certificates**
 2. Enable **Always Use HTTPS**
 
 **Option B: Page Rules**
+
 1. Go to **Rules** → **Page Rules**
 2. Create rule for `http://catnip.run/*`
 3. Set **Always Use HTTPS** action
@@ -222,7 +224,7 @@ The container is defined in `container/Dockerfile` and is automatically built an
 
 - **Max Instances**: 40 (configured in wrangler.jsonc)
 - **Sleep After**: 10 minutes of inactivity
-- **Default Port**: 8080
+- **Default Port**: 6369
 
 ### Updating the Container
 
@@ -236,12 +238,10 @@ When you modify the container:
 ### Common Issues
 
 1. **Authentication Errors**
-
    - Verify all secrets are properly set
    - Check that GitHub OAuth/App URLs match your deployment URL
 
 2. **Container Build Failures**
-
    - Ensure Docker is running locally
    - Check the Dockerfile syntax
    - Review build logs in Wrangler output
@@ -318,7 +318,6 @@ wrangler secret put GITHUB_CLIENT_SECRET --env production
 You'll need to create separate GitHub OAuth Apps/GitHub Apps for each environment:
 
 1. **QA GitHub App**
-
    - Homepage URL: https://qa.catnip.run
    - Callback URL: https://qa.catnip.run/v1/auth/github
    - Webhook URL: https://qa.catnip.run/v1/github/webhooks
@@ -393,17 +392,14 @@ Cloudflare Containers are billed based on:
 ## Security Best Practices
 
 1. **Rotate Secrets Regularly**
-
    - Update GitHub tokens periodically
    - Rotate encryption keys (requires user re-authentication)
 
 2. **Use GitHub App Mode**
-
    - Provides better security with expiring tokens
    - Allows more granular permissions
 
 3. **Monitor Access Logs**
-
    - Review authentication attempts
    - Watch for unusual container activity
 
