@@ -13,10 +13,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/vanpelt/catnip/internal/logger"
 	"syscall"
 	"time"
 	"unsafe"
+
+	"github.com/vanpelt/catnip/internal/logger"
 
 	"github.com/creack/pty"
 	"github.com/gofiber/fiber/v2"
@@ -341,15 +342,17 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 		// Send error message to client before closing
 		errorMsg := struct {
-			Type    string `json:"type"`
-			Error   string `json:"error"`
-			Message string `json:"message"`
-			Code    string `json:"code"`
+			Type      string `json:"type"`
+			Error     string `json:"error"`
+			Message   string `json:"message"`
+			Code      string `json:"code"`
+			Retryable bool   `json:"retryable"`
 		}{
-			Type:    "error",
-			Error:   "Worktree not found",
-			Message: fmt.Sprintf("The worktree '%s' does not exist", sessionID),
-			Code:    "WORKTREE_NOT_FOUND",
+			Type:      "error",
+			Error:     "Worktree not found",
+			Message:   fmt.Sprintf("The worktree '%s' does not exist", sessionID),
+			Code:      "WORKTREE_NOT_FOUND",
+			Retryable: false, // This error is not retryable - workspace doesn't exist
 		}
 
 		if data, err := json.Marshal(errorMsg); err == nil {
@@ -360,14 +363,56 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		return
 	}
 
+	// Add protective error handling around connection registration
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Errorf("❌ PANIC in connection registration for session %s: %v", sessionID, r)
+			conn.Close()
+		}
+	}()
+
 	// Add connection to session with read-only logic
 	session.connMutex.Lock()
 
 	remoteAddr := conn.RemoteAddr().String()
 	logger.Debugf("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
 
-	// Clean up any stale connections from the same client before determining read-only status
-	h.cleanupStaleConnections(session, remoteAddr)
+	// NUCLEAR APPROACH: Force-close ALL existing connections when a new one connects
+	//
+	// TRADEOFF DECISION: This breaks multi-tab functionality but fixes ghost connection bugs
+	// - PRO: Eliminates read-only badge issues from stale connections across navigation
+	// - PRO: Ensures each terminal always starts with clean state (no ghost connections)
+	// - CON: Multi-tab usage will cause tabs to disconnect/reconnect when switching
+	// - CON: Users can't have the same workspace open in multiple tabs simultaneously
+	//
+	// Alternative approaches tried:
+	// 1. Smart cleanup by remote address - failed due to cross-navigation state persistence
+	// 2. Ping-based stale detection - failed because ghost connections were responding to pings
+	// 3. Focus-based promotion - worked but couldn't fix underlying connection count issues
+	//
+	// TODO: Consider implementing proper connection lifecycle management in the future
+	// For now, this ensures terminals work reliably in single-tab scenarios
+
+	existingConnectionCount := len(session.connections)
+	if existingConnectionCount > 0 {
+		logger.Infof("🧹 FORCE CLEANUP: Found %d existing connections in session %s, closing all", existingConnectionCount, sessionID)
+
+		// Force close all existing connections
+		var connectionsToClose []*websocket.Conn
+		for conn := range session.connections {
+			connectionsToClose = append(connectionsToClose, conn)
+		}
+
+		// Close them outside the range loop to avoid map modification during iteration
+		for _, existingConn := range connectionsToClose {
+			if _, exists := session.connections[existingConn]; exists {
+				delete(session.connections, existingConn)
+				existingConn.Close()
+			}
+		}
+
+		logger.Debugf("✅ Cleared all %d existing connections from session %s", len(connectionsToClose), sessionID)
+	}
 
 	connectionCount := len(session.connections)
 	logger.Debugf("🔍 Connection count for session %s: %d (after cleanup)", sessionID, connectionCount)
@@ -827,9 +872,14 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	var resumeSessionID string
 	var useContinue bool
 	if agent == "claude" && !reset {
-		// Simply use --continue which handles session resumption automatically
-		useContinue = true
-		logger.Infof("🔄 Using --continue for Claude session in %s", workDir)
+		// Only use --continue if there's existing session data
+		if existingState, err := h.sessionService.FindSessionByDirectory(workDir); err == nil && existingState != nil {
+			// For existing sessions, use --continue instead of --resume
+			useContinue = true
+			logger.Infof("🔄 Found existing Claude session in %s, will use --continue", workDir)
+		} else {
+			logger.Infof("🔄 No existing Claude session found in %s, starting fresh", workDir)
+		}
 	}
 
 	// Allocate ports for this session
@@ -1109,6 +1159,11 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 
 		// Send to all connections if we have data to send
 		if len(outputData) > 0 {
+			session.connMutex.RLock()
+			connectionCount := len(session.connections)
+			session.connMutex.RUnlock()
+
+			logger.Debugf("📤 Broadcasting %d bytes to %d connections in session %s", len(outputData), connectionCount, session.ID)
 			session.broadcastToConnections(websocket.BinaryMessage, outputData)
 		}
 	}
@@ -1560,8 +1615,17 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		}
 	}
 
-	// Create new command using the same agent (use --continue for Claude recreations)
-	useContinue := session.Agent == "claude"
+	// Create new command using the same agent (use --continue for Claude recreations only if session data exists)
+	useContinue := false
+	if session.Agent == "claude" {
+		// Only use --continue if there's existing session data
+		if existingState, err := h.sessionService.FindSessionByDirectory(session.WorkDir); err == nil && existingState != nil {
+			useContinue = true
+			logger.Infof("🔄 Found existing Claude session in %s during recreation, will use --continue", session.WorkDir)
+		} else {
+			logger.Infof("🔄 No existing Claude session found in %s during recreation, starting fresh", session.WorkDir)
+		}
+	}
 	cmd := h.createCommand(session.ID, session.Agent, session.WorkDir, resumeSessionID, useContinue, ports)
 
 	// Start new PTY
@@ -1660,39 +1724,8 @@ func (h *PTYHandler) cleanupSession(session *Session) {
 	delete(h.sessions, session.ID)
 }
 
-// cleanupStaleConnections removes stale connections from the same remote address
-// This prevents race conditions where old connections haven't been cleaned up yet
-func (h *PTYHandler) cleanupStaleConnections(session *Session, remoteAddr string) {
-	var staleConnections []*websocket.Conn
-
-	// Find connections from the same remote address that are no longer active
-	existingFromSameAddr := 0
-	for conn, connInfo := range session.connections {
-		if connInfo.RemoteAddr == remoteAddr {
-			existingFromSameAddr++
-			logger.Infof("🔍 Found existing connection [%s] from %s, testing if stale...", connInfo.ConnID, remoteAddr)
-			// Test if connection is still active by trying to ping it
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				logger.Infof("🧹 Found stale connection [%s] from %s, removing (ping failed: %v)", connInfo.ConnID, remoteAddr, err)
-				staleConnections = append(staleConnections, conn)
-			} else {
-				logger.Infof("✅ Connection [%s] from %s is still active", connInfo.ConnID, remoteAddr)
-			}
-		}
-	}
-
-	logger.Debugf("🔍 Stale cleanup for %s: found %d existing connections, %d are stale", remoteAddr, existingFromSameAddr, len(staleConnections))
-
-	// Remove stale connections
-	for _, conn := range staleConnections {
-		delete(session.connections, conn)
-		conn.Close()
-	}
-
-	if len(staleConnections) > 0 {
-		logger.Infof("🧹 Cleaned up %d stale connections from %s in session %s", len(staleConnections), remoteAddr, session.ID)
-	}
-}
+// NOTE: cleanupStaleConnections function was removed and replaced with nuclear approach
+// that force-closes ALL existing connections when a new one registers.
 
 // performFinalGitAdd stages any uncommitted changes during cleanup
 func (h *PTYHandler) performFinalGitAdd(workspaceDir string) error {
@@ -2171,6 +2204,9 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 	if focused {
 		logger.Infof("🎯 Connection [%s] gained focus in session %s", connID, session.ID)
 
+		// Debug logging for promotion logic
+		logger.Debugf("🔍 Focus promotion check - IsReadOnly: %v, IsReadOnlyWorkspace: %v", connInfo.IsReadOnly, session.IsReadOnlyWorkspace)
+
 		// Auto-promote focused connection if it's read-only (but not for external workspaces)
 		if connInfo.IsReadOnly && !session.IsReadOnlyWorkspace {
 			// Find and demote the current write connection
@@ -2217,6 +2253,8 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 			if data, err := json.Marshal(writeAccessMsg); err == nil {
 				_ = session.writeToConnection(conn, websocket.TextMessage, data)
 			}
+		} else {
+			logger.Debugf("🔍 Skipping auto-promotion - connection is already write-enabled or external workspace")
 		}
 	} else {
 		logger.Infof("👁️ Connection [%s] lost focus in session %s", connID, session.ID)

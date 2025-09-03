@@ -109,6 +109,15 @@ function TerminalPage() {
     }
   }, []);
 
+  // Handle terminal click to send focus immediately
+  const handleTerminalClick = useCallback(() => {
+    sendFocusState(true);
+    // Auto-promote on click when read-only
+    if (isReadOnly) {
+      handlePromoteRequest();
+    }
+  }, [sendFocusState, isReadOnly, handlePromoteRequest]);
+
   // Handle tab focus/blur events
   useEffect(() => {
     const handleFocus = () => {
@@ -245,6 +254,8 @@ function TerminalPage() {
       setIsConnected(true);
       wsReady.current = true;
       sendReadySignal();
+      // Send initial focus state after connection
+      sendFocusState(document.hasFocus() && !document.hidden);
     };
 
     ws.onclose = () => {
@@ -567,7 +578,12 @@ function TerminalPage() {
         </div>
       )}
       {/* Terminal */}
-      <div className="h-full w-full">
+      <div
+        className="h-full w-full"
+        onMouseDown={handleTerminalClick}
+        onFocus={handleTerminalClick}
+        tabIndex={-1}
+      >
         <div ref={ref} className="h-full w-full" />
       </div>
     </div>

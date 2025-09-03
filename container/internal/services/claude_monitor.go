@@ -103,6 +103,11 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 func (s *ClaudeMonitorService) Start() error {
 	logger.Infof("🚀 Starting Claude monitor service, titles log path: %s", s.titlesLogPath)
 
+	// Ensure the titles log file and directory exist
+	if err := s.ensureTitlesLogFile(); err != nil {
+		logger.Warnf("⚠️  Failed to ensure titles log file exists: %v", err)
+	}
+
 	// Create file watcher for titles log
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -115,6 +120,30 @@ func (s *ClaudeMonitorService) Start() error {
 
 	// Start Todo monitoring for all existing worktrees
 	go s.startTodoMonitoring()
+
+	return nil
+}
+
+// ensureTitlesLogFile ensures the titles log file and directory exist
+func (s *ClaudeMonitorService) ensureTitlesLogFile() error {
+	// Ensure the directory exists
+	dir := filepath.Dir(s.titlesLogPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create titles log directory %s: %w", dir, err)
+	}
+
+	// Check if file already exists
+	if _, err := os.Stat(s.titlesLogPath); err != nil {
+		if os.IsNotExist(err) {
+			// Create the file if it doesn't exist
+			if err := os.WriteFile(s.titlesLogPath, []byte(""), 0644); err != nil {
+				return fmt.Errorf("failed to create titles log file %s: %w", s.titlesLogPath, err)
+			}
+			logger.Debugf("📝 Created titles log file: %s", s.titlesLogPath)
+		} else {
+			return fmt.Errorf("failed to stat titles log file %s: %w", s.titlesLogPath, err)
+		}
+	}
 
 	return nil
 }
@@ -183,7 +212,9 @@ func (s *ClaudeMonitorService) monitorTitlesLog() {
 func (s *ClaudeMonitorService) readTitlesLog() {
 	file, err := os.Open(s.titlesLogPath)
 	if err != nil {
-		if !os.IsNotExist(err) {
+		if os.IsNotExist(err) {
+			logger.Debugf("📝 Titles log file doesn't exist yet: %s", s.titlesLogPath)
+		} else {
 			logger.Warnf("⚠️  Failed to open titles log: %v", err)
 		}
 		return
