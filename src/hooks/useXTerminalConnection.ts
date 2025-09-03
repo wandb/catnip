@@ -71,11 +71,15 @@ export function useXTerminalConnection({
     null,
   );
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [isNonRetryableError, setIsNonRetryableError] = useState(false);
 
   const [shakeReadOnlyBadge, setShakeReadOnlyBadge] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(true); // Start in connecting state
   const [isTerminalFocused, setIsTerminalFocused] = useState(false);
+
+  // Track last sent focus state to avoid duplicate messages
+  const lastSentFocusState = useRef<boolean | null>(null);
 
   // Trigger shake animation for read-only badge
   const triggerReadOnlyShake = useCallback(() => {
@@ -95,6 +99,7 @@ export function useXTerminalConnection({
   // Handle terminal focus management
   const handleTerminalFocus = useCallback(() => {
     setIsTerminalFocused(true);
+    // The focus state will be sent via the useEffect hook for sendFocusState
     // Auto-promote on focus when read-only
     if (
       isReadOnly &&
@@ -105,15 +110,24 @@ export function useXTerminalConnection({
     }
   }, [isReadOnly]);
 
-  // Send focus state to backend when terminal focus changes
-  useEffect(() => {
+  // Send focus state to backend when terminal focus changes (with deduplication)
+  const sendFocusState = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       const actualFocus = windowFocused && isTerminalFocused;
-      wsRef.current.send(
-        JSON.stringify({ type: "focus", focused: actualFocus }),
-      );
+
+      // Only send if focus state actually changed
+      if (lastSentFocusState.current !== actualFocus) {
+        lastSentFocusState.current = actualFocus;
+        wsRef.current.send(
+          JSON.stringify({ type: "focus", focused: actualFocus }),
+        );
+      }
     }
-  }, [windowFocused, isTerminalFocused, worktree.name, agent]);
+  }, [windowFocused, isTerminalFocused]);
+
+  useEffect(() => {
+    sendFocusState();
+  }, [sendFocusState]);
 
   // Add global click handler to detect focus changes
   useEffect(() => {
@@ -182,7 +196,7 @@ export function useXTerminalConnection({
     }
     readySignalSent.current = true;
     wsRef.current.send(JSON.stringify({ type: "ready" }));
-  }, [agent]);
+  }, [agent, terminalId]);
 
   // Calculate reconnect delay with custom backoff sequence: 1s, 3s, 6s, 9s, 18s
   const getReconnectDelay = useCallback(() => {
@@ -262,11 +276,12 @@ export function useXTerminalConnection({
       isWorktreeChanging.current = false;
       wsReady.current = true;
       readySignalSent.current = false; // Reset for new connection
+      lastSentFocusState.current = null; // Reset focus tracking for new connection
       // Add small delay to ensure WebSocket is fully ready
-      readySignalTimeoutRef.current = window.setTimeout(
-        () => sendReadySignal(),
-        10,
-      );
+      readySignalTimeoutRef.current = window.setTimeout(() => {
+        sendReadySignal();
+        // Focus state will be sent by the useEffect hook when connection is ready
+      }, 10);
     };
 
     ws.onclose = (_event) => {
@@ -286,6 +301,13 @@ export function useXTerminalConnection({
 
       // Don't reconnect if worktree is changing (prevents stale reconnections)
       if (isWorktreeChanging.current) {
+        return;
+      }
+
+      // Don't reconnect if we received a non-retryable error
+      if (isNonRetryableError) {
+        isConnectingRef.current = false;
+        setIsConnecting(false);
         return;
       }
 
@@ -339,6 +361,13 @@ export function useXTerminalConnection({
         }
       }
 
+      // Don't reconnect if we received a non-retryable error
+      if (isNonRetryableError) {
+        isConnectingRef.current = false;
+        setIsConnecting(false);
+        return;
+      }
+
       // For real backend errors, attempt reconnection like onclose does
       if (reconnectAttempts.current < maxReconnectAttempts) {
         reconnectAttempts.current += 1;
@@ -381,6 +410,7 @@ export function useXTerminalConnection({
         // Try to parse as JSON for control messages
         try {
           const msg = JSON.parse(event.data);
+
           if (msg.type === "buffer-size") {
             if (
               instance &&
@@ -445,6 +475,10 @@ export function useXTerminalConnection({
               title: msg.error || "Error",
               message: msg.message || "An unexpected error occurred",
             });
+            // Check if this is a non-retryable error
+            if (msg.retryable === false) {
+              setIsNonRetryableError(true);
+            }
             return;
           } else if (msg.type === "read-only") {
             setIsReadOnly(msg.data === true);
@@ -465,7 +499,7 @@ export function useXTerminalConnection({
           data = new Uint8Array(arrayBuffer);
         }
       } else {
-        return;
+        return; // Unknown data type, ignore
       }
 
       // Handle buffered data for workspace terminal
@@ -497,13 +531,16 @@ export function useXTerminalConnection({
     agent,
     enableAdvancedBuffering,
     sendReadySignal,
+    sendFocusState,
     getReconnectDelay,
     smartScrollToBottom,
+    isNonRetryableError,
   ]);
 
   // Manual retry function that doesn't require page reload
   const handleRetryConnection = useCallback(() => {
     setError(null);
+    setIsNonRetryableError(false); // Reset non-retryable error state for manual retry
     reconnectAttempts.current = 0; // Reset attempts for manual retry
     isConnectingRef.current = false;
     setIsConnecting(true); // Start in connecting state for retry
@@ -549,6 +586,7 @@ export function useXTerminalConnection({
     }
 
     setError(null);
+    setIsNonRetryableError(false); // Reset non-retryable error state for new worktree
     setIsConnected(false);
     setIsConnecting(true); // Start in connecting state for new worktree
     setGlobalIsConnected(false);
@@ -620,8 +658,6 @@ export function useXTerminalConnection({
 
     isSetup.current = true;
 
-    // Don't clear worktree changing flag here - wait until WebSocket connects
-
     // Clear terminal logic
     if (enableAdvancedBuffering) {
       // Advanced logic for Claude terminal
@@ -640,8 +676,6 @@ export function useXTerminalConnection({
       // Simple clear for workspace terminal
       instance.clear();
     }
-
-    // Enable reconnection for this session (simplified - no flag needed)
 
     // Start WebSocket connection
     connectWebSocket();

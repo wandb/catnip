@@ -360,19 +360,25 @@ export function WorkspaceLeftSidebar() {
                                   <div className="text-xs text-muted-foreground flex items-center gap-1">
                                     <GitBranch className="h-3 w-3 flex-shrink-0" />
                                     {worktree.pull_request_url ? (
-                                      <a
-                                        href={worktree.pull_request_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="truncate text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-0.5"
-                                        onClick={(e) => e.stopPropagation()}
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          e.preventDefault();
+                                          window.open(
+                                            worktree.pull_request_url,
+                                            "_blank",
+                                            "noopener,noreferrer",
+                                          );
+                                        }}
+                                        className="truncate text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-0.5 bg-transparent border-none p-0 cursor-pointer"
                                         title={`${worktree.branch} (PR #${worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"})`}
                                       >
                                         <span className="truncate">
                                           {worktree.branch}
                                         </span>
                                         <ExternalLink className="h-2.5 w-2.5 flex-shrink-0" />
-                                      </a>
+                                      </button>
                                     ) : (
                                       <span
                                         className="truncate"
@@ -604,25 +610,31 @@ export function WorkspaceLeftSidebar() {
                                 <div className="flex items-center gap-1 min-w-0 max-w-[60%]">
                                   <GitBranch className="h-3 w-3 flex-shrink-0" />
                                   {worktree.pull_request_url ? (
-                                    <a
-                                      href={worktree.pull_request_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className={`truncate text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-0.5 ${
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        window.open(
+                                          worktree.pull_request_url,
+                                          "_blank",
+                                          "noopener,noreferrer",
+                                        );
+                                      }}
+                                      className={`truncate text-blue-500 hover:text-blue-600 transition-colors flex items-center gap-0.5 bg-transparent border-none p-0 cursor-pointer ${
                                         worktree.pull_request_state ===
                                           "CLOSED" ||
                                         worktree.pull_request_state === "MERGED"
                                           ? "line-through opacity-60"
                                           : ""
                                       }`}
-                                      onClick={(e) => e.stopPropagation()}
                                       title={`${worktree.branch} (PR #${worktree.pull_request_url.match(/\/pull\/(\d+)/)?.[1] || "?"})`}
                                     >
                                       <span className="truncate">
                                         {worktree.branch}
                                       </span>
                                       <ExternalLink className="h-2.5 w-2.5 flex-shrink-0" />
-                                    </a>
+                                    </button>
                                   ) : (
                                     <span
                                       className="truncate"
