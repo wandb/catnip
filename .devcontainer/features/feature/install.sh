@@ -148,7 +148,7 @@ ensure_ssh() {
 # --- catnip ----------------------------------------------------------------
 install_catnip() {
   ensure_base_tools
-  run_as_user "curl -sSfL install.catnip.sh | sh"
+  run_as_user "curl -sSfL install.catnip.sh | sh -s -- --version v0.9.2-dev.1"
 
   log "🏠 Setting up codespace directories for ${USERNAME}..."
   for d in "$CATNIP_ROOT" "$VOLUME_DIR" "$OPT_DIR" "$OPT_DIR/bin" "/worktrees"; do

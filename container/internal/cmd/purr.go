@@ -80,6 +80,16 @@ func execDirect(args []string) error {
 func execWithTitleInterception(args []string, titleLogPath string) error {
 	cmd := exec.Command(args[0], args[1:]...)
 
+	// Check if stdin is a terminal and if the command needs interactive mode
+	isInteractive := isInteractiveCommand(args)
+	isTerminal := term.IsTerminal(int(os.Stdin.Fd()))
+	usePTY := isInteractive && isTerminal
+
+	if !usePTY {
+		// Run without PTY for non-interactive commands or when stdin is not a terminal
+		return execWithoutPTY(cmd, titleLogPath)
+	}
+
 	// Start the command with a PTY
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -188,4 +198,60 @@ func logTitleChange(titleLogPath, title string) {
 	defer file.Close()
 
 	_, _ = file.WriteString(logEntry)
+}
+
+// isInteractiveCommand checks if a command should be run interactively
+func isInteractiveCommand(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+
+	// Check for claude with -p flag (programmatic mode)
+	if strings.Contains(args[0], "claude") {
+		for _, arg := range args[1:] {
+			if arg == "-p" || arg == "--prompt" {
+				// Claude in programmatic mode doesn't need PTY
+				return false
+			}
+		}
+	}
+
+	// Default to interactive for most commands
+	return true
+}
+
+// execWithoutPTY runs a command without a PTY, suitable for programmatic commands
+func execWithoutPTY(cmd *exec.Cmd, titleLogPath string) error {
+	// Set up pipes for stdin/stdout/stderr
+	cmd.Stdin = os.Stdin
+
+	// Create a pipe for stdout so we can scan for titles
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	cmd.Stderr = os.Stderr
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Process output - scan for titles but pass through unchanged
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- scanAndPassthrough(stdoutPipe, os.Stdout, titleLogPath)
+	}()
+
+	// Wait for the command to complete
+	cmdErr := cmd.Wait()
+
+	// Check for scanning error
+	scanErr := <-errChan
+	if scanErr != nil {
+		return fmt.Errorf("scan error: %w", scanErr)
+	}
+
+	return cmdErr
 }
