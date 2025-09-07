@@ -89,6 +89,22 @@ export function WorkspaceMobile({
   repository,
   initialPrompt,
 }: WorkspaceMobileProps) {
+  // Generate a workspace title with proper priority (same logic as WorkspaceLeftSidebar)
+  const getWorkspaceTitle = (worktree: Worktree) => {
+    // Priority 1: Use PR title if available
+    if (worktree.pull_request_title) {
+      return worktree.pull_request_title;
+    }
+
+    // Priority 2: Use session title if available
+    if (worktree.session_title?.title) {
+      return worktree.session_title.title;
+    }
+
+    // Priority 3: Use workspace name
+    const workspaceName = worktree.name.split("/")[1] || worktree.name;
+    return workspaceName;
+  };
   const [prompt, setPrompt] = useState("");
   const [phase, setPhase] = useState<
     "input" | "todos" | "completed" | "existing"
@@ -101,6 +117,7 @@ export function WorkspaceMobile({
   const [sessionStarting, setSessionStarting] = useState(false);
   const [hasBeenActive, setHasBeenActive] = useState(false);
   const [prDialogOpen, setPrDialogOpen] = useState(false);
+  const [contentKey, setContentKey] = useState(0); // Force content refresh
   const wsRef = useRef<WebSocket | null>(null);
 
   const { getAllWorktreeSessionSummaries, getWorktreeLatestAssistantMessage } =
@@ -108,6 +125,80 @@ export function WorkspaceMobile({
   const currentWorktree = useAppStore((state) =>
     state.worktrees.get(worktree.id),
   );
+
+  const getStatusIndicator = () => {
+    if (!currentWorktree) return "h-2 w-2 bg-gray-500 rounded-full";
+
+    switch (currentWorktree.claude_activity_state) {
+      case "active":
+        return "h-2 w-2 bg-green-500 rounded-full animate-pulse";
+      case "running":
+        return "h-2 w-2 bg-blue-500 rounded-full animate-pulse";
+      case "inactive":
+      default:
+        return "h-2 w-2 border-2 border-gray-400 bg-transparent rounded-full";
+    }
+  };
+
+  const startSession = (promptToSend?: string) => {
+    // Use the provided prompt or fall back to the state prompt
+    const actualPrompt = promptToSend || prompt;
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const params = new URLSearchParams();
+    params.set("session", worktree.name);
+    params.set("agent", "claude");
+    const url = `${protocol}//${window.location.host}/v1/pty?${params.toString()}`;
+
+    console.log("Starting PTY WebSocket session:", url);
+    console.log("Will send prompt:", actualPrompt);
+
+    setSessionStarting(true);
+
+    // Reset hasBeenActive and set phase when starting a new session from existing workspace
+    // This ensures proper state transitions
+    if (phase === "completed") {
+      setHasBeenActive(false);
+      setPhase("todos");
+      // Reset the prompt UI state
+      setShowNewPrompt(false);
+      setPrompt("");
+    }
+
+    const ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      console.log("PTY WebSocket opened, waiting for Claude to initialize...");
+      setSessionStarting(false);
+
+      // Wait for Claude to fully initialize before sending the prompt
+      setTimeout(() => {
+        const promptMessage = {
+          type: "prompt",
+          data: actualPrompt,
+          submit: true,
+        };
+        console.log(
+          "Sending prompt message to initialized Claude:",
+          promptMessage,
+        );
+        ws.send(JSON.stringify(promptMessage));
+      }, 3000); // Wait 3 seconds for Claude to fully start
+    };
+
+    ws.onerror = (error) => {
+      console.error("PTY WebSocket error:", error);
+      setSessionStarting(false);
+    };
+
+    ws.onclose = (event) => {
+      console.log("PTY WebSocket closed:", event.code, event.reason);
+      setSessionStarting(false);
+    };
+
+    wsRef.current = ws;
+    setPhase("todos");
+  };
 
   // Pre-compute content for all phases to avoid conditional hooks
   const existingContent = useMemo(() => {
@@ -120,7 +211,7 @@ export function WorkspaceMobile({
     }
 
     return <TextContent content={content} />;
-  }, [latestMessage, claudeSession]);
+  }, [latestMessage, claudeSession, contentKey]);
 
   const completedContent = useMemo(() => {
     const content = latestMessage || "Session completed successfully";
@@ -131,7 +222,7 @@ export function WorkspaceMobile({
     }
 
     return <TextContent content={content} />;
-  }, [latestMessage]);
+  }, [latestMessage, contentKey]);
 
   // Load Claude session data on mount
   useEffect(() => {
@@ -168,11 +259,16 @@ export function WorkspaceMobile({
             }
           }
         } else {
-          // If there's an initial prompt, set it and prepare to start session
+          // If there's an initial prompt, set it and start session immediately
           if (initialPrompt?.trim()) {
-            setPrompt(initialPrompt.trim());
-            // Always start in input phase and let checkSessionAndStart handle the logic
-            setPhase("input");
+            const trimmedPrompt = initialPrompt.trim();
+            setPrompt(trimmedPrompt);
+            // Skip input phase and go directly to todos, then start session
+            setPhase("todos");
+            // Start session after a short delay to let the UI update
+            setTimeout(() => {
+              startSession(trimmedPrompt);
+            }, 100);
           } else {
             setPhase("input");
           }
@@ -182,9 +278,14 @@ export function WorkspaceMobile({
 
         // If there's an initial prompt, still set it even if session loading failed
         if (initialPrompt?.trim()) {
-          setPrompt(initialPrompt.trim());
-          // Always start in input phase and let checkSessionAndStart handle the logic
-          setPhase("input");
+          const trimmedPrompt = initialPrompt.trim();
+          setPrompt(trimmedPrompt);
+          // Skip input phase and go directly to todos, then start session
+          setPhase("todos");
+          // Start session after a short delay to let the UI update
+          setTimeout(() => {
+            startSession(trimmedPrompt);
+          }, 100);
         } else {
           setPhase("input");
         }
@@ -248,6 +349,7 @@ export function WorkspaceMobile({
             worktree.path,
           );
           setLatestMessage(message);
+          setContentKey((prev) => prev + 1);
         } catch (error) {
           console.warn(
             "Failed to get latest message for completed phase:",
@@ -255,6 +357,39 @@ export function WorkspaceMobile({
           );
           // Set a fallback message when we can't retrieve the actual message
           setLatestMessage("Session completed successfully");
+          setContentKey((prev) => prev + 1);
+        }
+      })();
+    } else if (
+      phase === "todos" &&
+      currentWorktree.claude_activity_state === "running" &&
+      hasBeenActive
+    ) {
+      // Transition from active to running - refresh content and switch to existing/completed
+      console.log(
+        "Session transitioned from active to running, refreshing content",
+      );
+      void (async () => {
+        try {
+          const message = await getWorktreeLatestAssistantMessage(
+            worktree.path,
+          );
+          setLatestMessage(message);
+          setContentKey((prev) => prev + 1); // Force content refresh
+          // Check if we should go to completed or existing
+          const sessions = await getAllWorktreeSessionSummaries();
+          const sessionData = sessions[worktree.path];
+          if (sessionData && sessionData.turnCount > 0) {
+            setClaudeSession(sessionData);
+            setPhase("existing");
+          } else {
+            setPhase("completed");
+          }
+        } catch (error) {
+          console.warn("Failed to refresh content after transition:", error);
+          setPhase("completed");
+          setLatestMessage("Session completed successfully");
+          setContentKey((prev) => prev + 1); // Force content refresh even on error
         }
       })();
     } else if (
@@ -272,146 +407,37 @@ export function WorkspaceMobile({
     phase,
     worktree.path,
     getWorktreeLatestAssistantMessage,
+    getAllWorktreeSessionSummaries,
     hasBeenActive,
   ]);
 
-  // Auto-start session if we have an initial prompt and we're in input phase
+  // Simplified auto-start logic - only for input phase without initial prompt
   useEffect(() => {
-    console.log("Auto-start useEffect conditions:", {
-      phase,
-      initialPromptTrimmed: initialPrompt?.trim(),
-      promptTrimmed: prompt.trim(),
-      loading,
-    });
-
+    // Only auto-start if we're in input phase, have an initial prompt, but no session was found
+    // This is a fallback in case the initial load didn't start the session
     if (
       phase === "input" &&
       initialPrompt?.trim() &&
       prompt.trim() &&
-      !loading
+      !loading &&
+      !sessionStarting
     ) {
-      // Check if we can get session data to determine if a session actually exists
-      console.log("Checking if session data exists before auto-starting");
-
-      const checkSessionAndStart = async () => {
-        console.log("checkSessionAndStart called");
-        try {
-          // Try to get the latest message - if this succeeds, we have an active session
-          const message = await getWorktreeLatestAssistantMessage(
-            worktree.path,
-          );
-          console.log("getWorktreeLatestAssistantMessage returned:", {
-            message,
-            messageType: typeof message,
-            messageLength: message?.length,
-          });
-
-          // Also get the session summary data for the existing phase
-          const sessions = await getAllWorktreeSessionSummaries();
-          const sessionData = sessions[worktree.path];
-          console.log("Session summary data:", {
-            sessionData,
-            turnCount: sessionData?.turnCount,
-            path: worktree.path,
-          });
-
-          setLatestMessage(message);
-
-          console.log("Session check results:", {
-            sessionData,
-            turnCount: sessionData?.turnCount,
-            hasMessage: !!message,
-            messageLength: message?.length,
-          });
-
-          if (sessionData && sessionData.turnCount > 0) {
-            console.log(
-              "Found active session data with turns, switching to existing phase",
-            );
-            setClaudeSession(sessionData);
-            setPhase("existing");
-          } else {
-            console.log(
-              "No active session found (turnCount=0 or missing), starting new session with prompt",
-            );
-            // We have session metadata but no actual conversation - start fresh
-            setTimeout(() => {
-              startSession();
-            }, 500);
-          }
-        } catch (error) {
-          // If we get 404/500, no session data exists, so start a new one
-          console.log(
-            "No session data found (caught error), auto-starting Claude session with initial prompt",
-          );
-          console.log("Error details:", error);
-          // Longer delay to ensure workspace is fully set up on the backend
-          setTimeout(() => {
-            startSession();
-          }, 1500);
-        }
-      };
-
+      console.log("Fallback auto-start for input phase with initial prompt");
+      // Short delay and then start
       const timer = setTimeout(() => {
-        console.log("About to call checkSessionAndStart");
-        void checkSessionAndStart();
-      }, 1000); // Short initial delay to let workspace settle
+        setPhase("todos");
+        startSession(prompt); // Pass the prompt directly
+      }, 500);
 
       return () => clearTimeout(timer);
     }
-  }, [
-    phase,
-    initialPrompt,
-    prompt,
-    loading,
-    worktree.path,
-    getWorktreeLatestAssistantMessage,
-    getAllWorktreeSessionSummaries,
-  ]);
+  }, [phase, initialPrompt, prompt, loading, sessionStarting]);
 
   useEffect(() => {
     return () => {
       wsRef.current?.close();
     };
   }, []);
-
-  const startSession = () => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const params = new URLSearchParams();
-    params.set("session", worktree.name);
-    params.set("agent", "claude");
-    const url = `${protocol}//${window.location.host}/v1/pty?${params.toString()}`;
-
-    console.log("Starting PTY WebSocket session:", url);
-    console.log("Will send prompt:", prompt);
-
-    setSessionStarting(true);
-
-    const ws = new WebSocket(url);
-
-    ws.onopen = () => {
-      const promptMessage = { type: "prompt", data: prompt, submit: true };
-      console.log(
-        "PTY WebSocket opened, sending prompt message:",
-        promptMessage,
-      );
-      ws.send(JSON.stringify(promptMessage));
-      setSessionStarting(false);
-    };
-
-    ws.onerror = (error) => {
-      console.error("PTY WebSocket error:", error);
-      setSessionStarting(false);
-    };
-
-    ws.onclose = (event) => {
-      console.log("PTY WebSocket closed:", event.code, event.reason);
-      setSessionStarting(false);
-    };
-
-    wsRef.current = ws;
-    setPhase("todos");
-  };
 
   if (loading) {
     return (
@@ -429,11 +455,11 @@ export function WorkspaceMobile({
   if (phase === "existing" && claudeSession) {
     // Extract workspace name and use fallback for repo name
     const parts = worktree.name.split("/");
-    const workspace = parts[1] || parts[0];
     const repoName = repository.name || parts[0] || "Unknown";
     const cleanBranch = worktree.branch.startsWith("/")
       ? worktree.branch.slice(1)
       : worktree.branch;
+    const title = getWorkspaceTitle(worktree);
 
     return (
       <>
@@ -446,10 +472,10 @@ export function WorkspaceMobile({
                 </Link>
               </Button>
               <div className="flex-1">
-                <h1 className="text-lg font-semibold">
-                  {repoName}/{workspace}
-                </h1>
-                <p className="text-sm text-muted-foreground">{cleanBranch}</p>
+                <h1 className="text-lg font-semibold">{title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {repoName} · {cleanBranch}
+                </p>
               </div>
             </div>
           </div>
@@ -477,7 +503,7 @@ export function WorkspaceMobile({
                 />
                 <div className="flex gap-2">
                   <Button
-                    onClick={startSession}
+                    onClick={() => startSession()}
                     disabled={!prompt.trim()}
                     className="flex-1"
                   >
@@ -561,11 +587,11 @@ export function WorkspaceMobile({
   if (phase === "todos") {
     // Extract workspace name and use fallback for repo name
     const parts = worktree.name.split("/");
-    const workspace = parts[1] || parts[0];
     const repoName = repository.name || parts[0] || "Unknown";
     const cleanBranch = worktree.branch.startsWith("/")
       ? worktree.branch.slice(1)
       : worktree.branch;
+    const title = getWorkspaceTitle(worktree);
 
     return (
       <>
@@ -578,10 +604,10 @@ export function WorkspaceMobile({
                 </Link>
               </Button>
               <div className="flex-1">
-                <h1 className="text-lg font-semibold">
-                  {repoName}/{workspace}
-                </h1>
-                <p className="text-sm text-muted-foreground">{cleanBranch}</p>
+                <h1 className="text-lg font-semibold">{title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {repoName} · {cleanBranch}
+                </p>
               </div>
             </div>
           </div>
@@ -597,7 +623,7 @@ export function WorkspaceMobile({
                 </>
               ) : (
                 <>
-                  <div className="animate-pulse h-2 w-2 bg-primary rounded-full" />
+                  <div className={getStatusIndicator()} />
                   <div className="text-sm text-muted-foreground">
                     Claude is working on your request...
                   </div>
@@ -607,19 +633,36 @@ export function WorkspaceMobile({
 
             {/* Show the original prompt or session context */}
             {(prompt || claudeSession?.header) && (
-              <div className="bg-muted/50 rounded-lg p-3">
-                <div className="text-xs text-muted-foreground mb-1">
+              <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
+                <div className="text-xs font-medium text-primary/80 mb-2">
                   {prompt ? "Your Request:" : "Session Context:"}
                 </div>
-                <div className="text-sm">{prompt || claudeSession?.header}</div>
+                <div className="text-sm leading-relaxed">
+                  {prompt || claudeSession?.header}
+                </div>
               </div>
             )}
 
-            {/* Show todos if available */}
-            {currentWorktree?.todos && currentWorktree.todos.length > 0 && (
+            {/* Show todos if available, otherwise show latest Claude message */}
+            {currentWorktree?.todos && currentWorktree.todos.length > 0 ? (
               <div className="space-y-2">
                 <div className="text-sm font-medium">Progress:</div>
                 <TodoDisplay todos={currentWorktree.todos} />
+              </div>
+            ) : currentWorktree?.latest_claude_message ? (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Claude is working...</div>
+                <div className="bg-muted/30 rounded-lg p-3">
+                  <TextContent
+                    content={currentWorktree.latest_claude_message}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                {currentWorktree
+                  ? `Waiting for Claude to respond... (${currentWorktree.claude_activity_state})`
+                  : "Loading workspace..."}
               </div>
             )}
           </div>
@@ -644,11 +687,11 @@ export function WorkspaceMobile({
   if (phase === "completed") {
     // Extract workspace name and use fallback for repo name
     const parts = worktree.name.split("/");
-    const workspace = parts[1] || parts[0];
     const repoName = repository.name || parts[0] || "Unknown";
     const cleanBranch = worktree.branch.startsWith("/")
       ? worktree.branch.slice(1)
       : worktree.branch;
+    const title = getWorkspaceTitle(worktree);
 
     return (
       <>
@@ -661,10 +704,10 @@ export function WorkspaceMobile({
                 </Link>
               </Button>
               <div className="flex-1">
-                <h1 className="text-lg font-semibold">
-                  {repoName}/{workspace}
-                </h1>
-                <p className="text-sm text-muted-foreground">{cleanBranch}</p>
+                <h1 className="text-lg font-semibold">{title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {repoName} · {cleanBranch}
+                </p>
               </div>
             </div>
           </div>
@@ -692,7 +735,7 @@ export function WorkspaceMobile({
                 />
                 <div className="flex gap-2">
                   <Button
-                    onClick={startSession}
+                    onClick={() => startSession()}
                     disabled={!prompt.trim()}
                     className="flex-1"
                   >
@@ -777,11 +820,11 @@ export function WorkspaceMobile({
   if (phase === "input") {
     // Extract workspace name and use fallback for repo name
     const parts = worktree.name.split("/");
-    const workspace = parts[1] || parts[0];
     const repoName = repository.name || parts[0] || "Unknown";
     const cleanBranch = worktree.branch.startsWith("/")
       ? worktree.branch.slice(1)
       : worktree.branch;
+    const title = getWorkspaceTitle(worktree);
 
     return (
       <>
@@ -794,10 +837,10 @@ export function WorkspaceMobile({
                 </Link>
               </Button>
               <div className="flex-1">
-                <h1 className="text-lg font-semibold">
-                  {repoName}/{workspace}
-                </h1>
-                <p className="text-sm text-muted-foreground">{cleanBranch}</p>
+                <h1 className="text-lg font-semibold">{title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {repoName} · {cleanBranch}
+                </p>
               </div>
             </div>
           </div>
@@ -820,7 +863,7 @@ export function WorkspaceMobile({
 
           <div className="fixed bottom-0 left-0 right-0 bg-background border-t p-4">
             <Button
-              onClick={startSession}
+              onClick={() => startSession()}
               disabled={!prompt.trim()}
               className="w-full"
             >
