@@ -151,7 +151,7 @@ install_catnip() {
   run_as_user "curl -sSfL install.catnip.sh | sh"
 
   log "🏠 Setting up codespace directories for ${USERNAME}..."
-  for d in "$CATNIP_ROOT" "$VOLUME_DIR" "$OPT_DIR/bin" "/worktrees"; do
+  for d in "$CATNIP_ROOT" "$VOLUME_DIR" "$OPT_DIR" "$OPT_DIR/bin" "/worktrees"; do
     ensure_dir_mode "$d" 0755
     ensure_owner "$d" "$USERNAME" "$USERGROUP"
     ok "Prepared: $d"
