@@ -374,6 +374,35 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 		}
 	}
 
+	// Emit Claude message on PostToolUse events
+	if h.eventsHandler != nil && req.EventType == "PostToolUse" {
+		// Find the workspace directory - handle subdirectories by checking workspace prefix
+		workspaceDir := req.WorkingDirectory
+		worktrees := h.gitService.ListWorktrees()
+
+		// Check if working directory is a subdirectory of any workspace
+		var matchingWorktree *models.Worktree
+		for _, wt := range worktrees {
+			if strings.HasPrefix(req.WorkingDirectory, wt.Path) {
+				// Use the longest matching path (most specific workspace)
+				if matchingWorktree == nil || len(wt.Path) > len(matchingWorktree.Path) {
+					matchingWorktree = wt
+					workspaceDir = wt.Path
+				}
+			}
+		}
+
+		// Get the latest assistant message if we found a matching worktree
+		if matchingWorktree != nil {
+			if latestMessage, err := h.claudeService.GetLatestAssistantMessage(workspaceDir); err == nil && latestMessage != "" {
+				logger.Debugf("📨 Emitting Claude message for worktree %s", matchingWorktree.ID)
+				h.eventsHandler.EmitClaudeMessage(workspaceDir, matchingWorktree.ID, latestMessage, "assistant")
+			} else if err != nil {
+				logger.Debugf("📨 Failed to get latest assistant message: %v", err)
+			}
+		}
+	}
+
 	// Handle special events that should broadcast to frontend
 	logger.Debugf("🔔 Hook processing - EventType: %s, EventsHandler nil: %t", req.EventType, h.eventsHandler == nil)
 	if h.eventsHandler != nil && req.EventType == "Stop" {

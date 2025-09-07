@@ -580,6 +580,31 @@ export const useAppStore = create<AppState>()(
           }
           break;
         }
+
+        case "claude:message": {
+          const updatedWorktrees = new Map(worktrees);
+          const existingWorktree = updatedWorktrees.get(
+            event.payload.worktree_id,
+          );
+          if (existingWorktree) {
+            updatedWorktrees.set(event.payload.worktree_id, {
+              ...existingWorktree,
+              latest_claude_message: event.payload.message,
+              latest_claude_message_type: event.payload.message_type,
+              latest_claude_message_timestamp: event.payload.timestamp,
+            });
+            set({ worktrees: updatedWorktrees });
+            console.log(
+              "📨 Claude message received for worktree:",
+              event.payload.worktree_id,
+            );
+          } else {
+            console.warn(
+              `Worktree not found for Claude message: ${event.payload.worktree_id}`,
+            );
+          }
+          break;
+        }
       }
     },
 

@@ -196,6 +196,17 @@ export interface NotificationEvent {
   };
 }
 
+export interface ClaudeMessageEvent {
+  type: "claude:message";
+  payload: {
+    workspace_dir: string;
+    worktree_id: string;
+    message: string;
+    message_type: string;
+    timestamp: number;
+  };
+}
+
 export type AppEvent =
   | PortOpenedEvent
   | PortClosedEvent
@@ -216,7 +227,8 @@ export type AppEvent =
   | WorktreeTodosUpdatedEvent
   | SessionTitleUpdatedEvent
   | SessionStoppedEvent
-  | NotificationEvent;
+  | NotificationEvent
+  | ClaudeMessageEvent;
 
 export interface SSEMessage {
   event: AppEvent;

@@ -43,6 +43,7 @@ const (
 	SessionTitleUpdatedEvent   EventType = "session:title_updated"
 	SessionStoppedEvent        EventType = "session:stopped"
 	NotificationEvent          EventType = "notification:show"
+	ClaudeMessageEvent         EventType = "claude:message"
 )
 
 type AppEvent struct {
@@ -140,6 +141,14 @@ type SessionStoppedPayload struct {
 	SessionTitle *string `json:"session_title,omitempty"`
 	BranchName   *string `json:"branch_name,omitempty"`
 	LastTodo     *string `json:"last_todo,omitempty"`
+}
+
+type ClaudeMessagePayload struct {
+	WorkspaceDir string `json:"workspace_dir"`
+	WorktreeID   string `json:"worktree_id"`
+	Message      string `json:"message"`
+	MessageType  string `json:"message_type"` // "assistant" or "user"
+	Timestamp    int64  `json:"timestamp"`
 }
 
 type SSEMessage struct {
@@ -762,6 +771,20 @@ func (h *EventsHandler) EmitSessionStopped(workspaceDir string, worktreeID *stri
 			SessionTitle: sessionTitle,
 			BranchName:   branchName,
 			LastTodo:     lastTodo,
+		},
+	})
+}
+
+// EmitClaudeMessage broadcasts a Claude message event to all connected clients
+func (h *EventsHandler) EmitClaudeMessage(workspaceDir, worktreeID, message, messageType string) {
+	h.broadcastEvent(AppEvent{
+		Type: ClaudeMessageEvent,
+		Payload: ClaudeMessagePayload{
+			WorkspaceDir: workspaceDir,
+			WorktreeID:   worktreeID,
+			Message:      message,
+			MessageType:  messageType,
+			Timestamp:    time.Now().UnixMilli(),
 		},
 	})
 }

@@ -56,6 +56,9 @@ export interface Worktree {
   pull_request_state?: string;
   pull_request_last_synced?: string;
   todos?: Todo[];
+  latest_claude_message?: string;
+  latest_claude_message_type?: string;
+  latest_claude_message_timestamp?: number;
 }
 
 interface Owner {
