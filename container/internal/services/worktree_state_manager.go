@@ -35,6 +35,12 @@ type WorktreeStateChange struct {
 	Worktree   *models.Worktree       // Full worktree for creates
 }
 
+// PRStateUpdate represents a PR state update from the sync manager
+type PRStateUpdate struct {
+	WorktreeID string
+	PRState    string
+}
+
 // WorktreeStateManager manages all worktree state persistently
 type WorktreeStateManager struct {
 	mu               sync.RWMutex
@@ -50,6 +56,9 @@ type WorktreeStateManager struct {
 
 	// Periodic sync control
 	stopChan chan struct{}
+
+	// PR state updates from sync manager
+	prUpdateChan chan PRStateUpdate
 }
 
 // worktreeFieldState tracks all fields we care about for change detection
@@ -83,6 +92,7 @@ func NewWorktreeStateManager(stateDir string, eventsEmitter EventsEmitter) *Work
 		eventsEmitter: eventsEmitter,
 		previousState: make(map[string]worktreeFieldState),
 		stopChan:      make(chan struct{}),
+		prUpdateChan:  make(chan PRStateUpdate, 100), // Buffered channel for PR updates
 	}
 
 	// Load existing state
@@ -90,7 +100,42 @@ func NewWorktreeStateManager(stateDir string, eventsEmitter EventsEmitter) *Work
 		logger.Warnf("⚠️ Failed to load state: %v", err)
 	}
 
+	// Start PR update processor
+	go wsm.startPRUpdateProcessor()
+
 	return wsm
+}
+
+// startPRUpdateProcessor processes PR state updates from the channel
+func (wsm *WorktreeStateManager) startPRUpdateProcessor() {
+	logger.Debug("Starting PR update processor goroutine")
+
+	for update := range wsm.prUpdateChan {
+		logger.Debugf("Processing PR state update for worktree %s: %s", update.WorktreeID, update.PRState)
+
+		// Use UpdateWorktree to safely update the PR state
+		err := wsm.UpdateWorktree(update.WorktreeID, map[string]interface{}{
+			"pull_request_state": update.PRState,
+		})
+
+		if err != nil {
+			logger.Warnf("Failed to update PR state for worktree %s: %v", update.WorktreeID, err)
+		} else {
+			logger.Debugf("Successfully updated PR state for worktree %s to %s", update.WorktreeID, update.PRState)
+		}
+	}
+
+	logger.Debug("PR update processor goroutine stopped")
+}
+
+// SendPRStateUpdate sends a PR state update to the processing channel
+func (wsm *WorktreeStateManager) SendPRStateUpdate(worktreeID, prState string) {
+	select {
+	case wsm.prUpdateChan <- PRStateUpdate{WorktreeID: worktreeID, PRState: prState}:
+		// Update sent successfully
+	default:
+		logger.Warnf("PR update channel is full, dropping PR state update for worktree %s", worktreeID)
+	}
 }
 
 // SetSessionService sets the session service and starts periodic Claude activity state checking

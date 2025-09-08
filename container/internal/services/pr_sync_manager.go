@@ -318,18 +318,18 @@ func (pm *PRSyncManager) updateCache(states map[string]*models.PullRequestState)
 	// This happens automatically during normal worktree state updates
 	logger.Debugf("Updated PR cache with %d states (%d changed)", len(states), len(changedStates))
 
-	// Trigger worktree updates for affected worktrees
+	// Trigger worktree updates for affected worktrees via channel (no longer causes deadlock)
 	pm.triggerWorktreeUpdatesForPRChanges(changedStates)
 }
 
-// triggerWorktreeUpdatesForPRChanges finds worktrees affected by PR state changes and triggers update events
+// triggerWorktreeUpdatesForPRChanges finds worktrees affected by PR state changes and sends updates via channel
 func (pm *PRSyncManager) triggerWorktreeUpdatesForPRChanges(changedStates map[string]*models.PullRequestState) {
 	if pm.stateManager == nil {
 		logger.Warn("State manager not available for triggering worktree updates")
 		return
 	}
 
-	// Skip worktree updates during startup initialization to prevent deadlocks
+	// Skip worktree updates during startup initialization to prevent issues
 	if !pm.isInitialized {
 		logger.Debugf("Skipping worktree updates during startup initialization (%d changed states)", len(changedStates))
 		return
@@ -339,7 +339,7 @@ func (pm *PRSyncManager) triggerWorktreeUpdatesForPRChanges(changedStates map[st
 
 	// Get all worktrees to find which ones are affected by the changed PRs
 	allWorktrees := pm.stateManager.GetAllWorktrees()
-	worktreeUpdates := make(map[string]map[string]interface{})
+	updateCount := 0
 
 	for _, worktree := range allWorktrees {
 		if worktree.PullRequestURL == "" {
@@ -360,20 +360,14 @@ func (pm *PRSyncManager) triggerWorktreeUpdatesForPRChanges(changedStates map[st
 		// Check if this worktree's PR state changed
 		prKey := fmt.Sprintf("%s#%d", repoID, prNumber)
 		if changedState, exists := changedStates[prKey]; exists {
-			worktreeUpdates[worktree.ID] = map[string]interface{}{
-				"pull_request_state": changedState.State,
-			}
-			logger.Debugf("Scheduling worktree update for %s: PR state -> %s", worktree.ID, changedState.State)
+			logger.Debugf("Sending PR state update for worktree %s: %s", worktree.ID, changedState.State)
+			pm.stateManager.SendPRStateUpdate(worktree.ID, changedState.State)
+			updateCount++
 		}
 	}
 
-	// Batch update all affected worktrees
-	if len(worktreeUpdates) > 0 {
-		if err := pm.stateManager.BatchUpdateWorktrees(worktreeUpdates); err != nil {
-			logger.Errorf("Failed to batch update worktrees with PR state changes: %v", err)
-		} else {
-			logger.Infof("Successfully updated %d worktrees with PR state changes", len(worktreeUpdates))
-		}
+	if updateCount > 0 {
+		logger.Debugf("Sent %d PR state updates via channel", updateCount)
 	}
 }
 

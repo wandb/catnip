@@ -107,7 +107,15 @@ export function WorkspaceMobile({
   const [hasBeenActive, setHasBeenActive] = useState(false);
   const [prDialogOpen, setPrDialogOpen] = useState(false);
   const [contentKey, setContentKey] = useState(0); // Force content refresh
+  const [hasStartedFromInitialPrompt, setHasStartedFromInitialPrompt] =
+    useState(false);
+  const [sessionRestarted, setSessionRestarted] = useState(false);
+  const restartedContentRef = useRef<{
+    latestMessage?: string;
+    todos?: any[];
+  }>({});
   const wsRef = useRef<WebSocket | null>(null);
+  const initialPromptRef = useRef<string | undefined>(initialPrompt);
 
   const { getAllWorktreeSessionSummaries, getWorktreeLatestAssistantMessage } =
     useClaudeApi();
@@ -119,6 +127,11 @@ export function WorkspaceMobile({
     // Use the provided prompt or fall back to the state prompt
     const actualPrompt = promptToSend || prompt;
     const wasFromInitialPrompt = Boolean(promptToSend && initialPrompt);
+
+    // Track if we're starting from an initial prompt
+    if (wasFromInitialPrompt) {
+      setHasStartedFromInitialPrompt(true);
+    }
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams();
@@ -133,12 +146,22 @@ export function WorkspaceMobile({
 
     // Reset hasBeenActive and set phase when starting a new session from existing workspace
     // This ensures proper state transitions
-    if (phase === "completed") {
+    if (phase === "completed" || phase === "existing") {
       setHasBeenActive(false);
       setPhase("todos");
       // Reset the prompt UI state
       setShowNewPrompt(false);
-      setPrompt("");
+      // Capture the current content before marking as restarted
+      restartedContentRef.current = {
+        latestMessage: currentWorktree?.latest_claude_message,
+        todos: currentWorktree?.todos ? [...currentWorktree.todos] : undefined,
+      };
+      // Mark that we restarted a session (for UI styling)
+      setSessionRestarted(true);
+      // Clear the prompt after starting
+      if (phase === "completed") {
+        setPrompt("");
+      }
     }
 
     const ws = new WebSocket(url);
@@ -239,8 +262,8 @@ export function WorkspaceMobile({
               setPhase("existing");
             } else {
               // If we have an initial prompt and failed to get message, start fresh
-              if (initialPrompt?.trim()) {
-                setPrompt(initialPrompt.trim());
+              if (initialPromptRef.current?.trim()) {
+                setPrompt(initialPromptRef.current.trim());
                 setPhase("input");
               } else {
                 setPhase("input");
@@ -249,8 +272,8 @@ export function WorkspaceMobile({
           }
         } else {
           // If there's an initial prompt, set it and start session immediately
-          if (initialPrompt?.trim()) {
-            const trimmedPrompt = initialPrompt.trim();
+          if (initialPromptRef.current?.trim()) {
+            const trimmedPrompt = initialPromptRef.current.trim();
             setPrompt(trimmedPrompt);
             // Skip input phase and go directly to todos, then start session
             setPhase("todos");
@@ -266,8 +289,8 @@ export function WorkspaceMobile({
         console.error("Failed to load Claude data:", error);
 
         // If there's an initial prompt, still set it even if session loading failed
-        if (initialPrompt?.trim()) {
-          const trimmedPrompt = initialPrompt.trim();
+        if (initialPromptRef.current?.trim()) {
+          const trimmedPrompt = initialPromptRef.current.trim();
           setPrompt(trimmedPrompt);
           // Skip input phase and go directly to todos, then start session
           setPhase("todos");
@@ -284,7 +307,7 @@ export function WorkspaceMobile({
     };
 
     void loadClaudeData();
-  }, [worktree.path, initialPrompt]);
+  }, [worktree.path]); // Removed initialPrompt from dependency array
 
   useEffect(() => {
     if (!currentWorktree) return;
@@ -331,6 +354,10 @@ export function WorkspaceMobile({
         `Session completed (was previously active, now ${currentWorktree.claude_activity_state}), switching to completed phase`,
       );
       setPhase("completed");
+      // Clear restart flag and prompt when completing
+      setSessionRestarted(false);
+      setShowNewPrompt(false);
+      setPrompt("");
       // Load latest message for completed phase
       void (async () => {
         try {
@@ -365,6 +392,8 @@ export function WorkspaceMobile({
           );
           setLatestMessage(message);
           setContentKey((prev) => prev + 1); // Force content refresh
+          // Clear restart flag since we got new content
+          setSessionRestarted(false);
           // Check if we should go to completed or existing
           const sessions = await getAllWorktreeSessionSummaries();
           const sessionData = sessions[worktree.path];
@@ -373,12 +402,17 @@ export function WorkspaceMobile({
             setPhase("existing");
           } else {
             setPhase("completed");
+            setShowNewPrompt(false);
+            setPrompt("");
           }
         } catch (error) {
           console.warn("Failed to refresh content after transition:", error);
           setPhase("completed");
           setLatestMessage("Session completed successfully");
           setContentKey((prev) => prev + 1); // Force content refresh even on error
+          setSessionRestarted(false);
+          setShowNewPrompt(false);
+          setPrompt("");
         }
       })();
     } else if (
@@ -406,10 +440,11 @@ export function WorkspaceMobile({
     // This is a fallback in case the initial load didn't start the session
     if (
       phase === "input" &&
-      initialPrompt?.trim() &&
+      initialPromptRef.current?.trim() &&
       prompt.trim() &&
       !loading &&
-      !sessionStarting
+      !sessionStarting &&
+      !hasStartedFromInitialPrompt // Don't auto-start again if we already started from initial prompt
     ) {
       console.log("Fallback auto-start for input phase with initial prompt");
       // Short delay and then start
@@ -420,7 +455,43 @@ export function WorkspaceMobile({
 
       return () => clearTimeout(timer);
     }
-  }, [phase, initialPrompt, prompt, loading, sessionStarting]);
+  }, [phase, prompt, loading, sessionStarting, hasStartedFromInitialPrompt]);
+
+  // Clear restart flag when we get genuinely new content (different from what was showing at restart)
+  useEffect(() => {
+    if (sessionRestarted && currentWorktree?.todos) {
+      const previousTodos = restartedContentRef.current.todos;
+      const currentTodos = currentWorktree.todos;
+
+      // Compare todos - check if they're different
+      const todosChanged =
+        !previousTodos ||
+        previousTodos.length !== currentTodos.length ||
+        JSON.stringify(previousTodos) !== JSON.stringify(currentTodos);
+
+      if (todosChanged && currentTodos.length > 0) {
+        console.log(
+          "Got genuinely new todos after restart, clearing restart flag",
+        );
+        setSessionRestarted(false);
+      }
+    }
+  }, [sessionRestarted, currentWorktree?.todos]);
+
+  useEffect(() => {
+    if (sessionRestarted && currentWorktree?.latest_claude_message) {
+      const previousMessage = restartedContentRef.current.latestMessage;
+      const currentMessage = currentWorktree.latest_claude_message;
+
+      // Check if the message is different from what was showing at restart
+      if (previousMessage !== currentMessage) {
+        console.log(
+          "Got genuinely new latest message after restart, clearing restart flag",
+        );
+        setSessionRestarted(false);
+      }
+    }
+  }, [sessionRestarted, currentWorktree?.latest_claude_message]);
 
   useEffect(() => {
     return () => {
@@ -620,38 +691,40 @@ export function WorkspaceMobile({
               )}
             </div>
 
-            {/* Show the original prompt or session context */}
-            {(prompt || claudeSession?.header) && (
-              <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
-                <div className="text-xs font-medium text-primary/80 mb-2">
-                  {prompt ? "Your Request:" : "Session Context:"}
-                </div>
-                <div className="text-sm leading-relaxed">
-                  {prompt || claudeSession?.header}
-                </div>
+            {/* Dynamic session context - starts with prompt, evolves to show latest message */}
+            <div
+              className={`bg-primary/5 border border-primary/20 rounded-lg p-4 transition-opacity ${sessionRestarted ? "opacity-50" : "opacity-100"}`}
+            >
+              <div className="text-xs font-medium text-primary/80 mb-2">
+                Session Context:
               </div>
-            )}
+              <div className="text-sm leading-relaxed">
+                {currentWorktree?.latest_claude_message ? (
+                  <div className="prose prose-sm max-w-none dark:prose-invert">
+                    <TextContent
+                      content={currentWorktree.latest_claude_message}
+                    />
+                  </div>
+                ) : prompt || claudeSession?.header ? (
+                  prompt || claudeSession?.header
+                ) : (
+                  "Starting session..."
+                )}
+              </div>
+            </div>
 
-            {/* Show todos if available, otherwise show latest Claude message */}
+            {/* Show todos if available, otherwise show generic thinking message */}
             {currentWorktree?.todos && currentWorktree.todos.length > 0 ? (
-              <div className="space-y-2">
+              <div
+                className={`space-y-2 transition-opacity ${sessionRestarted ? "opacity-50" : "opacity-100"}`}
+              >
                 <div className="text-sm font-medium">Progress:</div>
                 <TodoDisplay todos={currentWorktree.todos} />
               </div>
-            ) : currentWorktree?.latest_claude_message ? (
-              <div className="space-y-2">
-                <div className="text-sm font-medium">Claude is working...</div>
-                <div className="bg-muted/30 rounded-lg p-3">
-                  <TextContent
-                    content={currentWorktree.latest_claude_message}
-                  />
-                </div>
-              </div>
             ) : (
-              <div className="text-xs text-muted-foreground">
-                {currentWorktree
-                  ? `Waiting for Claude to respond... (${currentWorktree.claude_activity_state})`
-                  : "Loading workspace..."}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-muted-foreground/50" />
+                <span>Claude is thinking...</span>
               </div>
             )}
           </div>
