@@ -11,10 +11,9 @@ export function getWorkspaceTitle(worktree: Worktree): string {
     return worktree.session_title.title;
   }
 
-  // Priority 3: Use latest user prompt if available (requires backend support)
-  // Note: This field doesn't exist yet but would come from ~/.claude.json history
-  if ((worktree as any).latest_user_prompt) {
-    return (worktree as any).latest_user_prompt;
+  // Priority 3: Use latest user prompt if available
+  if (worktree.latest_user_prompt) {
+    return worktree.latest_user_prompt;
   }
 
   // Priority 4: Use workspace name

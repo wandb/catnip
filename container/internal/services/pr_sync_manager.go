@@ -16,13 +16,14 @@ import (
 
 // PRSyncManager handles periodic synchronization of pull request states
 type PRSyncManager struct {
-	stateManager *WorktreeStateManager
-	prStateCache map[string]*models.PullRequestState
-	syncInterval time.Duration
-	ticker       *time.Ticker
-	stopChan     chan bool
-	mutex        sync.RWMutex
-	isRunning    bool
+	stateManager  *WorktreeStateManager
+	prStateCache  map[string]*models.PullRequestState
+	syncInterval  time.Duration
+	ticker        *time.Ticker
+	stopChan      chan bool
+	mutex         sync.RWMutex
+	isRunning     bool
+	isInitialized bool // Prevents worktree updates during startup
 }
 
 var (
@@ -287,14 +288,93 @@ func (pm *PRSyncManager) updateCache(states map[string]*models.PullRequestState)
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
-	// Update in-memory cache
-	for key, state := range states {
-		pm.prStateCache[key] = state
+	// Track which states actually changed
+	changedStates := make(map[string]*models.PullRequestState)
+
+	// Update in-memory cache and detect changes
+	for key, newState := range states {
+		oldState := pm.prStateCache[key]
+		if oldState == nil || oldState.State != newState.State {
+			changedStates[key] = newState
+			logger.Debugf("PR state changed for %s: %s -> %s", key,
+				func() string {
+					if oldState != nil {
+						return oldState.State
+					} else {
+						return "nil"
+					}
+				}(),
+				newState.State)
+		}
+		pm.prStateCache[key] = newState
+	}
+
+	// If no states changed, no need to trigger events
+	if len(changedStates) == 0 {
+		return
 	}
 
 	// The state manager will automatically persist PR states when saveStateInternal is called
 	// This happens automatically during normal worktree state updates
-	logger.Debugf("Updated PR cache with %d states", len(states))
+	logger.Debugf("Updated PR cache with %d states (%d changed)", len(states), len(changedStates))
+
+	// Trigger worktree updates for affected worktrees
+	pm.triggerWorktreeUpdatesForPRChanges(changedStates)
+}
+
+// triggerWorktreeUpdatesForPRChanges finds worktrees affected by PR state changes and triggers update events
+func (pm *PRSyncManager) triggerWorktreeUpdatesForPRChanges(changedStates map[string]*models.PullRequestState) {
+	if pm.stateManager == nil {
+		logger.Warn("State manager not available for triggering worktree updates")
+		return
+	}
+
+	// Skip worktree updates during startup initialization to prevent deadlocks
+	if !pm.isInitialized {
+		logger.Debugf("Skipping worktree updates during startup initialization (%d changed states)", len(changedStates))
+		return
+	}
+
+	prPattern := regexp.MustCompile(`github\.com/([^/]+/[^/]+)/pull/(\d+)`)
+
+	// Get all worktrees to find which ones are affected by the changed PRs
+	allWorktrees := pm.stateManager.GetAllWorktrees()
+	worktreeUpdates := make(map[string]map[string]interface{})
+
+	for _, worktree := range allWorktrees {
+		if worktree.PullRequestURL == "" {
+			continue
+		}
+
+		matches := prPattern.FindStringSubmatch(worktree.PullRequestURL)
+		if len(matches) != 3 {
+			continue
+		}
+
+		repoID := matches[1]
+		prNumber, err := strconv.Atoi(matches[2])
+		if err != nil {
+			continue
+		}
+
+		// Check if this worktree's PR state changed
+		prKey := fmt.Sprintf("%s#%d", repoID, prNumber)
+		if changedState, exists := changedStates[prKey]; exists {
+			worktreeUpdates[worktree.ID] = map[string]interface{}{
+				"pull_request_state": changedState.State,
+			}
+			logger.Debugf("Scheduling worktree update for %s: PR state -> %s", worktree.ID, changedState.State)
+		}
+	}
+
+	// Batch update all affected worktrees
+	if len(worktreeUpdates) > 0 {
+		if err := pm.stateManager.BatchUpdateWorktrees(worktreeUpdates); err != nil {
+			logger.Errorf("Failed to batch update worktrees with PR state changes: %v", err)
+		} else {
+			logger.Infof("Successfully updated %d worktrees with PR state changes", len(worktreeUpdates))
+		}
+	}
 }
 
 // GetPRState returns the cached state for a specific PR
@@ -346,4 +426,14 @@ func (pm *PRSyncManager) LoadStatesFromData(states map[string]*models.PullReques
 	}
 
 	logger.Debugf("Loaded %d persisted PR states into cache", len(pm.prStateCache))
+}
+
+// MarkInitializationComplete marks the PR sync manager as fully initialized
+// This enables worktree update triggering after startup is complete
+func (pm *PRSyncManager) MarkInitializationComplete() {
+	pm.mutex.Lock()
+	defer pm.mutex.Unlock()
+
+	pm.isInitialized = true
+	logger.Debug("PR sync manager initialization marked complete - worktree updates now enabled")
 }

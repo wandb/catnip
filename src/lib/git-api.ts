@@ -59,6 +59,8 @@ export interface Worktree {
   latest_claude_message?: string;
   latest_claude_message_type?: string;
   latest_claude_message_timestamp?: number;
+  latest_user_prompt?: string;
+  latest_session_title?: string;
 }
 
 interface Owner {

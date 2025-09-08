@@ -70,6 +70,8 @@ type worktreeFieldState struct {
 	ClaudeActivityState    models.ClaudeActivityState
 	Todos                  []models.Todo
 	HasBeenRenamed         bool // Whether this worktree has had its branch renamed
+	LatestUserPrompt       string
+	LatestSessionTitle     string
 }
 
 // NewWorktreeStateManager creates a new centralized state manager
@@ -290,6 +292,18 @@ func (wsm *WorktreeStateManager) UpdateWorktree(worktreeID string, updates map[s
 			if v, ok := value.(bool); ok {
 				worktree.HasBeenRenamed = v
 			}
+		case "latest_user_prompt":
+			if v, ok := value.(string); ok {
+				worktree.LatestUserPrompt = v
+			}
+		case "latest_session_title":
+			if v, ok := value.(string); ok {
+				worktree.LatestSessionTitle = v
+			}
+		case "pull_request_state":
+			if v, ok := value.(string); ok {
+				worktree.PullRequestState = v
+			}
 		}
 	}
 
@@ -434,6 +448,10 @@ func (wsm *WorktreeStateManager) BatchUpdateWorktrees(updates map[string]map[str
 			case "claude_activity_state":
 				if v, ok := value.(models.ClaudeActivityState); ok {
 					worktree.ClaudeActivityState = v
+				}
+			case "pull_request_state":
+				if v, ok := value.(string); ok {
+					worktree.PullRequestState = v
 				}
 			}
 		}
@@ -701,6 +719,8 @@ func (wsm *WorktreeStateManager) captureFieldState(wt *models.Worktree) worktree
 		HasActiveClaudeSession: wt.HasActiveClaudeSession,
 		ClaudeActivityState:    wt.ClaudeActivityState,
 		HasBeenRenamed:         wt.HasBeenRenamed,
+		LatestUserPrompt:       wt.LatestUserPrompt,
+		LatestSessionTitle:     wt.LatestSessionTitle,
 	}
 
 	// Deep copy title history

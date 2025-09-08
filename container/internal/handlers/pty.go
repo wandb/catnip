@@ -1159,11 +1159,6 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 
 		// Send to all connections if we have data to send
 		if len(outputData) > 0 {
-			session.connMutex.RLock()
-			connectionCount := len(session.connections)
-			session.connMutex.RUnlock()
-
-			logger.Debugf("📤 Broadcasting %d bytes to %d connections in session %s", len(outputData), connectionCount, session.ID)
 			session.broadcastToConnections(websocket.BinaryMessage, outputData)
 		}
 	}
@@ -1784,14 +1779,9 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 	connectionCount := len(s.connections)
 	s.connMutex.RUnlock()
 
-	// Only broadcast if we have connections and avoid excessive logging for small data
+	// Only broadcast if we have connections
 	if connectionCount == 0 {
 		return
-	}
-
-	// Log broadcasts for debugging (only for multiple connections or very large data)
-	if connectionCount > 1 || len(data) > 10000 {
-		logger.Debugf("📤 Broadcasting %d bytes to %d connections in session %s", len(data), connectionCount, s.ID)
 	}
 
 	s.connMutex.RLock()

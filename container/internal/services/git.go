@@ -1987,6 +1987,13 @@ func (s *GitService) GetStateManager() *WorktreeStateManager {
 	return s.stateManager
 }
 
+// GetCommitSyncService returns the commit sync service
+func (s *GitService) GetCommitSyncService() *CommitSyncService {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.commitSync
+}
+
 // RenameBranch renames a branch in the given repository
 func (s *GitService) RenameBranch(repoPath, oldBranch, newBranch string) error {
 	return s.operations.RenameBranch(repoPath, oldBranch, newBranch)

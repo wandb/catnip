@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { TodoDisplay } from "@/components/TodoDisplay";
@@ -93,6 +93,7 @@ export function WorkspaceMobile({
   repository,
   initialPrompt,
 }: WorkspaceMobileProps) {
+  const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [phase, setPhase] = useState<
     "input" | "todos" | "completed" | "existing"
@@ -117,6 +118,7 @@ export function WorkspaceMobile({
   const startSession = (promptToSend?: string) => {
     // Use the provided prompt or fall back to the state prompt
     const actualPrompt = promptToSend || prompt;
+    const wasFromInitialPrompt = Boolean(promptToSend && initialPrompt);
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams();
@@ -144,6 +146,19 @@ export function WorkspaceMobile({
     ws.onopen = () => {
       console.log("PTY WebSocket opened, waiting for Claude to initialize...");
       setSessionStarting(false);
+
+      // Clear the prompt parameter from URL if session started from initial prompt
+      if (wasFromInitialPrompt) {
+        void navigate({
+          to: "/workspace/$project/$workspace",
+          params: {
+            project: worktree.name.split("/")[0],
+            workspace: worktree.name.split("/")[1],
+          },
+          search: { prompt: undefined },
+          replace: true,
+        });
+      }
 
       // Wait for Claude to fully initialize before sending the prompt
       setTimeout(() => {

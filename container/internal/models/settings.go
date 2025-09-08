@@ -480,7 +480,7 @@ func (s *Settings) performClaudeProjectFileSync(sourcePath, destPath string, exp
 	// Update last modification time
 	s.lastModTimes[sourcePath] = info.ModTime()
 
-	logger.Debugf("📋 Synced Claude project file %s to volume", filepath.Base(sourcePath))
+	// Silent sync - no log per file to reduce noise
 }
 
 // checkAndSyncFiles checks if files have changed and schedules debounced syncing to volume

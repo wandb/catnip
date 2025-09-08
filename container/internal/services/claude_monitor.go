@@ -585,7 +585,53 @@ func (s *ClaudeMonitorService) handleTitleChange(workDir, newTitle, source strin
 		}
 	}
 
+	// Update worktree state with latest session title and user prompt
+	s.updateWorktreePromptAndTitleData(workDir, newTitle)
+
 	manager.HandleTitleChange(newTitle)
+}
+
+// updateWorktreePromptAndTitleData updates the worktree state with latest session title and user prompt
+func (s *ClaudeMonitorService) updateWorktreePromptAndTitleData(workDir, latestSessionTitle string) {
+	// Find the worktree ID for this path
+	worktrees := s.gitService.stateManager.GetAllWorktrees()
+	var worktreeID string
+	for id, worktree := range worktrees {
+		if worktree.Path == workDir {
+			worktreeID = id
+			break
+		}
+	}
+
+	if worktreeID == "" {
+		logger.Debugf("⚠️ No worktree found for path %s, skipping prompt/title update", workDir)
+		return
+	}
+
+	// Get the latest user prompt from ~/.claude.json
+	latestUserPrompt, err := s.claudeService.GetLatestUserPrompt(workDir)
+	if err != nil {
+		logger.Debugf("⚠️ Failed to get latest user prompt for %s: %v", workDir, err)
+		latestUserPrompt = "" // Continue with empty prompt
+	}
+
+	// Prepare updates
+	updates := make(map[string]interface{})
+	if latestSessionTitle != "" {
+		updates["latest_session_title"] = latestSessionTitle
+	}
+	if latestUserPrompt != "" {
+		updates["latest_user_prompt"] = latestUserPrompt
+	}
+
+	// Only update if we have something to update
+	if len(updates) > 0 {
+		if err := s.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+			logger.Warnf("⚠️ Failed to update worktree prompt/title data for %s: %v", worktreeID, err)
+		} else {
+			logger.Debugf("✅ Updated worktree %s with latest session title and user prompt", worktreeID)
+		}
+	}
 }
 
 // NotifyTitleChange allows direct notification of title changes (fallback for when log monitoring fails)

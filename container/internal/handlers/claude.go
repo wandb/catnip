@@ -374,6 +374,14 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 		}
 	}
 
+	// Trigger immediate commit sync for Stop events to auto-commit dirty changes
+	if req.EventType == "Stop" {
+		logger.Debugf("🔄 Triggering immediate commit sync for Stop event in %s", req.WorkingDirectory)
+		if commitSyncService := h.gitService.GetCommitSyncService(); commitSyncService != nil {
+			commitSyncService.PerformManualSync()
+		}
+	}
+
 	// Emit Claude message on PostToolUse events
 	if h.eventsHandler != nil && req.EventType == "PostToolUse" {
 		// Find the workspace directory - handle subdirectories by checking workspace prefix

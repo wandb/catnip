@@ -112,6 +112,10 @@ type Worktree struct {
 	PullRequestLastSynced *time.Time `json:"pull_request_last_synced,omitempty"`
 	// Current todos from the most recent TodoWrite in Claude session
 	Todos []Todo `json:"todos,omitempty"`
+	// Latest user prompt from ~/.claude.json history
+	LatestUserPrompt string `json:"latest_user_prompt,omitempty"`
+	// Latest session title from the current session (simplified string version)
+	LatestSessionTitle string `json:"latest_session_title,omitempty"`
 }
 
 // WorktreeCreateRequest represents a request to create a new worktree

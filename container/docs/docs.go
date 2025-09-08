@@ -2246,6 +2246,14 @@ const docTemplate = `{
                     "type": "string",
                     "example": "2024-01-15T16:30:00Z"
                 },
+                "latest_session_title": {
+                    "description": "Latest session title from the current session (simplified string version)",
+                    "type": "string"
+                },
+                "latest_user_prompt": {
+                    "description": "Latest user prompt from ~/.claude.json history",
+                    "type": "string"
+                },
                 "name": {
                     "description": "User-friendly name for this worktree (e.g., 'vectorize-quasar')",
                     "type": "string",
@@ -2668,6 +2676,14 @@ const docTemplate = `{
                     "description": "When this worktree was last accessed",
                     "type": "string",
                     "example": "2024-01-15T16:30:00Z"
+                },
+                "latest_session_title": {
+                    "description": "Latest session title from the current session (simplified string version)",
+                    "type": "string"
+                },
+                "latest_user_prompt": {
+                    "description": "Latest user prompt from ~/.claude.json history",
+                    "type": "string"
                 },
                 "name": {
                     "description": "User-friendly name for this worktree (e.g., 'vectorize-quasar')",

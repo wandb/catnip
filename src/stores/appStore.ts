@@ -380,6 +380,9 @@ export const useAppStore = create<AppState>()(
                 commit_count: status.commit_count,
                 commits_behind: status.commits_behind,
                 has_conflicts: status.has_conflicts,
+                ...((status as any).pull_request_state && {
+                  pull_request_state: (status as any).pull_request_state,
+                }),
                 cache_status: {
                   is_cached: status.is_cached,
                   is_loading: status.is_loading,

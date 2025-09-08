@@ -176,6 +176,12 @@ func startServer(cmd *cobra.Command) {
 
 	// Now initialize local repositories with setup executor properly configured
 	gitService.InitializeLocalRepos()
+
+	// Mark PR sync manager as fully initialized after all startup tasks complete
+	if prSyncManager := services.GetPRSyncManager(nil); prSyncManager != nil {
+		prSyncManager.MarkInitializationComplete()
+	}
+
 	if err := claudeMonitor.Start(); err != nil {
 		logger.Debugf("⚠️  Failed to start Claude monitor service: %v", err)
 	} else {

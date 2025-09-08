@@ -685,6 +685,22 @@ func (s *ClaudeService) GetUserPrompts(worktreePath string) ([]models.ClaudeHist
 	return projectMeta.History, nil
 }
 
+// GetLatestUserPrompt gets the latest user prompt from ~/.claude.json history for a specific workspace
+func (s *ClaudeService) GetLatestUserPrompt(worktreePath string) (string, error) {
+	userPrompts, err := s.GetUserPrompts(worktreePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get user prompts: %w", err)
+	}
+
+	if len(userPrompts) == 0 {
+		return "", nil // No prompts yet
+	}
+
+	// Get the most recent prompt (last in history)
+	latestPrompt := userPrompts[len(userPrompts)-1]
+	return latestPrompt.Display, nil
+}
+
 // GetSessionByID gets complete session data for a specific session ID
 func (s *ClaudeService) GetSessionByID(worktreePath, sessionID string) (*models.FullSessionData, error) {
 	// Validate session exists
