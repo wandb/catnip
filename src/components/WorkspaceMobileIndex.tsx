@@ -6,6 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { useAppStore } from "@/stores/appStore";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useClaudeApi } from "@/hooks/useClaudeApi";
+import {
+  getWorkspaceTitle,
+  getStatusIndicatorClasses,
+} from "@/lib/workspace-utils";
 import type { ClaudeSessionSummary } from "@/lib/claude-api";
 
 interface WorkspaceCardProps {
@@ -14,10 +18,9 @@ interface WorkspaceCardProps {
   repoName: string;
   available: boolean;
   claudeSessionSummary?: ClaudeSessionSummary;
-  lastAssistantMessage?: string;
   commitCount?: number;
   isDirty?: boolean;
-  pullRequestTitle?: string;
+  worktree: any; // Full worktree object for status and title logic
 }
 
 function WorkspaceCard({
@@ -26,17 +29,15 @@ function WorkspaceCard({
   repoName,
   available,
   claudeSessionSummary,
-  lastAssistantMessage,
   commitCount,
   isDirty,
-  pullRequestTitle,
+  worktree,
 }: WorkspaceCardProps) {
   const parts = name.split("/");
   const project = parts[0];
   const workspace = parts[1];
 
   const hasSession = claudeSessionSummary && claudeSessionSummary.turnCount > 0;
-  const isActive = claudeSessionSummary?.isActive ?? false;
 
   // Clean up branch name by removing leading slash
   const cleanBranch = branch.startsWith("/") ? branch.slice(1) : branch;
@@ -44,16 +45,22 @@ function WorkspaceCard({
   // Format diff stats
   const diffStats = commitCount && commitCount > 0 ? `+${commitCount}` : null;
 
+  // Get workspace title using shared utility
+  const title = getWorkspaceTitle(worktree);
+
   return (
     <Card className="p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <h3 className="font-semibold text-lg">{cleanBranch}</h3>
+        <div className="space-y-1 flex-1 min-w-0 mr-4">
+          <div className="flex items-center gap-2">
+            <div className={getStatusIndicatorClasses(worktree)} />
+            <h3 className="font-semibold text-lg truncate">{title}</h3>
+          </div>
           <div className="text-sm text-muted-foreground">
-            {repoName}/{workspace}
+            {repoName}/{workspace} · {cleanBranch}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {diffStats && (
             <span className="text-xs font-mono text-muted-foreground">
               {diffStats}
@@ -64,33 +71,8 @@ function WorkspaceCard({
               Modified
             </Badge>
           )}
-          {isActive && (
-            <Badge
-              variant="secondary"
-              className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
-            >
-              Active
-            </Badge>
-          )}
         </div>
       </div>
-
-      {pullRequestTitle && (
-        <div className="text-sm font-medium text-muted-foreground line-clamp-2">
-          {pullRequestTitle}
-        </div>
-      )}
-
-      {hasSession && lastAssistantMessage && !pullRequestTitle && (
-        <div className="space-y-2">
-          <div className="text-sm text-muted-foreground">Last response:</div>
-          <div className="text-sm bg-muted p-3 rounded-md line-clamp-3">
-            {lastAssistantMessage.length > 150
-              ? lastAssistantMessage.substring(0, 150) + "..."
-              : lastAssistantMessage}
-          </div>
-        </div>
-      )}
 
       <div className="flex gap-2">
         {available ? (
@@ -117,14 +99,10 @@ export function WorkspaceMobileIndex() {
   const [claudeSessions, setClaudeSessions] = useState<
     Record<string, ClaudeSessionSummary>
   >({});
-  const [latestMessages, setLatestMessages] = useState<Record<string, string>>(
-    {},
-  );
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  const { getAllWorktreeSessionSummaries, getWorktreeLatestAssistantMessage } =
-    useClaudeApi();
+  const { getAllWorktreeSessionSummaries } = useClaudeApi();
 
   const worktreesCount = useAppStore(
     (state) => state.getWorktreesList().length,
@@ -141,41 +119,6 @@ export function WorkspaceMobileIndex() {
         const sessions = await getAllWorktreeSessionSummaries();
         if (!isMounted) return;
         setClaudeSessions(sessions);
-
-        // Get latest assistant messages for worktrees with sessions
-        const messagePromises = Object.keys(sessions).map(
-          async (worktreePath) => {
-            if (sessions[worktreePath]?.turnCount > 0) {
-              try {
-                const message =
-                  await getWorktreeLatestAssistantMessage(worktreePath);
-                return { worktreePath, message };
-              } catch (error) {
-                console.warn(
-                  `Failed to get latest message for ${worktreePath}:`,
-                  error,
-                );
-                return { worktreePath, message: "" };
-              }
-            }
-            return { worktreePath, message: "" };
-          },
-        );
-
-        const messageResults = await Promise.all(messagePromises);
-        if (!isMounted) return;
-
-        const messagesMap = messageResults.reduce(
-          (acc, { worktreePath, message }) => {
-            if (message) {
-              acc[worktreePath] = message;
-            }
-            return acc;
-          },
-          {} as Record<string, string>,
-        );
-
-        setLatestMessages(messagesMap);
       } catch (error) {
         if (!isMounted) return;
         console.error("Failed to load Claude data:", error);
@@ -261,10 +204,9 @@ export function WorkspaceMobileIndex() {
               repoName={repoName}
               available={repository.available}
               claudeSessionSummary={claudeSessions[worktree.path]}
-              lastAssistantMessage={latestMessages[worktree.path]}
               commitCount={worktree.commit_count}
               isDirty={worktree.is_dirty}
-              pullRequestTitle={worktree.pull_request_title}
+              worktree={worktree}
             />
           );
         })}

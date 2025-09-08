@@ -9,6 +9,10 @@ import { PullRequestDialog } from "@/components/PullRequestDialog";
 import { useAppStore } from "@/stores/appStore";
 import { useClaudeApi } from "@/hooks/useClaudeApi";
 import { GitMerge, ExternalLink } from "lucide-react";
+import {
+  getWorkspaceTitle,
+  getStatusIndicatorClasses,
+} from "@/lib/workspace-utils";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 import type { ClaudeSessionSummary } from "@/lib/claude-api";
 
@@ -89,22 +93,6 @@ export function WorkspaceMobile({
   repository,
   initialPrompt,
 }: WorkspaceMobileProps) {
-  // Generate a workspace title with proper priority (same logic as WorkspaceLeftSidebar)
-  const getWorkspaceTitle = (worktree: Worktree) => {
-    // Priority 1: Use PR title if available
-    if (worktree.pull_request_title) {
-      return worktree.pull_request_title;
-    }
-
-    // Priority 2: Use session title if available
-    if (worktree.session_title?.title) {
-      return worktree.session_title.title;
-    }
-
-    // Priority 3: Use workspace name
-    const workspaceName = worktree.name.split("/")[1] || worktree.name;
-    return workspaceName;
-  };
   const [prompt, setPrompt] = useState("");
   const [phase, setPhase] = useState<
     "input" | "todos" | "completed" | "existing"
@@ -125,20 +113,6 @@ export function WorkspaceMobile({
   const currentWorktree = useAppStore((state) =>
     state.worktrees.get(worktree.id),
   );
-
-  const getStatusIndicator = () => {
-    if (!currentWorktree) return "h-2 w-2 bg-gray-500 rounded-full";
-
-    switch (currentWorktree.claude_activity_state) {
-      case "active":
-        return "h-2 w-2 bg-green-500 rounded-full animate-pulse";
-      case "running":
-        return "h-2 w-2 bg-blue-500 rounded-full animate-pulse";
-      case "inactive":
-      default:
-        return "h-2 w-2 border-2 border-gray-400 bg-transparent rounded-full";
-    }
-  };
 
   const startSession = (promptToSend?: string) => {
     // Use the provided prompt or fall back to the state prompt
@@ -623,7 +597,7 @@ export function WorkspaceMobile({
                 </>
               ) : (
                 <>
-                  <div className={getStatusIndicator()} />
+                  <div className={getStatusIndicatorClasses(currentWorktree)} />
                   <div className="text-sm text-muted-foreground">
                     Claude is working on your request...
                   </div>

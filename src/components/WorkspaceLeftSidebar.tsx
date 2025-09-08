@@ -10,6 +10,10 @@ import {
   ChevronsLeft,
 } from "lucide-react";
 import {
+  getWorkspaceTitle,
+  getStatusIndicatorClasses,
+} from "@/lib/workspace-utils";
+import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
@@ -182,19 +186,6 @@ export function WorkspaceLeftSidebar() {
       branch: string;
     } | null>(null);
 
-  const getWorktreeStatus = (worktree: Worktree) => {
-    // Use the claude_activity_state to determine the status
-    switch (worktree.claude_activity_state) {
-      case "active":
-        return { color: "bg-green-500 animate-pulse", label: "active" };
-      case "running":
-        return { color: "bg-blue-500 animate-pulse", label: "running" };
-      case "inactive":
-      default:
-        return { color: "bg-gray-500", label: "inactive" };
-    }
-  };
-
   const handleAddWorkspace = () => {
     if (!currentRepository) return;
 
@@ -216,23 +207,6 @@ export function WorkspaceLeftSidebar() {
     const lastActivity = worktree.last_accessed || worktree.created_at;
     if (!lastActivity) return null;
     return formatDistanceToNow(new Date(lastActivity), { addSuffix: true });
-  };
-
-  // Generate a workspace title with proper priority
-  const getWorkspaceTitle = (worktree: Worktree) => {
-    // Priority 1: Use PR title if available
-    if (worktree.pull_request_title) {
-      return worktree.pull_request_title;
-    }
-
-    // Priority 2: Use session title if available
-    if (worktree.session_title?.title) {
-      return worktree.session_title.title;
-    }
-
-    // Priority 3: Use workspace name
-    const workspaceName = worktree.name.split("/")[1] || worktree.name;
-    return workspaceName;
   };
 
   const handleDeleteWorkspaces = () => {
@@ -331,7 +305,6 @@ export function WorkspaceLeftSidebar() {
                     return worktrees.map((worktree: Worktree) => {
                       const isActive = worktree.name === currentWorkspaceName;
                       const nameParts = worktree.name.split("/");
-                      const status = getWorktreeStatus(worktree);
 
                       return (
                         <SidebarMenuItem key={worktree.id}>
@@ -351,8 +324,7 @@ export function WorkspaceLeftSidebar() {
                                 className="flex items-center gap-2"
                               >
                                 <div
-                                  className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
-                                  title={status.label}
+                                  className={`${getStatusIndicatorClasses(worktree)} flex-shrink-0`}
                                 />
                                 <div className="flex-1 min-w-0">
                                   <div className="font-medium truncate">
@@ -394,8 +366,7 @@ export function WorkspaceLeftSidebar() {
                             ) : (
                               <span className="flex items-center gap-2">
                                 <div
-                                  className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0`}
-                                  title={status.label}
+                                  className={`${getStatusIndicatorClasses(worktree)} flex-shrink-0`}
                                 />
                                 <div className="flex-1 min-w-0">
                                   <div className="font-medium truncate">
@@ -522,7 +493,6 @@ export function WorkspaceLeftSidebar() {
                 {repositoryWorktrees.map((worktree: Worktree) => {
                   const isActive = worktree.name === currentWorkspaceName;
                   const nameParts = worktree.name.split("/");
-                  const status = getWorktreeStatus(worktree);
                   const timeAgo = getTimeAgo(worktree);
                   const title = getWorkspaceTitle(worktree);
 
@@ -557,8 +527,7 @@ export function WorkspaceLeftSidebar() {
                             className="flex items-start gap-3 w-full"
                           >
                             <div
-                              className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0 mt-1.5`}
-                              title={status.label}
+                              className={`${getStatusIndicatorClasses(worktree)} flex-shrink-0 mt-1.5`}
                             />
                             <div className="flex-1 min-w-0 relative">
                               {/* Floating Actions Menu */}
@@ -660,8 +629,7 @@ export function WorkspaceLeftSidebar() {
                         ) : (
                           <span className="flex items-start gap-3 w-full">
                             <div
-                              className={`w-2 h-2 rounded-full ${status.color} flex-shrink-0 mt-1.5`}
-                              title={status.label}
+                              className={`${getStatusIndicatorClasses(worktree)} flex-shrink-0 mt-1.5`}
                             />
                             <div className="flex-1 min-w-0">
                               <div
