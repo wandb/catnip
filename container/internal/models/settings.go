@@ -23,25 +23,27 @@ type ClaudeConfig struct {
 
 // Settings manages persistence of Claude and GitHub configuration files
 type Settings struct {
-	ticker       *time.Ticker
-	done         chan bool
-	volumePath   string
-	homePath     string
-	lastModTimes map[string]time.Time
-	debounceMap  map[string]*time.Timer // For debouncing file changes
-	lastDirSync  map[string]time.Time   // For tracking directory sync times
-	syncMutex    sync.Mutex             // Protects lastModTimes, debounceMap, and lastDirSync
+	ticker              *time.Ticker
+	done                chan bool
+	volumePath          string
+	homePath            string
+	lastModTimes        map[string]time.Time
+	debounceMap         map[string]*time.Timer // For debouncing file changes
+	lastDirSync         map[string]time.Time   // For tracking directory sync times
+	invalidConfigWarned map[string]time.Time   // Track when we last warned about invalid configs
+	syncMutex           sync.Mutex             // Protects lastModTimes, debounceMap, lastDirSync, and invalidConfigWarned
 }
 
 // NewSettings creates a new settings manager
 func NewSettings() *Settings {
 	return &Settings{
-		volumePath:   config.Runtime.VolumeDir,
-		homePath:     config.Runtime.HomeDir,
-		lastModTimes: make(map[string]time.Time),
-		debounceMap:  make(map[string]*time.Timer),
-		lastDirSync:  make(map[string]time.Time),
-		done:         make(chan bool),
+		volumePath:          config.Runtime.VolumeDir,
+		homePath:            config.Runtime.HomeDir,
+		lastModTimes:        make(map[string]time.Time),
+		debounceMap:         make(map[string]*time.Timer),
+		lastDirSync:         make(map[string]time.Time),
+		invalidConfigWarned: make(map[string]time.Time),
+		done:                make(chan bool),
 	}
 }
 
@@ -521,8 +523,24 @@ func (s *Settings) checkAndSyncFiles() {
 		// For sensitive files, check if this is a valid/configured file before syncing
 		if file.sensitive && file.destName == "claude.json" {
 			if !s.isClaudeConfigValid(file.sourcePath) {
-				logger.Warnf("⚠️  Skipping sync of %s - appears to be unconfigured or invalid", file.sourcePath)
+				// Only warn every 5 minutes to reduce noise
+				s.syncMutex.Lock()
+				lastWarned, warned := s.invalidConfigWarned[file.sourcePath]
+				shouldWarn := !warned || time.Since(lastWarned) > 5*time.Minute
+				if shouldWarn {
+					s.invalidConfigWarned[file.sourcePath] = time.Now()
+				}
+				s.syncMutex.Unlock()
+
+				if shouldWarn {
+					logger.Warnf("⚠️  Skipping sync of %s - appears to be unconfigured or invalid", file.sourcePath)
+				}
 				continue
+			} else {
+				// Config is valid now, clear any previous warning
+				s.syncMutex.Lock()
+				delete(s.invalidConfigWarned, file.sourcePath)
+				s.syncMutex.Unlock()
 			}
 		}
 
