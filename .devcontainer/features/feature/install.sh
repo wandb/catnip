@@ -106,6 +106,7 @@ ensure_base_tools() {
     install_pkg_if_missing ca-certificates
     install_pkg_if_missing curl
     install_pkg_if_missing gnupg
+    install_pkg_if_missing ncurses-term
     install_pkg_if_missing dirmngr || true
   fi
 }
