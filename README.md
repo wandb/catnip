@@ -22,10 +22,10 @@
 
 **You should use Catnip if you:**
 
-- Want a quick environment to code with agents like Claude.  Catnip runs in a universal docker container or your existing Dev Container, making it easy to start new projects or continue developing existing git repositories.
-- Have so many idea's that you want to try multiple things at once.  Catnip creates git worktrees enabling parallel development.
+- Want a quick environment to code with agents like Claude. Catnip runs in a universal docker container or your existing Dev Container, making it easy to start new projects or continue developing existing git repositories.
+- Have so many idea's that you want to try multiple things at once. Catnip creates git worktrees enabling parallel development.
 - Want a safe, isolated environment where AI assistants can run terminal commands without the risk of messing up your primary system and asking for permission all the time.
-- Are so addicted to Claude you want to be able to create and monitor agents from your phone.  Catnip has a mobile UI making it a super tool when added to a cloud based runtime like Github Codespaces.
+- Are so addicted to Claude you want to be able to create and monitor agents from your phone. Catnip has a mobile UI making it a super tool when added to a cloud based runtime like Github Codespaces.
 
 ## 🚀 Why Catnip?
 
@@ -64,7 +64,7 @@ You can add Catnip to your `.devcontainer/devcontainer.json`:
 }
 ```
 
-Look for the cat logo in left sidebar.  That will allow you to open the catnip interface in a new tab.
+Look for the cat logo in left sidebar. That will allow you to open the catnip interface in a new tab.
 
 ### Local Development
 
