@@ -31,18 +31,20 @@ export CATNIP_WORKSPACE_DIR=/worktrees
 export CATNIP_HOME_DIR="$HOME"
 export CATNIP_LIVE_DIR=/workspaces
 
-# Check for stale PID file before stopping
+# Check if catnip is already running
 if [[ -f "$OPT_DIR/catnip.pid" ]]; then
   PID=$(cat "$OPT_DIR/catnip.pid")
-  if ! kill -0 $PID 2>/dev/null; then
+  if kill -0 $PID 2>/dev/null; then
+    ok "catnip already running with PID $PID"
+    exit 0
+  else
     warn "PID $PID from $OPT_DIR/catnip.pid no longer exists, removing stale PID file"
     rm -f "$OPT_DIR/catnip.pid"
-  else
-    bash "$OPT_DIR/bin/catnip-stop.sh"
   fi
-else
-  bash "$OPT_DIR/bin/catnip-stop.sh"
 fi
+
+# Stop any existing catnip processes
+bash "$OPT_DIR/bin/catnip-stop.sh"
 
 # Check if GITHUB_TOKEN is set
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then

@@ -27,5 +27,6 @@
     "CATNIP_LIVE_DIR": "/workspaces"
   },
   "postCreateCommand": "bash /opt/catnip/bin/catnip-run.sh",
+  "postAttachCommand": "bash /opt/catnip/bin/catnip-run.sh",
   "installsAfter": ["ghcr.io/devcontainers/features/sshd"]
 }
