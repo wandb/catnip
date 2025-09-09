@@ -170,11 +170,6 @@ install_catnip() {
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-echo "[catnip] starting catnip, find logs at $OPT_DIR/catnip.log"
-
-# Start as the container user
-sudo -u "${USERNAME}" -i "$OPT_DIR/bin/catnip-run.sh"
-
 # Start sshd if enabled at install time
 if [[ -z "${DISABLE_SSHD}" ]]; then
   echo "[catnip] starting sshd, find logs at $OPT_DIR/sshd.log"

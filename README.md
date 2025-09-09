@@ -22,22 +22,21 @@
 
 **You should use Catnip if you:**
 
-- Build LLM applications (chatbots, RAG systems, AI agents) and want AI assistants to help code different parts simultaneously
-- Use Claude Code (or plan to) but wish you could run multiple sessions on different features without Git conflicts
-- Want a safe, isolated environment where AI assistants can run terminal commands without risking your main system
-- Build full-stack applications and need multiple services (API, frontend, database) running with automatic port management
-- Work on complex projects and want AI assistants to collaborate on different components in parallel
+- Want a quick environment to code with agents like Claude.  Catnip runs in a universal docker container or your existing Dev Container, making it easy to start new projects or continue developing existing git repositories.
+- Have so many idea's that you want to try multiple things at once.  Catnip creates git worktrees enabling parallel development.
+- Want a safe, isolated environment where AI assistants can run terminal commands without the risk of messing up your primary system and asking for permission all the time.
+- Are so addicted to Claude you want to be able to create and monitor agents from your phone.  Catnip has a mobile UI making it a super tool when added to a cloud based runtime like Github Codespaces.
 
 ## 🚀 Why Catnip?
 
-Think of Catnip as a **multi-agent coding workspace** that solves the chaos of having AI assistants work together on complex projects.
+Think of Catnip as a **multi-agent coding workspace** that solves the chaos of having AI assistants work on multiple tasks in parallel.
 
-**The Problem:** You want Claude Code (or other AI assistants) to help build your LLM app, but:
+**The Problem:** You want to keep Claude Code running as long as possible.
 
-- You can't run multiple Claude sessions on the same project (Git checkout conflicts)
-- AI assistants might break your main development environment
-- Managing different services (API, frontend, database) manually is tedious
-- You lose track of what each AI assistant is working on
+- It's annoying to manage multiple git worktree's and commit changes
+- Previewing the changes across multiple worktree's and more importantly giving the agent a way to test the changes is tricky and Catnip standardizes it
+- You lose track of what each AI assistant has been working on
+- You want to be able to review changes on the go / from your phone
 
 **The Solution:** Catnip gives each AI assistant its own isolated workspace while keeping everything synchronized:
 
@@ -46,10 +45,28 @@ Think of Catnip as a **multi-agent coding workspace** that solves the chaos of h
 - **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
 - **💻 Full Terminal Access**: Open multiple terminals via the web interface, CLI, or directly via SSH.
 - **👀 Preview Changes**: Catnip has a built in proxy and port detection. Start a web service and preview it live!
-- **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is
-  supported.
+- **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is supported.
 
 ## ⚡ Quick Start
+
+### Github Codespaces / Devcontainers
+
+You can add Catnip to your `.devcontainer/devcontainer.json`:
+
+```json
+{
+  ...
+  "features": {
+    "ghcr.io/wandb/catnip/feature:1": {}
+  },
+  "forwardPorts": [6369],
+  ...
+}
+```
+
+Look for the cat logo in left sidebar.  That will allow you to open the catnip interface in a new tab.
+
+### Local Development
 
 ```bash
 curl -sSfL install.catnip.sh | sh
@@ -57,155 +74,6 @@ curl -sSfL install.catnip.sh | sh
 cd ~/Development/my_awesome_project
 catnip run
 # Open http://localhost:6369 🎉
-```
-
-## 🎯 AI Engineering Workflows
-
-### Multi-Agent System Development with Parallel Claude Sessions
-
-```mermaid
-graph TB
-    subgraph catnip ["🐾 Catnip Multi-Agent Development"]
-        subgraph devs ["🧑‍💻 Claude Sessions (Same Multi-Agent System, Different Features)"]
-            claude1["🤖 Claude Session 1<br/>Agent Communication Protocol"]
-            claude2["🤖 Claude Session 2<br/>Tool Integration System"]
-            claude3["🤖 Claude Session 3<br/>Agent Monitoring Dashboard"]
-        end
-
-        subgraph isolation ["📁 Git Worktree Isolation (No Conflicts)"]
-            wt1["refs/catnip/agent-comms<br/>Isolated Git workspace"]
-            wt2["refs/catnip/tool-integration<br/>Isolated Git workspace"]
-            wt3["refs/catnip/monitoring-ui<br/>Isolated Git workspace"]
-        end
-
-        subgraph branches ["🌿 Clean Git Branches (For PRs)"]
-            br1["feature/agent-communication<br/>Ready for pull request"]
-            br2["feature/tool-calling-system<br/>Ready for pull request"]
-            br3["feature/dashboard-monitoring<br/>Ready for pull request"]
-        end
-
-        subgraph main ["📦 Main Repository"]
-            mainbranch["main branch<br/>Your Multi-Agent System"]
-        end
-    end
-
-    claude1 -->|"Commits to isolated workspace"| wt1
-    claude2 -->|"Commits to isolated workspace"| wt2
-    claude3 -->|"Commits to isolated workspace"| wt3
-
-    wt1 -->|"Auto-syncs commits"| br1
-    wt2 -->|"Auto-syncs commits"| br2
-    wt3 -->|"Auto-syncs commits"| br3
-
-    br1 -.->|"Pull request"| mainbranch
-    br2 -.->|"Pull request"| mainbranch
-    br3 -.->|"Pull request"| mainbranch
-
-    classDef claudeStyle fill:#10b981,stroke:#047857,stroke-width:2px,color:#ffffff
-    classDef workspaceStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff
-    classDef branchStyle fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#ffffff
-    classDef mainStyle fill:#ef4444,stroke:#dc2626,stroke-width:2px,color:#ffffff
-
-    class claude1,claude2,claude3 claudeStyle
-    class wt1,wt2,wt3 workspaceStyle
-    class br1,br2,br3 branchStyle
-    class mainbranch mainStyle
-```
-
-### Why You Can't Run Multiple Claude Sessions (And How Catnip Fixes It)
-
-**The Problem with Multi-Agent Development:** You want Claude to help build different parts of your multi-agent system simultaneously, but Git gets in the way:
-
-- Claude Session 1 checks out `feature/agent-communication` branch
-- Claude Session 2 tries to checkout `feature/tool-integration` branch → **ERROR: "Already checked out"**
-- You're forced to build your multi-agent system one feature at a time (slow!)
-
-**How Catnip Enables Parallel Development:**
-
-1. **Isolated Git Workspaces:** Each Claude session gets its own Git worktree using custom refs (`refs/catnip/*`)
-   - Claude Session 1: `refs/catnip/agent-comms` → builds agent communication protocol
-   - Claude Session 2: `refs/catnip/tool-integration` → builds tool calling system
-   - Claude Session 3: `refs/catnip/monitoring-ui` → builds agent dashboard
-   - **No conflicts!** All work in parallel on the same codebase
-
-2. **Automatic Branch Management:** Catnip automatically creates clean feature branches:
-   - `refs/catnip/agent-comms` → `feature/agent-communication` branch
-   - `refs/catnip/tool-integration` → `feature/tool-calling-system` branch
-   - `refs/catnip/monitoring-ui` → `feature/dashboard-monitoring` branch
-
-3. **Standard Git Workflow:** Each feature gets its own clean branch ready for pull requests
-
-**Multi-Agent Development Speed:**
-
-- **Before Catnip:** Build agent communication → finish → build tool system → finish → build dashboard (weeks)
-- **With Catnip:** All three Claude sessions building simultaneously → three parallel PRs ready in days (or even hours!)
-
-### Example: Multi-Agent System Development
-
-```bash
-# Start multi-agent system development environment
-catnip run -e ANTHROPIC_API_KEY -e OPENAI_API_KEY
-
-# Claude Session 1: Agent Communication Protocol
-# - Working in refs/catnip/agent-comms workspace
-# - Building inter-agent message routing and state management
-# - Auto-synced to feature/agent-communication branch
-
-# Claude Session 2: Tool Integration System
-# - Working in refs/catnip/tool-integration workspace
-# - Building function calling, web search, and code execution tools
-# - Auto-synced to feature/tool-calling-system branch
-
-# Claude Session 3: Agent Monitoring Dashboard
-# - Working in refs/catnip/monitoring-ui workspace
-# - Building real-time agent performance and task tracking UI
-# - Auto-synced to feature/dashboard-monitoring branch
-
-# All sessions work on the same multi-agent codebase, just different features
-# Services auto-detected: Agent API :8000, Dashboard :3000, Monitor :8501
-```
-
-## 🤓 How it works
-
-```mermaid
-graph TB
-    subgraph host ["🖥️ Host System"]
-        catnip["<b>catnip</b><br/>Go Binary"]
-    end
-
-    subgraph container ["🐳 wandb/catnip Container"]
-        server["<b>Catnip Server</b><br/>Port 6369"]
-
-        subgraph worktrees ["📁 Git Worktrees"]
-            wt1["<b>main</b><br/>worktree"]
-            wt2["<b>feature-a</b><br/>worktree"]
-            wt3["<b>feature-b</b><br/>worktree"]
-        end
-
-        subgraph services ["🚀 Services"]
-            svc1["<b>Port 3000</b><br/>Service"]
-            svc2["<b>Port 5000</b><br/>Service"]
-            svc3["<b>Port 8000</b><br/>Service"]
-        end
-    end
-
-    catnip -.->|"🚀 Launches"| server
-    server -.->|"📋 Manages"| wt1
-    server -.->|"📋 Manages"| wt2
-    server -.->|"📋 Manages"| wt3
-    server -.->|"🔀 Proxies"| svc1
-    server -.->|"🔀 Proxies"| svc2
-    server -.->|"🔀 Proxies"| svc3
-
-    classDef hostStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff
-    classDef serverStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff
-    classDef worktreeStyle fill:#2563eb,stroke:#1e40af,stroke-width:2px,color:#ffffff
-    classDef serviceStyle fill:#7c3aed,stroke:#6d28d9,stroke-width:2px,color:#ffffff
-
-    class catnip hostStyle
-    class server serverStyle
-    class wt1,wt2,wt3 worktreeStyle
-    class svc1,svc2,svc3 serviceStyle
 ```
 
 `catnip` is a golang binary with a vite SPA embedded in it. The [wandb/catnip](./container/Dockerfile) container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container.

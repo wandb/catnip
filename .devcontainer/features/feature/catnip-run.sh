@@ -33,6 +33,13 @@ else
   bash "$OPT_DIR/bin/catnip-stop.sh"
 fi
 
+# Check if GITHUB_TOKEN is set
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  log "GITHUB_TOKEN is set" >> "$LOG"
+else
+  log "GITHUB_TOKEN is not set" >> "$LOG"
+fi
+
 if command -v catnip >/dev/null 2>&1; then
   log "launching catnip with nohup"
   nohup catnip serve >>"$LOG" 2>&1 &
