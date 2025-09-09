@@ -536,12 +536,11 @@ func (s *Settings) checkAndSyncFiles() {
 					logger.Warnf("⚠️  Skipping sync of %s - appears to be unconfigured or invalid", file.sourcePath)
 				}
 				continue
-			} else {
-				// Config is valid now, clear any previous warning
-				s.syncMutex.Lock()
-				delete(s.invalidConfigWarned, file.sourcePath)
-				s.syncMutex.Unlock()
 			}
+			// Config is valid now, clear any previous warning
+			s.syncMutex.Lock()
+			delete(s.invalidConfigWarned, file.sourcePath)
+			s.syncMutex.Unlock()
 		}
 
 		// File has changed - schedule debounced sync
