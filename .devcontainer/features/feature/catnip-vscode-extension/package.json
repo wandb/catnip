@@ -2,7 +2,7 @@
   "name": "catnip-sidebar",
   "displayName": "W&B Catnip",
   "description": "W&B Catnip - a highly addictive agentic coding environment",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "publisher": "wandb",
   "engines": {
     "vscode": "^1.74.0"
@@ -19,7 +19,7 @@
       "catnip": [
         {
           "id": "catnip-sidebar",
-          "name": "🐾 Catnip"
+          "name": "Catnip"
         }
       ]
     },
@@ -28,6 +28,11 @@
         "command": "catnip.openInterface",
         "title": "Open Catnip Interface",
         "icon": "🐾"
+      },
+      {
+        "command": "catnip.openLogs",
+        "title": "Open Catnip Logs",
+        "icon": "📋"
       }
     ],
     "viewsContainers": {

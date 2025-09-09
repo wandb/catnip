@@ -1,4 +1,55 @@
 import * as vscode from "vscode";
+import { exec, spawn } from "child_process";
+import { promisify } from "util";
+import * as fs from "fs";
+
+const execAsync = promisify(exec);
+
+// Catnip management functions
+async function isCatnipRunning(): Promise<boolean> {
+  try {
+    const pidFile = "/opt/catnip/catnip.pid";
+    if (!fs.existsSync(pidFile)) {
+      return false;
+    }
+
+    const pidStr = fs.readFileSync(pidFile, "utf8").trim();
+    const pid = parseInt(pidStr);
+
+    if (isNaN(pid)) {
+      return false;
+    }
+
+    // Check if process is actually running
+    const { stdout } = await execAsync(
+      `kill -0 ${pid} 2>/dev/null && echo "running" || echo "not running"`,
+    );
+    return stdout.trim() === "running";
+  } catch (error) {
+    return false;
+  }
+}
+
+async function startCatnip(): Promise<void> {
+  try {
+    console.log("🐾 Starting catnip...");
+    await execAsync("bash /opt/catnip/bin/catnip-run.sh");
+    console.log("✅ Catnip started successfully");
+  } catch (error) {
+    console.error("❌ Failed to start catnip:", error);
+    vscode.window.showErrorMessage(`Failed to start catnip: ${error}`);
+  }
+}
+
+async function ensureCatnipRunning(): Promise<void> {
+  const running = await isCatnipRunning();
+  if (!running) {
+    console.log("🐾 Catnip not running, starting...");
+    await startCatnip();
+  } else {
+    console.log("✅ Catnip already running");
+  }
+}
 
 class CatnipViewProvider implements vscode.TreeDataProvider<CatnipItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<
@@ -12,18 +63,35 @@ class CatnipViewProvider implements vscode.TreeDataProvider<CatnipItem> {
     return element;
   }
 
-  getChildren(element?: CatnipItem): Promise<CatnipItem[]> {
+  async getChildren(element?: CatnipItem): Promise<CatnipItem[]> {
     if (!element) {
-      return Promise.resolve([
-        new CatnipItem(
-          "💻 Open Catnip Interface",
-          "Click to open the catnip development environment",
-          vscode.TreeItemCollapsibleState.None,
-          "catnip.openInterface",
-        ),
-      ]);
+      const running = await isCatnipRunning();
+
+      if (running) {
+        return [
+          new CatnipItem(
+            "💻 Open Catnip Interface",
+            "Click to open the catnip development environment",
+            vscode.TreeItemCollapsibleState.None,
+            "catnip.openInterface",
+          ),
+        ];
+      } else {
+        return [
+          new CatnipItem(
+            "❌ Catnip Not Running",
+            "Click to view catnip logs and troubleshoot",
+            vscode.TreeItemCollapsibleState.None,
+            "catnip.openLogs",
+          ),
+        ];
+      }
     }
-    return Promise.resolve([]);
+    return [];
+  }
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire();
   }
 }
 
@@ -53,9 +121,33 @@ export function activate(context: vscode.ExtensionContext) {
   const provider = new CatnipViewProvider();
   vscode.window.registerTreeDataProvider("catnip-sidebar", provider);
 
+  // Ensure catnip is running when extension activates
+  ensureCatnipRunning().catch((error) => {
+    console.error("Failed to ensure catnip is running:", error);
+  });
+
+  // Check catnip status periodically (every 30 seconds) and refresh UI
+  const healthCheckInterval = setInterval(async () => {
+    try {
+      await ensureCatnipRunning();
+      provider.refresh(); // Refresh the tree view to show updated status
+    } catch (error) {
+      console.error("Health check failed:", error);
+      provider.refresh(); // Still refresh to show the error state
+    }
+  }, 30000);
+
+  // Clean up interval when extension deactivates
+  context.subscriptions.push({
+    dispose: () => clearInterval(healthCheckInterval),
+  });
+
   const openInterfaceCommand = vscode.commands.registerCommand(
     "catnip.openInterface",
-    () => {
+    async () => {
+      // Ensure catnip is running before opening interface
+      await ensureCatnipRunning();
+
       const codespaceName = process.env.CODESPACE_NAME;
 
       if (codespaceName) {
@@ -79,7 +171,34 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  context.subscriptions.push(openInterfaceCommand);
+  const openLogsCommand = vscode.commands.registerCommand(
+    "catnip.openLogs",
+    async () => {
+      try {
+        const logPath = "/opt/catnip/catnip.log";
+        const uri = vscode.Uri.file(logPath);
+
+        // Check if log file exists
+        try {
+          await vscode.workspace.fs.stat(uri);
+          // Open the log file
+          const document = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(document);
+        } catch (error) {
+          // Log file doesn't exist, show error and try to start catnip
+          vscode.window.showWarningMessage(
+            `Catnip log file not found at ${logPath}. Attempting to start catnip...`,
+          );
+          await ensureCatnipRunning();
+          provider.refresh();
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to open catnip logs: ${error}`);
+      }
+    },
+  );
+
+  context.subscriptions.push(openInterfaceCommand, openLogsCommand);
 }
 
 function getWebviewContent(): string {
