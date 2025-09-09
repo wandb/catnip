@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { exec, spawn } from "child_process";
+import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 
@@ -25,7 +25,7 @@ async function isCatnipRunning(): Promise<boolean> {
       `kill -0 ${pid} 2>/dev/null && echo "running" || echo "not running"`,
     );
     return stdout.trim() === "running";
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 }
@@ -184,7 +184,7 @@ export function activate(context: vscode.ExtensionContext) {
           // Open the log file
           const document = await vscode.workspace.openTextDocument(uri);
           await vscode.window.showTextDocument(document);
-        } catch (error) {
+        } catch (_error) {
           // Log file doesn't exist, show error and try to start catnip
           vscode.window.showWarningMessage(
             `Catnip log file not found at ${logPath}. Attempting to start catnip...`,
