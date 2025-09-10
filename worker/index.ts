@@ -129,7 +129,7 @@ export function createApp(env: Env) {
     githubAuth({
       client_id: env.GITHUB_CLIENT_ID,
       client_secret: env.GITHUB_CLIENT_SECRET,
-      scope: ["read:user", "user:email", "repo"],
+      scope: ["read:user", "user:email", "repo", "codespace"],
       oauthApp: !env.GITHUB_APP_ID, // Use OAuth App mode if no GitHub App ID is set
     }),
   );
@@ -469,6 +469,133 @@ export function createApp(env: Env) {
     }
   });
 
+  // Codespace access endpoint - requires authentication and redirects to codespace
+  app.get("/v1/codespace", requireAuth, async (c) => {
+    try {
+      const username = c.get("username");
+      const accessToken = c.get("accessToken");
+
+      if (!username || !accessToken) {
+        return c.json({ error: "No authenticated user or access token" }, 401);
+      }
+
+      // Get codespace credentials for the authenticated user (to get the codespace name)
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      const response = await codespaceStore.fetch(
+        `https://internal/codespace/${username}`,
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return c.json(
+            {
+              error:
+                "No codespace found. Please set up a codespace first by running catnip in a GitHub Codespace.",
+            },
+            404,
+          );
+        }
+        return c.json(
+          { error: "Failed to retrieve codespace information" },
+          500,
+        );
+      }
+
+      const credentials = (await response.json()) as CodespaceCredentials;
+
+      // Use authenticated user's OAuth token for GitHub API calls instead of stored token
+      const githubResponse = await fetch(
+        `https://api.github.com/user/codespaces`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        },
+      );
+
+      if (!githubResponse.ok) {
+        console.error(
+          "GitHub API error:",
+          githubResponse.status,
+          await githubResponse.text(),
+        );
+        return c.json(
+          {
+            error:
+              "Failed to access GitHub API. Please ensure you have codespace permissions.",
+          },
+          500,
+        );
+      }
+
+      const codespaces = (await githubResponse.json()) as Array<{
+        name: string;
+        state: string;
+        web_url: string;
+      }>;
+
+      // Find the matching codespace
+      const targetCodespace = codespaces.find(
+        (cs) => cs.name === credentials.codespaceName,
+      );
+
+      if (!targetCodespace) {
+        return c.json(
+          {
+            error: `Codespace ${credentials.codespaceName} not found in your GitHub account`,
+          },
+          404,
+        );
+      }
+
+      // If codespace is not running, start it using the user's OAuth token
+      if (targetCodespace.state !== "Available") {
+        console.log(
+          `Starting codespace ${credentials.codespaceName} (current state: ${targetCodespace.state})`,
+        );
+
+        const startResponse = await fetch(
+          `https://api.github.com/user/codespaces/${credentials.codespaceName}/start`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: "application/vnd.github.v3+json",
+              "User-Agent": "Catnip-Worker/1.0",
+            },
+          },
+        );
+
+        if (!startResponse.ok) {
+          console.error(
+            "Failed to start codespace:",
+            startResponse.status,
+            await startResponse.text(),
+          );
+          return c.json(
+            {
+              error:
+                "Failed to start codespace. Please ensure you have codespace permissions.",
+            },
+            500,
+          );
+        }
+      }
+
+      // Redirect to the codespace URL with port 6369
+      const codespaceUrl = `https://${credentials.codespaceName}-6369.app.github.dev`;
+      return c.redirect(codespaceUrl);
+    } catch (error) {
+      console.error("Codespace access error:", error);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  });
+
   // GitHub App manifest endpoint
   app.get("/v1/github/app-manifest", (c) => {
     const baseUrl = new URL(c.req.url).origin;
@@ -490,6 +617,7 @@ export function createApp(env: Env) {
         pull_requests: "write",
         actions: "write",
         administration: "read",
+        codespaces: "write",
       },
       default_events: [
         "push",
