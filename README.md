@@ -22,21 +22,21 @@
 
 **You should use Catnip if you:**
 
-- Want a quick environment to code with agents like Claude. Catnip runs in a universal docker container or your existing Dev Container, making it easy to start new projects or continue developing existing git repositories.
-- Have so many ideas that you want to try multiple things at once. Catnip creates git worktrees enabling parallel development.
-- Want a safe, isolated environment where AI assistants can run terminal commands without the risk of messing up your primary system and asking for permission all the time.
-- Are so addicted to Claude you want to be able to create and monitor agents from your phone. Catnip has a mobile UI making it a super tool when added to a cloud-based runtime like GitHub Codespaces.
+- Want a quick environment to code with agents like Claude in a universal Docker container or your existing Dev Container
+- Have multiple ideas to explore simultaneously with git worktrees for parallel development
+- Need a safe, isolated environment where AI assistants can run terminal commands without permission prompts
+- Want to create and monitor agents from your phone using Catnip's mobile UI with cloud-based runtimes like GitHub Codespaces
 
 ## 🚀 Why Catnip?
 
 Think of Catnip as a **multi-agent coding workspace** that solves the chaos of having AI assistants work on multiple tasks in parallel.
 
-**The Problem:** You want to keep Claude Code running as long as possible.
+**The Problem:** Managing multiple AI coding sessions becomes chaotic:
 
-- It's annoying to manage multiple git worktrees and commit changes
-- Previewing the changes across multiple worktrees and more importantly giving the agent a way to test the changes is tricky and Catnip standardizes it
-- You lose track of what each AI assistant has been working on
-- You want to be able to review changes on the go / from your phone
+- Managing multiple git worktrees and commits manually is tedious
+- Previewing and testing changes across worktrees is complex without standardization
+- Tracking what each AI assistant is working on becomes difficult
+- Reviewing changes on-the-go from mobile devices isn't straightforward
 
 **The Solution:** Catnip gives each AI assistant its own isolated workspace while keeping everything synchronized:
 
@@ -118,7 +118,7 @@ catnip run -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e PINECONE_API_KEY
 
 The `catnip run` command configures SSH within the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh). This works perfectly with Cursor, VS Code, and other editors that AI engineers commonly use. You can disable ssh by adding `--disable-ssh` to the run command.
 
-### Docker in Docker
+### Docker-in-Docker
 
 If you want the catnip container to be able to run `docker` commands, pass the `--dind` flag to the `catnip run` command. This mounts the docker socket from the host into the container allowing your terminals and AI agents to build or run containers - useful for containerized ML services or complex multi-service applications.
 
@@ -165,8 +165,8 @@ This is especially powerful for LLM and agentic application development where yo
 ## ❓ FAQ
 
 <details>
-<summary><b>How is Catnip different from Jules, Open SWE, or Conductor</b></summary>
-Catnip is Open Source, built to be extensible, and prioritizes local development first with support for cloud based deployments on the roadmap. It's specifically designed for AI engineers who need sophisticated multi-agent orchestration with powerful Git worktree management and real-time service discovery.
+<summary><b>How is Catnip different from Jules, Open SWE, or Conductor?</b></summary>
+Catnip is Open Source, built to be extensible, and prioritizes local development first with support for cloud-based deployments on the roadmap. It's specifically designed for AI engineers who need sophisticated multi-agent orchestration with powerful Git worktree management and real-time service discovery.
 </details>
 <details>
 <summary><b>What AI assistants does Catnip support?</b></summary>
