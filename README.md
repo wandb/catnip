@@ -23,9 +23,9 @@
 **You should use Catnip if you:**
 
 - Want a quick environment to code with agents like Claude. Catnip runs in a universal docker container or your existing Dev Container, making it easy to start new projects or continue developing existing git repositories.
-- Have so many idea's that you want to try multiple things at once. Catnip creates git worktrees enabling parallel development.
+- Have so many ideas that you want to try multiple things at once. Catnip creates git worktrees enabling parallel development.
 - Want a safe, isolated environment where AI assistants can run terminal commands without the risk of messing up your primary system and asking for permission all the time.
-- Are so addicted to Claude you want to be able to create and monitor agents from your phone. Catnip has a mobile UI making it a super tool when added to a cloud based runtime like Github Codespaces.
+- Are so addicted to Claude you want to be able to create and monitor agents from your phone. Catnip has a mobile UI making it a super tool when added to a cloud-based runtime like GitHub Codespaces.
 
 ## 🚀 Why Catnip?
 
@@ -33,23 +33,22 @@ Think of Catnip as a **multi-agent coding workspace** that solves the chaos of h
 
 **The Problem:** You want to keep Claude Code running as long as possible.
 
-- It's annoying to manage multiple git worktree's and commit changes
-- Previewing the changes across multiple worktree's and more importantly giving the agent a way to test the changes is tricky and Catnip standardizes it
+- It's annoying to manage multiple git worktrees and commit changes
+- Previewing the changes across multiple worktrees and more importantly giving the agent a way to test the changes is tricky and Catnip standardizes it
 - You lose track of what each AI assistant has been working on
 - You want to be able to review changes on the go / from your phone
 
 **The Solution:** Catnip gives each AI assistant its own isolated workspace while keeping everything synchronized:
 
-- **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK]
-  (https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
-- **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
+- **🔒 Isolated Sandbox**: All code runs in a containerized environment using either Docker or Apple's new [Container SDK](https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
+- **🧑‍💻 Worktree Management**: Worktrees let you spawn multiple agents in parallel. Catnip keeps everything organized.
 - **💻 Full Terminal Access**: Open multiple terminals via the web interface, CLI, or directly via SSH.
 - **👀 Preview Changes**: Catnip has a built in proxy and port detection. Start a web service and preview it live!
 - **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is supported.
 
 ## ⚡ Quick Start
 
-### Github Codespaces / Devcontainers
+### GitHub Codespaces / Dev Containers
 
 You can add Catnip to your `.devcontainer/devcontainer.json`:
 
@@ -76,9 +75,9 @@ catnip run
 # Open http://localhost:6369 🎉
 ```
 
-`catnip` is a golang binary with a vite SPA embedded in it. The [wandb/catnip](./container/Dockerfile) container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container.
+`catnip` is a Golang binary with a Vite SPA embedded in it. The [wandb/catnip](./container/Dockerfile) container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container.
 
-It comes pre-configured with node, python, golang, gcc, and rust. You can have the container install a different version of the language on boot by setting any of these environment variables:
+It comes pre-configured with Node.js, Python, Golang, GCC, and Rust. You can have the container install a different version of the language on boot by setting any of these environment variables:
 
 ```bash
 # Set specific language versions for AI development
@@ -106,7 +105,7 @@ npm install  # For full-stack AI applications
 docker-compose up -d --build
 ```
 
-### Environment variables
+### Environment Variables
 
 `catnip run` accepts `-e` arguments. For instance if you want to pass `ANTHROPIC_API_KEY` from your host into the container you can simply add `-e ANTHROPIC_API_KEY` and then all terminals and AI agent sessions within the container will see that variable. You can also explicitly set variables, `-e ANTHROPIC_BASE_URL=https://some.otherprovider.com/v1`
 
