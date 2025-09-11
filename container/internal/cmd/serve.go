@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -54,6 +58,9 @@ func startServer(cmd *cobra.Command) {
 	isDevMode := os.Getenv("CATNIP_DEV") == "true"
 	logLevel := logger.GetLogLevelFromEnv(isDevMode)
 	logger.Configure(logLevel, true) // Always use formatted output
+
+	// Send codespace credentials to worker if we're in a codespace
+	go sendCodespaceCredentials()
 
 	// Import and log runtime configuration
 	logger.Infof("🚀 Starting Catnip in %s mode", config.Runtime.Mode)
@@ -351,5 +358,60 @@ func startServer(cmd *cobra.Command) {
 	logger.Infof("🚀 Catnip server starting on port %s", port)
 	if err := app.Listen(":" + port); err != nil {
 		logger.Fatalf("Server failed to start on port %s: %v", port, err)
+	}
+}
+
+// sendCodespaceCredentials sends GitHub credentials to the Catnip worker if we're in a codespace
+func sendCodespaceCredentials() {
+	githubToken := os.Getenv("GITHUB_TOKEN")
+	githubUser := os.Getenv("GITHUB_USER")
+	codespaceName := os.Getenv("CODESPACE_NAME")
+
+	// Only proceed if we have all required environment variables (indicating we're in a codespace)
+	if githubToken == "" || githubUser == "" || codespaceName == "" {
+		logger.Debugf("Not in a codespace environment, skipping credential upload")
+		return
+	}
+
+	logger.Infof("🔑 Detected codespace environment, uploading credentials to worker...")
+
+	// Prepare the payload
+	payload := map[string]string{
+		"GITHUB_TOKEN":   githubToken,
+		"GITHUB_USER":    githubUser,
+		"CODESPACE_NAME": codespaceName,
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		logger.Errorf("❌ Failed to marshal codespace credentials: %v", err)
+		return
+	}
+
+	// Determine the worker URL - default to production, or use CATNIP_PROXY if set
+	workerURL := "https://catnip.run"
+	if proxy := os.Getenv("CATNIP_PROXY"); proxy != "" {
+		workerURL = proxy
+	}
+
+	endpoint := workerURL + "/v1/auth/github/codespace"
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	// Make the request
+	resp, err := client.Post(endpoint, "application/json", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		logger.Errorf("❌ Failed to send codespace credentials to worker: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		logger.Infof("✅ Codespace credentials uploaded successfully to %s", endpoint)
+	} else {
+		logger.Errorf("❌ Worker rejected codespace credentials (HTTP %d)", resp.StatusCode)
 	}
 }

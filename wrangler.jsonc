@@ -28,6 +28,7 @@
   },
   "routes": [
     { "pattern": "catnip.run/*", "zone_name": "catnip.run" },
+    { "pattern": "*.catnip.run/*", "zone_name": "catnip.run" },
     { "pattern": "install.catnip.sh/*", "zone_name": "catnip.sh" },
   ],
   "observability": {
@@ -51,12 +52,20 @@
         "class_name": "SessionStore",
         "name": "SESSIONS",
       },
+      {
+        "class_name": "CodespaceStore",
+        "name": "CODESPACE_STORE",
+      },
     ],
   },
   "migrations": [
     {
       "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
       "tag": "v1",
+    },
+    {
+      "new_sqlite_classes": ["CodespaceStore"],
+      "tag": "v2",
     },
   ],
   /**
@@ -101,6 +110,10 @@
             "class_name": "SessionStore",
             "name": "SESSIONS",
           },
+          {
+            "class_name": "CodespaceStore",
+            "name": "CODESPACE_STORE",
+          },
         ],
       },
       "containers": [
@@ -116,13 +129,16 @@
           "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
           "tag": "v1",
         },
+        {
+          "new_sqlite_classes": ["CodespaceStore"],
+          "tag": "v2",
+        },
       ],
     },
     "production": {
       "name": "catnip",
       "vars": {
-        "GITHUB_APP_ID": "1594285",
-        "GITHUB_CLIENT_ID": "Iv23liz5Ry8r5913ZAhz",
+        "GITHUB_CLIENT_ID": "Ov23liz2NEskOA2spZSE",
         "ENVIRONMENT": "production",
       },
       "r2_buckets": [
@@ -133,6 +149,7 @@
       ],
       "routes": [
         { "pattern": "catnip.run/*", "zone_name": "catnip.run" },
+        { "pattern": "*.catnip.run/*", "zone_name": "catnip.run" },
         { "pattern": "install.catnip.sh/*", "zone_name": "catnip.sh" },
       ],
       "durable_objects": {
@@ -144,6 +161,10 @@
           {
             "class_name": "SessionStore",
             "name": "SESSIONS",
+          },
+          {
+            "class_name": "CodespaceStore",
+            "name": "CODESPACE_STORE",
           },
         ],
       },
@@ -163,6 +184,10 @@
         {
           "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
           "tag": "v1",
+        },
+        {
+          "new_sqlite_classes": ["CodespaceStore"],
+          "tag": "v2",
         },
       ],
     },

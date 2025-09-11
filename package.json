@@ -12,6 +12,7 @@
     "dev:cf:catnip": "./container/bin/catnip logs pnpm run build && ./container/bin/catnip logs wrangler dev",
     "dev:cf:vite": "CLOUDFLARE_DEV=true vite",
     "build": "tsc -b && vite build",
+    "build:fast": "vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
     "typecheck:worker": "tsc --noEmit -p tsconfig.worker.json",
     "lint": "eslint .",
