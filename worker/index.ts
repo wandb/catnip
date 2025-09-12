@@ -618,11 +618,11 @@ export function createApp(env: Env) {
 
     const sendEvent = (event: string, data: any) => {
       const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-      writer.write(new TextEncoder().encode(payload));
+      void writer.write(new TextEncoder().encode(payload));
     };
 
     // Start the codespace connection process
-    (async () => {
+    void (async () => {
       try {
         const username = c.get("username");
         const accessToken = c.get("accessToken");
@@ -631,7 +631,7 @@ export function createApp(env: Env) {
           sendEvent("error", {
             message: "No authenticated user or access token",
           });
-          writer.close();
+          void writer.close();
           return;
         }
 
@@ -697,7 +697,7 @@ export function createApp(env: Env) {
             message:
               "Codespace storage not configured. Please contact support.",
           });
-          writer.close();
+          void writer.close();
           return;
         }
 
@@ -758,7 +758,7 @@ export function createApp(env: Env) {
                       })),
                       org: orgFromSubdomain,
                     });
-                    writer.close();
+                    void writer.close();
                     return;
                   }
                 } else {
@@ -771,7 +771,7 @@ export function createApp(env: Env) {
                     })),
                     org: null,
                   });
-                  writer.close();
+                  void writer.close();
                   return;
                 }
               }
@@ -837,7 +837,7 @@ export function createApp(env: Env) {
             `No stored codespace available for user: ${username}${orgFromSubdomain ? `, org: ${orgFromSubdomain}` : ""}`,
           );
           sendEvent("setup", { message: errorMsg, org: orgFromSubdomain });
-          writer.close();
+          void writer.close();
           return;
         }
 
@@ -873,7 +873,7 @@ export function createApp(env: Env) {
               message:
                 "Failed to start codespace. Please ensure you have codespace permissions.",
             });
-            writer.close();
+            void writer.close();
             return;
           }
         }
@@ -901,7 +901,7 @@ export function createApp(env: Env) {
               codespaceUrl,
               step: "ready",
             });
-            writer.close();
+            void writer.close();
             return;
           } else {
             sendEvent("error", {
@@ -909,7 +909,7 @@ export function createApp(env: Env) {
                 "Codespace is starting up. Please wait a moment and try again.",
               retryAfter: 10,
             });
-            writer.close();
+            void writer.close();
             return;
           }
         } else {
@@ -919,13 +919,13 @@ export function createApp(env: Env) {
             codespaceUrl,
             step: "ready",
           });
-          writer.close();
+          void writer.close();
           return;
         }
       } catch (error) {
         console.error("Codespace access error:", error);
         sendEvent("error", { message: "Internal server error" });
-        writer.close();
+        void writer.close();
         return;
       }
     })();
