@@ -15,10 +15,16 @@ import (
 )
 
 // ClaudeConfig represents the structure of claude.json for validation
+// NOTE: Authentication is in .credentials.json, NOT in claude.json
 type ClaudeConfig struct {
-	FirstStartTime *string                `json:"firstStartTime,omitempty"`
-	UserID         string                 `json:"userID,omitempty"`
-	Projects       map[string]interface{} `json:"projects,omitempty"`
+	NumStartups           int                    `json:"numStartups,omitempty"`
+	InstallMethod         string                 `json:"installMethod,omitempty"`
+	AutoUpdates           bool                   `json:"autoUpdates,omitempty"`
+	Theme                 string                 `json:"theme,omitempty"`
+	CustomApiKeyResponses map[string]interface{} `json:"customApiKeyResponses,omitempty"`
+	TipsHistory           map[string]interface{} `json:"tipsHistory,omitempty"`
+	FirstStartTime        *string                `json:"firstStartTime,omitempty"`
+	Projects              map[string]interface{} `json:"projects,omitempty"`
 }
 
 // Settings manages persistence of Claude and GitHub configuration files
@@ -147,15 +153,25 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 			// Home file doesn't exist - restore from volume
 			shouldRestore = true
 			logger.Debugf("🔄 Restoring %s - home file doesn't exist", file.filename)
+		} else if file.filename == ".credentials.json" {
+			// SAFETY: Never overwrite existing credentials (too risky)
+			logger.Infof("🔒 SAFETY: Refusing to overwrite existing .credentials.json - too risky")
+			shouldRestore = false
 		} else if file.filename == "claude.json" {
-			// Both files exist - compare configuration level for Claude config
-			if s.shouldPreferVolumeClaudeConfig(sourcePath, file.destPath) {
+			// EXTRA SAFETY: Check if we have working credentials before overwriting claude.json
+			homeHasCredentials := s.hasWorkingCredentials(s.homePath)
+
+			// NEVER overwrite claude.json if we have working credentials (too risky)
+			if homeHasCredentials {
+				logger.Infof("🔒 SAFETY: Refusing to overwrite claude.json - working credentials exist, too risky")
+				shouldRestore = false
+			} else if s.shouldPreferVolumeClaudeConfig(sourcePath, file.destPath) {
 				shouldRestore = true
 				// Create backup of existing home file before overwriting
 				if err := s.backupHomeFile(file.destPath, file.volumePath, file.filename); err != nil {
 					logger.Warnf("⚠️  Failed to backup existing %s: %v", file.filename, err)
 				}
-				logger.Debugf("🔄 Restoring %s - volume file appears more configured", file.filename)
+				logger.Infof("🔄 Restoring %s - volume file appears more configured (with safety checks passed)", file.filename)
 			} else {
 				logger.Debugf("⚪ Keeping existing %s - home file appears more or equally configured", file.filename)
 			}
@@ -759,14 +775,63 @@ func (s *Settings) shouldPreferVolumeClaudeConfig(volumePath, homePath string) b
 		return false // Both invalid, keep current
 	}
 
-	// Both are valid - compare configuration level
+	// ULTRA-CONSERVATIVE LOGIC: Check for working credentials first
+	homeHasCredentials := s.hasWorkingCredentials(s.homePath)
+
+	// If home has working credentials, NEVER overwrite (too dangerous)
+	if homeHasCredentials {
+		logger.Infof("🔒 Keeping home claude.json - working credentials exist")
+		return false
+	}
+
+	// Compare configuration levels only if no credentials at risk
 	volumeConfigLevel := s.getClaudeConfigLevel(volumeConfig)
 	homeConfigLevel := s.getClaudeConfigLevel(homeConfig)
 
-	logger.Debugf("📊 Claude config comparison - Volume: %d, Home: %d", volumeConfigLevel, homeConfigLevel)
+	logger.Debugf("📊 Claude config comparison - Volume: %d, Home: %d",
+		volumeConfigLevel, homeConfigLevel)
 
-	// Prefer the more configured file
-	return volumeConfigLevel > homeConfigLevel
+	// Be extremely conservative: require significantly higher score to overwrite
+	// Only overwrite if volume score is at least 100 points higher
+	return volumeConfigLevel > (homeConfigLevel + 100)
+}
+
+// hasAuthentication checks if authentication exists by checking .credentials.json
+// NOTE: Authentication is stored separately in .credentials.json, not in claude.json
+func (s *Settings) hasAuthentication(config *ClaudeConfig) bool {
+	// Since authentication is not in claude.json, we need to check .credentials.json
+	// Extract the directory from the claude.json path and look for .credentials.json
+	// For now, we'll use a more conservative approach - if the config file exists and is parseable,
+	// we assume it's a valid config. Authentication check should be done separately.
+	return config != nil
+}
+
+// hasWorkingCredentials checks if .credentials.json exists and has valid OAuth tokens
+func (s *Settings) hasWorkingCredentials(homeDir string) bool {
+	credentialsPath := filepath.Join(homeDir, ".claude", ".credentials.json")
+	data, err := os.ReadFile(credentialsPath)
+	if err != nil {
+		return false
+	}
+
+	var credentials map[string]interface{}
+	if err := json.Unmarshal(data, &credentials); err != nil {
+		return false
+	}
+
+	// Check for OAuth structure
+	if oauth, exists := credentials["claudeAiOauth"]; exists {
+		if oauthMap, ok := oauth.(map[string]interface{}); ok {
+			// Check for access token
+			if accessToken, exists := oauthMap["accessToken"]; exists {
+				if tokenStr, ok := accessToken.(string); ok && tokenStr != "" {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // parseClaudeConfig safely parses a claude.json file
@@ -788,9 +853,17 @@ func (s *Settings) parseClaudeConfig(filePath string) *ClaudeConfig {
 func (s *Settings) getClaudeConfigLevel(config *ClaudeConfig) int {
 	score := 0
 
-	// Has userID (basic configuration)
-	if config.UserID != "" {
-		score += 10
+	// Basic configuration score based on actual claude.json structure
+	if config.NumStartups > 0 {
+		score += 5 // Basic usage indicator
+	}
+
+	if config.Theme != "" {
+		score += 5 // Has theme preference
+	}
+
+	if config.TipsHistory != nil && len(config.TipsHistory) > 0 {
+		score += 10 // Has usage history
 	}
 
 	// Has projects with actual configuration

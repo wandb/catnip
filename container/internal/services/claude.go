@@ -8,12 +8,14 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
@@ -26,6 +28,8 @@ type ClaudeService struct {
 	volumeProjectsDir string
 	settingsPath      string // Path to volume settings.json
 	subprocessWrapper ClaudeSubprocessInterface
+	// Process registry for persistent streaming processes
+	processRegistry *ClaudeProcessRegistry
 	// Activity tracking for PTY sessions
 	activityMutex sync.RWMutex
 	lastActivity  map[string]time.Time // Map of worktree path to last activity time
@@ -33,6 +37,7 @@ type ClaudeService struct {
 	lastUserPromptSubmit map[string]time.Time // Map of worktree path to last UserPromptSubmit time
 	lastPostToolUse      map[string]time.Time // Map of worktree path to last PostToolUse time
 	lastStopEvent        map[string]time.Time // Map of worktree path to last Stop event time
+	lastSessionStart     map[string]time.Time // Map of worktree path to last SessionStart time
 	// Event suppression for automated operations
 	suppressEventsMutex sync.RWMutex
 	suppressEventsUntil map[string]time.Time // Map of worktree path to suppression expiry time
@@ -102,10 +107,12 @@ func NewClaudeService() *ClaudeService {
 		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 		settingsPath:         filepath.Join(volumeDir, "settings.json"),
 		subprocessWrapper:    NewClaudeSubprocessWrapper(),
+		processRegistry:      NewClaudeProcessRegistry(),
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
 		lastPostToolUse:      make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
+		lastSessionStart:     make(map[string]time.Time),
 		suppressEventsUntil:  make(map[string]time.Time),
 	}
 }
@@ -121,10 +128,12 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 		settingsPath:         filepath.Join(volumeDir, "settings.json"),
 		subprocessWrapper:    wrapper,
+		processRegistry:      NewClaudeProcessRegistry(),
 		lastActivity:         make(map[string]time.Time),
 		lastUserPromptSubmit: make(map[string]time.Time),
 		lastPostToolUse:      make(map[string]time.Time),
 		lastStopEvent:        make(map[string]time.Time),
+		lastSessionStart:     make(map[string]time.Time),
 		suppressEventsUntil:  make(map[string]time.Time),
 	}
 }
@@ -934,6 +943,105 @@ func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, 
 	return latestAssistantMessage, nil
 }
 
+// GetLatestAssistantMessageOrError gets the most recent assistant message OR error from the session history
+func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (content string, isError bool, err error) {
+	projectDirName := WorktreePathToProjectDir(worktreePath)
+	projectDir := s.findProjectDirectory(projectDirName)
+
+	if projectDir == "" {
+		return "", false, fmt.Errorf("project directory not found for worktree: %s", worktreePath)
+	}
+
+	// Find the most recent session file with actual content
+	sessionFile, err := s.findLatestSessionFile(projectDir)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to find latest session file: %w", err)
+	}
+
+	// Look for the most recent assistant message or error in the session
+	var latestContent string
+	var latestIsError bool
+	var hasFoundContent bool
+
+	err = readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Check for error messages first (highest priority)
+		if message.Type == "error" && message.Message != nil {
+			if content, exists := message.Message["content"]; exists {
+				if contentStr, ok := content.(string); ok && contentStr != "" {
+					latestContent = contentStr
+					latestIsError = true
+					hasFoundContent = true
+					return nil
+				}
+			}
+		}
+
+		// Check for assistant messages with errors in content
+		if message.Type == "assistant" && message.Message != nil {
+			messageData := message.Message
+			if content, exists := messageData["content"]; exists {
+				if contentArray, ok := content.([]interface{}); ok {
+					var textContent strings.Builder
+					var foundError bool
+
+					for _, contentItem := range contentArray {
+						if contentMap, ok := contentItem.(map[string]interface{}); ok {
+							// Check for error content type
+							if contentType, exists := contentMap["type"]; exists {
+								if contentType == "error" {
+									if text, exists := contentMap["text"]; exists {
+										if textStr, ok := text.(string); ok {
+											textContent.WriteString(textStr)
+											foundError = true
+										}
+									}
+								} else if contentType == "text" {
+									if text, exists := contentMap["text"]; exists {
+										if textStr, ok := text.(string); ok {
+											textContent.WriteString(textStr)
+											// Check if the text content contains error patterns
+											lowerText := strings.ToLower(textStr)
+											if strings.Contains(lowerText, "error") ||
+												strings.Contains(lowerText, "experiencing high demand") ||
+												strings.Contains(lowerText, "unavailable") ||
+												strings.Contains(lowerText, "failed to") {
+												foundError = true
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+
+					if textContent.Len() > 0 {
+						latestContent = textContent.String()
+						latestIsError = foundError
+						hasFoundContent = true
+					}
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", false, fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	if !hasFoundContent {
+		return "", false, nil // No content found, but not an error
+	}
+
+	return latestContent, latestIsError, nil
+}
+
 // CreateCompletion creates a completion using the claude CLI subprocess
 func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.CreateCompletionRequest) (*models.CreateCompletionResponse, error) {
 	// Validate required fields
@@ -991,6 +1099,39 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 	return result, err
 }
 
+// CreateStreamingCompletionPTY creates a PTY-based streaming completion that enables interactive Claude features
+func (s *ClaudeService) CreateStreamingCompletionPTY(ctx context.Context, req *models.CreateCompletionRequest, responseWriter io.Writer) error {
+	// Validate required fields
+	if req.Prompt == "" {
+		return fmt.Errorf("prompt is required")
+	}
+
+	// Set default working directory if not provided
+	workingDir := req.WorkingDirectory
+	if workingDir == "" {
+		workingDir = filepath.Join(config.Runtime.WorkspaceDir, "current")
+	} else {
+		// Resolve container paths (like /workspace/...) to actual paths
+		workingDir = config.Runtime.ResolvePath(workingDir)
+	}
+
+	// Create PTY session manager for this request
+	ptyManager := &ClaudePTYManager{
+		workingDir:     workingDir,
+		prompt:         req.Prompt,
+		systemPrompt:   req.SystemPrompt,
+		model:          req.Model,
+		maxTurns:       req.MaxTurns,
+		resume:         req.Resume,
+		suppressEvents: req.SuppressEvents,
+		claudeService:  s,
+		ctx:            ctx,
+		responseWriter: responseWriter,
+	}
+
+	return ptyManager.Start()
+}
+
 // CreateStreamingCompletion creates a streaming completion using the claude CLI subprocess
 func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *models.CreateCompletionRequest, responseWriter io.Writer) error {
 	// Validate required fields
@@ -1007,14 +1148,10 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		workingDir = config.Runtime.ResolvePath(workingDir)
 	}
 
-	// Default SuppressEvents to true for all internal calls
-	// This prevents duplicate notifications during automated tasks like branch renaming
-	// Since Go's zero value for bool is false, if SuppressEvents is not set in the request,
-	// we'll default it to true to avoid spurious notifications from internal Claude calls
-	suppressEvents := true
-	// Note: Currently all internal calls (like branch renaming) don't set SuppressEvents,
-	// so they'll use the default of true. External API calls can explicitly set it to false
-	// if they want notifications.
+	// Use the SuppressEvents value from the request
+	// For user-initiated streaming requests, this should be false to allow events
+	// For internal calls, this should be true to prevent duplicate notifications
+	suppressEvents := req.SuppressEvents
 
 	// Set up subprocess options for streaming
 	opts := &ClaudeSubprocessOptions{
@@ -1035,17 +1172,126 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		}()
 	}
 
-	// Resume logic is handled by claude CLI's --continue flag
-
-	// Call the subprocess wrapper for streaming
-	err := s.subprocessWrapper.CreateStreamingCompletion(ctx, opts, responseWriter)
-
-	// Ensure suppression is cleared even on error
-	if req.SuppressEvents {
-		s.SetSuppressEvents(workingDir, false)
+	// Use process registry for persistent streaming
+	wrapper := s.subprocessWrapper.(*ClaudeSubprocessWrapper)
+	process, isNew, err := s.processRegistry.GetOrCreateProcess(opts, wrapper)
+	if err != nil {
+		return fmt.Errorf("failed to get or create persistent process: %w", err)
 	}
 
-	return err
+	// Generate client ID for this connection
+	clientID := fmt.Sprintf("client-%d", time.Now().UnixNano())
+
+	// Add this client to the process
+	outputCh := process.AddClient(clientID)
+	defer process.RemoveClient(clientID)
+
+	// Stream historical events from project.jsonl if this is a reconnection
+	if !isNew {
+		logger.Infof("🔄 Streaming historical events for reconnection to %s", workingDir)
+		if err := s.StreamHistoricalEvents(workingDir, responseWriter); err != nil {
+			logger.Warnf("Failed to stream historical events: %v", err)
+		}
+	}
+
+	// Stream live output from the process
+	for {
+		select {
+		case output, ok := <-outputCh:
+			if !ok {
+				// Process completed or client was removed
+				return nil
+			}
+			if _, err := responseWriter.Write(output); err != nil {
+				return fmt.Errorf("failed to write output: %w", err)
+			}
+			// Flush if possible (for Server-Sent Events)
+			if flusher, ok := responseWriter.(interface{ Flush() }); ok {
+				flusher.Flush()
+			}
+		case <-ctx.Done():
+			// Client disconnected, but process continues running
+			logger.Infof("📡 Client disconnected from %s, but process continues", workingDir)
+			return ctx.Err()
+		}
+	}
+}
+
+// StreamHistoricalEvents streams recent events from project.jsonl files for reconnection
+func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWriter io.Writer) error {
+	projectDirName := WorktreePathToProjectDir(worktreePath)
+	projectDir := s.findProjectDirectory(projectDirName)
+
+	if projectDir == "" {
+		// No historical events to stream
+		return nil
+	}
+
+	// Find the most recent session file
+	sessionFile, err := s.findLatestSessionFile(projectDir)
+	if err != nil {
+		return fmt.Errorf("failed to find latest session file: %w", err)
+	}
+
+	logger.Debugf("📜 Streaming historical events from %s", sessionFile)
+
+	// Stream the last few assistant messages from the session file
+	var recentMessages [][]byte
+	err = readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Only stream assistant messages for historical context
+		if message.Type == "assistant" && message.Message != nil {
+			// Convert to streaming format
+			messageData := message.Message
+			if content, exists := messageData["content"]; exists {
+				if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
+					if textBlock, ok := contentArray[0].(map[string]interface{}); ok {
+						if text, ok := textBlock["text"].(string); ok {
+							// Create streaming response format
+							response := &models.CreateCompletionResponse{
+								Response: text,
+								IsChunk:  true,
+								IsLast:   false,
+							}
+
+							if responseJSON, err := json.Marshal(response); err == nil {
+								recentMessages = append(recentMessages, append(responseJSON, '\n'))
+							}
+						}
+					}
+				}
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	// Send the recent messages (limit to last 3 for performance)
+	start := 0
+	if len(recentMessages) > 3 {
+		start = len(recentMessages) - 3
+	}
+
+	for i := start; i < len(recentMessages); i++ {
+		if _, err := responseWriter.Write(recentMessages[i]); err != nil {
+			return fmt.Errorf("failed to write historical message: %w", err)
+		}
+
+		// Flush if possible
+		if flusher, ok := responseWriter.(interface{ Flush() }); ok {
+			flusher.Flush()
+		}
+	}
+
+	logger.Debugf("📜 Streamed %d historical messages", len(recentMessages))
+	return nil
 }
 
 // GetClaudeSettings reads Claude configuration settings from ~/.claude.json and volume settings.json
@@ -1378,6 +1624,12 @@ func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
 	now := time.Now()
 
 	switch event.EventType {
+	case "SessionStart":
+		// Track both general activity and specific session start using worktree root
+		s.lastActivity[worktreeRoot] = now
+		s.lastSessionStart[worktreeRoot] = now
+		logger.Debugf("🚀 Claude hook: SessionStart in %s (normalized from %s)", worktreeRoot, event.WorkingDirectory)
+		return nil
 	case "UserPromptSubmit":
 		// Track both general activity and specific prompt submit using worktree root
 		s.lastActivity[worktreeRoot] = now
@@ -1404,6 +1656,13 @@ func (s *ClaudeService) HandleHookEvent(event *models.ClaudeHookEvent) error {
 	}
 }
 
+// GetLastSessionStart returns the last SessionStart event time for a worktree
+func (s *ClaudeService) GetLastSessionStart(worktreePath string) time.Time {
+	s.activityMutex.RLock()
+	defer s.activityMutex.RUnlock()
+	return s.lastSessionStart[worktreePath]
+}
+
 // GetLastUserPromptSubmit returns the last UserPromptSubmit event time for a worktree
 func (s *ClaudeService) GetLastUserPromptSubmit(worktreePath string) time.Time {
 	s.activityMutex.RLock()
@@ -1423,4 +1682,657 @@ func (s *ClaudeService) GetLastStopEvent(worktreePath string) time.Time {
 	s.activityMutex.RLock()
 	defer s.activityMutex.RUnlock()
 	return s.lastStopEvent[worktreePath]
+}
+
+// CleanupWorktreeClaudeFiles removes all Claude session files for a worktree path
+// This should be called when creating a new worktree to prevent stale session data
+func (s *ClaudeService) CleanupWorktreeClaudeFiles(worktreePath string) error {
+	// Get the project directory name for this worktree
+	projectDirName := WorktreePathToProjectDir(worktreePath)
+
+	// Check both local and volume project directories
+	localProjectDir := filepath.Join(s.claudeProjectsDir, projectDirName)
+	volumeProjectDir := filepath.Join(s.volumeProjectsDir, projectDirName)
+
+	var cleanupErrors []string
+
+	// Clean up local project directory if it exists
+	if _, err := os.Stat(localProjectDir); err == nil {
+		logger.Infof("🧹 Cleaning up Claude session files in local directory: %s", localProjectDir)
+		if err := os.RemoveAll(localProjectDir); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Sprintf("failed to remove local project dir %s: %v", localProjectDir, err))
+		} else {
+			logger.Debugf("✅ Successfully removed local Claude project directory: %s", localProjectDir)
+		}
+	}
+
+	// Clean up volume project directory if it exists
+	if _, err := os.Stat(volumeProjectDir); err == nil {
+		logger.Infof("🧹 Cleaning up Claude session files in volume directory: %s", volumeProjectDir)
+		if err := os.RemoveAll(volumeProjectDir); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Sprintf("failed to remove volume project dir %s: %v", volumeProjectDir, err))
+		} else {
+			logger.Debugf("✅ Successfully removed volume Claude project directory: %s", volumeProjectDir)
+		}
+	}
+
+	// TODO: CRITICAL BUG FIX - DO NOT MODIFY CLAUDE.JSON DURING OPERATION!
+	// The removeClaudeConfigEntry function has a catastrophic bug that destroys user authentication.
+	// It only preserves the 'projects' field and nukes all OAuth/auth data when writing back.
+	// We should NEVER modify ~/.claude.json during operation - it should be READ-ONLY.
+	// Consider using a separate metadata file like ~/.catnip-projects.json for runtime tracking.
+	//
+	// DISABLED to prevent auth corruption:
+	// if err := s.removeClaudeConfigEntry(worktreePath); err != nil {
+	// 	cleanupErrors = append(cleanupErrors, fmt.Sprintf("failed to clean claude.json entry: %v", err))
+	// }
+
+	// Clear in-memory activity tracking for this worktree
+	s.activityMutex.Lock()
+	delete(s.lastActivity, worktreePath)
+	delete(s.lastUserPromptSubmit, worktreePath)
+	delete(s.lastPostToolUse, worktreePath)
+	delete(s.lastStopEvent, worktreePath)
+	delete(s.lastSessionStart, worktreePath)
+	s.activityMutex.Unlock()
+
+	// Clear event suppression for this worktree
+	s.suppressEventsMutex.Lock()
+	delete(s.suppressEventsUntil, worktreePath)
+	s.suppressEventsMutex.Unlock()
+
+	if len(cleanupErrors) > 0 {
+		return fmt.Errorf("cleanup completed with errors: %s", strings.Join(cleanupErrors, "; "))
+	}
+
+	logger.Debugf("✅ Successfully cleaned up all Claude files for worktree: %s", worktreePath)
+	return nil
+}
+
+// removeClaudeConfigEntry removes the claude.json entry for a specific worktree path
+//
+// ⚠️  CRITICAL BUG: This function has a catastrophic bug that destroys user authentication!
+// It only preserves the 'projects' field (lines 1503-1507) and overwrites the entire file,
+// which NUKES all OAuth account data, custom API keys, and other critical auth information.
+// This function should NEVER be called during operation - claude.json should be READ-ONLY.
+//
+// TODO: Replace with separate metadata file like ~/.catnip-projects.json for runtime tracking.
+func (s *ClaudeService) removeClaudeConfigEntry(worktreePath string) error {
+	// Read current config
+	claudeConfig, err := s.readClaudeConfig()
+	if err != nil {
+		return fmt.Errorf("failed to read claude config: %w", err)
+	}
+
+	// Check if entry exists
+	if _, exists := claudeConfig[worktreePath]; !exists {
+		return nil // Nothing to remove
+	}
+
+	// Remove the entry
+	delete(claudeConfig, worktreePath)
+
+	// Write back the config
+	configData := struct {
+		Projects map[string]*models.ClaudeProjectMetadata `json:"projects"`
+	}{
+		Projects: claudeConfig,
+	}
+
+	updatedData, err := json.MarshalIndent(configData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal updated config: %w", err)
+	}
+
+	// Create a temporary file first (atomic write)
+	tempFile := s.claudeConfigPath + ".tmp"
+	if err := os.WriteFile(tempFile, updatedData, 0644); err != nil {
+		return fmt.Errorf("failed to write temp config file: %w", err)
+	}
+
+	// Atomically rename temp file to final destination
+	if err := os.Rename(tempFile, s.claudeConfigPath); err != nil {
+		os.Remove(tempFile) // Clean up temp file on error
+		return fmt.Errorf("failed to update config file: %w", err)
+	}
+
+	// Set proper ownership for catnip user
+	if err := os.Chown(s.claudeConfigPath, 1000, 1000); err != nil {
+		// Log but don't fail
+		logger.Warnf("Warning: Failed to chown %s: %v", s.claudeConfigPath, err)
+	}
+
+	logger.Debugf("✅ Removed claude.json entry for worktree: %s", worktreePath)
+	return nil
+}
+
+// GetProcessRegistry returns the process registry for external access
+func (s *ClaudeService) GetProcessRegistry() *ClaudeProcessRegistry {
+	return s.processRegistry
+}
+
+// Shutdown gracefully shuts down the Claude service
+func (s *ClaudeService) Shutdown() {
+	logger.Infof("🔚 Shutting down Claude service...")
+	if s.processRegistry != nil {
+		s.processRegistry.Shutdown()
+	}
+}
+
+// ClaudePTYManager manages PTY-based Claude sessions for streaming completions
+type ClaudePTYManager struct {
+	workingDir     string
+	prompt         string
+	systemPrompt   string
+	model          string
+	maxTurns       int
+	resume         bool
+	suppressEvents bool
+	claudeService  *ClaudeService
+	ctx            context.Context
+	responseWriter io.Writer
+
+	// PTY management
+	pty          *os.File
+	cmd          *exec.Cmd
+	sessionReady chan struct{}
+	promptSent   chan struct{}
+
+	// JSONL streaming
+	sessionID     string
+	projectDir    string
+	sessionFile   string
+	lastStreamPos int64
+	streamingDone chan struct{}
+}
+
+// Start initiates the PTY-based Claude session and handles streaming
+func (m *ClaudePTYManager) Start() error {
+	logger.Infof("🚀 Starting PTY-based Claude streaming session in %s", m.workingDir)
+
+	// Initialize channels
+	m.sessionReady = make(chan struct{})
+	m.promptSent = make(chan struct{})
+	m.streamingDone = make(chan struct{})
+
+	// Create PTY and start Claude
+	if err := m.createPTY(); err != nil {
+		return fmt.Errorf("failed to create PTY: %w", err)
+	}
+	defer m.cleanup()
+
+	// Start goroutines for PTY management
+	errCh := make(chan error, 3)
+
+	// Monitor for SessionStart hook, then send prompt and stream JSONL
+	go m.waitForSessionStartAndStream(errCh)
+
+	// Read PTY output (but don't stream it - we'll stream JSONL instead)
+	go m.readPTYOutput(errCh)
+
+	// Wait for completion or error
+	select {
+	case err := <-errCh:
+		return err
+	case <-m.streamingDone:
+		logger.Infof("✅ PTY-based Claude streaming session completed")
+		return nil
+	case <-m.ctx.Done():
+		logger.Infof("📡 PTY-based Claude streaming session cancelled")
+		return m.ctx.Err()
+	}
+}
+
+// createPTY creates the PTY and starts the Claude process
+func (m *ClaudePTYManager) createPTY() error {
+	// Find Claude executable using the same logic as PTY handler
+	claudePath := m.findClaudeExecutable()
+
+	// Build Claude command with optional continue or resume flag
+	args := []string{"--dangerously-skip-permissions"}
+
+	if m.resume {
+		args = append(args, "--continue")
+		logger.Infof("🔄 Starting Claude Code with --continue for PTY streaming")
+	} else {
+		logger.Debugf("🤖 Starting new Claude Code session for PTY streaming")
+	}
+
+	// Create command
+	m.cmd = exec.Command(claudePath, args...)
+	m.cmd.Dir = m.workingDir
+	m.cmd.Env = append(os.Environ(),
+		"HOME="+config.Runtime.HomeDir,
+		"TERM=xterm-direct",
+		"COLORTERM=truecolor",
+	)
+
+	// Create PTY
+	var err error
+	m.pty, err = pty.Start(m.cmd)
+	if err != nil {
+		return fmt.Errorf("failed to start Claude with PTY: %w", err)
+	}
+
+	logger.Infof("✅ PTY-based Claude process started, PID: %d", m.cmd.Process.Pid)
+	return nil
+}
+
+// findClaudeExecutable finds the Claude executable using the same logic as PTY handler
+func (m *ClaudePTYManager) findClaudeExecutable() string {
+	// PRIORITY 1: Try Catnip's wrapper script first (for title interception)
+	catnipClaudePath := "/opt/catnip/bin/claude"
+	if _, err := os.Stat(catnipClaudePath); err == nil {
+		return catnipClaudePath
+	}
+
+	// PRIORITY 2: Try standard PATH lookup
+	if path, err := exec.LookPath("claude"); err == nil {
+		return path
+	}
+
+	// PRIORITY 3: Try ~/.local/bin/claude
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		userClaudePath := filepath.Join(homeDir, ".local", "bin", "claude")
+		if _, err := os.Stat(userClaudePath); err == nil {
+			return userClaudePath
+		}
+	}
+
+	// Fallback
+	return "claude"
+}
+
+// waitForSessionStartAndStream waits for SessionStart, sends prompt, then streams JSONL
+func (m *ClaudePTYManager) waitForSessionStartAndStream(errCh chan<- error) {
+	logger.Infof("⏳ Waiting for SessionStart hook for PTY streaming session in %s", m.workingDir)
+
+	// Record the current time so we only accept SessionStart events after PTY creation
+	startTime := time.Now()
+
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout.C:
+			logger.Errorf("❌ Timeout waiting for SessionStart hook after 30 seconds")
+			errCh <- fmt.Errorf("timeout waiting for SessionStart hook")
+			return
+		case <-ticker.C:
+			// Check if we've received a SessionStart hook for this working directory AFTER we started the PTY
+			lastSessionStart := m.claudeService.GetLastSessionStart(m.workingDir)
+			if !lastSessionStart.IsZero() && lastSessionStart.After(startTime) {
+				logger.Infof("🚀 SessionStart hook received for PTY streaming at %v (PTY started at %v)", lastSessionStart, startTime)
+
+				// Wait 1 second after SessionStart, then send prompt
+				logger.Infof("⏳ Waiting 1 second after SessionStart for safety...")
+				time.Sleep(1 * time.Second)
+
+				logger.Infof("📝 Injecting prompt into PTY: %q", m.prompt)
+
+				// First send the prompt text (just like pty.go does)
+				if _, err := m.pty.Write([]byte(m.prompt)); err != nil {
+					logger.Errorf("❌ Failed to write prompt to PTY: %v", err)
+					errCh <- fmt.Errorf("failed to send prompt to PTY: %w", err)
+					return
+				}
+
+				// Small delay to let the TUI process the prompt text (like pty.go)
+				time.Sleep(100 * time.Millisecond)
+
+				// Then send carriage return to submit (exactly like pty.go)
+				logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
+				if _, err := m.pty.Write([]byte("\r")); err != nil {
+					logger.Errorf("❌ Failed to write carriage return to PTY: %v", err)
+					errCh <- fmt.Errorf("failed to send carriage return to PTY: %w", err)
+					return
+				}
+
+				logger.Infof("✅ Prompt submitted to Claude successfully")
+
+				// Now wait for session file and stream it
+				if err := m.waitForSessionFileAndStream(); err != nil {
+					errCh <- err
+					return
+				}
+
+				close(m.streamingDone)
+				return
+			} else if !lastSessionStart.IsZero() {
+				logger.Debugf("🔍 SessionStart hook exists but is too old: %v (need after %v)", lastSessionStart, startTime)
+			}
+		case <-m.ctx.Done():
+			errCh <- m.ctx.Err()
+			return
+		}
+	}
+}
+
+// readPTYOutput reads PTY output to prevent buffer filling and logs it for debugging
+func (m *ClaudePTYManager) readPTYOutput(errCh chan<- error) {
+	logger.Infof("📖 Starting PTY output reader with debugging for %s", m.workingDir)
+
+	// Create debug file to capture PTY output
+	debugFile := fmt.Sprintf("/tmp/claude-pty-debug-%d.log", time.Now().Unix())
+	f, err := os.Create(debugFile)
+	if err != nil {
+		logger.Errorf("❌ Failed to create debug file: %v", err)
+	} else {
+		defer f.Close()
+		logger.Infof("📝 Writing PTY output to debug file: %s", debugFile)
+	}
+
+	buf := make([]byte, 1024)
+	totalBytes := 0
+
+	for {
+		select {
+		case <-m.ctx.Done():
+			logger.Infof("📖 PTY output reader stopping, total bytes read: %d", totalBytes)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("\n=== PTY reader stopped, total bytes: %d ===\n", totalBytes))
+			}
+			return
+		default:
+		}
+
+		// Read PTY output
+		n, err := m.pty.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				logger.Infof("📖 PTY output reader: Claude process ended (total bytes: %d)", totalBytes)
+				if f != nil {
+					f.WriteString(fmt.Sprintf("\n=== Claude process ended, total bytes: %d ===\n", totalBytes))
+				}
+				return
+			}
+			logger.Warnf("⚠️ PTY read error after %d bytes: %v", totalBytes, err)
+			if f != nil {
+				f.WriteString(fmt.Sprintf("\n=== PTY read error after %d bytes: %v ===\n", totalBytes, err))
+			}
+			return
+		}
+
+		if n > 0 {
+			totalBytes += n
+
+			// Log the output for debugging
+			output := string(buf[:n])
+			logger.Debugf("📖 PTY output (%d bytes): %q", n, output)
+
+			// Write to debug file
+			if f != nil {
+				f.WriteString(fmt.Sprintf("=== %d bytes at %s ===\n", n, time.Now().Format("15:04:05.000")))
+				f.Write(buf[:n])
+				f.WriteString("\n")
+				f.Sync() // Flush immediately
+			}
+		}
+	}
+}
+
+// waitForSessionFileAndStream waits for the JSONL session file to appear and streams its content
+func (m *ClaudePTYManager) waitForSessionFileAndStream() error {
+	logger.Debugf("🔍 Starting JSONL monitoring and streaming")
+
+	// Wait for JSONL session file to appear (Claude creates it after receiving prompt)
+	if err := m.waitForSessionFile(); err != nil {
+		return err
+	}
+
+	// Start streaming JSONL content
+	return m.streamJSONLContent()
+}
+
+// waitForSessionFile waits for the Claude JSONL session file to appear
+func (m *ClaudePTYManager) waitForSessionFile() error {
+	logger.Debugf("⏳ Waiting for Claude session file to appear")
+
+	timeout := time.NewTimer(30 * time.Second) // Increased from 15 seconds
+	defer timeout.Stop()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Calculate expected project directory
+	projectDirName := WorktreePathToProjectDir(m.workingDir)
+	m.projectDir = filepath.Join(config.Runtime.HomeDir, ".claude", "projects", projectDirName)
+
+	for {
+		select {
+		case <-timeout.C:
+			return fmt.Errorf("timeout waiting for Claude session file to appear")
+		case <-ticker.C:
+			// Look for newest JSONL file
+			sessionID := m.findNewestSessionFile()
+			if sessionID != "" {
+				m.sessionID = sessionID
+				m.sessionFile = filepath.Join(m.projectDir, sessionID+".jsonl")
+				logger.Infof("🎯 Found Claude session file: %s", sessionID)
+				return nil
+			}
+		case <-m.ctx.Done():
+			return m.ctx.Err()
+		}
+	}
+}
+
+// findNewestSessionFile finds the newest JSONL session file in the project directory
+func (m *ClaudePTYManager) findNewestSessionFile() string {
+	entries, err := os.ReadDir(m.projectDir)
+	if err != nil {
+		return ""
+	}
+
+	var newestFile string
+	var newestTime time.Time
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+
+		// Extract session ID from filename
+		sessionID := strings.TrimSuffix(entry.Name(), ".jsonl")
+
+		// Validate UUID format
+		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		if info.ModTime().After(newestTime) {
+			newestTime = info.ModTime()
+			newestFile = sessionID
+		}
+	}
+
+	return newestFile
+}
+
+// streamJSONLContent streams the JSONL file content as it's written
+func (m *ClaudePTYManager) streamJSONLContent() error {
+	logger.Infof("📡 Starting to stream JSONL content from %s", m.sessionFile)
+
+	file, err := os.Open(m.sessionFile)
+	if err != nil {
+		return fmt.Errorf("failed to open session file: %w", err)
+	}
+	defer file.Close()
+
+	// Stream existing content first
+	if err := m.streamExistingContent(file); err != nil {
+		return err
+	}
+
+	// Then monitor for new content
+	return m.monitorForNewContent(file)
+}
+
+// streamExistingContent streams any content already in the file
+func (m *ClaudePTYManager) streamExistingContent(file *os.File) error {
+	// Read from current position
+	_, err := file.Seek(m.lastStreamPos, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("failed to seek in session file: %w", err)
+	}
+
+	return m.processFileContent(file)
+}
+
+// monitorForNewContent monitors the file for new content and streams it
+func (m *ClaudePTYManager) monitorForNewContent(file *os.File) error {
+	logger.Debugf("👀 Monitoring for new content in session file")
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeout := time.NewTimer(5 * time.Minute)
+	defer timeout.Stop()
+
+	lastSize := m.lastStreamPos
+
+	for {
+		select {
+		case <-timeout.C:
+			logger.Infof("⏰ JSONL streaming timeout reached")
+			return nil
+		case <-ticker.C:
+			// Check file size
+			stat, err := file.Stat()
+			if err != nil {
+				return fmt.Errorf("failed to stat session file: %w", err)
+			}
+
+			if stat.Size() > lastSize {
+				// New content available
+				if _, err := file.Seek(lastSize, io.SeekStart); err != nil {
+					return fmt.Errorf("failed to seek in session file: %w", err)
+				}
+
+				if err := m.processFileContent(file); err != nil {
+					return err
+				}
+
+				lastSize = stat.Size()
+
+				// Check if we've reached completion by looking for "Stop" event
+				if m.isSessionComplete() {
+					logger.Infof("✅ Claude session completed")
+					return nil
+				}
+			}
+		case <-m.ctx.Done():
+			return m.ctx.Err()
+		}
+	}
+}
+
+// processFileContent reads JSONL content and converts it to streaming format
+func (m *ClaudePTYManager) processFileContent(file *os.File) error {
+	reader := bufio.NewReader(file)
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("failed to read session file: %w", err)
+		}
+
+		// Update position
+		m.lastStreamPos += int64(len(line))
+
+		// Parse and convert JSONL message to streaming format
+		if err := m.convertAndStreamMessage(line); err != nil {
+			logger.Warnf("⚠️ Failed to process message: %v", err)
+			continue
+		}
+	}
+
+	// Update position to current file position
+	pos, err := file.Seek(0, io.SeekCurrent)
+	if err == nil {
+		m.lastStreamPos = pos
+	}
+
+	return nil
+}
+
+// convertAndStreamMessage converts a JSONL message to streaming format and writes it
+func (m *ClaudePTYManager) convertAndStreamMessage(line []byte) error {
+	var message models.ClaudeSessionMessage
+	if err := json.Unmarshal(line, &message); err != nil {
+		return err
+	}
+
+	// Only stream assistant messages with text content
+	if message.Type == "assistant" && message.Message != nil {
+		messageData := message.Message
+		if content, exists := messageData["content"]; exists {
+			if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
+				if textBlock, ok := contentArray[0].(map[string]interface{}); ok {
+					if text, ok := textBlock["text"].(string); ok && text != "" {
+						// Create streaming response format
+						response := &models.CreateCompletionResponse{
+							Response: text,
+							IsChunk:  true,
+							IsLast:   false,
+						}
+
+						responseJSON, err := json.Marshal(response)
+						if err != nil {
+							return err
+						}
+
+						// Write to response
+						if _, err := m.responseWriter.Write(append(responseJSON, '\n')); err != nil {
+							return err
+						}
+
+						// Flush if possible
+						if flusher, ok := m.responseWriter.(interface{ Flush() }); ok {
+							flusher.Flush()
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// isSessionComplete checks if we've received a Stop hook event recently
+func (m *ClaudePTYManager) isSessionComplete() bool {
+	lastStop := m.claudeService.GetLastStopEvent(m.workingDir)
+	return !lastStop.IsZero() && time.Since(lastStop) < 5*time.Second
+}
+
+// cleanup cleans up PTY resources
+func (m *ClaudePTYManager) cleanup() {
+	logger.Debugf("🧹 Cleaning up PTY-based Claude session")
+
+	if m.pty != nil {
+		m.pty.Close()
+	}
+
+	if m.cmd != nil && m.cmd.Process != nil {
+		// Give Claude a moment to finish gracefully
+		time.Sleep(1 * time.Second)
+
+		// Then terminate if still running
+		if err := m.cmd.Process.Kill(); err != nil {
+			logger.Debugf("⚠️ Process kill error (expected if already exited): %v", err)
+		}
+	}
 }

@@ -199,6 +199,7 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 	args = append(args, "--output-format=stream-json")
 	args = append(args, "--input-format=stream-json")
 	args = append(args, "--verbose")
+	args = append(args, "--dangerously-skip-permissions")
 
 	// Add optional parameters
 	if opts.SystemPrompt != "" {
@@ -402,6 +403,7 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 	args = append(args, "--output-format=stream-json")
 	args = append(args, "--input-format=stream-json")
 	args = append(args, "--verbose")
+	args = append(args, "--dangerously-skip-permissions")
 
 	// Add optional parameters
 	if opts.SystemPrompt != "" {
