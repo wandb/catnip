@@ -21,7 +21,7 @@ type ClaudeConfig struct {
 	InstallMethod         string                 `json:"installMethod,omitempty"`
 	AutoUpdates           bool                   `json:"autoUpdates,omitempty"`
 	Theme                 string                 `json:"theme,omitempty"`
-	CustomApiKeyResponses map[string]interface{} `json:"customApiKeyResponses,omitempty"`
+	CustomAPIKeyResponses map[string]interface{} `json:"customApiKeyResponses,omitempty"`
 	TipsHistory           map[string]interface{} `json:"tipsHistory,omitempty"`
 	FirstStartTime        *string                `json:"firstStartTime,omitempty"`
 	Projects              map[string]interface{} `json:"projects,omitempty"`
@@ -798,13 +798,6 @@ func (s *Settings) shouldPreferVolumeClaudeConfig(volumePath, homePath string) b
 
 // hasAuthentication checks if authentication exists by checking .credentials.json
 // NOTE: Authentication is stored separately in .credentials.json, not in claude.json
-func (s *Settings) hasAuthentication(config *ClaudeConfig) bool {
-	// Since authentication is not in claude.json, we need to check .credentials.json
-	// Extract the directory from the claude.json path and look for .credentials.json
-	// For now, we'll use a more conservative approach - if the config file exists and is parseable,
-	// we assume it's a valid config. Authentication check should be done separately.
-	return config != nil
-}
 
 // hasWorkingCredentials checks if .credentials.json exists and has valid OAuth tokens
 func (s *Settings) hasWorkingCredentials(homeDir string) bool {
@@ -862,7 +855,7 @@ func (s *Settings) getClaudeConfigLevel(config *ClaudeConfig) int {
 		score += 5 // Has theme preference
 	}
 
-	if config.TipsHistory != nil && len(config.TipsHistory) > 0 {
+	if len(config.TipsHistory) > 0 {
 		score += 10 // Has usage history
 	}
 

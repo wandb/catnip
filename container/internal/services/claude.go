@@ -993,7 +993,7 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 						if contentMap, ok := contentItem.(map[string]interface{}); ok {
 							// Check for error content type
 							if contentType, exists := contentMap["type"]; exists {
-								if contentType == "error" {
+								if contentType == "error" { //nolint:staticcheck
 									if text, exists := contentMap["text"]; exists {
 										if textStr, ok := text.(string); ok {
 											textContent.WriteString(textStr)
@@ -1757,6 +1757,8 @@ func (s *ClaudeService) CleanupWorktreeClaudeFiles(worktreePath string) error {
 // This function should NEVER be called during operation - claude.json should be READ-ONLY.
 //
 // TODO: Replace with separate metadata file like ~/.catnip-projects.json for runtime tracking.
+//
+//nolint:unused // TODO: Remove after claude.json management is refactored
 func (s *ClaudeService) removeClaudeConfigEntry(worktreePath string) error {
 	// Read current config
 	claudeConfig, err := s.readClaudeConfig()
@@ -2034,7 +2036,7 @@ func (m *ClaudePTYManager) readPTYOutput(errCh chan<- error) {
 		case <-m.ctx.Done():
 			logger.Infof("📖 PTY output reader stopping, total bytes read: %d", totalBytes)
 			if f != nil {
-				f.WriteString(fmt.Sprintf("\n=== PTY reader stopped, total bytes: %d ===\n", totalBytes))
+				_, _ = fmt.Fprintf(f, "\n=== PTY reader stopped, total bytes: %d ===\n", totalBytes)
 			}
 			return
 		default:
@@ -2046,13 +2048,13 @@ func (m *ClaudePTYManager) readPTYOutput(errCh chan<- error) {
 			if err == io.EOF {
 				logger.Infof("📖 PTY output reader: Claude process ended (total bytes: %d)", totalBytes)
 				if f != nil {
-					f.WriteString(fmt.Sprintf("\n=== Claude process ended, total bytes: %d ===\n", totalBytes))
+					_, _ = fmt.Fprintf(f, "\n=== Claude process ended, total bytes: %d ===\n", totalBytes)
 				}
 				return
 			}
 			logger.Warnf("⚠️ PTY read error after %d bytes: %v", totalBytes, err)
 			if f != nil {
-				f.WriteString(fmt.Sprintf("\n=== PTY read error after %d bytes: %v ===\n", totalBytes, err))
+				_, _ = fmt.Fprintf(f, "\n=== PTY read error after %d bytes: %v ===\n", totalBytes, err)
 			}
 			return
 		}
@@ -2066,10 +2068,10 @@ func (m *ClaudePTYManager) readPTYOutput(errCh chan<- error) {
 
 			// Write to debug file
 			if f != nil {
-				f.WriteString(fmt.Sprintf("=== %d bytes at %s ===\n", n, time.Now().Format("15:04:05.000")))
-				f.Write(buf[:n])
-				f.WriteString("\n")
-				f.Sync() // Flush immediately
+				_, _ = fmt.Fprintf(f, "=== %d bytes at %s ===\n", n, time.Now().Format("15:04:05.000"))
+				_, _ = f.Write(buf[:n])
+				_, _ = f.WriteString("\n")
+				_ = f.Sync() // Flush immediately
 			}
 		}
 	}

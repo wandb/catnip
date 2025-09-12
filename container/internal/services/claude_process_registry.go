@@ -226,7 +226,7 @@ func (r *ClaudeProcessRegistry) startClaudeProcess(ctx context.Context, opts *Cl
 	// Handle stderr
 	go func() {
 		// Same as existing stderr handling
-		io.Copy(io.Discard, stderr) // For now just discard stderr
+		_, _ = io.Copy(io.Discard, stderr) // For now just discard stderr
 	}()
 
 	return cmd, nil

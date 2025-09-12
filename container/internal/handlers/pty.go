@@ -61,7 +61,7 @@ type SSEConnection struct {
 	closeMutex sync.Mutex
 }
 
-func NewSSEConnection(writer io.Writer, ctx context.Context, remoteAddr string) *SSEConnection {
+func NewSSEConnection(ctx context.Context, writer io.Writer, remoteAddr string) *SSEConnection {
 	return &SSEConnection{
 		writer:     writer,
 		ctx:        ctx,
@@ -125,7 +125,7 @@ type WebSocketConnection struct {
 	ctx  context.Context
 }
 
-func NewWebSocketConnection(conn *websocket.Conn, ctx context.Context) *WebSocketConnection {
+func NewWebSocketConnection(ctx context.Context, conn *websocket.Conn) *WebSocketConnection {
 	return &WebSocketConnection{
 		conn: conn,
 		ctx:  ctx,
@@ -517,8 +517,8 @@ func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
 
 	// Create SSE connection
 	sseConn := NewSSEConnection(
-		c.Response().BodyWriter(),
 		c.Context(),
+		c.Response().BodyWriter(),
 		c.IP(),
 	)
 
@@ -610,7 +610,7 @@ func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
 
 func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent string, reset bool) {
 	// Wrap WebSocket connection in transport abstraction
-	wsConn := NewWebSocketConnection(conn, context.Background())
+	wsConn := NewWebSocketConnection(context.Background(), conn)
 
 	// Use the unified handler with the wrapped connection
 	h.handleConnection(wsConn, sessionID, agent, reset)
