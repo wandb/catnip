@@ -22,6 +22,11 @@ export interface ClaudeSessionSummary {
   }>;
 }
 
+export interface ClaudeMessageOrError {
+  content: string;
+  isError: boolean;
+}
+
 export const claudeApi = {
   async getAllWorktreeSessionSummaries(): Promise<
     Record<string, ClaudeSessionSummary>
@@ -33,5 +38,11 @@ export const claudeApi = {
     worktreePath: string,
   ): Promise<string> {
     return gitApi.fetchWorktreeLatestAssistantMessage(worktreePath);
+  },
+
+  async getWorktreeLatestMessageOrError(
+    worktreePath: string,
+  ): Promise<ClaudeMessageOrError> {
+    return gitApi.fetchWorktreeLatestMessageOrError(worktreePath);
   },
 };

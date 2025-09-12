@@ -169,7 +169,7 @@ func runInstallHooks(cmd *cobra.Command, args []string) error {
 	hookCommand := catnipPath + " hook"
 
 	// Define the hook events we want to track
-	events := []string{"UserPromptSubmit", "PostToolUse", "Stop"}
+	events := []string{"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"}
 
 	for _, event := range events {
 		settings.Hooks[event] = []HookMatcher{
@@ -237,7 +237,7 @@ func runHook(cmd *cobra.Command, args []string) error {
 
 	// Only handle the events we care about for activity tracking
 	switch event.HookEventName {
-	case "UserPromptSubmit", "PostToolUse", "Stop":
+	case "SessionStart", "UserPromptSubmit", "PostToolUse", "Stop":
 		// Good, we want to track these events
 	default:
 		// For other events, exit silently

@@ -7,6 +7,8 @@ export function useClaudeApi() {
       getAllWorktreeSessionSummaries: claudeApi.getAllWorktreeSessionSummaries,
       getWorktreeLatestAssistantMessage:
         claudeApi.getWorktreeLatestAssistantMessage,
+      getWorktreeLatestMessageOrError:
+        claudeApi.getWorktreeLatestMessageOrError,
     }),
     [],
   );

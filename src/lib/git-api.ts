@@ -263,6 +263,27 @@ export const gitApi = {
     }
   },
 
+  async fetchWorktreeLatestMessageOrError(
+    worktreePath: string,
+  ): Promise<{ content: string; isError: boolean }> {
+    try {
+      const response = await fetch(
+        `/v1/claude/latest-message?worktree_path=${encodeURIComponent(worktreePath)}`,
+      );
+      if (response.ok) {
+        const result = await response.json();
+        return {
+          content: result.message || "",
+          isError: result.isError || false,
+        };
+      }
+      return { content: "", isError: false };
+    } catch (error) {
+      console.error("Failed to fetch latest message or error:", error);
+      return { content: "", isError: false };
+    }
+  },
+
   async fetchActiveSessions(): Promise<Record<string, any>> {
     try {
       const response = await fetch("/v1/sessions/active");

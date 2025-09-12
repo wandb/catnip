@@ -483,6 +483,9 @@ export function useXTerminalConnection({
           } else if (msg.type === "read-only") {
             setIsReadOnly(msg.data === true);
             return;
+          } else {
+            // Any other JSON message - don't display in terminal
+            return;
           }
         } catch (_e) {
           // Not JSON, treat as regular text output
@@ -531,7 +534,6 @@ export function useXTerminalConnection({
     agent,
     enableAdvancedBuffering,
     sendReadySignal,
-    sendFocusState,
     getReconnectDelay,
     smartScrollToBottom,
     isNonRetryableError,

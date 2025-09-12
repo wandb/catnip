@@ -2134,6 +2134,15 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 		return nil, err
 	}
 
+	// CRITICAL: Clean up any existing Claude session files for this worktree path BEFORE any other initialization
+	// This prevents race conditions where the PTY connects and finds old session files
+	if s.claudeMonitor != nil && s.claudeMonitor.claudeService != nil {
+		if err := s.claudeMonitor.claudeService.CleanupWorktreeClaudeFiles(worktree.Path); err != nil {
+			logger.Warnf("⚠️ Failed to cleanup existing Claude files for new worktree %s: %v", worktree.Path, err)
+			// Don't fail the worktree creation, just log the warning
+		}
+	}
+
 	// Store worktree in service map
 	if err := s.stateManager.AddWorktree(worktree); err != nil {
 		logger.Warnf("⚠️ Failed to add worktree to state: %v", err)
