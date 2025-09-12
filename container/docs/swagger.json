@@ -1420,6 +1420,41 @@
                 }
             }
         },
+        "/v1/pty/sse": {
+            "get": {
+                "description": "Establishes a Server-Sent Events connection for terminal streaming",
+                "tags": [
+                    "pty"
+                ],
+                "summary": "Create PTY SSE connection",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID",
+                        "name": "session",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent type (claude, bash, etc)",
+                        "name": "agent",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Prompt to send to PTY session",
+                        "name": "prompt",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Stream of terminal events"
+                    }
+                }
+            }
+        },
         "/v1/sessions": {
             "get": {
                 "description": "Returns all sessions including ended ones",

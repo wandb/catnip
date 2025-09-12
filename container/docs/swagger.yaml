@@ -2046,6 +2046,29 @@ paths:
       summary: Create PTY WebSocket connection
       tags:
       - pty
+  /v1/pty/sse:
+    get:
+      description: Establishes a Server-Sent Events connection for terminal streaming
+      parameters:
+      - description: Session ID
+        in: query
+        name: session
+        required: true
+        type: string
+      - description: Agent type (claude, bash, etc)
+        in: query
+        name: agent
+        type: string
+      - description: Prompt to send to PTY session
+        in: query
+        name: prompt
+        type: string
+      responses:
+        "200":
+          description: Stream of terminal events
+      summary: Create PTY SSE connection
+      tags:
+      - pty
   /v1/sessions:
     get:
       description: Returns all sessions including ended ones
