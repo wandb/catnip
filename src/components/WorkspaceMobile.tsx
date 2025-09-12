@@ -8,6 +8,7 @@ import { TextContent } from "@/components/TextContent";
 import { PullRequestDialog } from "@/components/PullRequestDialog";
 import { useAppStore } from "@/stores/appStore";
 import { useClaudeApi } from "@/hooks/useClaudeApi";
+import { usePtySSEConnection } from "@/hooks/usePtySSEConnection";
 import { GitMerge, ExternalLink } from "lucide-react";
 import {
   getWorkspaceTitle,
@@ -110,11 +111,13 @@ export function WorkspaceMobile({
   const [hasStartedFromInitialPrompt, setHasStartedFromInitialPrompt] =
     useState(false);
   const [sessionRestarted, setSessionRestarted] = useState(false);
+  const [promptToSend, setPromptToSend] = useState<string | undefined>(
+    undefined,
+  );
   const restartedContentRef = useRef<{
     latestMessage?: string;
     todos?: any[];
   }>({});
-  const wsRef = useRef<WebSocket | null>(null);
   const initialPromptRef = useRef<string | undefined>(initialPrompt);
 
   const { getAllWorktreeSessionSummaries, getWorktreeLatestAssistantMessage } =
@@ -123,26 +126,31 @@ export function WorkspaceMobile({
     state.worktrees.get(worktree.id),
   );
 
-  const startSession = (promptToSend?: string) => {
+  // PTY SSE connection to kick off Claude session (data not displayed)
+  const ptyConnection = usePtySSEConnection({
+    sessionId: worktree.name,
+    agent: "claude",
+    enabled: phase === "todos" || phase === "existing", // Only connect when Claude should be active
+    prompt: promptToSend,
+  });
+
+  const startSession = (promptToSendArg?: string) => {
     // Use the provided prompt or fall back to the state prompt
-    const actualPrompt = promptToSend || prompt;
-    const wasFromInitialPrompt = Boolean(promptToSend && initialPrompt);
+    const actualPrompt = promptToSendArg || prompt;
+    const wasFromInitialPrompt = Boolean(promptToSendArg && initialPrompt);
 
     // Track if we're starting from an initial prompt
     if (wasFromInitialPrompt) {
       setHasStartedFromInitialPrompt(true);
     }
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const params = new URLSearchParams();
-    params.set("session", worktree.name);
-    params.set("agent", "claude");
-    const url = `${protocol}//${window.location.host}/v1/pty?${params.toString()}`;
-
-    console.log("Starting PTY WebSocket session:", url);
+    console.log("Starting session for worktree:", worktree.name);
     console.log("Will send prompt:", actualPrompt);
 
     setSessionStarting(true);
+
+    // Set the prompt to be sent via SSE connection
+    setPromptToSend(actualPrompt);
 
     // Reset hasBeenActive and set phase when starting a new session from existing workspace
     // This ensures proper state transitions
@@ -164,52 +172,21 @@ export function WorkspaceMobile({
       }
     }
 
-    const ws = new WebSocket(url);
+    // Clear the prompt parameter from URL if session started from initial prompt
+    if (wasFromInitialPrompt) {
+      void navigate({
+        to: "/workspace/$project/$workspace",
+        params: {
+          project: worktree.name.split("/")[0],
+          workspace: worktree.name.split("/")[1],
+        },
+        search: { prompt: undefined },
+        replace: true,
+      });
+    }
 
-    ws.onopen = () => {
-      console.log("PTY WebSocket opened, waiting for Claude to initialize...");
-      setSessionStarting(false);
-
-      // Clear the prompt parameter from URL if session started from initial prompt
-      if (wasFromInitialPrompt) {
-        void navigate({
-          to: "/workspace/$project/$workspace",
-          params: {
-            project: worktree.name.split("/")[0],
-            workspace: worktree.name.split("/")[1],
-          },
-          search: { prompt: undefined },
-          replace: true,
-        });
-      }
-
-      // Wait for Claude to fully initialize before sending the prompt
-      setTimeout(() => {
-        const promptMessage = {
-          type: "prompt",
-          data: actualPrompt,
-          submit: true,
-        };
-        console.log(
-          "Sending prompt message to initialized Claude:",
-          promptMessage,
-        );
-        ws.send(JSON.stringify(promptMessage));
-      }, 3000); // Wait 3 seconds for Claude to fully start
-    };
-
-    ws.onerror = (error) => {
-      console.error("PTY WebSocket error:", error);
-      setSessionStarting(false);
-    };
-
-    ws.onclose = (event) => {
-      console.log("PTY WebSocket closed:", event.code, event.reason);
-      setSessionStarting(false);
-    };
-
-    wsRef.current = ws;
     setPhase("todos");
+    setSessionStarting(false);
   };
 
   // Pre-compute content for all phases to avoid conditional hooks
@@ -308,6 +285,16 @@ export function WorkspaceMobile({
 
     void loadClaudeData();
   }, [worktree.path]); // Removed initialPrompt from dependency array
+
+  // Clear the prompt after SSE connection is established
+  useEffect(() => {
+    if (ptyConnection.isConnected && promptToSend) {
+      // Clear the prompt after a short delay to ensure it was processed
+      setTimeout(() => {
+        setPromptToSend(undefined);
+      }, 1000);
+    }
+  }, [ptyConnection.isConnected, promptToSend]);
 
   useEffect(() => {
     if (!currentWorktree) return;
@@ -492,12 +479,6 @@ export function WorkspaceMobile({
       }
     }
   }, [sessionRestarted, currentWorktree?.latest_claude_message]);
-
-  useEffect(() => {
-    return () => {
-      wsRef.current?.close();
-    };
-  }, []);
 
   if (loading) {
     return (

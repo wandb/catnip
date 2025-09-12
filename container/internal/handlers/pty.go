@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +29,168 @@ import (
 	"github.com/vanpelt/catnip/internal/services"
 )
 
+// PTYConnection represents an abstract connection transport for PTY sessions
+type PTYConnection interface {
+	WriteMessage(data []byte) error
+	WriteJSONMessage(data []byte) error           // For JSON control messages that should be sent as text
+	ReadControlMessage() (*ControlMessage, error) // Returns nil for read-only connections like SSE
+	Close() error
+	RemoteAddr() string
+	IsReadOnly() bool // SSE connections are inherently read-only for input
+	Type() string     // "websocket" or "sse"
+	Context() context.Context
+}
+
+// ControlMessage represents various control messages from clients
+type ControlMessage struct {
+	Type    string `json:"type"`
+	Data    string `json:"data,omitempty"`
+	Submit  bool   `json:"submit,omitempty"`
+	Cols    uint16 `json:"cols,omitempty"`
+	Rows    uint16 `json:"rows,omitempty"`
+	Focused bool   `json:"focused,omitempty"`
+}
+
+// SSEConnection implements PTYConnection for Server-Sent Events
+type SSEConnection struct {
+	writer     io.Writer
+	ctx        context.Context
+	remoteAddr string
+	done       chan struct{}
+	closed     bool
+	closeMutex sync.Mutex
+}
+
+func NewSSEConnection(writer io.Writer, ctx context.Context, remoteAddr string) *SSEConnection {
+	return &SSEConnection{
+		writer:     writer,
+		ctx:        ctx,
+		remoteAddr: remoteAddr,
+		done:       make(chan struct{}),
+	}
+}
+
+func (s *SSEConnection) WriteMessage(data []byte) error {
+	// Format as SSE: "data: {content}\n\n"
+	formatted := fmt.Sprintf("data: %s\n\n", strings.TrimSpace(string(data)))
+	_, err := s.writer.Write([]byte(formatted))
+	return err
+}
+
+func (s *SSEConnection) WriteJSONMessage(data []byte) error {
+	// For SSE, JSON messages are sent the same way as binary data
+	return s.WriteMessage(data)
+}
+
+func (s *SSEConnection) ReadControlMessage() (*ControlMessage, error) {
+	// SSE is read-only for input, but we need to block until disconnection
+	select {
+	case <-s.ctx.Done():
+		return nil, s.ctx.Err()
+	case <-s.done:
+		return nil, io.EOF
+	}
+}
+
+func (s *SSEConnection) Close() error {
+	s.closeMutex.Lock()
+	defer s.closeMutex.Unlock()
+
+	if !s.closed {
+		close(s.done)
+		s.closed = true
+	}
+	return nil
+}
+
+func (s *SSEConnection) RemoteAddr() string {
+	return s.remoteAddr
+}
+
+func (s *SSEConnection) IsReadOnly() bool {
+	return true // SSE connections are always read-only for input
+}
+
+func (s *SSEConnection) Type() string {
+	return "sse"
+}
+
+func (s *SSEConnection) Context() context.Context {
+	return s.ctx
+}
+
+// WebSocketConnection implements PTYConnection for WebSocket connections
+type WebSocketConnection struct {
+	conn *websocket.Conn
+	ctx  context.Context
+}
+
+func NewWebSocketConnection(conn *websocket.Conn, ctx context.Context) *WebSocketConnection {
+	return &WebSocketConnection{
+		conn: conn,
+		ctx:  ctx,
+	}
+}
+
+func (w *WebSocketConnection) WriteMessage(data []byte) error {
+	return w.conn.WriteMessage(websocket.BinaryMessage, data)
+}
+
+func (w *WebSocketConnection) WriteJSONMessage(data []byte) error {
+	return w.conn.WriteMessage(websocket.TextMessage, data)
+}
+
+func (w *WebSocketConnection) ReadControlMessage() (*ControlMessage, error) {
+	messageType, data, err := w.conn.ReadMessage()
+	if err != nil {
+		return nil, err
+	}
+
+	if messageType == websocket.TextMessage {
+		// Try to parse as control message
+		var msg ControlMessage
+		if err := json.Unmarshal(data, &msg); err == nil && msg.Type != "" {
+			return &msg, nil
+		}
+
+		// Try to parse as resize message (legacy support)
+		var resizeMsg ResizeMsg
+		if err := json.Unmarshal(data, &resizeMsg); err == nil && resizeMsg.Cols > 0 && resizeMsg.Rows > 0 {
+			return &ControlMessage{
+				Type: "resize",
+				Cols: resizeMsg.Cols,
+				Rows: resizeMsg.Rows,
+			}, nil
+		}
+	}
+
+	// Return raw data for PTY input
+	return &ControlMessage{
+		Type: "input",
+		Data: string(data),
+	}, nil
+}
+
+func (w *WebSocketConnection) Close() error {
+	return w.conn.Close()
+}
+
+func (w *WebSocketConnection) RemoteAddr() string {
+	return w.conn.RemoteAddr().String()
+}
+
+func (w *WebSocketConnection) IsReadOnly() bool {
+	return false // WebSocket connections can send input by default
+}
+
+func (w *WebSocketConnection) Type() string {
+	return "websocket"
+}
+
+func (w *WebSocketConnection) Context() context.Context {
+	return w.ctx
+}
+
 // WorkspaceFailureTracker tracks recreation failures per workspace
 type WorkspaceFailureTracker struct {
 	FailureCount   int
@@ -50,13 +213,14 @@ type PTYHandler struct {
 	claudeMonitor  *services.ClaudeMonitorService
 }
 
-// ConnectionInfo tracks metadata for each WebSocket connection
+// ConnectionInfo tracks metadata for each connection
 type ConnectionInfo struct {
 	ConnectedAt time.Time
 	RemoteAddr  string
 	ConnID      string
 	IsReadOnly  bool
 	IsFocused   bool
+	ConnType    string // "websocket" or "sse"
 }
 
 // Session represents a PTY session
@@ -71,7 +235,7 @@ type Session struct {
 	Agent           string
 	Title           string
 	ClaudeSessionID string // Track Claude session UUID for resume functionality
-	connections     map[*websocket.Conn]*ConnectionInfo
+	connections     map[PTYConnection]*ConnectionInfo
 	connMutex       sync.RWMutex
 	// Buffer to store PTY output for replay
 	outputBuffer  []byte
@@ -312,14 +476,156 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 	return fiber.ErrUpgradeRequired
 }
 
+// HandleSSEConnection handles SSE connections for PTY streaming
+// @Summary Create PTY SSE connection
+// @Description Establishes a Server-Sent Events connection for terminal streaming
+// @Tags pty
+// @Param session query string true "Session ID"
+// @Param agent query string false "Agent type (claude, bash, etc)"
+// @Param prompt query string false "Prompt to send to PTY session"
+// @Success 200 "Stream of terminal events"
+// @Router /v1/pty/sse [get]
+func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
+	// Extract session ID, agent, and prompt
+	defaultSession := os.Getenv("CATNIP_SESSION")
+	if defaultSession == "" {
+		defaultSession = "default"
+	}
+	sessionID := c.Query("session", defaultSession)
+	agent := c.Query("agent", "")
+	prompt := c.Query("prompt", "")
+
+	// Debug logging
+	if agent != "" {
+		logger.Debugf("📡 New SSE connection for session: %s with agent: %s", sessionID, agent)
+	} else {
+		logger.Debugf("📡 New SSE connection for session: %s", sessionID)
+	}
+
+	// Create composite session key: path + agent
+	compositeSessionID := sessionID
+	if agent != "" {
+		compositeSessionID = fmt.Sprintf("%s:%s", sessionID, agent)
+	}
+
+	// Set SSE headers
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("Access-Control-Allow-Origin", "*")
+	c.Set("Access-Control-Allow-Headers", "Cache-Control")
+
+	// Create SSE connection
+	sseConn := NewSSEConnection(
+		c.Response().BodyWriter(),
+		c.Context(),
+		c.IP(),
+	)
+
+	// For now, create a minimal SSE connection handler that gets the session
+	// and sends the initial buffer, then streams data until disconnection
+	session := h.getOrCreateSession(compositeSessionID, agent, false)
+	if session == nil {
+		logger.Errorf("❌ Failed to create session: %s", compositeSessionID)
+		return c.Status(500).SendString("Failed to create session")
+	}
+
+	// Add the SSE connection to the session
+	session.connMutex.Lock()
+	connID := fmt.Sprintf("%p", sseConn)
+	session.connections[sseConn] = &ConnectionInfo{
+		ConnectedAt: time.Now(),
+		RemoteAddr:  sseConn.RemoteAddr(),
+		ConnID:      connID,
+		IsReadOnly:  true,  // SSE connections are always read-only
+		IsFocused:   false, // SSE connections don't support focus
+		ConnType:    "sse",
+	}
+	session.connMutex.Unlock()
+
+	logger.Debugf("🔗 Added SSE connection [%s] to session %s", connID, compositeSessionID)
+
+	// Send initial buffer if available
+	session.bufferMutex.RLock()
+	if len(session.outputBuffer) > 0 {
+		bufferCopy := make([]byte, len(session.outputBuffer))
+		copy(bufferCopy, session.outputBuffer)
+		session.bufferMutex.RUnlock()
+
+		logger.Debugf("📤 Sending %d bytes from buffer to SSE connection", len(bufferCopy))
+		if err := sseConn.WriteMessage(bufferCopy); err != nil {
+			logger.Warnf("❌ Failed to send buffer to SSE connection: %v", err)
+		}
+	} else {
+		session.bufferMutex.RUnlock()
+	}
+
+	// Handle prompt injection if provided via query parameter
+	if prompt != "" {
+		go func() {
+			// TODO: HOLY SHIT THIS IS A HORRIBLE HACK! We should find a more deterministic way
+			// to deal with these timeouts instead of blindly waiting 3 seconds!
+			//
+			// Better approaches would be:
+			// 1. Monitor PTY output for Claude's initial prompt/ready signal
+			// 2. Use Claude hooks/events to detect when Claude is ready for input
+			// 3. Parse terminal escape sequences to detect prompt state
+			// 4. Implement a proper handshake protocol
+			//
+			// For now this works but it's fragile and makes mobile startup slow.
+			// If Claude takes longer than 3s to start, prompts will be lost.
+			// If Claude starts faster, we're wasting time waiting.
+
+			// Wait for Claude to be ready - need to wait longer for Claude to start up and show prompt
+			// Claude takes time to initialize, especially on first run
+			logger.Infof("⏳ Waiting for Claude to be ready before injecting prompt: %q", prompt)
+			time.Sleep(3 * time.Second) // Increased from 100ms to 3 seconds
+
+			logger.Infof("📝 Injecting prompt into PTY via SSE: %q", prompt)
+			if _, err := session.PTY.Write([]byte(prompt)); err != nil {
+				logger.Warnf("❌ Failed to write prompt to PTY: %v", err)
+				return
+			}
+
+			// Send carriage return after prompt like WebSocket mode
+			time.Sleep(500 * time.Millisecond) // Increased from 100ms to 500ms
+			logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
+			if _, err := session.PTY.Write([]byte("\r")); err != nil {
+				logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
+			}
+		}()
+	}
+
+	// Wait for context cancellation (connection close)
+	<-sseConn.Context().Done()
+
+	// Clean up connection
+	session.connMutex.Lock()
+	delete(session.connections, sseConn)
+	session.connMutex.Unlock()
+
+	logger.Debugf("🔌 SSE connection [%s] closed for session %s", connID, compositeSessionID)
+	return nil
+}
+
 func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent string, reset bool) {
+	// Wrap WebSocket connection in transport abstraction
+	wsConn := NewWebSocketConnection(conn, context.Background())
+
+	// Use the unified handler with the wrapped connection
+	h.handleConnection(wsConn, sessionID, agent, reset)
+}
+
+func (h *PTYHandler) handleConnection(conn PTYConnection, sessionID, agent string, reset bool) {
 	// Generate unique connection ID for logging and tracking
 	connID := fmt.Sprintf("%p", conn)
 
 	if agent != "" {
-		logger.Debugf("📡 New PTY connection [%s] for session: %s with agent: %s (reset: %t)", connID, sessionID, agent, reset)
+		logger.Debugf("📡 New %s connection [%s] for session: %s with agent: %s (reset: %t)",
+			conn.Type(), connID, sessionID, agent, reset)
 	} else {
-		logger.Debugf("📡 New PTY connection [%s] for session: %s (reset: %t)", connID, sessionID, reset)
+		logger.Debugf("📡 New %s connection [%s] for session: %s (reset: %t)",
+			conn.Type(), connID, sessionID, reset)
 	}
 
 	// Handle reset logic for Claude agent
@@ -340,7 +646,13 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	if session == nil {
 		logger.Errorf("❌ Failed to create session: %s", sessionID)
 
-		// Send error message to client before closing
+		// For SSE connections, we can't send JSON error messages - just close
+		if conn.Type() == "sse" {
+			conn.Close()
+			return
+		}
+
+		// Send error message to WebSocket client before closing
 		errorMsg := struct {
 			Type      string `json:"type"`
 			Error     string `json:"error"`
@@ -355,8 +667,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			Retryable: false, // This error is not retryable - workspace doesn't exist
 		}
 
-		if data, err := json.Marshal(errorMsg); err == nil {
-			_ = conn.WriteMessage(websocket.TextMessage, data)
+		if data, err := json.Marshal(errorMsg); err == nil && conn.Type() == "websocket" {
+			// For WebSocket, we need to write as text message
+			if wsConn, ok := conn.(*WebSocketConnection); ok {
+				_ = wsConn.conn.WriteMessage(websocket.TextMessage, data)
+			}
 		}
 
 		conn.Close()
@@ -374,7 +689,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 	// Add connection to session with read-only logic
 	session.connMutex.Lock()
 
-	remoteAddr := conn.RemoteAddr().String()
+	remoteAddr := conn.RemoteAddr()
 	logger.Debugf("🔌 New connection [%s] from %s to session %s", connID, remoteAddr, sessionID)
 
 	// NUCLEAR APPROACH: Force-close ALL existing connections when a new one connects
@@ -398,7 +713,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		logger.Infof("🧹 FORCE CLEANUP: Found %d existing connections in session %s, closing all", existingConnectionCount, sessionID)
 
 		// Force close all existing connections
-		var connectionsToClose []*websocket.Conn
+		var connectionsToClose []PTYConnection
 		for conn := range session.connections {
 			connectionsToClose = append(connectionsToClose, conn)
 		}
@@ -429,10 +744,11 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 	session.connections[conn] = &ConnectionInfo{
 		ConnectedAt: time.Now(),
-		RemoteAddr:  conn.RemoteAddr().String(),
+		RemoteAddr:  conn.RemoteAddr(),
 		ConnID:      connID,
 		IsReadOnly:  isReadOnly,
 		IsFocused:   false, // Will be updated when focus event is received
+		ConnType:    conn.Type(),
 	}
 	newConnectionCount := len(session.connections)
 	session.connMutex.Unlock()
@@ -449,7 +765,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			Data: true,
 		}
 		if data, err := json.Marshal(readOnlyMsg); err == nil {
-			_ = session.writeToConnection(conn, websocket.TextMessage, data)
+			_ = session.writeJSONToConnection(conn, data)
 		}
 	} else {
 		logger.Debugf("🔗 Added WRITE connection [%s] to session %s (connections: %d → %d)", connID, sessionID, connectionCount, newConnectionCount)
@@ -463,7 +779,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			Data: false,
 		}
 		if data, err := json.Marshal(writeAccessMsg); err == nil {
-			_ = session.writeToConnection(conn, websocket.TextMessage, data)
+			_ = session.writeJSONToConnection(conn, data)
 		}
 
 	}
@@ -498,7 +814,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 
 		// If the write connection disconnected, promote the oldest read-only connection
 		if wasWriteConnection && connectionCount > 0 {
-			var oldestConn *websocket.Conn
+			var oldestConn PTYConnection
 			var oldestTime time.Time
 
 			for c, info := range session.connections {
@@ -522,7 +838,7 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					Data: false,
 				}
 				if data, err := json.Marshal(writeAccessMsg); err == nil {
-					_ = oldestConn.WriteMessage(websocket.TextMessage, data)
+					_ = oldestConn.WriteMessage(data)
 				}
 			}
 		}
@@ -541,9 +857,9 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 		}
 	}()
 
-	// Read from WebSocket and write to PTY
+	// Read from connection and write to PTY
 	for {
-		messageType, data, err := conn.ReadMessage()
+		controlMsg, err := conn.ReadControlMessage()
 		if err != nil {
 			// Don't log normal WebSocket close conditions as errors
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseNoStatusReceived) {
@@ -554,98 +870,22 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 			break
 		}
 
-		// Handle different message types
-		if messageType == websocket.TextMessage {
-			// Try to parse as JSON for control messages first
-			var controlMsg ControlMsg
-			if err := json.Unmarshal(data, &controlMsg); err == nil && controlMsg.Type != "" {
-				switch controlMsg.Type {
-				case "reset":
-					logger.Infof("🔄 Reset command received for session: %s", sessionID)
-					h.recreateSession(session)
-					continue
-				case "ready":
-					logger.Debugf("🎯 Client ready signal received")
+		// Handle control message
+		if controlMsg != nil {
+			logger.Infof("🔧 Received control message type: %s", controlMsg.Type)
+			switch controlMsg.Type {
+			case "reset":
+				logger.Infof("🔄 Reset command received for session: %s", sessionID)
+				h.recreateSession(session)
+				continue
+			case "ready":
+				logger.Infof("🔧 Client ready signal received for session: %s", sessionID)
 
-					// For Claude sessions, just send buffer-complete and let frontend resize trigger redraw
-					if session.Agent == "claude" {
-						logger.Debugf("🔄 Claude session reconnected - frontend resize will trigger redraw")
+				// For Claude sessions, just send buffer-complete and let frontend resize trigger redraw
+				if session.Agent == "claude" {
+					logger.Debugf("🔄 Claude session reconnected - frontend resize will trigger redraw")
 
-						// Just send buffer-complete - frontend will send resize which triggers SIGWINCH at right time
-						completeMsg := struct {
-							Type string `json:"type"`
-						}{
-							Type: "buffer-complete",
-						}
-
-						if data, err := json.Marshal(completeMsg); err == nil {
-							_ = session.writeToConnection(conn, websocket.TextMessage, data)
-						}
-					} else {
-						// Traditional buffer replay for non-Claude sessions
-						session.bufferMutex.RLock()
-						hasBuffer := len(session.outputBuffer) > 0
-						bufferCols := session.bufferedCols
-						bufferRows := session.bufferedRows
-						session.bufferMutex.RUnlock()
-
-						if hasBuffer && bufferCols > 0 && bufferRows > 0 {
-							// First, resize PTY to match buffered dimensions
-							logger.Infof("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
-							_ = h.resizePTY(session.PTY, bufferCols, bufferRows)
-
-							// Tell client what size to use for replay
-							sizeMsg := struct {
-								Type string `json:"type"`
-								Cols uint16 `json:"cols"`
-								Rows uint16 `json:"rows"`
-							}{
-								Type: "buffer-size",
-								Cols: bufferCols,
-								Rows: bufferRows,
-							}
-
-							if data, err := json.Marshal(sizeMsg); err == nil {
-								_ = session.writeToConnection(conn, websocket.TextMessage, data)
-							}
-
-							// Then replay the buffer (filter TUI content if alternate screen is active)
-							session.bufferMutex.RLock()
-							var bufferToReplay []byte
-
-							if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
-								// Only replay content up to where alternate screen was entered
-								bufferToReplay = make([]byte, session.LastNonTUIBufferSize)
-								copy(bufferToReplay, session.outputBuffer[:session.LastNonTUIBufferSize])
-								logger.Debugf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
-							} else {
-								// Replay entire buffer for non-TUI sessions
-								bufferToReplay = make([]byte, len(session.outputBuffer))
-								copy(bufferToReplay, session.outputBuffer)
-								logger.Debugf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
-							}
-							session.bufferMutex.RUnlock()
-
-							if err := session.writeToConnection(conn, websocket.BinaryMessage, bufferToReplay); err != nil {
-								logger.Warnf("❌ Failed to replay buffer: %v", err)
-							}
-
-							// If we filtered TUI content, send a refresh signal to trigger TUI repaint
-							if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
-								go func() {
-									time.Sleep(100 * time.Millisecond)
-									logger.Infof("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
-									if _, err := session.PTY.Write([]byte("\x0c")); err != nil {
-										logger.Warnf("❌ Failed to send refresh signal: %v", err)
-									}
-								}()
-							}
-						} else {
-							logger.Debugf("📋 No buffer to replay or dimensions not captured")
-						}
-					}
-
-					// Always send buffer complete signal
+					// Just send buffer-complete - frontend will send resize which triggers SIGWINCH at right time
 					completeMsg := struct {
 						Type string `json:"type"`
 					}{
@@ -653,97 +893,158 @@ func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent 
 					}
 
 					if data, err := json.Marshal(completeMsg); err == nil {
-						_ = session.writeToConnection(conn, websocket.TextMessage, data)
+						logger.Infof("🔧 Sending buffer-complete to Claude session")
+						_ = session.writeJSONToConnection(conn, data)
 					}
-					continue
-				case "prompt":
-					// Handle prompt injection for Claude TUI
-					if controlMsg.Data != "" {
-						logger.Infof("📝 Injecting prompt into PTY: %q (submit: %v)", controlMsg.Data, controlMsg.Submit)
-						if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
-							logger.Warnf("❌ Failed to write prompt to PTY: %v", err)
+				} else {
+					// Traditional buffer replay for non-Claude sessions
+					session.bufferMutex.RLock()
+					hasBuffer := len(session.outputBuffer) > 0
+					bufferCols := session.bufferedCols
+					bufferRows := session.bufferedRows
+					session.bufferMutex.RUnlock()
+
+					if hasBuffer && bufferCols > 0 && bufferRows > 0 {
+						// First, resize PTY to match buffered dimensions
+						logger.Infof("📐 Resizing PTY to buffered dimensions %dx%d before replay", bufferCols, bufferRows)
+						_ = h.resizePTY(session.PTY, bufferCols, bufferRows)
+
+						// Tell client what size to use for replay
+						sizeMsg := struct {
+							Type string `json:"type"`
+							Cols uint16 `json:"cols"`
+							Rows uint16 `json:"rows"`
+						}{
+							Type: "buffer-size",
+							Cols: bufferCols,
+							Rows: bufferRows,
 						}
 
-						// If submit is true, send a carriage return after a small delay
-						// This mimics how a user would type and then press Enter
-						if controlMsg.Submit {
+						if data, err := json.Marshal(sizeMsg); err == nil {
+							_ = session.writeJSONToConnection(conn, data)
+						}
+
+						// Then replay the buffer (filter TUI content if alternate screen is active)
+						session.bufferMutex.RLock()
+						var bufferToReplay []byte
+
+						if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
+							// Only replay content up to where alternate screen was entered
+							bufferToReplay = make([]byte, session.LastNonTUIBufferSize)
+							copy(bufferToReplay, session.outputBuffer[:session.LastNonTUIBufferSize])
+							logger.Debugf("📋 Replaying %d bytes (filtered from %d) - excluding TUI content", len(bufferToReplay), len(session.outputBuffer))
+						} else {
+							// Replay entire buffer for non-TUI sessions
+							bufferToReplay = make([]byte, len(session.outputBuffer))
+							copy(bufferToReplay, session.outputBuffer)
+							logger.Debugf("📋 Replaying %d bytes of buffered output at %dx%d", len(bufferToReplay), bufferCols, bufferRows)
+						}
+						session.bufferMutex.RUnlock()
+
+						if err := session.writeToConnection(conn, bufferToReplay); err != nil {
+							logger.Warnf("❌ Failed to replay buffer: %v", err)
+						}
+
+						// If we filtered TUI content, send a refresh signal to trigger TUI repaint
+						if session.AlternateScreenActive && session.LastNonTUIBufferSize > 0 {
 							go func() {
-								// Small delay to let the TUI process the prompt text
 								time.Sleep(100 * time.Millisecond)
-								logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
-								if _, err := session.PTY.Write([]byte("\r")); err != nil {
-									logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
+								logger.Infof("🔄 Sending Ctrl+L to refresh TUI after filtered buffer replay")
+								if _, err := session.PTY.Write([]byte("\x0c")); err != nil {
+									logger.Warnf("❌ Failed to send refresh signal: %v", err)
 								}
 							}()
 						}
+					} else {
+						logger.Debugf("📋 No buffer to replay or dimensions not captured")
 					}
-					continue
-				case "promote":
-					// Handle connection promotion request (swap read/write permissions)
-					logger.Infof("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
-					h.promoteConnection(session, conn)
-					continue
-				case "focus":
-					// Handle focus state change
-					var focusMsg struct {
-						Type    string `json:"type"`
-						Focused bool   `json:"focused"`
-					}
-					if err := json.Unmarshal(data, &focusMsg); err == nil {
-						h.handleFocusChange(session, conn, focusMsg.Focused)
-					}
-					continue
 				}
-			}
 
-			// Try to parse as JSON for resize messages
-			var resizeMsg ResizeMsg
-			if err := json.Unmarshal(data, &resizeMsg); err == nil && resizeMsg.Cols > 0 && resizeMsg.Rows > 0 {
-				// For Claude sessions, always force dimension change to ensure SIGWINCH triggers redraw
-				if session.Agent == "claude" {
-					// First resize to slightly different dimensions to force a change
-					_ = h.resizePTY(session.PTY, resizeMsg.Cols-1, resizeMsg.Rows-1)
-					// Small delay to ensure the change is processed
-					time.Sleep(10 * time.Millisecond)
-					// Then resize to the target dimensions
-					_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
-					logger.Debugf("📐 Resized Claude PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
-				} else {
-					// For non-Claude sessions, only resize if dimensions actually changed
-					if session.cols != resizeMsg.Cols || session.rows != resizeMsg.Rows {
-						_ = h.resizePTY(session.PTY, resizeMsg.Cols, resizeMsg.Rows)
-						logger.Debugf("📐 Resized PTY to %dx%d", resizeMsg.Cols, resizeMsg.Rows)
+				// Always send buffer complete signal
+				completeMsg := struct {
+					Type string `json:"type"`
+				}{
+					Type: "buffer-complete",
+				}
+
+				if data, err := json.Marshal(completeMsg); err == nil {
+					logger.Infof("🔧 Sending final buffer-complete signal")
+					_ = session.writeJSONToConnection(conn, data)
+				}
+				continue
+			case "prompt":
+				// Handle prompt injection for Claude TUI
+				if controlMsg.Data != "" {
+					logger.Infof("📝 Injecting prompt into PTY: %q (submit: %v)", controlMsg.Data, controlMsg.Submit)
+					if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
+						logger.Warnf("❌ Failed to write prompt to PTY: %v", err)
+					}
+
+					// If submit is true, send a carriage return after a small delay
+					// This mimics how a user would type and then press Enter
+					if controlMsg.Submit {
+						go func() {
+							// Small delay to let the TUI process the prompt text
+							time.Sleep(100 * time.Millisecond)
+							logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
+							if _, err := session.PTY.Write([]byte("\r")); err != nil {
+								logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
+							}
+						}()
 					}
 				}
-				session.cols = resizeMsg.Cols
-				session.rows = resizeMsg.Rows
+				continue
+			case "promote":
+				// Handle connection promotion request (swap read/write permissions)
+				logger.Infof("🔄 Promotion request received from connection [%s] in session %s", connID, sessionID)
+				h.promoteConnection(session, conn)
+				continue
+			case "focus":
+				// Handle focus state change
+				h.handleFocusChange(session, conn, controlMsg.Focused)
+				continue
+			case "resize":
+				// Handle resize
+				logger.Infof("🔧 Received resize message: %dx%d", controlMsg.Cols, controlMsg.Rows)
+				if controlMsg.Cols > 0 && controlMsg.Rows > 0 {
+					// For Claude sessions, always force dimension change to ensure SIGWINCH triggers redraw
+					if session.Agent == "claude" {
+						// First resize to slightly different dimensions to force a change
+						_ = h.resizePTY(session.PTY, controlMsg.Cols-1, controlMsg.Rows-1)
+						// Small delay to ensure the change is processed
+						time.Sleep(10 * time.Millisecond)
+						// Then resize to the target dimensions
+						_ = h.resizePTY(session.PTY, controlMsg.Cols, controlMsg.Rows)
+						logger.Debugf("📐 Resized Claude PTY to %dx%d", controlMsg.Cols, controlMsg.Rows)
+					} else {
+						// For non-Claude sessions, only resize if dimensions actually changed
+						if session.cols != controlMsg.Cols || session.rows != controlMsg.Rows {
+							_ = h.resizePTY(session.PTY, controlMsg.Cols, controlMsg.Rows)
+							logger.Debugf("📐 Resized PTY to %dx%d", controlMsg.Cols, controlMsg.Rows)
+						}
+					}
+					session.cols = controlMsg.Cols
+					session.rows = controlMsg.Rows
+				}
+				continue
+			case "input":
+				// Handle PTY input - check if this connection has write access first
+				if conn.IsReadOnly() {
+					logger.Infof("🚫 Ignoring input from read-only connection [%s] in session %s", connID, sessionID)
+					continue
+				}
+
+				if controlMsg.Data != "" {
+					// Write data to PTY
+					if _, err := session.PTY.Write([]byte(controlMsg.Data)); err != nil {
+						logger.Errorf("❌ Failed to write to PTY: %v", err)
+						break
+					}
+				}
 				continue
 			}
-		}
-
-		// Check if this connection has write access
-		session.connMutex.RLock()
-		connInfo, exists := session.connections[conn]
-		session.connMutex.RUnlock()
-
-		if !exists {
-			logger.Infof("⚠️ Connection [%s] no longer exists in session", connID)
-			break
-		}
-
-		if connInfo.IsReadOnly {
-			logger.Infof("🚫 Ignoring input from read-only connection [%s] in session %s", connID, sessionID)
 			continue
 		}
-
-		// Write data to PTY (only from write-enabled connections)
-		if _, err := session.PTY.Write(data); err != nil {
-			logger.Errorf("❌ PTY write error: %v", err)
-			break
-		}
-
-		// Update last access time
-		session.LastAccess = time.Now()
 	}
 }
 
@@ -912,7 +1213,7 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 		LastAccess:    time.Now(),
 		WorkDir:       workDir,
 		Agent:         agent,
-		connections:   make(map[*websocket.Conn]*ConnectionInfo),
+		connections:   make(map[PTYConnection]*ConnectionInfo),
 		outputBuffer:  make([]byte, 0),
 		maxBufferSize: 5 * 1024 * 1024, // 5MB buffer
 		cols:          80,
@@ -1591,7 +1892,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 			}
 		}
 		// Clear the connections map
-		session.connections = make(map[*websocket.Conn]*ConnectionInfo)
+		session.connections = make(map[PTYConnection]*ConnectionInfo)
 	}
 	session.connMutex.Unlock()
 
@@ -1770,7 +2071,7 @@ func (h *PTYHandler) sanitizeSessionID(sessionID string) string {
 	return sessionID
 }
 
-// broadcastToConnections safely sends data to all websocket connections
+// broadcastToConnections safely sends data to all connections
 func (s *Session) broadcastToConnections(messageType int, data []byte) {
 	s.writeMutex.Lock()
 	defer s.writeMutex.Unlock()
@@ -1787,11 +2088,11 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 	s.connMutex.RLock()
 	defer s.connMutex.RUnlock()
 
-	var disconnectedConns []*websocket.Conn
+	var disconnectedConns []PTYConnection
 
 	for conn, connInfo := range s.connections {
-		if err := conn.WriteMessage(messageType, data); err != nil {
-			logger.Warnf("❌ WebSocket write error for connection [%s] in session %s: %v", connInfo.ConnID, s.ID, err)
+		if err := conn.WriteMessage(data); err != nil {
+			logger.Warnf("❌ Connection write error for [%s] (%s) in session %s: %v", connInfo.ConnID, conn.Type(), s.ID, err)
 			// Mark connection for removal
 			disconnectedConns = append(disconnectedConns, conn)
 		}
@@ -1811,8 +2112,8 @@ func (s *Session) broadcastToConnections(messageType int, data []byte) {
 	}
 }
 
-// writeToConnection safely writes to a single websocket connection
-func (s *Session) writeToConnection(conn *websocket.Conn, messageType int, data []byte) error {
+// writeToConnection safely writes to a single connection
+func (s *Session) writeToConnection(conn PTYConnection, data []byte) error {
 	if conn == nil {
 		return fmt.Errorf("connection is nil")
 	}
@@ -1829,7 +2130,30 @@ func (s *Session) writeToConnection(conn *websocket.Conn, messageType int, data 
 		return fmt.Errorf("connection no longer exists")
 	}
 
-	return conn.WriteMessage(messageType, data)
+	// Send all data to connections - the frontend will handle JSON message processing
+	return conn.WriteMessage(data)
+}
+
+// writeJSONToConnection safely writes JSON control messages to a single connection
+func (s *Session) writeJSONToConnection(conn PTYConnection, data []byte) error {
+	if conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+
+	s.writeMutex.Lock()
+	defer s.writeMutex.Unlock()
+
+	// Check if connection is still in our connections map
+	s.connMutex.RLock()
+	_, exists := s.connections[conn]
+	s.connMutex.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("connection no longer exists")
+	}
+
+	// Send JSON control messages using WriteJSONMessage (text for WebSocket, same for SSE)
+	return conn.WriteJSONMessage(data)
 }
 
 // saveSessionState persists session state to disk
@@ -2074,7 +2398,7 @@ func (h *PTYHandler) GetPTYService() *services.PTYService {
 }
 
 // promoteConnection promotes a read-only connection to write access and demotes the current write connection
-func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websocket.Conn) {
+func (h *PTYHandler) promoteConnection(session *Session, requestingConn PTYConnection) {
 	session.connMutex.Lock()
 	defer session.connMutex.Unlock()
 
@@ -2091,7 +2415,7 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 	}
 
 	// Find the current write connection (if any)
-	var currentWriteConn *websocket.Conn
+	var currentWriteConn PTYConnection
 	var currentWriteConnInfo *ConnectionInfo
 	for conn, connInfo := range session.connections {
 		if !connInfo.IsReadOnly {
@@ -2121,7 +2445,7 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 			Data: true,
 		}
 		if data, err := json.Marshal(readOnlyMsg); err == nil {
-			_ = session.writeToConnection(currentWriteConn, websocket.TextMessage, data)
+			_ = session.writeJSONToConnection(currentWriteConn, data)
 		}
 	}
 
@@ -2138,7 +2462,7 @@ func (h *PTYHandler) promoteConnection(session *Session, requestingConn *websock
 		Data: false,
 	}
 	if data, err := json.Marshal(writeAccessMsg); err == nil {
-		_ = session.writeToConnection(requestingConn, websocket.TextMessage, data)
+		_ = session.writeJSONToConnection(requestingConn, data)
 	}
 
 	logger.Infof("🔄 Connection promotion completed in session %s", session.ID)
@@ -2175,7 +2499,7 @@ func (h *PTYHandler) processTerminalOutput(data []byte, session *Session) []byte
 }
 
 // handleFocusChange handles focus state changes and auto-promotes focused connections
-func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, focused bool) {
+func (h *PTYHandler) handleFocusChange(session *Session, conn PTYConnection, focused bool) {
 	session.connMutex.Lock()
 	defer session.connMutex.Unlock()
 
@@ -2200,7 +2524,7 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 		// Auto-promote focused connection if it's read-only (but not for external workspaces)
 		if connInfo.IsReadOnly && !session.IsReadOnlyWorkspace {
 			// Find and demote the current write connection
-			var currentWriteConn *websocket.Conn
+			var currentWriteConn PTYConnection
 			var currentWriteConnInfo *ConnectionInfo
 			for c, info := range session.connections {
 				if !info.IsReadOnly && c != conn {
@@ -2224,7 +2548,7 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 					Data: true,
 				}
 				if data, err := json.Marshal(readOnlyMsg); err == nil {
-					_ = session.writeToConnection(currentWriteConn, websocket.TextMessage, data)
+					_ = session.writeJSONToConnection(currentWriteConn, data)
 				}
 			}
 
@@ -2241,7 +2565,7 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn *websocket.Conn, f
 				Data: false,
 			}
 			if data, err := json.Marshal(writeAccessMsg); err == nil {
-				_ = session.writeToConnection(conn, websocket.TextMessage, data)
+				_ = session.writeJSONToConnection(conn, data)
 			}
 		} else {
 			logger.Debugf("🔍 Skipping auto-promotion - connection is already write-enabled or external workspace")
