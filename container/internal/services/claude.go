@@ -1172,48 +1172,53 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		}()
 	}
 
-	// Use process registry for persistent streaming
-	wrapper := s.subprocessWrapper.(*ClaudeSubprocessWrapper)
-	process, isNew, err := s.processRegistry.GetOrCreateProcess(opts, wrapper)
-	if err != nil {
-		return fmt.Errorf("failed to get or create persistent process: %w", err)
-	}
-
-	// Generate client ID for this connection
-	clientID := fmt.Sprintf("client-%d", time.Now().UnixNano())
-
-	// Add this client to the process
-	outputCh := process.AddClient(clientID)
-	defer process.RemoveClient(clientID)
-
-	// Stream historical events from project.jsonl if this is a reconnection
-	if !isNew {
-		logger.Infof("🔄 Streaming historical events for reconnection to %s", workingDir)
-		if err := s.StreamHistoricalEvents(workingDir, responseWriter); err != nil {
-			logger.Warnf("Failed to stream historical events: %v", err)
+	// Check if we have a real wrapper or a mock - use process registry only for real wrapper
+	if wrapper, ok := s.subprocessWrapper.(*ClaudeSubprocessWrapper); ok {
+		// Use process registry for persistent streaming with real wrapper
+		process, isNew, err := s.processRegistry.GetOrCreateProcess(opts, wrapper)
+		if err != nil {
+			return fmt.Errorf("failed to get or create persistent process: %w", err)
 		}
-	}
 
-	// Stream live output from the process
-	for {
-		select {
-		case output, ok := <-outputCh:
-			if !ok {
-				// Process completed or client was removed
-				return nil
+		// Generate client ID for this connection
+		clientID := fmt.Sprintf("client-%d", time.Now().UnixNano())
+
+		// Add this client to the process
+		outputCh := process.AddClient(clientID)
+		defer process.RemoveClient(clientID)
+
+		// Stream historical events from project.jsonl if this is a reconnection
+		if !isNew {
+			logger.Infof("🔄 Streaming historical events for reconnection to %s", workingDir)
+			if err := s.StreamHistoricalEvents(workingDir, responseWriter); err != nil {
+				logger.Warnf("Failed to stream historical events: %v", err)
 			}
-			if _, err := responseWriter.Write(output); err != nil {
-				return fmt.Errorf("failed to write output: %w", err)
-			}
-			// Flush if possible (for Server-Sent Events)
-			if flusher, ok := responseWriter.(interface{ Flush() }); ok {
-				flusher.Flush()
-			}
-		case <-ctx.Done():
-			// Client disconnected, but process continues running
-			logger.Infof("📡 Client disconnected from %s, but process continues", workingDir)
-			return ctx.Err()
 		}
+
+		// Stream live output from the process
+		for {
+			select {
+			case output, ok := <-outputCh:
+				if !ok {
+					// Process completed or client was removed
+					return nil
+				}
+				if _, err := responseWriter.Write(output); err != nil {
+					return fmt.Errorf("failed to write output: %w", err)
+				}
+				// Flush if possible (for Server-Sent Events)
+				if flusher, ok := responseWriter.(interface{ Flush() }); ok {
+					flusher.Flush()
+				}
+			case <-ctx.Done():
+				// Client disconnected, but process continues running
+				logger.Infof("📡 Client disconnected from %s, but process continues", workingDir)
+				return ctx.Err()
+			}
+		}
+	} else {
+		// For mock or other implementations, use direct streaming
+		return s.subprocessWrapper.CreateStreamingCompletion(ctx, opts, responseWriter)
 	}
 }
 

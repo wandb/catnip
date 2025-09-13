@@ -11,6 +11,7 @@ tsx worker/scripts/generate-key.ts
 ```
 
 This will:
+
 - Generate a 256-bit encryption key
 - Automatically add or update `CATNIP_ENCRYPTION_KEY` in `.env.local`
 - Create `.env.local` if it doesn't exist
@@ -28,6 +29,7 @@ tsx worker/scripts/import-pem.ts path/to/your-private-key.pem
 ```
 
 This will:
+
 - Read the PEM file
 - Convert newlines to `\n` for single-line storage
 - Add or update `GITHUB_APP_PRIVATE_KEY` in `.env.local`
@@ -38,10 +40,8 @@ This will:
 After running these scripts, your `.env.local` should contain:
 
 ```env
-GITHUB_APP_ID=1594285
-GITHUB_CLIENT_ID=Iv23liz5Ry8r5913ZAhz
-GITHUB_CLIENT_SECRET=002595a4a5c9aa51017a4bd0cc8c198a7dfba640
-GITHUB_WEBHOOK_SECRET=9fc1400bd624e081ffc73cb6492d77f979f970621ce336af7aee0434014682fb
+GITHUB_CLIENT_ID=bvo3lIz5ryvr5913ZAhx
+GITHUB_CLIENT_SECRET=<generated-secret>
 CATNIP_ENCRYPTION_KEY=<generated-base64-key>
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 ```
