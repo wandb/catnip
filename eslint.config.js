@@ -92,4 +92,13 @@ export default tseslint.config([
       ],
     },
   },
+  {
+    // Special rules for tooltip component to prevent ESLint from breaking it
+    files: ["**/components/ui/tooltip.tsx"],
+    rules: {
+      // Disable the rule that tries to convert Provider components to React 19 style
+      // This breaks Radix UI TooltipPrimitive which requires explicit .Provider usage
+      "react-x/no-context-provider": "off",
+    },
+  },
 ]);
