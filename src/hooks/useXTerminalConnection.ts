@@ -251,6 +251,9 @@ export function useXTerminalConnection({
         : `${worktree.name}:${terminalId}`;
     urlParams.set("session", sessionName);
 
+    // Add worktree path for additional scoping security
+    urlParams.set("path", worktree.path);
+
     if (agent) {
       urlParams.set("agent", agent);
     }
@@ -288,6 +291,7 @@ export function useXTerminalConnection({
       setIsConnected(false);
       setGlobalIsConnected(false);
       wsReady.current = false;
+      isConnectingRef.current = false; // Reset connecting flag immediately
 
       // Clear any pending ready signal timeout
       if (readySignalTimeoutRef.current) {
@@ -301,12 +305,12 @@ export function useXTerminalConnection({
 
       // Don't reconnect if worktree is changing (prevents stale reconnections)
       if (isWorktreeChanging.current) {
+        setIsConnecting(false);
         return;
       }
 
       // Don't reconnect if we received a non-retryable error
       if (isNonRetryableError) {
-        isConnectingRef.current = false;
         setIsConnecting(false);
         return;
       }
@@ -316,8 +320,7 @@ export function useXTerminalConnection({
         reconnectAttempts.current += 1;
         const delay = getReconnectDelay();
 
-        // Keep showing connecting state while retrying
-        isConnectingRef.current = false; // Reset for new connection attempt
+        // Show connecting state while retrying
         setIsConnecting(true);
 
         reconnectTimeoutRef.current = window.setTimeout(() => {
@@ -326,7 +329,6 @@ export function useXTerminalConnection({
         }, delay);
       } else {
         // Only now show disconnected state and stop connecting
-        isConnectingRef.current = false;
         setIsConnecting(false);
         setError({
           title: "Connection Lost",
@@ -339,6 +341,7 @@ export function useXTerminalConnection({
       setIsConnected(false);
       setGlobalIsConnected(false);
       wsReady.current = false;
+      isConnectingRef.current = false; // Reset connecting flag immediately
 
       // Clear any pending ready signal timeout
       if (readySignalTimeoutRef.current) {
@@ -357,13 +360,13 @@ export function useXTerminalConnection({
             message:
               "Terminal functionality is not available in mock mode. This is expected when running without the Catnip backend.",
           });
+          setIsConnecting(false);
           return;
         }
       }
 
       // Don't reconnect if we received a non-retryable error
       if (isNonRetryableError) {
-        isConnectingRef.current = false;
         setIsConnecting(false);
         return;
       }
@@ -373,8 +376,7 @@ export function useXTerminalConnection({
         reconnectAttempts.current += 1;
         const delay = getReconnectDelay();
 
-        // Keep showing connecting state while retrying
-        isConnectingRef.current = false; // Reset for new connection attempt
+        // Show connecting state while retrying
         setIsConnecting(true);
 
         reconnectTimeoutRef.current = window.setTimeout(() => {
@@ -382,7 +384,6 @@ export function useXTerminalConnection({
         }, delay);
       } else {
         // Only now show disconnected state and stop connecting
-        isConnectingRef.current = false;
         setIsConnecting(false);
         setError({
           title: "Terminal Connection Failed",
@@ -529,6 +530,7 @@ export function useXTerminalConnection({
     };
   }, [
     worktree.name,
+    worktree.path,
     terminalId,
     instance,
     agent,
@@ -623,7 +625,7 @@ export function useXTerminalConnection({
         oldWs.close();
       }
     }
-  }, [worktree.id, enableAdvancedBuffering, instance, agent]);
+  }, [worktree.id, worktree.path, enableAdvancedBuffering, instance, agent]);
 
   useEffect(() => {
     if (
@@ -868,6 +870,7 @@ export function useXTerminalConnection({
     instance,
     worktree.id,
     worktree.name,
+    worktree.path,
     terminalId,
     agent,
     enableAdvancedBuffering,
@@ -879,6 +882,11 @@ export function useXTerminalConnection({
     if (!instance) return;
 
     const dataHandler = (data: string) => {
+      // Ensure terminal is focused when user types
+      if (!isTerminalFocused) {
+        setIsTerminalFocused(true);
+      }
+
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         if (isReadOnly) {
           triggerReadOnlyShake();
@@ -891,7 +899,7 @@ export function useXTerminalConnection({
     // Remove existing data handler and add new one
     const disposer = instance.onData(dataHandler);
     return () => disposer?.dispose();
-  }, [isReadOnly, triggerReadOnlyShake, instance, agent]);
+  }, [isReadOnly, triggerReadOnlyShake, instance, agent, isTerminalFocused]);
 
   return {
     instance,

@@ -2105,6 +2105,11 @@ func (s *GitService) createWorktreeForExistingRepo(repo *models.Repository, bran
 
 // createWorktreeInternalForRepo creates a worktree for a specific repository
 func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, source, name string, isInitial bool) (*models.Worktree, error) {
+	return s.createWorktreeInternalForRepoWithOptions(repo, source, name, isInitial, true)
+}
+
+// createWorktreeInternalForRepoWithOptions creates a worktree with option to skip Claude cleanup (for restoration)
+func (s *GitService) createWorktreeInternalForRepoWithOptions(repo *models.Repository, source, name string, isInitial bool, shouldCleanupClaude bool) (*models.Worktree, error) {
 	// Use git WorktreeManager to create the worktree
 	worktree, err := s.gitWorktreeManager.CreateWorktree(git.CreateWorktreeRequest{
 		Repository:   repo,
@@ -2119,24 +2124,25 @@ func (s *GitService) createWorktreeInternalForRepo(repo *models.Repository, sour
 			logger.Warnf("⚠️  Branch %s already exists, trying a new name...", name)
 			// Generate a unique name that doesn't already exist
 			newName := s.generateUniqueSessionName(repo.Path)
-			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
+			return s.createWorktreeInternalForRepoWithOptions(repo, source, newName, isInitial, shouldCleanupClaude)
 		} else if strings.Contains(err.Error(), "missing but already registered worktree") {
 			logger.Warnf("⚠️  Worktree registration conflict for %s, trying a new name...", name)
 			// Generate a unique name that doesn't already exist
 			newName := s.generateUniqueSessionName(repo.Path)
-			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
+			return s.createWorktreeInternalForRepoWithOptions(repo, source, newName, isInitial, shouldCleanupClaude)
 		} else if strings.Contains(err.Error(), "worktree creation failed even after cleanup") {
 			logger.Warnf("⚠️  Worktree creation failed even after cleanup for %s, trying a new name...", name)
 			// Generate a unique name that doesn't already exist
 			newName := s.generateUniqueSessionName(repo.Path)
-			return s.createWorktreeInternalForRepo(repo, source, newName, isInitial)
+			return s.createWorktreeInternalForRepoWithOptions(repo, source, newName, isInitial, shouldCleanupClaude)
 		}
 		return nil, err
 	}
 
 	// CRITICAL: Clean up any existing Claude session files for this worktree path BEFORE any other initialization
 	// This prevents race conditions where the PTY connects and finds old session files
-	if s.claudeMonitor != nil && s.claudeMonitor.claudeService != nil {
+	// Only cleanup for fresh creations, NOT during restoration
+	if shouldCleanupClaude && s.claudeMonitor != nil && s.claudeMonitor.claudeService != nil {
 		if err := s.claudeMonitor.claudeService.CleanupWorktreeClaudeFiles(worktree.Path); err != nil {
 			logger.Warnf("⚠️ Failed to cleanup existing Claude files for new worktree %s: %v", worktree.Path, err)
 			// Don't fail the worktree creation, just log the warning
@@ -2843,18 +2849,11 @@ func (s *GitService) RecreateWorktree(worktree *models.Worktree, repo *models.Re
 			logger.Debugf("🔍 Using catnip ref %s for recreating renamed worktree %s", branchRef, worktree.Name)
 		}
 
-		// Use existing CreateWorktree logic
-		workspaceRoot := getWorkspaceDir()
-		logger.Warnf("🔧 Creating fresh worktree with: repo=%s, sourceBranch=%s, branchName=%s, workspaceDir=%s",
-			repo.Path, worktree.SourceBranch, branchRef, workspaceRoot)
+		// Use internal worktree creation logic WITHOUT Claude cleanup (restoration context)
+		logger.Warnf("🔧 Creating fresh worktree during restoration (no Claude cleanup): repo=%s, sourceBranch=%s, branchName=%s",
+			repo.Path, worktree.SourceBranch, branchRef)
 
-		_, err := s.gitWorktreeManager.CreateWorktree(git.CreateWorktreeRequest{
-			Repository:   repo,
-			SourceBranch: worktree.SourceBranch,
-			BranchName:   branchRef,
-			WorkspaceDir: workspaceRoot,
-			IsInitial:    false,
-		})
+		_, err := s.createWorktreeInternalForRepoWithOptions(repo, worktree.SourceBranch, branchRef, false, false)
 
 		if err != nil {
 			logger.Warnf("❌ Fresh worktree creation failed for %s: %v", worktree.Name, err)

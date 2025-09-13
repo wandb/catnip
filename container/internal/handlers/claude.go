@@ -233,15 +233,21 @@ func (h *ClaudeHandler) GetWorktreeLatestAssistantMessage(c *fiber.Ctx) error {
 		})
 	}
 
-	message, err := h.claudeService.GetLatestAssistantMessage(worktreePath)
+	message, isError, err := h.claudeService.GetLatestAssistantMessageOrError(worktreePath)
 	if err != nil {
+		if strings.Contains(err.Error(), "project directory not found") {
+			return c.Status(404).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
 		return c.Status(500).JSON(fiber.Map{
 			"error": err.Error(),
 		})
 	}
 
 	return c.JSON(fiber.Map{
-		"message": message,
+		"content": message,
+		"isError": isError,
 	})
 }
 

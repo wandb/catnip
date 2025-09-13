@@ -958,16 +958,22 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 		return "", false, fmt.Errorf("failed to find latest session file: %w", err)
 	}
 
+	fmt.Printf("DEBUG: Reading session file: %s\n", sessionFile)
+
 	// Look for the most recent assistant message or error in the session
 	var latestContent string
 	var latestIsError bool
 	var hasFoundContent bool
 
 	err = readJSONLines(sessionFile, func(line []byte) error {
+		fmt.Printf("DEBUG: Processing line: %s\n", string(line)[:min(200, len(line))])
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
+			fmt.Printf("DEBUG: Failed to unmarshal line: %v\n", err)
 			return nil // Skip invalid JSON lines
 		}
+
+		fmt.Printf("DEBUG: Message type: %s\n", message.Type)
 
 		// Check for error messages first (highest priority)
 		if message.Type == "error" && message.Message != nil {
@@ -1006,10 +1012,12 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 											textContent.WriteString(textStr)
 											// Check if the text content contains error patterns
 											lowerText := strings.ToLower(textStr)
-											if strings.Contains(lowerText, "error") ||
+											hasErrorPattern := strings.Contains(lowerText, "error") ||
 												strings.Contains(lowerText, "experiencing high demand") ||
 												strings.Contains(lowerText, "unavailable") ||
-												strings.Contains(lowerText, "failed to") {
+												strings.Contains(lowerText, "failed to")
+											if hasErrorPattern {
+												fmt.Printf("DEBUG: Found error pattern in text: %q\n", textStr[:min(100, len(textStr))])
 												foundError = true
 											}
 										}
@@ -1039,6 +1047,7 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 		return "", false, nil // No content found, but not an error
 	}
 
+	fmt.Printf("DEBUG: GetLatestAssistantMessageOrError result - content: %q, isError: %v\n", latestContent[:min(100, len(latestContent))], latestIsError)
 	return latestContent, latestIsError, nil
 }
 

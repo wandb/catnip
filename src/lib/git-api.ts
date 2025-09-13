@@ -273,7 +273,7 @@ export const gitApi = {
       if (response.ok) {
         const result = await response.json();
         return {
-          content: result.message || "",
+          content: result.content || "",
           isError: result.isError || false,
         };
       }

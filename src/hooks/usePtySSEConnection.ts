@@ -12,9 +12,11 @@ interface PtySSEState {
   isConnected: boolean;
   isConnecting: boolean;
   error: string | null;
+  claudeErrors: string[] | null;
   connect: () => void;
   disconnect: () => void;
   clearOutput: () => void;
+  clearClaudeErrors: () => void;
 }
 
 export function usePtySSEConnection({
@@ -27,6 +29,7 @@ export function usePtySSEConnection({
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [claudeErrors, setClaudeErrors] = useState<string[] | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
@@ -40,6 +43,11 @@ export function usePtySSEConnection({
   // Clear output function
   const clearOutput = useCallback(() => {
     setOutput("");
+  }, []);
+
+  // Clear Claude errors function
+  const clearClaudeErrors = useCallback(() => {
+    setClaudeErrors(null);
   }, []);
 
   // Disconnect function
@@ -106,8 +114,17 @@ export function usePtySSEConnection({
       };
 
       eventSource.onmessage = (event) => {
-        // The PTY SSE endpoint sends raw terminal data
-        if (event.data) {
+        if (!event.data) return;
+
+        try {
+          // Try to parse as JSON first (for error messages)
+          const parsed = JSON.parse(event.data);
+          if (parsed.type === "claude-errors" && parsed.errors) {
+            console.log("Received Claude errors:", parsed.errors);
+            setClaudeErrors(parsed.errors);
+          }
+        } catch {
+          // If not JSON, treat as raw terminal data (for backward compatibility)
           setOutput((prev) => prev + event.data);
         }
       };
@@ -185,8 +202,10 @@ export function usePtySSEConnection({
     isConnected,
     isConnecting,
     error,
+    claudeErrors,
     connect,
     disconnect,
     clearOutput,
+    clearClaudeErrors,
   };
 }

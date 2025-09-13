@@ -2,7 +2,6 @@ package models
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,14 +16,15 @@ import (
 // ClaudeConfig represents the structure of claude.json for validation
 // NOTE: Authentication is in .credentials.json, NOT in claude.json
 type ClaudeConfig struct {
-	NumStartups           int                    `json:"numStartups,omitempty"`
-	InstallMethod         string                 `json:"installMethod,omitempty"`
-	AutoUpdates           bool                   `json:"autoUpdates,omitempty"`
-	Theme                 string                 `json:"theme,omitempty"`
-	CustomAPIKeyResponses map[string]interface{} `json:"customApiKeyResponses,omitempty"`
-	TipsHistory           map[string]interface{} `json:"tipsHistory,omitempty"`
-	FirstStartTime        *string                `json:"firstStartTime,omitempty"`
-	Projects              map[string]interface{} `json:"projects,omitempty"`
+	NumStartups           int                     `json:"numStartups,omitempty"`
+	InstallMethod         string                  `json:"installMethod,omitempty"`
+	AutoUpdates           bool                    `json:"autoUpdates,omitempty"`
+	Theme                 string                  `json:"theme,omitempty"`
+	CustomAPIKeyResponses map[string]interface{}  `json:"customApiKeyResponses,omitempty"`
+	TipsHistory           map[string]interface{}  `json:"tipsHistory,omitempty"`
+	FirstStartTime        *string                 `json:"firstStartTime,omitempty"`
+	Projects              map[string]interface{}  `json:"projects,omitempty"`
+	OauthAccount          *map[string]interface{} `json:"oauthAccount,omitempty"`
 }
 
 // Settings manages persistence of Claude and GitHub configuration files
@@ -154,26 +154,16 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 			shouldRestore = true
 			logger.Debugf("🔄 Restoring %s - home file doesn't exist", file.filename)
 		} else if file.filename == ".credentials.json" {
-			// SAFETY: Never overwrite existing credentials (too risky)
-			logger.Infof("🔒 SAFETY: Refusing to overwrite existing .credentials.json - too risky")
+			// Never overwrite existing credentials - if it exists, leave it alone
+			logger.Debugf("🔒 Skipping .credentials.json - file already exists")
 			shouldRestore = false
 		} else if file.filename == "claude.json" {
-			// EXTRA SAFETY: Check if we have working credentials before overwriting claude.json
-			homeHasCredentials := s.hasWorkingCredentials(s.homePath)
-
-			// NEVER overwrite claude.json if we have working credentials (too risky)
-			if homeHasCredentials {
-				logger.Infof("🔒 SAFETY: Refusing to overwrite claude.json - working credentials exist, too risky")
-				shouldRestore = false
-			} else if s.shouldPreferVolumeClaudeConfig(sourcePath, file.destPath) {
+			// Check if home claude.json has oauthAccount configured
+			if s.shouldPreferVolumeClaudeConfig(sourcePath, file.destPath) {
 				shouldRestore = true
-				// Create backup of existing home file before overwriting
-				if err := s.backupHomeFile(file.destPath, file.volumePath, file.filename); err != nil {
-					logger.Warnf("⚠️  Failed to backup existing %s: %v", file.filename, err)
-				}
-				logger.Infof("🔄 Restoring %s - volume file appears more configured (with safety checks passed)", file.filename)
+				logger.Debugf("🔄 Restoring %s - home config has no oauthAccount", file.filename)
 			} else {
-				logger.Debugf("⚪ Keeping existing %s - home file appears more or equally configured", file.filename)
+				logger.Debugf("⚪ Keeping existing %s - oauthAccount is configured", file.filename)
 			}
 		} else {
 			// For non-Claude files, keep existing home file
@@ -536,27 +526,28 @@ func (s *Settings) checkAndSyncFiles() {
 			continue
 		}
 
+		// Debug log for credentials file changes
+		if file.destName == ".credentials.json" {
+			logger.Debugf("🔍 Credentials file changed: %s (last: %v, current: %v)", file.sourcePath, lastMod, info.ModTime())
+		}
+
 		// For sensitive files, check if this is a valid/configured file before syncing
 		if file.sensitive && file.destName == "claude.json" {
 			if !s.isClaudeConfigValid(file.sourcePath) {
-				// Only warn every 5 minutes to reduce noise
-				s.syncMutex.Lock()
+				// Only warn every 5 minutes to reduce noise (mutex already held)
 				lastWarned, warned := s.invalidConfigWarned[file.sourcePath]
 				shouldWarn := !warned || time.Since(lastWarned) > 5*time.Minute
 				if shouldWarn {
 					s.invalidConfigWarned[file.sourcePath] = time.Now()
 				}
-				s.syncMutex.Unlock()
 
 				if shouldWarn {
 					logger.Warnf("⚠️  Skipping sync of %s - appears to be unconfigured or invalid", file.sourcePath)
 				}
 				continue
 			}
-			// Config is valid now, clear any previous warning
-			s.syncMutex.Lock()
+			// Config is valid now, clear any previous warning (mutex already held)
 			delete(s.invalidConfigWarned, file.sourcePath)
-			s.syncMutex.Unlock()
 		}
 
 		// File has changed - schedule debounced sync
@@ -642,8 +633,10 @@ func (s *Settings) performSafeSync(sourcePath, volumeDir, destName string, sensi
 	// Try to fix ownership (might fail if not root)
 	_ = os.Chown(destPath, 1000, 1000)
 
-	// Only log sync for non-routine files or first sync
-	if _, exists := s.lastModTimes[sourcePath]; !exists || (!strings.Contains(destName, ".json") && !strings.Contains(destName, ".yml")) {
+	// Always log sync for credentials, debug for others
+	if destName == ".credentials.json" {
+		logger.Infof("📋 Synced credentials to volume")
+	} else if _, exists := s.lastModTimes[sourcePath]; !exists || (!strings.Contains(destName, ".json") && !strings.Contains(destName, ".yml")) {
 		logger.Debugf("📋 Synced %s to volume", destName)
 	}
 	s.lastModTimes[sourcePath] = info.ModTime()
@@ -759,72 +752,24 @@ func (s *Settings) ValidateSettings() error {
 	return nil
 }
 
-// shouldPreferVolumeClaudeConfig compares two claude.json files and determines if the volume file should be preferred
+// shouldPreferVolumeClaudeConfig checks if volume claude.json should be used over home version
 func (s *Settings) shouldPreferVolumeClaudeConfig(volumePath, homePath string) bool {
-	volumeConfig := s.parseClaudeConfig(volumePath)
 	homeConfig := s.parseClaudeConfig(homePath)
 
-	// If either file is invalid, prefer the valid one
-	if volumeConfig == nil && homeConfig != nil {
-		return false // Keep home
-	}
-	if volumeConfig != nil && homeConfig == nil {
-		return true // Use volume
-	}
-	if volumeConfig == nil && homeConfig == nil {
-		return false // Both invalid, keep current
+	// If home config doesn't exist, use volume
+	if homeConfig == nil {
+		return true
 	}
 
-	// ULTRA-CONSERVATIVE LOGIC: Check for working credentials first
-	homeHasCredentials := s.hasWorkingCredentials(s.homePath)
-
-	// If home has working credentials, NEVER overwrite (too dangerous)
-	if homeHasCredentials {
-		logger.Infof("🔒 Keeping home claude.json - working credentials exist")
+	// If home config has oauthAccount set, don't overwrite
+	if homeConfig.OauthAccount != nil {
+		logger.Debugf("🔒 Keeping home claude.json - oauthAccount is configured")
 		return false
 	}
 
-	// Compare configuration levels only if no credentials at risk
-	volumeConfigLevel := s.getClaudeConfigLevel(volumeConfig)
-	homeConfigLevel := s.getClaudeConfigLevel(homeConfig)
-
-	logger.Debugf("📊 Claude config comparison - Volume: %d, Home: %d",
-		volumeConfigLevel, homeConfigLevel)
-
-	// Be extremely conservative: require significantly higher score to overwrite
-	// Only overwrite if volume score is at least 100 points higher
-	return volumeConfigLevel > (homeConfigLevel + 100)
-}
-
-// hasAuthentication checks if authentication exists by checking .credentials.json
-// NOTE: Authentication is stored separately in .credentials.json, not in claude.json
-
-// hasWorkingCredentials checks if .credentials.json exists and has valid OAuth tokens
-func (s *Settings) hasWorkingCredentials(homeDir string) bool {
-	credentialsPath := filepath.Join(homeDir, ".claude", ".credentials.json")
-	data, err := os.ReadFile(credentialsPath)
-	if err != nil {
-		return false
-	}
-
-	var credentials map[string]interface{}
-	if err := json.Unmarshal(data, &credentials); err != nil {
-		return false
-	}
-
-	// Check for OAuth structure
-	if oauth, exists := credentials["claudeAiOauth"]; exists {
-		if oauthMap, ok := oauth.(map[string]interface{}); ok {
-			// Check for access token
-			if accessToken, exists := oauthMap["accessToken"]; exists {
-				if tokenStr, ok := accessToken.(string); ok && tokenStr != "" {
-					return true
-				}
-			}
-		}
-	}
-
-	return false
+	// Home config exists but no oauthAccount - safe to use volume
+	logger.Debugf("🔄 Using volume claude.json - home config has no oauthAccount")
+	return true
 }
 
 // parseClaudeConfig safely parses a claude.json file
@@ -842,106 +787,8 @@ func (s *Settings) parseClaudeConfig(filePath string) *ClaudeConfig {
 	return &config
 }
 
-// getClaudeConfigLevel returns a score indicating how "configured" a Claude config is
-func (s *Settings) getClaudeConfigLevel(config *ClaudeConfig) int {
-	score := 0
-
-	// Basic configuration score based on actual claude.json structure
-	if config.NumStartups > 0 {
-		score += 5 // Basic usage indicator
-	}
-
-	if config.Theme != "" {
-		score += 5 // Has theme preference
-	}
-
-	if len(config.TipsHistory) > 0 {
-		score += 10 // Has usage history
-	}
-
-	// Has projects with actual configuration
-	if config.Projects != nil {
-		for _, project := range config.Projects {
-			if projectMap, ok := project.(map[string]interface{}); ok {
-				// Check for configured tools, MCP servers, etc.
-				if tools, exists := projectMap["allowedTools"]; exists {
-					if toolsArray, ok := tools.([]interface{}); ok && len(toolsArray) > 0 {
-						score += 20
-					}
-				}
-				if history, exists := projectMap["history"]; exists {
-					if historyArray, ok := history.([]interface{}); ok && len(historyArray) > 0 {
-						score += 30
-					}
-				}
-				if mcpServers, exists := projectMap["mcpServers"]; exists {
-					if serversMap, ok := mcpServers.(map[string]interface{}); ok && len(serversMap) > 0 {
-						score += 25
-					}
-				}
-				if trusted, exists := projectMap["hasTrustDialogAccepted"]; exists {
-					if trustBool, ok := trusted.(bool); ok && trustBool {
-						score += 15
-					}
-				}
-			}
-		}
-	}
-
-	// Penalize very recent firstStartTime (likely fresh installation)
-	if config.FirstStartTime != nil {
-		if startTime, err := time.Parse(time.RFC3339, *config.FirstStartTime); err == nil {
-			if time.Since(startTime) < 1*time.Hour {
-				score -= 50 // Heavy penalty for very recent start times
-				logger.Debugf("🕒 Recent firstStartTime detected: %s (penalty applied)", *config.FirstStartTime)
-			}
-		}
-	}
-
-	return score
-}
-
-// isClaudeConfigValid checks if a claude.json file is valid and appears configured
+// isClaudeConfigValid checks if a claude.json file is valid JSON
 func (s *Settings) isClaudeConfigValid(filePath string) bool {
 	config := s.parseClaudeConfig(filePath)
-	if config == nil {
-		return false
-	}
-
-	// Check for signs of a fresh/unconfigured installation
-	configLevel := s.getClaudeConfigLevel(config)
-
-	// If config level is too low (likely fresh installation), don't sync it
-	if configLevel < 5 {
-		logger.Debugf("🚫 Claude config appears unconfigured (score: %d)", configLevel)
-		return false
-	}
-
-	return true
-}
-
-// backupHomeFile creates a timestamped backup of a home file in the volume directory
-func (s *Settings) backupHomeFile(homeFilePath, volumeDir, filename string) error {
-	// Generate timestamped backup filename
-	timestamp := time.Now().Format("20060102-150405")
-	backupFilename := fmt.Sprintf("%s.backup.%s", filename, timestamp)
-	backupPath := filepath.Join(volumeDir, backupFilename)
-
-	// Create backup directory if needed
-	if err := os.MkdirAll(volumeDir, 0755); err != nil {
-		return fmt.Errorf("failed to create backup directory: %v", err)
-	}
-
-	// Copy the home file to backup location
-	if err := s.copyFile(homeFilePath, backupPath); err != nil {
-		return fmt.Errorf("failed to copy file to backup: %v", err)
-	}
-
-	// Set proper ownership
-	if err := os.Chown(backupPath, 1000, 1000); err != nil {
-		logger.Warnf("⚠️  Failed to chown backup file %s: %v", backupPath, err)
-	}
-
-	logger.Infof("💾 Created backup: %s", backupFilename)
-	return nil
+	return config != nil
 }

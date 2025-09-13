@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -545,55 +546,13 @@ func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
 
 	logger.Debugf("🔗 Added SSE connection [%s] to session %s", connID, compositeSessionID)
 
-	// Send initial buffer if available
-	session.bufferMutex.RLock()
-	if len(session.outputBuffer) > 0 {
-		bufferCopy := make([]byte, len(session.outputBuffer))
-		copy(bufferCopy, session.outputBuffer)
-		session.bufferMutex.RUnlock()
+	// SSE connections don't receive raw terminal output or buffer replay
+	// They only receive structured JSON error messages via broadcastToConnectionsSelective
+	logger.Debugf("📤 SSE connection established - will only receive JSON error messages")
 
-		logger.Debugf("📤 Sending %d bytes from buffer to SSE connection", len(bufferCopy))
-		if err := sseConn.WriteMessage(bufferCopy); err != nil {
-			logger.Warnf("❌ Failed to send buffer to SSE connection: %v", err)
-		}
-	} else {
-		session.bufferMutex.RUnlock()
-	}
-
-	// Handle prompt injection if provided via query parameter
+	// Handle prompt injection if provided via query parameter using SessionStart hook
 	if prompt != "" {
-		go func() {
-			// TODO: HOLY SHIT THIS IS A HORRIBLE HACK! We should find a more deterministic way
-			// to deal with these timeouts instead of blindly waiting 3 seconds!
-			//
-			// Better approaches would be:
-			// 1. Monitor PTY output for Claude's initial prompt/ready signal
-			// 2. Use Claude hooks/events to detect when Claude is ready for input
-			// 3. Parse terminal escape sequences to detect prompt state
-			// 4. Implement a proper handshake protocol
-			//
-			// For now this works but it's fragile and makes mobile startup slow.
-			// If Claude takes longer than 3s to start, prompts will be lost.
-			// If Claude starts faster, we're wasting time waiting.
-
-			// Wait for Claude to be ready - need to wait longer for Claude to start up and show prompt
-			// Claude takes time to initialize, especially on first run
-			logger.Infof("⏳ Waiting for Claude to be ready before injecting prompt: %q", prompt)
-			time.Sleep(3 * time.Second) // Increased from 100ms to 3 seconds
-
-			logger.Infof("📝 Injecting prompt into PTY via SSE: %q", prompt)
-			if _, err := session.PTY.Write([]byte(prompt)); err != nil {
-				logger.Warnf("❌ Failed to write prompt to PTY: %v", err)
-				return
-			}
-
-			// Send carriage return after prompt like WebSocket mode
-			time.Sleep(500 * time.Millisecond) // Increased from 100ms to 500ms
-			logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
-			if _, err := session.PTY.Write([]byte("\r")); err != nil {
-				logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
-			}
-		}()
+		go h.handleSSEPromptInjection(session, prompt)
 	}
 
 	// Wait for context cancellation (connection close)
@@ -1458,9 +1417,9 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 			outputData = buf[:n]
 		}
 
-		// Send to all connections if we have data to send
+		// Send to connections based on type (SSE gets errors only, WebSocket gets all data)
 		if len(outputData) > 0 {
-			session.broadcastToConnections(websocket.BinaryMessage, outputData)
+			h.broadcastToConnectionsSelective(session, websocket.BinaryMessage, outputData)
 		}
 	}
 }
@@ -2071,47 +2030,6 @@ func (h *PTYHandler) sanitizeSessionID(sessionID string) string {
 	return sessionID
 }
 
-// broadcastToConnections safely sends data to all connections
-func (s *Session) broadcastToConnections(messageType int, data []byte) {
-	s.writeMutex.Lock()
-	defer s.writeMutex.Unlock()
-
-	s.connMutex.RLock()
-	connectionCount := len(s.connections)
-	s.connMutex.RUnlock()
-
-	// Only broadcast if we have connections
-	if connectionCount == 0 {
-		return
-	}
-
-	s.connMutex.RLock()
-	defer s.connMutex.RUnlock()
-
-	var disconnectedConns []PTYConnection
-
-	for conn, connInfo := range s.connections {
-		if err := conn.WriteMessage(data); err != nil {
-			logger.Warnf("❌ Connection write error for [%s] (%s) in session %s: %v", connInfo.ConnID, conn.Type(), s.ID, err)
-			// Mark connection for removal
-			disconnectedConns = append(disconnectedConns, conn)
-		}
-	}
-
-	// Remove disconnected connections
-	if len(disconnectedConns) > 0 {
-		// Need to upgrade to write lock to modify connections map
-		s.connMutex.RUnlock()
-		s.connMutex.Lock()
-		for _, conn := range disconnectedConns {
-			delete(s.connections, conn)
-			conn.Close()
-		}
-		s.connMutex.Unlock()
-		s.connMutex.RLock()
-	}
-}
-
 // writeToConnection safely writes to a single connection
 func (s *Session) writeToConnection(conn PTYConnection, data []byte) error {
 	if conn == nil {
@@ -2572,5 +2490,311 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn PTYConnection, foc
 		}
 	} else {
 		logger.Infof("👁️ Connection [%s] lost focus in session %s", connID, session.ID)
+	}
+}
+
+// handleSSEPromptInjection waits for SessionStart hook then injects prompt robustly
+func (h *PTYHandler) handleSSEPromptInjection(session *Session, prompt string) {
+	if h.claudeMonitor == nil {
+		logger.Errorf("❌ ClaudeMonitor service not available for SSE prompt injection")
+		return
+	}
+
+	logger.Infof("⏳ Waiting for SessionStart hook before injecting SSE prompt: %q", prompt)
+
+	// Record the current time so we only accept SessionStart events after now
+	startTime := time.Now()
+
+	// Wait for SessionStart hook with timeout
+	timeout := 30 * time.Second
+	checkInterval := 100 * time.Millisecond
+
+	for elapsed := time.Duration(0); elapsed < timeout; elapsed += checkInterval {
+		time.Sleep(checkInterval)
+
+		// Check if we've received a SessionStart hook for this working directory AFTER we started waiting
+		lastSessionStart := h.claudeMonitor.GetClaudeService().GetLastSessionStart(session.WorkDir)
+		if !lastSessionStart.IsZero() && lastSessionStart.After(startTime) {
+			logger.Infof("🚀 SessionStart hook received for SSE at %v (started waiting at %v)", lastSessionStart, startTime)
+
+			// Wait a brief moment after SessionStart for safety
+			logger.Infof("⏳ Waiting 200ms after SessionStart for Claude to be fully ready...")
+			time.Sleep(200 * time.Millisecond)
+
+			// Inject prompt and wait for echo before sending carriage return
+			h.injectPromptWithEchoConfirmation(session, prompt)
+			return
+		}
+	}
+
+	logger.Errorf("❌ Timeout waiting for SessionStart hook after %v for SSE prompt injection", timeout)
+}
+
+// injectPromptWithEchoConfirmation injects a prompt and waits for echo confirmation
+func (h *PTYHandler) injectPromptWithEchoConfirmation(session *Session, prompt string) {
+	logger.Infof("📝 Injecting prompt into PTY via SSE: %q", prompt)
+
+	// Start monitoring PTY output for the prompt echo
+	promptEchoReceived := make(chan bool, 1)
+	go h.monitorForPromptEcho(session, prompt, promptEchoReceived)
+
+	// Write prompt to PTY
+	if _, err := session.PTY.Write([]byte(prompt)); err != nil {
+		logger.Warnf("❌ Failed to write prompt to PTY: %v", err)
+		return
+	}
+
+	// Wait for prompt echo with timeout
+	select {
+	case <-promptEchoReceived:
+		logger.Infof("✅ Prompt echo confirmed, sending carriage return")
+		// Brief delay to ensure prompt is fully rendered
+		time.Sleep(50 * time.Millisecond)
+		if _, err := session.PTY.Write([]byte("\r")); err != nil {
+			logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
+		} else {
+			logger.Infof("↩️ Carriage return sent to execute SSE prompt")
+		}
+	case <-time.After(5 * time.Second):
+		logger.Warnf("⏰ Timeout waiting for prompt echo, sending carriage return anyway")
+		if _, err := session.PTY.Write([]byte("\r")); err != nil {
+			logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
+		}
+	}
+}
+
+// monitorForPromptEcho monitors PTY output for prompt confirmation
+func (h *PTYHandler) monitorForPromptEcho(session *Session, expectedPrompt string, done chan bool) {
+	// Monitor for a reasonable amount of time
+	timeout := 3 * time.Second
+	startTime := time.Now()
+
+	// Create a small buffer to capture recent PTY output
+	var recentOutput []byte
+	maxBufferSize := len(expectedPrompt) + 100 // Some buffer for terminal escape sequences
+
+	for time.Since(startTime) < timeout {
+		// Wait briefly between checks
+		time.Sleep(10 * time.Millisecond)
+
+		// Check the session's output buffer for the expected prompt
+		session.bufferMutex.RLock()
+		if len(session.outputBuffer) > 0 {
+			// Get the tail of the output buffer
+			bufferStart := 0
+			if len(session.outputBuffer) > maxBufferSize {
+				bufferStart = len(session.outputBuffer) - maxBufferSize
+			}
+			recentOutput = session.outputBuffer[bufferStart:]
+		}
+		session.bufferMutex.RUnlock()
+
+		// Check if our prompt appears in the recent output
+		if len(recentOutput) > 0 && strings.Contains(string(recentOutput), expectedPrompt) {
+			select {
+			case done <- true:
+				logger.Debugf("✅ Found prompt echo in PTY output")
+			default:
+				// Channel already closed or full
+			}
+			return
+		}
+	}
+
+	// Timeout reached without finding echo
+	logger.Debugf("⏰ Prompt echo monitoring timeout after %v", timeout)
+}
+
+// detectClaudeErrorsFromJSONL checks for recent errors in Claude JSONL logs
+func (h *PTYHandler) detectClaudeErrorsFromJSONL(session *Session) []string {
+	if session.Agent != "claude" {
+		return nil
+	}
+
+	// Construct path to Claude JSONL files
+	homeDir := config.Runtime.HomeDir
+	transformedPath := strings.ReplaceAll(session.WorkDir, "/", "-")
+	transformedPath = strings.TrimPrefix(transformedPath, "-")
+	projectsDir := filepath.Join(homeDir, ".claude", "projects", "-"+transformedPath)
+
+	// Find the most recent JSONL file
+	entries, err := os.ReadDir(projectsDir)
+	if err != nil {
+		return nil
+	}
+
+	var latestFile string
+	var latestTime time.Time
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".jsonl") {
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(latestTime) {
+				latestTime = info.ModTime()
+				latestFile = filepath.Join(projectsDir, entry.Name())
+			}
+		}
+	}
+
+	if latestFile == "" {
+		return nil
+	}
+
+	// Check if file was modified recently (within last 30 seconds)
+	fileInfo, err := os.Stat(latestFile)
+	if err != nil || time.Since(fileInfo.ModTime()) > 30*time.Second {
+		return nil
+	}
+
+	// Read and parse recent error entries
+	return h.extractRecentErrors(latestFile)
+}
+
+// extractRecentErrors reads JSONL file and extracts recent error messages
+func (h *PTYHandler) extractRecentErrors(filePath string) []string {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	var errors []string
+	cutoffTime := time.Now().Add(-30 * time.Second) // Only errors from last 30 seconds
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Parse JSON line
+		var entry map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+
+		// Check if this is an error entry
+		if isError, ok := entry["isApiErrorMessage"].(bool); ok && isError {
+			// Check timestamp
+			if timestampStr, ok := entry["timestamp"].(string); ok {
+				if timestamp, err := time.Parse(time.RFC3339, timestampStr); err == nil {
+					if timestamp.Before(cutoffTime) {
+						continue // Skip old errors
+					}
+				}
+			}
+
+			// Extract error content from Claude JSONL format
+			if message, ok := entry["message"].(map[string]interface{}); ok {
+				if contentArr, ok := message["content"].([]interface{}); ok {
+					// Handle Claude JSONL content array format
+					for _, item := range contentArr {
+						if itemMap, ok := item.(map[string]interface{}); ok {
+							if content, ok := itemMap["text"].(string); ok {
+								errors = append(errors, content)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return errors
+}
+
+// broadcastToConnectionsSelective sends data to connections based on connection type
+func (h *PTYHandler) broadcastToConnectionsSelective(session *Session, messageType int, data []byte) {
+	session.writeMutex.Lock()
+	defer session.writeMutex.Unlock()
+
+	session.connMutex.RLock()
+	connectionCount := len(session.connections)
+	session.connMutex.RUnlock()
+
+	// Only broadcast if we have connections
+	if connectionCount == 0 {
+		return
+	}
+
+	// For Claude sessions, check for errors to send to SSE connections
+	var recentErrors []string
+	hasSSEConnections := false
+
+	session.connMutex.RLock()
+	// Check if we have any SSE connections
+	for conn := range session.connections {
+		if conn.Type() == "sse" {
+			hasSSEConnections = true
+			break
+		}
+	}
+	session.connMutex.RUnlock()
+
+	// Only check for errors if we have SSE connections and this is a Claude session
+	if hasSSEConnections && session.Agent == "claude" {
+		recentErrors = h.detectClaudeErrorsFromJSONL(session)
+	}
+
+	session.connMutex.RLock()
+	defer session.connMutex.RUnlock()
+
+	var disconnectedConns []PTYConnection
+
+	for conn, connInfo := range session.connections {
+		var shouldSend bool
+		var dataToSend []byte
+
+		if conn.Type() == "sse" {
+			// For SSE connections, only send if we have recent errors
+			if len(recentErrors) > 0 {
+				// Format errors as a JSON message
+				errorMsg := struct {
+					Type   string   `json:"type"`
+					Errors []string `json:"errors"`
+				}{
+					Type:   "claude-errors",
+					Errors: recentErrors,
+				}
+
+				if errorData, err := json.Marshal(errorMsg); err == nil {
+					shouldSend = true
+					dataToSend = errorData
+				}
+			}
+			// Otherwise, don't send regular PTY output to SSE connections
+		} else {
+			// For WebSocket connections, send all data as before
+			shouldSend = true
+			dataToSend = data
+		}
+
+		if shouldSend {
+			var err error
+			if conn.Type() == "sse" {
+				err = conn.WriteJSONMessage(dataToSend)
+			} else {
+				err = conn.WriteMessage(dataToSend)
+			}
+
+			if err != nil {
+				logger.Warnf("❌ Connection write error for [%s] (%s) in session %s: %v", connInfo.ConnID, conn.Type(), session.ID, err)
+				// Mark connection for removal
+				disconnectedConns = append(disconnectedConns, conn)
+			}
+		}
+	}
+
+	// Remove disconnected connections
+	if len(disconnectedConns) > 0 {
+		// Need to upgrade to write lock to modify connections map
+		session.connMutex.RUnlock()
+		session.connMutex.Lock()
+		for _, conn := range disconnectedConns {
+			delete(session.connections, conn)
+			conn.Close()
+		}
+		session.connMutex.Unlock()
+		session.connMutex.RLock()
 	}
 }

@@ -36,14 +36,12 @@ function parsePRSummary(content: string): PRSummary | null {
     if (jsonContent.startsWith("```json\n") && jsonContent.endsWith("\n```")) {
       // Remove the fenced code block wrapper
       jsonContent = jsonContent.slice(8, -4).trim(); // Remove ```json\n from start and \n``` from end
-      console.log("Extracted JSON from fenced code block");
     } else if (
       jsonContent.startsWith("```json") &&
       jsonContent.endsWith("```")
     ) {
       // Handle case without newlines
       jsonContent = jsonContent.slice(7, -3).trim(); // Remove ```json from start and ``` from end
-      console.log("Extracted JSON from fenced code block (no newlines)");
     }
 
     const parsed = JSON.parse(jsonContent);
@@ -54,16 +52,15 @@ function parsePRSummary(content: string): PRSummary | null {
       typeof parsed.title === "string" &&
       typeof parsed.description === "string"
     ) {
-      console.log("Found valid PR summary");
       return {
         title: parsed.title,
         description: parsed.description,
       };
     }
-  } catch (error) {
+  } catch (_error) {
     // Only log if it looked like it might be JSON
     if (trimmed.includes("{")) {
-      console.log("Failed to parse potential JSON content:", error);
+      // Silent fail for non-JSON content
     }
   }
 
@@ -83,6 +80,44 @@ function PRSummaryDisplay({ summary }: { summary: PRSummary }) {
   );
 }
 
+function ClaudeErrorDisplay({ errors }: { errors: string[] }) {
+  return (
+    <div className="mb-6 p-4 border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 rounded-lg">
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-5 h-5 mt-0.5">
+          <svg
+            className="w-5 h-5 text-red-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fillRule="evenodd"
+              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </div>
+        <div className="flex-1">
+          <h3 className="text-sm font-medium text-red-800 dark:text-red-200 mb-2">
+            Claude encountered{" "}
+            {errors.length === 1 ? "an error" : "some errors"}
+          </h3>
+          <div className="space-y-2">
+            {errors.map((error, index) => (
+              <div
+                key={index}
+                className="text-sm text-red-700 dark:text-red-300 font-mono bg-red-100 dark:bg-red-900/20 p-2 rounded border"
+              >
+                {error}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface WorkspaceMobileProps {
   worktree: Worktree;
   repository: LocalRepository;
@@ -97,12 +132,13 @@ export function WorkspaceMobile({
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
   const [phase, setPhase] = useState<
-    "input" | "todos" | "completed" | "existing"
+    "input" | "todos" | "completed" | "existing" | "error"
   >("input");
   const [showNewPrompt, setShowNewPrompt] = useState(false);
   const [claudeSession, setClaudeSession] =
     useState<ClaudeSessionSummary | null>(null);
   const [latestMessage, setLatestMessage] = useState<string>("");
+  const [errorContent, setErrorContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [sessionStarting, setSessionStarting] = useState(false);
   const [hasBeenActive, setHasBeenActive] = useState(false);
@@ -120,7 +156,7 @@ export function WorkspaceMobile({
   }>({});
   const initialPromptRef = useRef<string | undefined>(initialPrompt);
 
-  const { getAllWorktreeSessionSummaries, getWorktreeLatestAssistantMessage } =
+  const { getAllWorktreeSessionSummaries, getWorktreeLatestMessageOrError } =
     useClaudeApi();
   const currentWorktree = useAppStore((state) =>
     state.worktrees.get(worktree.id),
@@ -130,7 +166,7 @@ export function WorkspaceMobile({
   const ptyConnection = usePtySSEConnection({
     sessionId: worktree.name,
     agent: "claude",
-    enabled: phase === "todos" || phase === "existing", // Only connect when Claude should be active
+    enabled: phase === "todos" || phase === "existing" || phase === "error", // Only connect when Claude should be active
     prompt: promptToSend,
   });
 
@@ -143,9 +179,6 @@ export function WorkspaceMobile({
     if (wasFromInitialPrompt) {
       setHasStartedFromInitialPrompt(true);
     }
-
-    console.log("Starting session for worktree:", worktree.name);
-    console.log("Will send prompt:", actualPrompt);
 
     setSessionStarting(true);
 
@@ -193,7 +226,13 @@ export function WorkspaceMobile({
   const existingContent = useMemo(() => {
     const content =
       latestMessage || claudeSession?.header || "No session content available.";
-    const prSummary = parsePRSummary(content);
+
+    // Don't try to parse error messages as PR summaries
+    const isErrorContent =
+      content.includes("API Error:") ||
+      content.includes("401") ||
+      content.includes("Unauthorized");
+    const prSummary = isErrorContent ? null : parsePRSummary(content);
 
     if (prSummary) {
       return <PRSummaryDisplay summary={prSummary} />;
@@ -204,7 +243,13 @@ export function WorkspaceMobile({
 
   const completedContent = useMemo(() => {
     const content = latestMessage || "Session completed successfully";
-    const prSummary = parsePRSummary(content);
+
+    // Don't try to parse error messages as PR summaries
+    const isErrorContent =
+      content.includes("API Error:") ||
+      content.includes("401") ||
+      content.includes("Unauthorized");
+    const prSummary = isErrorContent ? null : parsePRSummary(content);
 
     if (prSummary) {
       return <PRSummaryDisplay summary={prSummary} />;
@@ -225,11 +270,17 @@ export function WorkspaceMobile({
 
           // Get the latest assistant message
           try {
-            const message = await getWorktreeLatestAssistantMessage(
+            const messageResult = await getWorktreeLatestMessageOrError(
               worktree.path,
             );
-            setLatestMessage(message);
-            setPhase("existing");
+            if (messageResult.isError) {
+              setLatestMessage(messageResult.content);
+              setErrorContent(messageResult.content);
+              setPhase("error");
+            } else {
+              setLatestMessage(messageResult.content);
+              setPhase("existing");
+            }
           } catch (error) {
             console.warn("Failed to get latest message:", error);
             // If we have session data but can't get the message, likely a completed session
@@ -296,88 +347,106 @@ export function WorkspaceMobile({
     }
   }, [ptyConnection.isConnected, promptToSend]);
 
+  // Monitor for Claude errors from SSE connection
+  useEffect(() => {
+    if (ptyConnection.claudeErrors && ptyConnection.claudeErrors.length > 0) {
+      setPhase("error");
+    }
+  }, [ptyConnection.claudeErrors]);
+
   useEffect(() => {
     if (!currentWorktree) return;
-
-    console.log("Activity state change:", {
-      phase,
-      claude_activity_state: currentWorktree.claude_activity_state,
-      hasBeenActive,
-      willTransitionToCompleted:
-        (phase === "todos" || phase === "existing") &&
-        currentWorktree.claude_activity_state === "running" &&
-        hasBeenActive,
-    });
 
     // Track when Claude becomes active
     if (currentWorktree.claude_activity_state === "active") {
       if (!hasBeenActive) {
-        console.log("Claude became active for the first time");
         setHasBeenActive(true);
       }
     }
 
     // Handle transitions based on Claude activity state
+    // Don't transition away from error phase or into completed phase if there are Claude errors
+    const hasClaudeErrors =
+      ptyConnection.claudeErrors && ptyConnection.claudeErrors.length > 0;
+
     if (
       phase === "existing" &&
-      currentWorktree.claude_activity_state === "active"
+      currentWorktree.claude_activity_state === "active" &&
+      !hasClaudeErrors
     ) {
-      console.log("Existing session became active, switching to todos");
       setPhase("todos");
     } else if (
       phase === "todos" &&
-      currentWorktree.claude_activity_state === "active"
+      currentWorktree.claude_activity_state === "active" &&
+      !hasClaudeErrors
     ) {
       // Already in todos and Claude is active - stay in todos
-      console.log("Claude is active, staying in todos phase");
     } else if (
       (phase === "todos" || phase === "existing") &&
       (currentWorktree.claude_activity_state === "running" ||
         currentWorktree.claude_activity_state === "inactive") &&
-      hasBeenActive
+      hasBeenActive &&
+      !hasClaudeErrors
     ) {
-      // Only transition to completed if Claude has actually been active before
-      console.log(
-        `Session completed (was previously active, now ${currentWorktree.claude_activity_state}), switching to completed phase`,
-      );
-      setPhase("completed");
-      // Clear restart flag and prompt when completing
-      setSessionRestarted(false);
-      setShowNewPrompt(false);
-      setPrompt("");
-      // Load latest message for completed phase
+      // Only transition to completed if Claude has actually been active before AND there are no errors
+
+      // Check for errors BEFORE setting phase to completed
       void (async () => {
         try {
-          const message = await getWorktreeLatestAssistantMessage(
+          const messageResult = await getWorktreeLatestMessageOrError(
             worktree.path,
           );
-          setLatestMessage(message);
+
+          if (messageResult.isError) {
+            // Store error content
+            setErrorContent(messageResult.content);
+            setPhase("error");
+          } else {
+            setLatestMessage(messageResult.content);
+            setPhase("completed");
+            // Clear restart flag and prompt when completing
+            setSessionRestarted(false);
+            setShowNewPrompt(false);
+            setPrompt("");
+          }
           setContentKey((prev) => prev + 1);
         } catch (error) {
           console.warn(
-            "Failed to get latest message for completed phase:",
+            "Failed to get latest message, defaulting to completed phase:",
             error,
           );
           // Set a fallback message when we can't retrieve the actual message
           setLatestMessage("Session completed successfully");
+          setPhase("completed");
+          setSessionRestarted(false);
+          setShowNewPrompt(false);
+          setPrompt("");
           setContentKey((prev) => prev + 1);
         }
       })();
+    } else if (hasClaudeErrors) {
+      console.log(
+        "Claude errors present, staying in or switching to error phase",
+      );
+      // The error useEffect will handle the transition to error phase
     } else if (
       phase === "todos" &&
       currentWorktree.claude_activity_state === "running" &&
-      hasBeenActive
+      hasBeenActive &&
+      !hasClaudeErrors
     ) {
       // Transition from active to running - refresh content and switch to existing/completed
-      console.log(
-        "Session transitioned from active to running, refreshing content",
-      );
       void (async () => {
         try {
-          const message = await getWorktreeLatestAssistantMessage(
+          const messageResult = await getWorktreeLatestMessageOrError(
             worktree.path,
           );
-          setLatestMessage(message);
+          if (messageResult.isError) {
+            setLatestMessage(messageResult.content);
+            setPhase("error");
+          } else {
+            setLatestMessage(messageResult.content);
+          }
           setContentKey((prev) => prev + 1); // Force content refresh
           // Clear restart flag since we got new content
           setSessionRestarted(false);
@@ -408,17 +477,16 @@ export function WorkspaceMobile({
         currentWorktree.claude_activity_state === "inactive") &&
       !hasBeenActive
     ) {
-      console.log(
-        `Session not started yet (never been active, now ${currentWorktree.claude_activity_state}), staying in todos phase`,
-      );
+      // Phase transition logic placeholder
     }
   }, [
     currentWorktree?.claude_activity_state,
     phase,
     worktree.path,
-    getWorktreeLatestAssistantMessage,
+    getWorktreeLatestMessageOrError,
     getAllWorktreeSessionSummaries,
     hasBeenActive,
+    ptyConnection.claudeErrors,
   ]);
 
   // Simplified auto-start logic - only for input phase without initial prompt
@@ -433,7 +501,6 @@ export function WorkspaceMobile({
       !sessionStarting &&
       !hasStartedFromInitialPrompt // Don't auto-start again if we already started from initial prompt
     ) {
-      console.log("Fallback auto-start for input phase with initial prompt");
       // Short delay and then start
       const timer = setTimeout(() => {
         setPhase("todos");
@@ -457,9 +524,6 @@ export function WorkspaceMobile({
         JSON.stringify(previousTodos) !== JSON.stringify(currentTodos);
 
       if (todosChanged && currentTodos.length > 0) {
-        console.log(
-          "Got genuinely new todos after restart, clearing restart flag",
-        );
         setSessionRestarted(false);
       }
     }
@@ -472,9 +536,6 @@ export function WorkspaceMobile({
 
       // Check if the message is different from what was showing at restart
       if (previousMessage !== currentMessage) {
-        console.log(
-          "Got genuinely new latest message after restart, clearing restart flag",
-        );
         setSessionRestarted(false);
       }
     }
@@ -490,6 +551,145 @@ export function WorkspaceMobile({
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (phase === "error") {
+    // Extract workspace name and use fallback for repo name
+    const parts = worktree.name.split("/");
+    const repoName = repository.name || parts[0] || "Unknown";
+    const cleanBranch = worktree.branch.startsWith("/")
+      ? worktree.branch.slice(1)
+      : worktree.branch;
+    const title = getWorkspaceTitle(worktree);
+
+    const handleDismissErrors = () => {
+      setErrorContent("");
+      setPhase("existing");
+    };
+
+    return (
+      <>
+        <div className="min-h-screen bg-background flex flex-col">
+          <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="p-4 flex items-center gap-3">
+              <Button asChild variant="ghost" size="sm" className="p-2">
+                <Link to="/workspace">
+                  <span className="text-lg font-bold">‹</span>
+                </Link>
+              </Button>
+              <div className="flex-1">
+                <h1 className="text-lg font-semibold">{title}</h1>
+                <p className="text-sm text-muted-foreground">
+                  {repoName} · {cleanBranch}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col">
+            <div className="flex-1 p-4 overflow-y-auto">
+              {/* Always show error message if we have it */}
+              {errorContent && (
+                <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-destructive mb-2">
+                    <span className="text-sm font-medium">Error</span>
+                  </div>
+                  <pre className="text-sm whitespace-pre-wrap text-foreground/90">
+                    {errorContent}
+                  </pre>
+                </div>
+              )}
+
+              {/* Display Claude errors from SSE */}
+              {ptyConnection.claudeErrors &&
+                ptyConnection.claudeErrors.length > 0 && (
+                  <div className="mt-4">
+                    <ClaudeErrorDisplay errors={ptyConnection.claudeErrors} />
+                  </div>
+                )}
+
+              {/* Fallback only if we have nothing */}
+              {!errorContent &&
+                (!ptyConnection.claudeErrors ||
+                  ptyConnection.claudeErrors.length === 0) && (
+                  <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-destructive mb-2">
+                      <span className="text-sm font-medium">Error</span>
+                    </div>
+                    <p className="text-sm text-foreground/90">
+                      Claude encountered an error. Please try starting a new
+                      session.
+                    </p>
+                  </div>
+                )}
+            </div>
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 bg-background border-t p-4">
+            {showNewPrompt ? (
+              <div className="space-y-4">
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe what you'd like to change..."
+                  className="min-h-[120px]"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => {
+                      // Clear errors and restart session
+                      ptyConnection.clearClaudeErrors();
+                      startSession();
+                    }}
+                    disabled={!prompt.trim()}
+                    className="flex-1"
+                  >
+                    Try Again
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowNewPrompt(false);
+                      setPrompt("");
+                    }}
+                    className="flex-1"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => setShowNewPrompt(true)}
+                  className="flex-1"
+                >
+                  Try Again
+                </Button>
+                <Button
+                  onClick={handleDismissErrors}
+                  variant="outline"
+                  className="flex-1"
+                >
+                  Dismiss Errors
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Pull Request Dialog */}
+        <PullRequestDialog
+          open={prDialogOpen}
+          onOpenChange={setPrDialogOpen}
+          worktree={worktree}
+          repository={repository}
+          prStatus={undefined}
+          summary={undefined}
+          onRefreshPrStatuses={async () => {}}
+        />
+      </>
     );
   }
 
@@ -575,7 +775,6 @@ export function WorkspaceMobile({
                     if (worktree.pull_request_url) {
                       window.open(worktree.pull_request_url, "_blank");
                     } else {
-                      console.log("PR button clicked, opening dialog...");
                       setPrDialogOpen(true);
                     }
                   }}
@@ -617,9 +816,7 @@ export function WorkspaceMobile({
           repository={repository}
           prStatus={undefined}
           summary={undefined}
-          onRefreshPrStatuses={async () => {
-            console.log("Refreshing PR statuses...");
-          }}
+          onRefreshPrStatuses={async () => {}}
         />
       </>
     );
@@ -719,9 +916,7 @@ export function WorkspaceMobile({
           repository={repository}
           prStatus={undefined}
           summary={undefined}
-          onRefreshPrStatuses={async () => {
-            console.log("Refreshing PR statuses...");
-          }}
+          onRefreshPrStatuses={async () => {}}
         />
       </>
     );
@@ -809,7 +1004,6 @@ export function WorkspaceMobile({
                     if (worktree.pull_request_url) {
                       window.open(worktree.pull_request_url, "_blank");
                     } else {
-                      console.log("PR button clicked, opening dialog...");
                       setPrDialogOpen(true);
                     }
                   }}
@@ -851,9 +1045,7 @@ export function WorkspaceMobile({
           repository={repository}
           prStatus={undefined}
           summary={undefined}
-          onRefreshPrStatuses={async () => {
-            console.log("Refreshing PR statuses...");
-          }}
+          onRefreshPrStatuses={async () => {}}
         />
       </>
     );
@@ -923,9 +1115,7 @@ export function WorkspaceMobile({
           repository={repository}
           prStatus={undefined}
           summary={undefined}
-          onRefreshPrStatuses={async () => {
-            console.log("Refreshing PR statuses...");
-          }}
+          onRefreshPrStatuses={async () => {}}
         />
       </>
     );

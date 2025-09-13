@@ -32,9 +32,6 @@ export function NewWorkspace({ onClose, onSubmit }: NewWorkspaceProps) {
     return Array.from(repositories.values()).filter((repo) => repo.available);
   }, [repositories]);
 
-  console.log("All repositories:", repositories);
-  console.log("Available repositories:", availableRepositories);
-
   // Fetch GitHub repositories on component mount
   useEffect(() => {
     if (hasFetchedGithubRepos.current) return;
@@ -45,7 +42,6 @@ export function NewWorkspace({ onClose, onSubmit }: NewWorkspaceProps) {
         setGithubLoading(true);
         const repos = await gitApi.fetchRepositories();
         setGithubRepos(repos);
-        console.log("Fetched GitHub repos:", repos);
       } catch (error) {
         console.error("Failed to fetch GitHub repositories:", error);
         hasFetchedGithubRepos.current = false; // Reset on error so we can retry
@@ -59,12 +55,7 @@ export function NewWorkspace({ onClose, onSubmit }: NewWorkspaceProps) {
 
   // Find the repository of the most recently updated workspace
   useEffect(() => {
-    console.log(
-      "useEffect running, availableRepositories.length:",
-      availableRepositories.length,
-    );
     if (availableRepositories.length === 0) {
-      console.log("No available repositories, skipping default selection");
       return;
     }
 
@@ -102,13 +93,6 @@ export function NewWorkspace({ onClose, onSubmit }: NewWorkspaceProps) {
     const mockBranches = [defaultBranch, "main", "master", "develop", "dev"];
     const uniqueBranches = [...new Set(mockBranches)];
     setAvailableBranches(uniqueBranches);
-
-    console.log(
-      "Selected repo:",
-      defaultRepo.id,
-      "Selected branch:",
-      defaultBranch,
-    );
   }, [availableRepositories, getWorktreesList]);
 
   // Update branches when repository changes

@@ -159,7 +159,6 @@ export const useAppStore = create<AppState>()(
 
           set({ lastEventId: message.id });
           get().handleEvent(message.event);
-          console.log("SSE message received:", message.event.type);
         } catch (error) {
           console.error(
             "Failed to parse SSE message:",

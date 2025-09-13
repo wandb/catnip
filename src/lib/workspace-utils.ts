@@ -6,9 +6,9 @@ export function getWorkspaceTitle(worktree: Worktree): string {
     return worktree.pull_request_title;
   }
 
-  // Priority 2: Use session title if available
-  if (worktree.session_title?.title) {
-    return worktree.session_title.title;
+  // Priority 2: Use latest session title if available
+  if (worktree.latest_session_title) {
+    return worktree.latest_session_title;
   }
 
   // Priority 3: Use latest user prompt if available
