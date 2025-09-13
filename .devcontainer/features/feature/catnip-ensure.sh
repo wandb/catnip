@@ -32,9 +32,13 @@ catnip_is_running() {
     [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
 }
 
-# Function to start catnip quietly
+# Function to start catnip using systemd or fallback
 catnip_start_quiet() {
-    if [[ -f "/opt/catnip/bin/catnip-run.sh" ]]; then
+    # Try systemd first
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user list-unit-files catnip.service >/dev/null 2>&1; then
+        systemctl --user start catnip.service >/dev/null 2>&1
+    elif [[ -f "/opt/catnip/bin/catnip-run.sh" ]]; then
+        # Fallback to direct script
         bash "/opt/catnip/bin/catnip-run.sh" >/dev/null 2>&1 &
     fi
 }

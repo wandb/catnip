@@ -1,6 +1,6 @@
 {
   "id": "feature",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "name": "catnip",
   "description": "Ensures SSH, installs catnip, Claude CLI, GitHub CLI, and Catnip VS Code sidebar extension.",
   "options": {
@@ -26,7 +26,5 @@
     "CATNIP_VOLUME_DIR": "/workspaces/.catnip/state",
     "CATNIP_LIVE_DIR": "/workspaces"
   },
-  "postCreateCommand": "bash /opt/catnip/bin/catnip-run.sh",
-  "postAttachCommand": "bash /opt/catnip/bin/catnip-run.sh",
   "installsAfter": ["ghcr.io/devcontainers/features/sshd"]
 }

@@ -163,18 +163,17 @@ install_catnip() {
   cp $(dirname $0)/catnip-stop.sh "$OPT_DIR/bin/catnip-stop.sh"
   cp $(dirname $0)/catnip-vsix.sh "$OPT_DIR/bin/catnip-vsix.sh"
   cp $(dirname $0)/catnip-ensure.sh "$OPT_DIR/bin/catnip-ensure.sh"
+  cp $(dirname $0)/catnip-systemctl.sh "$OPT_DIR/bin/catnip-systemctl.sh"
   ensure_owner "$OPT_DIR/bin/catnip-run.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-stop.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-vsix.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-ensure.sh" "$USERNAME" "$USERGROUP"
+  ensure_owner "$OPT_DIR/bin/catnip-systemctl.sh" "$USERNAME" "$USERGROUP"
 
-  # 2) Root-owned init that just invokes the runner as $USERNAME
+  # 2) Root-owned init that just handles sshd startup
   tee /usr/local/share/catnip-init.sh >/dev/null <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-
-# Fire up catnip
-bash "$OPT_DIR/bin/catnip-run.sh"
 
 # Start sshd if enabled at install time
 if [[ -z "${DISABLE_SSHD}" ]]; then
@@ -193,8 +192,38 @@ EOF
   run_as_root chmod +x /usr/local/share/catnip-init.sh
   ok "Prepared: /usr/local/share/catnip-init.sh"
   
+  # Install systemd user service for catnip auto-start
+  install_systemd_service
+
   # Install shell profile integration for backup catnip auto-start
   install_shell_integration
+}
+
+install_systemd_service() {
+  log "Installing systemd user service for catnip auto-start..."
+
+  # Create systemd user directory
+  local systemd_user_dir="$USERHOME/.config/systemd/user"
+  run_as_user "mkdir -p '$systemd_user_dir'"
+  ensure_owner "$systemd_user_dir" "$USERNAME" "$USERGROUP"
+
+  # Copy service file
+  local service_file="$systemd_user_dir/catnip.service"
+  cp "$(dirname $0)/catnip.service" "$service_file"
+  ensure_owner "$service_file" "$USERNAME" "$USERGROUP"
+
+  # Enable lingering for the user so systemd user services start without login
+  if command -v loginctl >/dev/null 2>&1; then
+    run_as_root loginctl enable-linger "$USERNAME" || warn "Could not enable lingering for $USERNAME"
+  fi
+
+  # Enable and start the service as the user
+  run_as_user "systemctl --user daemon-reload"
+  run_as_user "systemctl --user enable catnip.service"
+
+  ok "Systemd user service installed and enabled"
+  log "Service will start automatically when user session begins"
+  log "Manual control: systemctl --user {start|stop|restart|status} catnip"
 }
 
 install_shell_integration() {

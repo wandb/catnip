@@ -1,0 +1,36 @@
+[Unit]
+Description=Catnip Development Server
+Documentation=https://catnip.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+ExecStart=/opt/catnip/bin/catnip-run.sh
+ExecStop=/opt/catnip/bin/catnip-stop.sh
+PIDFile=/opt/catnip/catnip.pid
+Restart=on-failure
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Environment
+Environment=PATH=/opt/catnip/bin:/usr/local/bin:/usr/bin:/bin
+Environment=CATNIP_WORKSPACE_DIR=/worktrees
+Environment=CATNIP_HOME_DIR=%h
+Environment=CATNIP_VOLUME_DIR=/opt/catnip/state
+Environment=CATNIP_LIVE_DIR=/workspaces
+
+# Security
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=no
+ReadWritePaths=/opt/catnip /worktrees /workspaces %h/.catnip
+
+# Logging
+StandardOutput=append:/opt/catnip/catnip.log
+StandardError=append:/opt/catnip/catnip.log
+
+[Install]
+WantedBy=default.target
