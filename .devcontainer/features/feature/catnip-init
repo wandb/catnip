@@ -31,17 +31,29 @@ export CATNIP_LIVE_DIR=/workspaces
 # Function that starts the daemon/service
 do_start()
 {
-    # Just call catnip-run.sh - it handles everything
-    $DAEMON
-    return $?
+    # Return
+    #   0 if daemon has been started
+    #   1 if daemon was already running
+    #   2 if daemon could not be started
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --chuid vscode:vscode --exec $DAEMON --test > /dev/null \
+        || return 1
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --chuid vscode:vscode --exec $DAEMON
+    RETVAL="$?"
+    return "$RETVAL"
 }
 
 # Function that stops the daemon/service
 do_stop()
 {
-    # Call catnip-stop.sh - it handles graceful shutdown
-    /opt/catnip/bin/catnip-stop.sh
-    return $?
+    # Return
+    #   0 if daemon has been stopped
+    #   1 if daemon was already stopped
+    #   2 if daemon could not be stopped
+    start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE
+    RETVAL="$?"
+    [ "$RETVAL" = 2 ] && return 2
+    rm -f $PIDFILE
+    return "$RETVAL"
 }
 
 # Function that reloads the daemon/service
