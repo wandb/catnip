@@ -596,9 +596,19 @@ export function createApp(env: Env) {
       );
 
       if (!storeResponse.ok) {
-        console.error("Failed to store codespace credentials");
+        console.error("Failed to store codespace credentials", {
+          status: storeResponse.status,
+          user: GITHUB_USER,
+          codespaceName: CODESPACE_NAME,
+        });
         return c.json({ error: "Failed to store credentials" }, 500);
       }
+
+      console.log("Codespace credentials stored successfully", {
+        user: GITHUB_USER,
+        codespaceName: CODESPACE_NAME,
+        updatedAt: credentials.updatedAt,
+      });
 
       return c.json({
         success: true,
@@ -911,12 +921,12 @@ export function createApp(env: Env) {
             return;
           }
 
-          // Give the codespace a moment to start before proceeding
+          // Give the codespace time to start and send fresh credentials
           sendEvent("status", {
             message: "Setting up codespace environment",
             step: "setup",
           });
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+          await new Promise((resolve) => setTimeout(resolve, 10000)); // Wait longer for startup
         }
 
         // Check if codespace is healthy before redirecting
@@ -931,19 +941,19 @@ export function createApp(env: Env) {
             step: "catnip",
           });
 
-          // First, try to refresh credentials in case the token is stale
+          // Try to get the freshest credentials before health check
           let healthCheckToken = selectedCodespace.githubToken;
+          let credentialsRefreshed = false;
 
-          // If codespace was just started, wait a bit longer and try to refresh token
-          if (targetCodespace.state !== "Available") {
-            sendEvent("status", {
-              message: "Waiting for catnip to initialize",
-              step: "initializing",
-            });
-            await new Promise((resolve) => setTimeout(resolve, 5000));
+          // If codespace was just started, retry credential refresh multiple times
+          const maxRefreshAttempts =
+            targetCodespace.state !== "Available" ? 3 : 1;
 
-            // Try to get fresh credentials after startup
+          for (let attempt = 1; attempt <= maxRefreshAttempts; attempt++) {
             try {
+              console.log(
+                `Attempting to refresh codespace credentials (attempt ${attempt}/${maxRefreshAttempts})...`,
+              );
               const codespaceStore = c.env.CODESPACE_STORE.get(
                 c.env.CODESPACE_STORE.idFromName("global"),
               );
@@ -953,21 +963,56 @@ export function createApp(env: Env) {
               if (refreshResponse.ok) {
                 const refreshedCredentials =
                   (await refreshResponse.json()) as CodespaceCredentials;
-                if (
-                  refreshedCredentials.githubToken !==
-                  selectedCodespace.githubToken
-                ) {
-                  console.log("Using refreshed GitHub token for health check");
+                if (refreshedCredentials.githubToken) {
+                  if (
+                    refreshedCredentials.githubToken !==
+                    selectedCodespace.githubToken
+                  ) {
+                    console.log("Fresh GitHub token received for health check");
+                    credentialsRefreshed = true;
+                  } else {
+                    console.log("Using existing GitHub token for health check");
+                  }
                   healthCheckToken = refreshedCredentials.githubToken;
+                  selectedCodespace = refreshedCredentials; // Update our local copy
+
+                  // If we got fresh credentials, we can break early
+                  if (credentialsRefreshed) {
+                    break;
+                  }
                 }
+              } else {
+                console.warn(
+                  `Could not refresh credentials: ${refreshResponse.status}`,
+                );
               }
             } catch (error) {
               console.warn(
-                "Could not refresh token, using stored token:",
+                `Credential refresh attempt ${attempt} failed:`,
                 error,
               );
             }
+
+            // Wait between attempts (except on last attempt)
+            if (attempt < maxRefreshAttempts) {
+              console.log("Waiting for codespace to send fresh credentials...");
+              await new Promise((resolve) => setTimeout(resolve, 5000));
+            }
           }
+
+          if (credentialsRefreshed) {
+            console.log("Using refreshed credentials for health check");
+          } else {
+            console.log("Using original stored credentials for health check");
+          }
+
+          // Give catnip a moment to be ready for health check
+          sendEvent("status", {
+            message: "Waiting for catnip to be ready",
+            step: "initializing",
+          });
+          // Shorter wait since we already waited during credential refresh attempts
+          await new Promise((resolve) => setTimeout(resolve, 3000));
 
           sendEvent("status", {
             message: "Waiting for catnip to be ready",
@@ -991,14 +1036,18 @@ export function createApp(env: Env) {
             // Check if this might be a token issue by trying with the user's OAuth token
             if (healthResult.lastStatus === 401) {
               console.log(
-                "Health check failed with 401, trying with OAuth token as fallback",
+                "Health check failed with 401, stored token may be expired or invalid",
               );
+              console.log("Trying with OAuth token as fallback");
               const fallbackResult = await checkCodespaceHealth(
                 healthCheckUrl,
                 accessToken,
               );
 
               if (fallbackResult.healthy) {
+                console.log(
+                  "OAuth token fallback succeeded, codespace is ready",
+                );
                 sendEvent("success", {
                   message: "Codespace is ready",
                   codespaceUrl,
@@ -1007,12 +1056,18 @@ export function createApp(env: Env) {
                 void writer.close();
                 return;
               } else {
-                console.log(
-                  "Both tokens failed health check, codespace may not be ready",
+                console.error(
+                  "Both stored and OAuth tokens failed health check",
+                  {
+                    storedTokenStatus: healthResult.lastStatus,
+                    oauthTokenStatus: fallbackResult.lastStatus,
+                    storedTokenError: healthResult.lastError,
+                    oauthTokenError: fallbackResult.lastError,
+                  },
                 );
                 sendEvent("error", {
                   message:
-                    "Authentication error accessing codespace. The stored token may be expired. Please try refreshing the page.",
+                    "Authentication error accessing codespace. The credentials may be expired or the codespace may not have Catnip properly installed. Please check your codespace setup and try again.",
                   retryAfter: 30,
                 });
                 void writer.close();

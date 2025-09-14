@@ -60,7 +60,7 @@ func startServer(cmd *cobra.Command) {
 	logger.Configure(logLevel, true) // Always use formatted output
 
 	// Send codespace credentials to worker if we're in a codespace
-	go sendCodespaceCredentials()
+	go startCredentialSync()
 
 	// Import and log runtime configuration
 	logger.Infof("🚀 Starting Catnip in %s mode", config.Runtime.Mode)
@@ -362,20 +362,42 @@ func startServer(cmd *cobra.Command) {
 	}
 }
 
-// sendCodespaceCredentials sends GitHub credentials to the Catnip worker if we're in a codespace
-func sendCodespaceCredentials() {
+// startCredentialSync starts a goroutine that periodically sends GitHub credentials to the Catnip worker
+func startCredentialSync() {
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	githubUser := os.Getenv("GITHUB_USER")
 	codespaceName := os.Getenv("CODESPACE_NAME")
 
 	// Only proceed if we have all required environment variables (indicating we're in a codespace)
 	if githubToken == "" || githubUser == "" || codespaceName == "" {
-		logger.Debugf("Not in a codespace environment, skipping credential upload")
+		logger.Debugf("Not in a codespace environment, skipping credential sync")
 		return
 	}
 
-	logger.Infof("🔑 Detected codespace environment, uploading credentials to worker...")
+	logger.Infof("🔑 Detected codespace environment, starting credential sync to worker...")
 
+	// Send credentials immediately on startup
+	sendCodespaceCredentials(githubToken, githubUser, codespaceName)
+
+	// Then send every 5 minutes to keep credentials fresh
+	ticker := time.NewTicker(5 * time.Minute)
+	go func() {
+		defer ticker.Stop()
+		for range ticker.C {
+			// Re-read environment variables in case they've changed
+			currentToken := os.Getenv("GITHUB_TOKEN")
+			currentUser := os.Getenv("GITHUB_USER")
+			currentCodespace := os.Getenv("CODESPACE_NAME")
+
+			if currentToken != "" && currentUser != "" && currentCodespace != "" {
+				sendCodespaceCredentials(currentToken, currentUser, currentCodespace)
+			}
+		}
+	}()
+}
+
+// sendCodespaceCredentials sends GitHub credentials to the Catnip worker
+func sendCodespaceCredentials(githubToken, githubUser, codespaceName string) {
 	// Prepare the payload
 	payload := map[string]string{
 		"GITHUB_TOKEN":   githubToken,
@@ -405,14 +427,14 @@ func sendCodespaceCredentials() {
 	// Make the request
 	resp, err := client.Post(endpoint, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
-		logger.Errorf("❌ Failed to send codespace credentials to worker: %v", err)
+		logger.Debugf("❌ Failed to send codespace credentials to worker: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		logger.Infof("✅ Codespace credentials uploaded successfully to %s", endpoint)
+		logger.Debugf("✅ Codespace credentials uploaded successfully to %s", endpoint)
 	} else {
-		logger.Errorf("❌ Worker rejected codespace credentials (HTTP %d)", resp.StatusCode)
+		logger.Debugf("❌ Worker rejected codespace credentials (HTTP %d)", resp.StatusCode)
 	}
 }
