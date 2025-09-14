@@ -1753,9 +1753,9 @@ func (s *GitService) MergeWorktreeToMain(worktreeID string, squash bool) error {
 
 	// For squash merges, we need to commit the staged changes
 	if squash {
-		output, err = s.runGitCommand(repo.Path, "commit", "-m", fmt.Sprintf("Squash merge branch '%s' from worktree", worktree.Branch))
+		_, err = s.runGitCommitWithGPGFallback(repo.Path, "commit", "-m", fmt.Sprintf("Squash merge branch '%s' from worktree", worktree.Branch))
 		if err != nil {
-			return fmt.Errorf("failed to commit squash merge: %v\n%s", err, output)
+			return fmt.Errorf("failed to commit squash merge: %v", err)
 		}
 	}
 
@@ -1891,8 +1891,8 @@ func (s *GitService) createTemporaryCommit(worktreePath string) (string, error) 
 	}
 
 	// Create the commit
-	if output, err := s.runGitCommand(worktreePath, "commit", "-m", "Preview: Include all uncommitted changes"); err != nil {
-		return "", fmt.Errorf("failed to create temporary commit: %v\n%s", err, output)
+	if _, err := s.runGitCommitWithGPGFallback(worktreePath, "commit", "-m", "Preview: Include all uncommitted changes"); err != nil {
+		return "", fmt.Errorf("failed to create temporary commit: %v", err)
 	}
 
 	// Get the commit hash
@@ -2048,9 +2048,9 @@ func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, 
 		return "", nil
 	}
 
-	// Commit with the message
-	if output, err := s.runGitCommand(workspaceDir, "commit", "-m", message, "-n"); err != nil {
-		return "", fmt.Errorf("git commit failed: %v, output: %s", err, string(output))
+	// Commit with the message (with GPG error handling)
+	if _, err := s.runGitCommitWithGPGFallback(workspaceDir, "commit", "-m", message, "-n"); err != nil {
+		return "", fmt.Errorf("git commit failed: %v", err)
 	}
 
 	// Get the commit hash
@@ -2061,6 +2061,67 @@ func (s *GitService) GitAddCommitGetHash(workspaceDir, message string) (string, 
 
 	hash := strings.TrimSpace(string(output))
 	return hash, nil
+}
+
+// isGPGSigningError checks if the error output indicates a GPG signing failure
+func (s *GitService) isGPGSigningError(output string) bool {
+	// Check for common GPG signing error patterns
+	gpgErrorPatterns := []string{
+		"error signing commit",
+		"failed to write commit object",
+		"unsupported protocol scheme",
+		"vscs_internal/commit/sign",
+		"gpg failed to sign the data",
+		"no default signing key configured",
+	}
+
+	outputLower := strings.ToLower(output)
+	for _, pattern := range gpgErrorPatterns {
+		if strings.Contains(outputLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
+
+// disableGPGSigning disables GPG signing for the given repository
+func (s *GitService) disableGPGSigning(workspaceDir string) error {
+	logger.Infof("🔧 Disabling commit.gpgsign for repository: %s", workspaceDir)
+
+	// Set commit.gpgsign to false for this repository
+	_, err := s.runGitCommand(workspaceDir, "config", "--bool", "commit.gpgsign", "false")
+	if err != nil {
+		return fmt.Errorf("failed to disable commit.gpgsign: %v", err)
+	}
+
+	logger.Infof("✅ Successfully disabled GPG signing for repository")
+	return nil
+}
+
+// runGitCommitWithGPGFallback runs a git commit command with automatic GPG error handling
+func (s *GitService) runGitCommitWithGPGFallback(workspaceDir string, args ...string) ([]byte, error) {
+	output, err := s.runGitCommand(workspaceDir, args...)
+	if err != nil {
+		outputStr := string(output)
+		if s.isGPGSigningError(outputStr) {
+			logger.Warnf("🔐 Detected GPG signing error, disabling commit.gpgsign for repository: %s", workspaceDir)
+			if disableErr := s.disableGPGSigning(workspaceDir); disableErr != nil {
+				logger.Errorf("❌ Failed to disable GPG signing: %v", disableErr)
+				return output, err
+			}
+
+			// Retry the commit after disabling GPG signing
+			logger.Infof("🔄 Retrying commit after disabling GPG signing...")
+			retryOutput, retryErr := s.runGitCommand(workspaceDir, args...)
+			if retryErr != nil {
+				return retryOutput, fmt.Errorf("git commit failed even after disabling GPG: %v", retryErr)
+			}
+			logger.Infof("✅ Successfully committed after disabling GPG signing")
+			return retryOutput, nil
+		}
+		return output, err
+	}
+	return output, nil
 }
 
 // createWorktreeForExistingRepo creates a worktree for an already loaded repository
@@ -2754,8 +2815,8 @@ func (s *GitService) CreateFromTemplate(templateID, projectName string) (*models
 	}
 
 	commitMsg := fmt.Sprintf("Initial commit from %s template", templateID)
-	if output, err := s.runGitCommand(projectPath, "commit", "-m", commitMsg); err != nil {
-		logger.Warnf("⚠️ Failed to make initial commit: %v\nOutput: %s", err, string(output))
+	if _, err := s.runGitCommitWithGPGFallback(projectPath, "commit", "-m", commitMsg); err != nil {
+		logger.Warnf("⚠️ Failed to make initial commit: %v", err)
 	}
 
 	// Clone the temporary repository as a bare repository to the persistent location
