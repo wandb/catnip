@@ -8,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
   AlertCircle,
   Rocket,
@@ -314,43 +313,45 @@ export function CodespaceAccess({
           <Button
             onClick={() => accessCodespace()}
             disabled={isConnecting}
-            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:opacity-50"
+            className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 text-white flex items-center justify-center"
           >
-            {isConnecting ? (
-              <LoadingSpinner size="sm" className="mr-2" />
-            ) : null}
+            {isConnecting && (
+              <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin mr-2 flex-shrink-0" />
+            )}
             {isConnecting ? "Connecting..." : "Access My Codespace"}
           </Button>
 
           {statusMessage && (
             <Card className="bg-blue-950/50 border-blue-800/50">
-              <CardContent className="p-4 flex items-center gap-3">
+              <CardContent className="px-3 py-2 flex items-center gap-2">
                 {statusStep && (
                   <div className="flex-shrink-0">
                     {(() => {
                       const IconComponent = stepIcons[statusStep];
                       return (
-                        <IconComponent className="w-5 h-5 text-blue-400" />
+                        <IconComponent className="w-4 h-4 text-blue-400" />
                       );
                     })()}
                   </div>
                 )}
-                <span className="text-blue-100">{statusMessage}</span>
+                <span className="text-blue-100 font-medium text-sm">
+                  {statusMessage}
+                </span>
               </CardContent>
             </Card>
           )}
 
           {error && (
             <Card className="bg-red-950/50 border-red-800/50">
-              <CardContent className="p-4">
-                <span className="text-red-100">{error}</span>
+              <CardContent className="p-3">
+                <span className="text-red-100 font-medium">{error}</span>
               </CardContent>
             </Card>
           )}
 
           <div className="bg-amber-950/30 border border-amber-800/30 rounded-lg p-4 text-sm text-amber-200">
             <strong>Note:</strong> If you see the VSCode interface, click the
-            back button to access your codespace again.
+            back button to re-initiate access.
           </div>
 
           <div className="border-t border-gray-800 pt-4">
