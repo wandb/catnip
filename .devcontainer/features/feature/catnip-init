@@ -25,7 +25,7 @@ SCRIPTNAME=/etc/init.d/$NAME
 # Environment
 export CATNIP_WORKSPACE_DIR=/worktrees
 export CATNIP_HOME_DIR=/home/vscode
-export CATNIP_VOLUME_DIR=/opt/catnip/state
+export CATNIP_VOLUME_DIR=/workspaces/.catnip/state
 export CATNIP_LIVE_DIR=/workspaces
 
 # Function that starts the daemon/service
