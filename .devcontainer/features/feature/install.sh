@@ -161,10 +161,12 @@ install_catnip() {
   # 1) User-owned runners that handle daemonization and logging
   cp $(dirname $0)/catnip-run.sh "$OPT_DIR/bin/catnip-run.sh"
   cp $(dirname $0)/catnip-stop.sh "$OPT_DIR/bin/catnip-stop.sh"
+  cp $(dirname $0)/catnip-env.sh "$OPT_DIR/bin/catnip-env.sh"
   cp $(dirname $0)/catnip-vsix.sh "$OPT_DIR/bin/catnip-vsix.sh"
   ensure_owner "$OPT_DIR/bin/catnip-run.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-stop.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-vsix.sh" "$USERNAME" "$USERGROUP"
+  ensure_owner "$OPT_DIR/bin/catnip-env.sh" "$USERNAME" "$USERGROUP"
 
   # 2) Root-owned init that just handles sshd startup
   tee /usr/local/share/catnip-init.sh >/dev/null <<EOF
