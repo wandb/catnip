@@ -1,12 +1,8 @@
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -59,8 +55,8 @@ func startServer(cmd *cobra.Command) {
 	logLevel := logger.GetLogLevelFromEnv(isDevMode)
 	logger.Configure(logLevel, true) // Always use formatted output
 
-	// Send codespace credentials to worker if we're in a codespace
-	go startCredentialSync()
+	// Send codespace credentials to worker if we're in a codespace (once on startup)
+	go updateCodespaceCredentials()
 
 	// Import and log runtime configuration
 	logger.Infof("🚀 Starting Catnip in %s mode", config.Runtime.Mode)
@@ -359,82 +355,5 @@ func startServer(cmd *cobra.Command) {
 	logger.Infof("🚀 Catnip server starting on port %s", port)
 	if err := app.Listen(":" + port); err != nil {
 		logger.Fatalf("Server failed to start on port %s: %v", port, err)
-	}
-}
-
-// startCredentialSync starts a goroutine that periodically sends GitHub credentials to the Catnip worker
-func startCredentialSync() {
-	githubToken := os.Getenv("GITHUB_TOKEN")
-	githubUser := os.Getenv("GITHUB_USER")
-	codespaceName := os.Getenv("CODESPACE_NAME")
-
-	// Only proceed if we have all required environment variables (indicating we're in a codespace)
-	if githubToken == "" || githubUser == "" || codespaceName == "" {
-		logger.Debugf("Not in a codespace environment, skipping credential sync")
-		return
-	}
-
-	logger.Infof("🔑 Detected codespace environment, starting credential sync to worker...")
-
-	// Send credentials immediately on startup
-	sendCodespaceCredentials(githubToken, githubUser, codespaceName)
-
-	// Then send every 5 minutes to keep credentials fresh
-	ticker := time.NewTicker(5 * time.Minute)
-	go func() {
-		defer ticker.Stop()
-		for range ticker.C {
-			// Re-read environment variables in case they've changed
-			currentToken := os.Getenv("GITHUB_TOKEN")
-			currentUser := os.Getenv("GITHUB_USER")
-			currentCodespace := os.Getenv("CODESPACE_NAME")
-
-			if currentToken != "" && currentUser != "" && currentCodespace != "" {
-				sendCodespaceCredentials(currentToken, currentUser, currentCodespace)
-			}
-		}
-	}()
-}
-
-// sendCodespaceCredentials sends GitHub credentials to the Catnip worker
-func sendCodespaceCredentials(githubToken, githubUser, codespaceName string) {
-	// Prepare the payload
-	payload := map[string]string{
-		"GITHUB_TOKEN":   githubToken,
-		"GITHUB_USER":    githubUser,
-		"CODESPACE_NAME": codespaceName,
-	}
-
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		logger.Errorf("❌ Failed to marshal codespace credentials: %v", err)
-		return
-	}
-
-	// Determine the worker URL - default to production, or use CATNIP_PROXY if set
-	workerURL := "https://catnip.run"
-	if proxy := os.Getenv("CATNIP_PROXY"); proxy != "" {
-		workerURL = proxy
-	}
-
-	endpoint := workerURL + "/v1/auth/github/codespace"
-
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	// Make the request
-	resp, err := client.Post(endpoint, "application/json", bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		logger.Debugf("❌ Failed to send codespace credentials to worker: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		logger.Debugf("✅ Codespace credentials uploaded successfully to %s", endpoint)
-	} else {
-		logger.Debugf("❌ Worker rejected codespace credentials (HTTP %d)", resp.StatusCode)
 	}
 }

@@ -1033,46 +1033,22 @@ export function createApp(env: Env) {
             void writer.close();
             return;
           } else {
-            // Check if this might be a token issue by trying with the user's OAuth token
+            // Health check failed with stored credentials
             if (healthResult.lastStatus === 401) {
-              console.log(
-                "Health check failed with 401, stored token may be expired or invalid",
+              console.error(
+                "Health check failed with 401 - stored credentials are invalid or expired",
+                {
+                  storedTokenStatus: healthResult.lastStatus,
+                  storedTokenError: healthResult.lastError,
+                },
               );
-              console.log("Trying with OAuth token as fallback");
-              const fallbackResult = await checkCodespaceHealth(
-                healthCheckUrl,
-                accessToken,
-              );
-
-              if (fallbackResult.healthy) {
-                console.log(
-                  "OAuth token fallback succeeded, codespace is ready",
-                );
-                sendEvent("success", {
-                  message: "Codespace is ready",
-                  codespaceUrl,
-                  step: "ready",
-                });
-                void writer.close();
-                return;
-              } else {
-                console.error(
-                  "Both stored and OAuth tokens failed health check",
-                  {
-                    storedTokenStatus: healthResult.lastStatus,
-                    oauthTokenStatus: fallbackResult.lastStatus,
-                    storedTokenError: healthResult.lastError,
-                    oauthTokenError: fallbackResult.lastError,
-                  },
-                );
-                sendEvent("error", {
-                  message:
-                    "Authentication error accessing codespace. The credentials may be expired or the codespace may not have Catnip properly installed. Please check your codespace setup and try again.",
-                  retryAfter: 30,
-                });
-                void writer.close();
-                return;
-              }
+              sendEvent("error", {
+                message:
+                  "Authentication error accessing codespace. The stored credentials may be expired or the codespace may not have sent fresh credentials yet. Please wait a moment and try again, or check that Catnip is properly installed in your codespace.",
+                retryAfter: 30,
+              });
+              void writer.close();
+              return;
             } else {
               // Other error, likely just startup related
               console.log(

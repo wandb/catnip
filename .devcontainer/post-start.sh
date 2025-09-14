@@ -6,5 +6,5 @@
 echo "Installing latest catnip binary"
 cd /workspaces/catnip/container && just install
 
-echo "Restarting catnip systemd service"
-systemctl --user restart catnip.service || bash "/opt/catnip/bin/catnip-run.sh"
+echo "Restarting catnip service"
+service catnip restart || bash "/opt/catnip/bin/catnip-run.sh"

@@ -1,0 +1,130 @@
+#!/bin/bash
+### BEGIN INIT INFO
+# Provides:          catnip
+# Required-Start:    $network $remote_fs $syslog
+# Required-Stop:     $network $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Catnip Development Server
+# Description:       Catnip development environment server
+### END INIT INFO
+
+PATH=/opt/catnip/bin:/usr/local/bin:/usr/bin:/bin
+DESC="Catnip Development Server"
+NAME=catnip
+DAEMON=/opt/catnip/bin/catnip-run.sh
+PIDFILE=/opt/catnip/catnip.pid
+SCRIPTNAME=/etc/init.d/$NAME
+
+# Exit if the package is not installed
+[ -x "$DAEMON" ] || exit 0
+
+# Read configuration variable file if it is present
+[ -r /etc/default/$NAME ] && . /etc/default/$NAME
+
+# Environment
+export CATNIP_WORKSPACE_DIR=/worktrees
+export CATNIP_HOME_DIR=/home/vscode
+export CATNIP_VOLUME_DIR=/opt/catnip/state
+export CATNIP_LIVE_DIR=/workspaces
+
+# Function that starts the daemon/service
+do_start()
+{
+    # Return
+    #   0 if daemon has been started
+    #   1 if daemon was already running
+    #   2 if daemon could not be started
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON --test > /dev/null \
+        || return 1
+    start-stop-daemon --start --quiet --pidfile $PIDFILE --exec $DAEMON -- \
+        || return 2
+}
+
+# Function that stops the daemon/service
+do_stop()
+{
+    # Return
+    #   0 if daemon has been stopped
+    #   1 if daemon was already stopped
+    #   2 if daemon could not be stopped
+    #   other if a failure occurred
+    start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE --name $NAME
+    RETVAL="$?"
+    [ "$RETVAL" = 2 ] && return 2
+
+    # Wait for children to finish too if this is a daemon that forks
+    # and if the daemon is only ever run from this initscript.
+    start-stop-daemon --stop --quiet --oknodo --retry=0/30/KILL/5 --exec $DAEMON
+    [ "$?" = 2 ] && return 2
+
+    # Many daemons don't delete their pidfiles when they exit.
+    rm -f $PIDFILE
+    return "$RETVAL"
+}
+
+# Function that sends a SIGHUP to the daemon/service
+do_reload() {
+    start-stop-daemon --stop --signal 1 --quiet --pidfile $PIDFILE --name $NAME
+    return 0
+}
+
+case "$1" in
+  start)
+    echo "Starting $DESC" "$NAME"
+    do_start
+    case "$?" in
+        0|1) echo "   ...done." ;;
+        2) echo "   ...failed." ;;
+    esac
+    ;;
+  stop)
+    echo "Stopping $DESC" "$NAME"
+    do_stop
+    case "$?" in
+        0|1) echo "   ...done." ;;
+        2) echo "   ...failed." ;;
+    esac
+    ;;
+  status)
+    if [ -f $PIDFILE ]; then
+        if kill -0 $(cat $PIDFILE) 2>/dev/null; then
+            echo "$NAME is running"
+            exit 0
+        else
+            echo "$NAME is not running (stale pidfile)"
+            exit 1
+        fi
+    else
+        echo "$NAME is not running"
+        exit 3
+    fi
+    ;;
+  reload|force-reload)
+    echo "Reloading $DESC" "$NAME"
+    do_reload
+    ;;
+  restart)
+    echo "Restarting $DESC" "$NAME"
+    do_stop
+    case "$?" in
+      0|1)
+        do_start
+        case "$?" in
+            0) echo "   ...done." ;;
+            1) echo "   ...already running." ;;
+            *) echo "   ...failed to start." ;;
+        esac
+        ;;
+      *)
+        echo "   ...failed to stop."
+        ;;
+    esac
+    ;;
+  *)
+    echo "Usage: $SCRIPTNAME {start|stop|restart|reload|force-reload|status}" >&2
+    exit 3
+    ;;
+esac
+
+:
