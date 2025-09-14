@@ -46,6 +46,9 @@ interface CodespaceCredentials {
   githubToken: string;
   githubUser: string;
   codespaceName: string;
+  githubRepository?: string;
+  githubOrg?: string;
+  githubRepo?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -527,7 +530,8 @@ export function createApp(env: Env) {
   app.post("/v1/auth/github/codespace", async (c) => {
     try {
       const body = await c.req.json();
-      const { GITHUB_TOKEN, GITHUB_USER, CODESPACE_NAME } = body;
+      const { GITHUB_TOKEN, GITHUB_USER, CODESPACE_NAME, GITHUB_REPOSITORY } =
+        body;
 
       if (!GITHUB_TOKEN || !GITHUB_USER || !CODESPACE_NAME) {
         return c.json(
@@ -574,6 +578,17 @@ export function createApp(env: Env) {
         return c.json({ error: "Failed to validate GitHub token" }, 500);
       }
 
+      // Parse org and repo from GITHUB_REPOSITORY if available
+      let githubOrg: string | undefined;
+      let githubRepo: string | undefined;
+      if (GITHUB_REPOSITORY) {
+        const repoParts = GITHUB_REPOSITORY.split("/");
+        if (repoParts.length === 2) {
+          githubOrg = repoParts[0];
+          githubRepo = repoParts[1];
+        }
+      }
+
       // Store credentials in Durable Object
       const codespaceStore = c.env.CODESPACE_STORE.get(
         c.env.CODESPACE_STORE.idFromName("global"),
@@ -583,6 +598,9 @@ export function createApp(env: Env) {
         githubToken: GITHUB_TOKEN,
         githubUser: GITHUB_USER,
         codespaceName: CODESPACE_NAME,
+        githubRepository: GITHUB_REPOSITORY,
+        githubOrg,
+        githubRepo,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -788,6 +806,9 @@ export function createApp(env: Env) {
                 if (orgFromSubdomain) {
                   const orgCodespaces = storedCodespaces.filter(
                     (cs) =>
+                      // First try exact match with stored org info
+                      cs.githubOrg === orgFromSubdomain ||
+                      // Fallback to name-based matching for backwards compatibility
                       cs.codespaceName.includes(orgFromSubdomain) ||
                       cs.codespaceName.includes(`${orgFromSubdomain}-`),
                   );
@@ -799,6 +820,7 @@ export function createApp(env: Env) {
                       codespaces: orgCodespaces.map((cs) => ({
                         name: cs.codespaceName,
                         lastUsed: cs.updatedAt,
+                        repository: cs.githubRepository,
                       })),
                       org: orgFromSubdomain,
                     });
@@ -812,6 +834,7 @@ export function createApp(env: Env) {
                     codespaces: storedCodespaces.map((cs) => ({
                       name: cs.codespaceName,
                       lastUsed: cs.updatedAt,
+                      repository: cs.githubRepository,
                     })),
                     org: null,
                   });
@@ -880,6 +903,19 @@ export function createApp(env: Env) {
           console.log(
             `No stored codespace available for user: ${username}${orgFromSubdomain ? `, org: ${orgFromSubdomain}` : ""}`,
           );
+
+          // Check if we have codespaces but they don't match the org filter
+          if (storedCodespaces.length > 0 && orgFromSubdomain) {
+            console.log(
+              `Found ${storedCodespaces.length} codespaces for user, but none match org "${orgFromSubdomain}"`,
+            );
+            storedCodespaces.forEach((cs) => {
+              console.log(
+                `- Codespace: ${cs.codespaceName}, stored org: ${cs.githubOrg || "unknown"}`,
+              );
+            });
+          }
+
           sendEvent("setup", { message: errorMsg, org: orgFromSubdomain });
           void writer.close();
           return;

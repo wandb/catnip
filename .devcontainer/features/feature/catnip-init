@@ -22,15 +22,6 @@ SCRIPTNAME=/etc/init.d/$NAME
 # Read configuration variable file if it is present
 [ -r /etc/default/$NAME ] && . /etc/default/$NAME
 
-# Environment
-export CATNIP_WORKSPACE_DIR=/worktrees
-export CATNIP_HOME_DIR=/home/vscode
-export CATNIP_VOLUME_DIR=/workspaces/.catnip/state
-export CATNIP_LIVE_DIR=/workspaces
-export GITHUB_TOKEN="${GITHUB_TOKEN}"
-export CODESPACES="${CODESPACES}"
-export CODESPACE_NAME="${CODESPACE_NAME}"
-
 # Function that starts the daemon/service
 do_start()
 {

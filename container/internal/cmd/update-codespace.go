@@ -37,12 +37,13 @@ func updateCodespaceCredentials() {
 	githubToken := os.Getenv("GITHUB_TOKEN")
 	githubUser := os.Getenv("GITHUB_USER")
 	codespaceName := os.Getenv("CODESPACE_NAME")
+	githubRepository := os.Getenv("GITHUB_REPOSITORY")
 
 	// Only proceed if we have all required environment variables (indicating we're in a codespace)
 	if githubToken == "" || githubUser == "" || codespaceName == "" {
 		logger.Debugf("Not in a codespace environment, skipping credential update")
-		logger.Debugf("GITHUB_TOKEN: %t, GITHUB_USER: %t, CODESPACE_NAME: %t",
-			githubToken != "", githubUser != "", codespaceName != "")
+		logger.Debugf("GITHUB_TOKEN: %t, GITHUB_USER: %t, CODESPACE_NAME: %t, GITHUB_REPOSITORY: %t",
+			githubToken != "", githubUser != "", codespaceName != "", githubRepository != "")
 		return
 	}
 
@@ -50,9 +51,10 @@ func updateCodespaceCredentials() {
 
 	// Prepare the payload
 	payload := map[string]string{
-		"GITHUB_TOKEN":   githubToken,
-		"GITHUB_USER":    githubUser,
-		"CODESPACE_NAME": codespaceName,
+		"GITHUB_TOKEN":      githubToken,
+		"GITHUB_USER":       githubUser,
+		"CODESPACE_NAME":    codespaceName,
+		"GITHUB_REPOSITORY": githubRepository,
 	}
 
 	jsonPayload, err := json.Marshal(payload)
