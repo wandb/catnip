@@ -162,11 +162,9 @@ install_catnip() {
   cp $(dirname $0)/catnip-run.sh "$OPT_DIR/bin/catnip-run.sh"
   cp $(dirname $0)/catnip-stop.sh "$OPT_DIR/bin/catnip-stop.sh"
   cp $(dirname $0)/catnip-vsix.sh "$OPT_DIR/bin/catnip-vsix.sh"
-  cp $(dirname $0)/catnip-ensure.sh "$OPT_DIR/bin/catnip-ensure.sh"
   ensure_owner "$OPT_DIR/bin/catnip-run.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-stop.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-vsix.sh" "$USERNAME" "$USERGROUP"
-  ensure_owner "$OPT_DIR/bin/catnip-ensure.sh" "$USERNAME" "$USERGROUP"
 
   # 2) Root-owned init that just handles sshd startup
   tee /usr/local/share/catnip-init.sh >/dev/null <<EOF
@@ -193,8 +191,6 @@ EOF
   # Install init service for catnip auto-start
   install_init_service
 
-  # Install shell profile integration for backup catnip auto-start
-  install_shell_integration
 }
 
 install_init_service() {
@@ -220,42 +216,6 @@ install_init_service() {
   log "Or use: /etc/init.d/catnip {start|stop|restart|status}"
 }
 
-install_shell_integration() {
-  log "Installing shell profile integration for catnip auto-start..."
-  
-  local source_line="source /opt/catnip/bin/catnip-ensure.sh"
-  local marker="# catnip: auto-start integration"
-  
-  # Add to ~/.bashrc
-  local bashrc="$USERHOME/.bashrc"
-  if [[ -f "$bashrc" ]]; then
-    if ! grep -q "$marker" "$bashrc" 2>/dev/null; then
-      log "Adding catnip auto-start to $bashrc"
-      run_as_user "echo '' >> '$bashrc'"
-      run_as_user "echo '$marker' >> '$bashrc'"
-      run_as_user "echo '$source_line' >> '$bashrc'"
-      ok "Added catnip auto-start to $bashrc"
-    else
-      log "Catnip auto-start already configured in $bashrc"
-    fi
-  fi
-  
-  # Add to ~/.zshrc
-  local zshrc="$USERHOME/.zshrc"
-  if [[ -f "$zshrc" ]] || run_as_user "touch '$zshrc'"; then
-    ensure_owner "$zshrc" "$USERNAME" "$USERGROUP"
-    
-    if ! grep -q "$marker" "$zshrc" 2>/dev/null; then
-      log "Adding catnip auto-start to $zshrc"
-      run_as_user "echo '' >> '$zshrc'"
-      run_as_user "echo '$marker' >> '$zshrc'"
-      run_as_user "echo '$source_line' >> '$zshrc'"
-      ok "Added catnip auto-start to $zshrc"
-    else
-      log "Catnip auto-start already configured in $zshrc"
-    fi
-  fi
-}
 
 # --- Claude CLI ------------------------------------------------------------
 install_claude() {

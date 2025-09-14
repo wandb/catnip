@@ -9,7 +9,7 @@
 # Description:       Catnip development environment server
 ### END INIT INFO
 
-PATH=/opt/catnip/bin:/usr/local/bin:/usr/bin:/bin
+PATH=/opt/catnip/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 DESC="Catnip Development Server"
 NAME=catnip
 DAEMON=/opt/catnip/bin/catnip-run.sh
@@ -27,6 +27,9 @@ export CATNIP_WORKSPACE_DIR=/worktrees
 export CATNIP_HOME_DIR=/home/vscode
 export CATNIP_VOLUME_DIR=/workspaces/.catnip/state
 export CATNIP_LIVE_DIR=/workspaces
+export GITHUB_TOKEN="${GITHUB_TOKEN}"
+export CODESPACES="${CODESPACES}"
+export CODESPACE_NAME="${CODESPACE_NAME}"
 
 # Function that starts the daemon/service
 do_start()
@@ -49,8 +52,17 @@ do_stop()
     #   0 if daemon has been stopped
     #   1 if daemon was already stopped
     #   2 if daemon could not be stopped
-    start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE
-    RETVAL="$?"
+
+    # Try to stop by pidfile first
+    if [ -f "$PIDFILE" ] && kill -0 $(cat "$PIDFILE") 2>/dev/null; then
+        start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --pidfile $PIDFILE --chuid vscode:vscode
+        RETVAL="$?"
+    else
+        # Fallback: stop by process name/exec
+        start-stop-daemon --stop --quiet --retry=TERM/30/KILL/5 --exec $DAEMON --chuid vscode:vscode
+        RETVAL="$?"
+    fi
+
     [ "$RETVAL" = 2 ] && return 2
     rm -f $PIDFILE
     return "$RETVAL"
