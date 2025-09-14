@@ -78,9 +78,11 @@ function shouldRouteToContainer(pathname: string): boolean {
 async function checkCodespaceHealth(
   codespaceUrl: string,
   githubToken: string,
-): Promise<boolean> {
+): Promise<{ healthy: boolean; lastStatus?: number; lastError?: string }> {
   const maxAttempts = 12; // Check for up to 1 minute (12 * 5s)
   const delayMs = 5000; // 5 second intervals
+  let lastStatus: number | undefined;
+  let lastError: string | undefined;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -97,14 +99,27 @@ async function checkCodespaceHealth(
         signal: AbortSignal.timeout(3000), // 3 second timeout per request
       });
 
+      lastStatus = response.status;
+
       if (response.ok) {
         console.log(`Codespace health check passed on attempt ${attempt}`);
-        return true;
+        return { healthy: true };
       }
 
       console.log(`Health check attempt ${attempt} failed: ${response.status}`);
+
+      // If we get a 401, it's likely a token issue, stop early
+      if (response.status === 401) {
+        console.log(`Stopping health check due to 401 authentication error`);
+        return {
+          healthy: false,
+          lastStatus: 401,
+          lastError: "Authentication failed",
+        };
+      }
     } catch (error) {
       console.log(`Health check attempt ${attempt} error:`, error);
+      lastError = error instanceof Error ? error.message : String(error);
     }
 
     // Wait before next attempt (except on last attempt)
@@ -114,7 +129,7 @@ async function checkCodespaceHealth(
   }
 
   console.log(`Codespace health check failed after ${maxAttempts} attempts`);
-  return false;
+  return { healthy: false, lastStatus, lastError };
 }
 
 // Factory function to create app with environment bindings
@@ -192,18 +207,24 @@ export function createApp(env: Env) {
       ) {
         console.log(`Org subdomain auth redirect: ${org} -> catnip.run`);
 
-        // Store the org in a cookie that works across all catnip.run subdomains
+        // Store the org in a cookie that works across domains
+        const currentUrl = new URL(c.req.url);
         setCookie(c, "catnip-org-preference", org, {
-          domain: ".catnip.run",
+          domain:
+            currentUrl.hostname === "localhost" ? undefined : ".catnip.run",
           httpOnly: false, // Allow JS access for redirect logic
-          secure: true,
+          secure: currentUrl.hostname !== "localhost",
           sameSite: "Lax",
           maxAge: 60 * 60, // 1 hour
           path: "/",
         });
 
-        // Redirect to main domain for OAuth (org stored in cookie)
-        return c.redirect(`https://catnip.run/v1/auth/github`);
+        // Redirect to appropriate domain for OAuth (org stored in cookie)
+        const authDomain =
+          currentUrl.hostname === "localhost"
+            ? `${currentUrl.protocol}//${currentUrl.host}`
+            : "https://catnip.run";
+        return c.redirect(`${authDomain}/v1/auth/github`);
       }
     }
 
@@ -212,16 +233,19 @@ export function createApp(env: Env) {
 
   // GitHub OAuth - handles both login initiation and callback
   // Temporarily force OAuth App mode by not passing GitHub App credentials
-  app.use(
-    "/v1/auth/github",
-    githubAuth({
+  app.use("/v1/auth/github", async (c, next) => {
+    const currentUrl = new URL(c.req.url);
+    const redirectUri = `${currentUrl.protocol}//${currentUrl.host}/v1/auth/github`;
+
+    return githubAuth({
       client_id: env.GITHUB_CLIENT_ID,
       client_secret: env.GITHUB_CLIENT_SECRET,
       scope: ["read:user", "user:email", "repo", "codespace", "read:org"],
+      redirect_uri: redirectUri,
       // Use OAuth App mode for broader scope access
       oauthApp: true,
-    }),
-  );
+    })(c, next);
+  });
 
   // After OAuth completes
   app.get("/v1/auth/github", async (c) => {
@@ -301,6 +325,7 @@ export function createApp(env: Env) {
       return c.text("Server configuration error", 500);
     }
 
+    const currentUrl = new URL(c.req.url);
     await setSignedCookie(
       c,
       "catnip-session",
@@ -308,11 +333,11 @@ export function createApp(env: Env) {
       c.env.CATNIP_ENCRYPTION_KEY,
       {
         httpOnly: true,
-        secure: true,
+        secure: currentUrl.hostname !== "localhost",
         sameSite: "Lax",
         maxAge: 30 * 24 * 60 * 60, // 30 days - longer than token expiry to support refresh
         path: "/",
-        domain: ".catnip.run", // Allow access from all catnip.run subdomains
+        domain: currentUrl.hostname === "localhost" ? undefined : ".catnip.run", // Allow access from all catnip.run subdomains or localhost
       },
     );
 
@@ -325,13 +350,21 @@ export function createApp(env: Env) {
     // Check for org preference cookie and redirect to org subdomain
     const orgPreference = getCookie(c, "catnip-org-preference");
     if (orgPreference) {
+      const currentUrl = new URL(c.req.url);
+
       // Clear the preference cookie after use
       setCookie(c, "catnip-org-preference", "", {
-        domain: ".catnip.run",
+        domain: currentUrl.hostname === "localhost" ? undefined : ".catnip.run",
         maxAge: 0,
         path: "/",
       });
-      return c.redirect(`https://${orgPreference}.catnip.run/v1/codespace`);
+
+      // Redirect to org subdomain or localhost based on current environment
+      const redirectUrl =
+        currentUrl.hostname === "localhost"
+          ? `${currentUrl.protocol}//${currentUrl.host}/v1/codespace?org=${orgPreference}`
+          : `https://${orgPreference}.catnip.run/v1/codespace`;
+      return c.redirect(redirectUrl);
     }
 
     // Check for relative return URL
@@ -355,13 +388,14 @@ export function createApp(env: Env) {
     }
 
     // Clear cookie
+    const currentUrl = new URL(c.req.url);
     setCookie(c, "catnip-session", "", {
       httpOnly: true,
-      secure: true,
+      secure: currentUrl.hostname !== "localhost",
       sameSite: "Lax",
       maxAge: 0,
       path: "/",
-      domain: ".catnip.run", // Clear cookie from all catnip.run subdomains
+      domain: currentUrl.hostname === "localhost" ? undefined : ".catnip.run", // Clear cookie from all catnip.run subdomains or localhost
     });
 
     return c.redirect("/");
@@ -847,7 +881,7 @@ export function createApp(env: Env) {
             `Starting codespace ${targetCodespace.name} (current state: ${targetCodespace.state})`,
           );
           sendEvent("status", {
-            message: "Starting codespace",
+            message: "Starting up codespace",
             step: "starting",
           });
 
@@ -876,6 +910,13 @@ export function createApp(env: Env) {
             void writer.close();
             return;
           }
+
+          // Give the codespace a moment to start before proceeding
+          sendEvent("status", {
+            message: "Setting up codespace environment",
+            step: "setup",
+          });
+          await new Promise((resolve) => setTimeout(resolve, 3000));
         }
 
         // Check if codespace is healthy before redirecting
@@ -886,16 +927,59 @@ export function createApp(env: Env) {
         if (selectedCodespace && selectedCodespace.githubToken) {
           console.log("Checking codespace health before redirect...");
           sendEvent("status", {
-            message: "Waiting for catnip to start",
+            message: "Starting catnip server",
+            step: "catnip",
+          });
+
+          // First, try to refresh credentials in case the token is stale
+          let healthCheckToken = selectedCodespace.githubToken;
+
+          // If codespace was just started, wait a bit longer and try to refresh token
+          if (targetCodespace.state !== "Available") {
+            sendEvent("status", {
+              message: "Waiting for catnip to initialize",
+              step: "initializing",
+            });
+            await new Promise((resolve) => setTimeout(resolve, 5000));
+
+            // Try to get fresh credentials after startup
+            try {
+              const codespaceStore = c.env.CODESPACE_STORE.get(
+                c.env.CODESPACE_STORE.idFromName("global"),
+              );
+              const refreshResponse = await codespaceStore.fetch(
+                `https://internal/codespace/${username}`,
+              );
+              if (refreshResponse.ok) {
+                const refreshedCredentials =
+                  (await refreshResponse.json()) as CodespaceCredentials;
+                if (
+                  refreshedCredentials.githubToken !==
+                  selectedCodespace.githubToken
+                ) {
+                  console.log("Using refreshed GitHub token for health check");
+                  healthCheckToken = refreshedCredentials.githubToken;
+                }
+              }
+            } catch (error) {
+              console.warn(
+                "Could not refresh token, using stored token:",
+                error,
+              );
+            }
+          }
+
+          sendEvent("status", {
+            message: "Waiting for catnip to be ready",
             step: "health",
           });
 
-          const isHealthy = await checkCodespaceHealth(
+          const healthResult = await checkCodespaceHealth(
             healthCheckUrl,
-            selectedCodespace.githubToken,
+            healthCheckToken,
           );
 
-          if (isHealthy) {
+          if (healthResult.healthy) {
             sendEvent("success", {
               message: "Codespace is ready",
               codespaceUrl,
@@ -904,13 +988,49 @@ export function createApp(env: Env) {
             void writer.close();
             return;
           } else {
-            sendEvent("error", {
-              message:
-                "Codespace is starting up. Please wait a moment and try again.",
-              retryAfter: 10,
-            });
-            void writer.close();
-            return;
+            // Check if this might be a token issue by trying with the user's OAuth token
+            if (healthResult.lastStatus === 401) {
+              console.log(
+                "Health check failed with 401, trying with OAuth token as fallback",
+              );
+              const fallbackResult = await checkCodespaceHealth(
+                healthCheckUrl,
+                accessToken,
+              );
+
+              if (fallbackResult.healthy) {
+                sendEvent("success", {
+                  message: "Codespace is ready",
+                  codespaceUrl,
+                  step: "ready",
+                });
+                void writer.close();
+                return;
+              } else {
+                console.log(
+                  "Both tokens failed health check, codespace may not be ready",
+                );
+                sendEvent("error", {
+                  message:
+                    "Authentication error accessing codespace. The stored token may be expired. Please try refreshing the page.",
+                  retryAfter: 30,
+                });
+                void writer.close();
+                return;
+              }
+            } else {
+              // Other error, likely just startup related
+              console.log(
+                `Health check failed with status ${healthResult.lastStatus}: ${healthResult.lastError}`,
+              );
+              sendEvent("error", {
+                message:
+                  "Codespace is still starting up. Please wait a moment and try again.",
+                retryAfter: 15,
+              });
+              void writer.close();
+              return;
+            }
           }
         } else {
           // No stored credentials, assume it's healthy and let frontend handle
@@ -1134,403 +1254,15 @@ export function createApp(env: Env) {
       return container.fetch(c.req.raw);
     }
 
-    // Serve simple codespace landing page for main domain root
+    // Serve React app for main domain root - this will show the CodespaceAccess component
     if (isMainDomain && url.pathname === "/") {
-      const session = c.get("session");
-      const isAuthenticated = !!session;
-
-      const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Catnip - Codespace Access</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .container {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            padding: 2rem;
-            max-width: 500px;
-            text-align: center;
-        }
-        .logo {
-            font-size: 3rem;
-            margin-bottom: 0.5rem;
-        }
-        h1 {
-            color: #2d3748;
-            margin-bottom: 0.5rem;
-            font-size: 2rem;
-        }
-        .subtitle {
-            color: #718096;
-            margin-bottom: 2rem;
-            font-size: 1.1rem;
-        }
-        .btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            padding: 12px 24px;
-            font-size: 1rem;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-block;
-            transition: background 0.2s;
-        }
-        .btn:hover {
-            background: #5a6fd8;
-        }
-        .btn:disabled {
-            background: #a0aec0;
-            cursor: not-allowed;
-        }
-        .status {
-            background: #f7fafc;
-            border-radius: 8px;
-            padding: 1rem;
-            margin: 1rem 0;
-            color: #4a5568;
-        }
-        .org-input {
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid #e2e8f0;
-        }
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 1rem;
-        }
-        input {
-            flex: 1;
-            padding: 12px;
-            border: 1px solid #cbd5e0;
-            border-radius: 8px;
-            font-size: 1rem;
-        }
-        .btn-secondary {
-            background: #718096;
-        }
-        .btn-secondary:hover {
-            background: #4a5568;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="logo">🐱</div>
-        <h1>Catnip</h1>
-        <div class="subtitle">Access your GitHub Codespaces</div>
-        
-        ${
-          isAuthenticated
-            ? `
-        <button onclick="accessCodespace()" class="btn" id="codespace-btn">Access My Codespace</button>
-        <div id="status-message" class="status" style="display:none;"></div>
-        
-        <div class="disclaimer" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin: 1rem 0; color: #64748b; font-size: 0.9rem; text-align: left;">
-            <strong>Note:</strong> If you see the VSCode interface, click the back button to access your codespace again.
-        </div>
-        
-        <div class="org-input">
-            <p>Or access codespaces in a specific organization:</p>
-            <div class="input-group">
-                <input type="text" id="orgName" placeholder="Organization name (e.g., wandb)" />
-                <button onclick="goToOrg()" class="btn btn-secondary">Go</button>
-            </div>
-        </div>
-        
-        <script>
-            function goToOrg() {
-                const org = document.getElementById('orgName').value.trim();
-                if (org) {
-                    accessCodespace(org);
-                }
-            }
-            document.getElementById('orgName').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    goToOrg();
-                }
-            });
-            
-            function resetUIState() {
-                const btn = document.getElementById('codespace-btn');
-                const statusMsg = document.getElementById('status-message');
-                const orgInput = document.getElementById('orgName');
-                
-                // Reset button
-                btn.disabled = false;
-                btn.textContent = 'Access My Codespace';
-                
-                // Reset org input
-                if (orgInput) {
-                    orgInput.disabled = false;
-                    orgInput.value = '';
-                }
-                
-                // Hide status message
-                statusMsg.style.display = 'none';
-                statusMsg.textContent = '';
-                statusMsg.style.background = '';
-                statusMsg.innerHTML = '';
-            }
-            
-            async function accessCodespace(org = null) {
-                const btn = document.getElementById('codespace-btn');
-                const statusMsg = document.getElementById('status-message');
-                const orgInput = document.getElementById('orgName');
-                
-                // Disable buttons and show loading
-                btn.disabled = true;
-                btn.textContent = 'Connecting...';
-                if (orgInput) orgInput.disabled = true;
-                statusMsg.style.display = 'block';
-                statusMsg.className = 'status';
-                statusMsg.textContent = '🔄 Finding your codespace...';
-                statusMsg.style.background = '#f0f9ff';
-                
-                // Use Server-Sent Events for real-time updates
-                const url = org ? \`https://\${org}.catnip.run/v1/codespace\` : '/v1/codespace';
-                const eventSource = new EventSource(url);
-                
-                eventSource.addEventListener('status', (event) => {
-                    const data = JSON.parse(event.data);
-                    const icon = data.step === 'search' ? '🔍' :
-                               data.step === 'starting' ? '⚡' :
-                               data.step === 'health' ? '⏳' : '🔄';
-                    statusMsg.textContent = \`\${icon} \${data.message}\`;
-                    statusMsg.style.background = '#f0f9ff';
-                });
-                
-                eventSource.addEventListener('success', (event) => {
-                    const data = JSON.parse(event.data);
-                    statusMsg.textContent = '✅ ' + data.message;
-                    statusMsg.style.background = '#f0fff4';
-                    eventSource.close();
-                    
-                    setTimeout(() => {
-                        // Reset UI state before redirect so back button shows clean state
-                        resetUIState();
-                        window.location.href = data.codespaceUrl;
-                    }, 1000);
-                });
-                
-                eventSource.addEventListener('error', (event) => {
-                    const data = JSON.parse(event.data);
-                    statusMsg.textContent = '❌ ' + data.message;
-                    statusMsg.style.background = '#fef2f2';
-                    eventSource.close();
-                    
-                    // Re-enable buttons
-                    btn.disabled = false;
-                    btn.textContent = 'Access My Codespace';
-                    if (orgInput) orgInput.disabled = false;
-                    
-                    // Handle retry logic
-                    if (data.retryAfter) {
-                        setTimeout(() => {
-                            accessCodespace(org);
-                        }, data.retryAfter * 1000);
-                    }
-                });
-                
-                eventSource.addEventListener('setup', (event) => {
-                    const data = JSON.parse(event.data);
-                    showSetupInstructions(data.org);
-                    eventSource.close();
-                    
-                    // Re-enable buttons
-                    btn.disabled = false;
-                    btn.textContent = 'Access My Codespace';
-                    if (orgInput) orgInput.disabled = false;
-                });
-                
-                eventSource.addEventListener('multiple', (event) => {
-                    const data = JSON.parse(event.data);
-                    showCodespaceSelection(data.codespaces, data.org);
-                    eventSource.close();
-                    
-                    // Re-enable buttons
-                    btn.disabled = false;
-                    btn.textContent = 'Access My Codespace';
-                    if (orgInput) orgInput.disabled = false;
-                });
-                
-                // Handle connection errors
-                eventSource.onerror = (error) => {
-                    statusMsg.textContent = '❌ Connection failed. Please try again.';
-                    statusMsg.style.background = '#fef2f2';
-                    eventSource.close();
-                    
-                    // Re-enable buttons
-                    btn.disabled = false;
-                    btn.textContent = 'Access My Codespace';
-                    if (orgInput) orgInput.disabled = false;
-                };
-            }
-            
-            function showCodespaceSelection(codespaces, org) {
-                const statusMsg = document.getElementById('status-message');
-                const orgText = org ? \` in the "\${org}" organization\` : '';
-                
-                const codespaceOptions = codespaces.map((cs, index) => {
-                    const lastUsedDate = new Date(cs.lastUsed).toLocaleString();
-                    return \`
-                        <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin: 0.5rem 0; cursor: pointer; transition: background 0.2s;"
-                             onclick="selectCodespace('\${cs.name}', '\${org || ''}')"
-                             onmouseover="this.style.background='#f7fafc'"
-                             onmouseout="this.style.background='white'">
-                            <div style="font-weight: 600; color: #2d3748; margin-bottom: 0.25rem;">
-                                \${cs.name.replace(/-/g, ' ')}
-                            </div>
-                            <div style="font-size: 0.9rem; color: #718096;">
-                                Last used: \${lastUsedDate}
-                            </div>
-                        </div>
-                    \`;
-                }).join('');
-                
-                statusMsg.innerHTML = \`
-                    <div style="text-align: left; line-height: 1.5;">
-                        <h3 style="margin-top: 0; color: #2d3748;">🔍 Select Codespace</h3>
-                        <p>Multiple codespaces found\${orgText}. Please select one to connect:</p>
-                        \${codespaceOptions}
-                    </div>
-                \`;
-                statusMsg.style.background = '#f7fafc';
-                statusMsg.style.display = 'block';
-            }
-            
-            function selectCodespace(codespaceName, org) {
-                // Reset UI
-                const btn = document.getElementById('codespace-btn');
-                btn.disabled = false;
-                btn.textContent = 'Access My Codespace';
-                
-                // Call accessCodespace with specific codespace parameter
-                const url = org ? \`https://\${org}.catnip.run/v1/codespace?codespace=\${encodeURIComponent(codespaceName)}\` : 
-                                  \`/v1/codespace?codespace=\${encodeURIComponent(codespaceName)}\`;
-                
-                // Update the access function to use the specific codespace
-                accessCodespaceSpecific(url, org);
-            }
-            
-            async function accessCodespaceSpecific(url, org) {
-                const btn = document.getElementById('codespace-btn');
-                const statusMsg = document.getElementById('status-message');
-                
-                // Show loading
-                btn.disabled = true;
-                btn.textContent = 'Connecting...';
-                statusMsg.textContent = '🔄 Connecting to selected codespace...';
-                statusMsg.style.background = '#f0f9ff';
-                
-                // Use Server-Sent Events for real-time updates
-                const eventSource = new EventSource(url);
-                
-                eventSource.addEventListener('status', (event) => {
-                    const data = JSON.parse(event.data);
-                    const icon = data.step === 'search' ? '🔍' :
-                               data.step === 'starting' ? '⚡' :
-                               data.step === 'health' ? '⏳' : '🔄';
-                    statusMsg.textContent = \`\${icon} \${data.message}\`;
-                    statusMsg.style.background = '#f0f9ff';
-                });
-                
-                eventSource.addEventListener('success', (event) => {
-                    const data = JSON.parse(event.data);
-                    statusMsg.textContent = '✅ ' + data.message;
-                    statusMsg.style.background = '#f0fff4';
-                    eventSource.close();
-                    
-                    setTimeout(() => {
-                        // Reset UI state before redirect so back button shows clean state
-                        resetUIState();
-                        window.location.href = data.codespaceUrl;
-                    }, 1000);
-                });
-                
-                eventSource.addEventListener('error', (event) => {
-                    const data = JSON.parse(event.data);
-                    statusMsg.textContent = '❌ ' + data.message;
-                    statusMsg.style.background = '#fef2f2';
-                    eventSource.close();
-                    
-                    // Re-enable button
-                    btn.disabled = false;
-                    btn.textContent = 'Access My Codespace';
-                    
-                    // Handle retry logic
-                    if (data.retryAfter) {
-                        setTimeout(() => {
-                            accessCodespaceSpecific(url, org);
-                        }, data.retryAfter * 1000);
-                    }
-                });
-                
-                // Handle connection errors
-                eventSource.onerror = (error) => {
-                    statusMsg.textContent = '❌ Connection failed. Please try again.';
-                    statusMsg.style.background = '#fef2f2';
-                    eventSource.close();
-                    
-                    // Re-enable button
-                    btn.disabled = false;
-                    btn.textContent = 'Access My Codespace';
-                };
-            }
-
-            function showSetupInstructions(org) {
-                const statusMsg = document.getElementById('status-message');
-                const orgText = org ? \` in the "\${org}" organization\` : '';
-                statusMsg.innerHTML = \`
-                    <div style="text-align: left; line-height: 1.5;">
-                        <h3 style="margin-top: 0; color: #2d3748;">📋 Setup Required</h3>
-                        <p>No Catnip codespaces found\${orgText}. To use Catnip, you need to:</p>
-                        <ol style="margin: 1rem 0; padding-left: 1.5rem;">
-                            <li>Add this to your <code>.devcontainer/devcontainer.json</code>:
-                                <pre style="background: #f7fafc; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0; font-size: 0.9rem; overflow-x: auto;">"features": {
-  "ghcr.io/wandb/catnip/feature:1": {}
-}</pre>
-                            </li>
-                            <li>Create a new codespace from your repository</li>
-                            <li>Return here to access your codespace</li>
-                        </ol>
-                        <p><a href="https://github.com/codespaces" target="_blank" style="color: #667eea;">Open GitHub Codespaces →</a></p>
-                    </div>
-                \`;
-                statusMsg.style.background = '#f7fafc';
-                statusMsg.style.display = 'block';
-            }
-        </script>
-        `
-            : `
-        <div class="status">
-            Please authenticate with GitHub to access your codespaces
-        </div>
-        <a href="/v1/auth/github" class="btn">Login with GitHub</a>
-        `
-        }
-    </div>
-</body>
-</html>`;
-
-      return new Response(html, {
-        headers: { "Content-Type": "text/html" },
-      });
+      try {
+        return await c.env.ASSETS.fetch(c.req.raw);
+      } catch (e: any) {
+        console.error("Failed to serve React app:", e);
+        void e; // Acknowledge the error variable
+        return c.text("Static asset serving not configured", 503);
+      }
     }
 
     // All other requests go to static assets

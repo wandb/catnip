@@ -4,7 +4,6 @@ import { WebSocketProvider } from "@/lib/websocket-context";
 import { Navbar } from "@/components/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { Link } from "@tanstack/react-router";
-import { useWebSocket } from "@/lib/hooks";
 import { Suspense } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider } from "@/lib/auth-context";
@@ -16,13 +15,39 @@ import { GitHubAuthModal } from "@/components/GitHubAuthModal";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { NotificationProvider } from "@/components/NotificationProvider";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { CodespaceAccess } from "@/components/CodespaceAccess";
+import { shouldShowCodespaceAccess } from "@/lib/utils/codespace-access";
+
+function CodespaceAccessLayout() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  return (
+    <>
+      <CodespaceAccess
+        isAuthenticated={!isLoading && isAuthenticated}
+        onLogin={() => (window.location.href = "/v1/auth/github")}
+      />
+      <Toaster />
+    </>
+  );
+}
 
 function RootLayout() {
   const location = useLocation();
-  const { isConnected } = useWebSocket();
   const { isAuthenticated, isLoading, authRequired } = useAuth();
   const { showAuthModal, setShowAuthModal } = useGitHubAuth();
   const isMobile = useIsMobile();
+
+  // Check if we should show the codespace access interface
+  const isCodespaceAccessMode = shouldShowCodespaceAccess();
+
+  // If we should show codespace access, render that instead
+  if (isCodespaceAccessMode) {
+    return <CodespaceAccessLayout />;
+  }
+
+  // For now, assume connection is always true for simplicity
+  const isConnected = true;
 
   // Check if we're on a workspace route
   const isWorkspaceRoute = location.pathname.startsWith("/workspace");
@@ -112,6 +137,17 @@ function RootLayout() {
 }
 
 function RootComponent() {
+  const isCodespaceAccessMode = shouldShowCodespaceAccess();
+
+  // In codespace access mode, skip most providers that try to connect to APIs
+  if (isCodespaceAccessMode) {
+    return (
+      <AuthProvider>
+        <RootLayout />
+      </AuthProvider>
+    );
+  }
+
   return (
     <AuthProvider>
       <WebSocketProvider>

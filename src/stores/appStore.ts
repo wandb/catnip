@@ -10,6 +10,7 @@ import type {
 } from "../lib/git-api";
 import { gitApi } from "../lib/git-api";
 import { useNotifications } from "../lib/useNotifications";
+import { shouldShowCodespaceAccess } from "../lib/utils/codespace-access";
 
 interface Port {
   port: number;
@@ -865,11 +866,12 @@ export const useAppStore = create<AppState>()(
   })),
 );
 
-// Auto-connect SSE and load initial data on store creation
-useAppStore.getState().connectSSE();
-
-// Load initial data after store creation
-void useAppStore.getState().loadInitialData();
+// Auto-connect SSE and load initial data on store creation (only if not in codespace access mode)
+if (!shouldShowCodespaceAccess()) {
+  useAppStore.getState().connectSSE();
+  // Load initial data after store creation
+  void useAppStore.getState().loadInitialData();
+}
 
 // Cleanup on page unload
 if (typeof window !== "undefined") {
