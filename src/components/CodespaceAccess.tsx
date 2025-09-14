@@ -114,12 +114,6 @@ export function CodespaceAccess({
       setError("❌ " + data.message);
       setIsConnecting(false);
       eventSource.close();
-
-      if (data.retryAfter) {
-        setTimeout(() => {
-          void accessCodespace(org, codespaceName);
-        }, data.retryAfter * 1000);
-      }
     });
 
     eventSource.addEventListener("setup", (event: MessageEvent) => {
