@@ -38,14 +38,6 @@ function RootLayout() {
   const { showAuthModal, setShowAuthModal } = useGitHubAuth();
   const isMobile = useIsMobile();
 
-  // Check if we should show the codespace access interface
-  const isCodespaceAccessMode = shouldShowCodespaceAccess();
-
-  // If we should show codespace access, render that instead
-  if (isCodespaceAccessMode) {
-    return <CodespaceAccessLayout />;
-  }
-
   // For now, assume connection is always true for simplicity
   const isConnected = true;
 
@@ -139,15 +131,16 @@ function RootLayout() {
 function RootComponent() {
   const isCodespaceAccessMode = shouldShowCodespaceAccess();
 
-  // In codespace access mode, skip most providers that try to connect to APIs
+  // In codespace access mode, only render the codespace access interface
   if (isCodespaceAccessMode) {
     return (
       <AuthProvider>
-        <RootLayout />
+        <CodespaceAccessLayout />
       </AuthProvider>
     );
   }
 
+  // Normal app with all providers
   return (
     <AuthProvider>
       <WebSocketProvider>
