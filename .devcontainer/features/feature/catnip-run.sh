@@ -39,7 +39,7 @@ if [[ -f "$OPT_DIR/catnip.pid" ]]; then
     exit 0
   else
     warn "PID $PID from $OPT_DIR/catnip.pid no longer exists, removing stale PID file"
-    rm -f "$OPT_DIR/catnip.pid"
+    sudo rm -f "$OPT_DIR/catnip.pid"
   fi
 fi
 
@@ -56,8 +56,11 @@ fi
 if command -v catnip >/dev/null 2>&1; then
   log "launching catnip with nohup"
   nohup catnip serve >>"$LOG" 2>&1 &
-  echo $! > "$OPT_DIR/catnip.pid"
-  log "catnip pid $(cat "$OPT_DIR/catnip.pid")" >> "$LOG"
+  PID=$!
+  echo $PID | sudo tee "$OPT_DIR/catnip.pid" >/dev/null
+  sudo chown root:root "$OPT_DIR/catnip.pid"
+  sudo chmod 644 "$OPT_DIR/catnip.pid"
+  log "catnip pid $PID" >> "$LOG"
 else
   warn "catnip not on PATH=$PATH" >> "$LOG"
 fi

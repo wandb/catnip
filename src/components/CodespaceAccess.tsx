@@ -23,6 +23,7 @@ import {
 interface CodespaceInfo {
   name: string;
   lastUsed: number;
+  repository?: string;
 }
 
 interface StatusEvent {
@@ -114,12 +115,6 @@ export function CodespaceAccess({
       setError("❌ " + data.message);
       setIsConnecting(false);
       eventSource.close();
-
-      if (data.retryAfter) {
-        setTimeout(() => {
-          void accessCodespace(org, codespaceName);
-        }, data.retryAfter * 1000);
-      }
     });
 
     eventSource.addEventListener("setup", (event: MessageEvent) => {
@@ -149,7 +144,7 @@ export function CodespaceAccess({
 
   const goToOrg = () => {
     if (orgName.trim()) {
-      void accessCodespace(orgName.trim());
+      window.location.href = `https://${orgName.trim()}.catnip.run`;
     }
   };
 
@@ -232,7 +227,7 @@ export function CodespaceAccess({
             </ol>
             <Button
               asChild
-              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
             >
               <a
                 href="https://github.com/codespaces"
@@ -272,7 +267,7 @@ export function CodespaceAccess({
               Please select one to connect:
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-2">
             {codespaces.map((cs, index) => (
               <Card
                 key={index}
@@ -281,10 +276,15 @@ export function CodespaceAccess({
                   accessCodespace(selectedOrg || undefined, cs.name)
                 }
               >
-                <CardContent className="p-4">
+                <CardContent className="p-3">
                   <div className="font-semibold text-white mb-1">
                     {cs.name.replace(/-/g, " ")}
                   </div>
+                  {cs.repository && (
+                    <div className="text-sm text-blue-400 mb-1">
+                      {cs.repository}
+                    </div>
+                  )}
                   <div className="text-sm text-gray-400">
                     Last used: {new Date(cs.lastUsed).toLocaleString()}
                   </div>
@@ -306,7 +306,9 @@ export function CodespaceAccess({
           </div>
           <CardTitle className="text-2xl text-white">Catnip</CardTitle>
           <CardDescription className="text-gray-400">
-            Access your GitHub Codespaces
+            {orgName.trim()
+              ? `Access GitHub Codespaces in ${orgName.trim()}`
+              : "Access your GitHub Codespaces"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

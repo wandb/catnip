@@ -9,11 +9,11 @@ OPT_DIR="/opt/catnip"
 
 if [[ -f $OPT_DIR/catnip.pid ]]; then
   PID=$(cat $OPT_DIR/catnip.pid)
-  
+
   # Check if the process actually exists
   if ! kill -0 $PID 2>/dev/null; then
     warn "PID $PID from $OPT_DIR/catnip.pid no longer exists, removing stale PID file"
-    rm -f $OPT_DIR/catnip.pid
+    sudo rm -f $OPT_DIR/catnip.pid
     exit 0
   fi
   
@@ -54,7 +54,7 @@ if [[ -f $OPT_DIR/catnip.pid ]]; then
   else
     ok "process terminated successfully"
   fi
-  rm -f $OPT_DIR/catnip.pid
+  sudo rm -f $OPT_DIR/catnip.pid
 else
   warn "$OPT_DIR/catnip.pid file not found, nothing to do"
 fi
