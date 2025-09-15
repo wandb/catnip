@@ -82,7 +82,7 @@ async function checkCodespaceHealth(
   codespaceUrl: string,
   githubToken: string,
 ): Promise<{ healthy: boolean; lastStatus?: number; lastError?: string }> {
-  const maxAttempts = 12; // Check for up to 1 minute (12 * 5s)
+  const maxAttempts = 8; // Check for up to 40 seconds (8 * 5s)
   const delayMs = 5000; // 5 second intervals
   let lastStatus: number | undefined;
   let lastError: string | undefined;
@@ -131,7 +131,9 @@ async function checkCodespaceHealth(
     }
   }
 
-  console.log(`Codespace health check failed after ${maxAttempts} attempts`);
+  console.log(
+    `Codespace health check failed after ${maxAttempts} attempts (40 seconds)`,
+  );
   return { healthy: false, lastStatus, lastError };
 }
 
@@ -775,6 +777,10 @@ export function createApp(env: Env) {
           // Check if user is requesting a specific codespace
           const requestedCodespace = c.req.query("codespace");
 
+          console.log(
+            `Codespace request debug - requestedCodespace: "${requestedCodespace}"`,
+          );
+
           if (requestedCodespace) {
             // Try to get specific codespace first
             const specificResponse = await codespaceStore.fetch(
@@ -799,47 +805,79 @@ export function createApp(env: Env) {
               storedCodespaces =
                 (await allResponse.json()) as CodespaceCredentials[];
 
-              if (storedCodespaces.length === 1) {
-                selectedCodespace = storedCodespaces[0];
-              } else if (storedCodespaces.length > 1) {
-                // Filter by org if accessing via org subdomain
-                if (orgFromSubdomain) {
-                  const orgCodespaces = storedCodespaces.filter(
-                    (cs) =>
-                      // First try exact match with stored org info
-                      cs.githubOrg === orgFromSubdomain ||
-                      // Fallback to name-based matching for backwards compatibility
-                      cs.codespaceName.includes(orgFromSubdomain) ||
-                      cs.codespaceName.includes(`${orgFromSubdomain}-`),
+              // If a specific codespace was requested, try to find it in the list
+              if (requestedCodespace) {
+                console.log(
+                  `Looking for codespace "${requestedCodespace}" in list of ${storedCodespaces.length} codespaces:`,
+                );
+                storedCodespaces.forEach((cs, i) => {
+                  console.log(`  ${i}: "${cs.codespaceName}"`);
+                });
+
+                selectedCodespace =
+                  storedCodespaces.find(
+                    (cs) => cs.codespaceName === requestedCodespace,
+                  ) || null;
+
+                if (!selectedCodespace) {
+                  console.log(
+                    `Codespace "${requestedCodespace}" not found in stored codespaces`,
                   );
-                  if (orgCodespaces.length === 1) {
-                    selectedCodespace = orgCodespaces[0];
-                  } else if (orgCodespaces.length > 1) {
+                  sendEvent("error", {
+                    message: `Requested codespace "${requestedCodespace}" not found.`,
+                  });
+                  void writer.close();
+                  return;
+                } else {
+                  console.log(
+                    `Found requested codespace: ${selectedCodespace.codespaceName}`,
+                  );
+                }
+              } else {
+                // No specific codespace requested, handle multiple codespace logic
+                if (storedCodespaces.length === 1) {
+                  selectedCodespace = storedCodespaces[0];
+                } else if (storedCodespaces.length > 1) {
+                  // Filter by org if accessing via org subdomain
+                  if (orgFromSubdomain) {
+                    const orgCodespaces = storedCodespaces.filter(
+                      (cs) =>
+                        // First try exact match with stored org info
+                        cs.githubOrg === orgFromSubdomain ||
+                        // Fallback to name-based matching for backwards compatibility
+                        cs.codespaceName.includes(orgFromSubdomain) ||
+                        cs.codespaceName.includes(`${orgFromSubdomain}-`),
+                    );
+                    if (orgCodespaces.length === 1) {
+                      selectedCodespace = orgCodespaces[0];
+                    } else if (orgCodespaces.length > 1) {
+                      sendEvent("multiple", {
+                        message:
+                          "Multiple codespaces found. Please select one.",
+                        codespaces: orgCodespaces.map((cs) => ({
+                          name: cs.codespaceName,
+                          lastUsed: cs.updatedAt,
+                          repository: cs.githubRepository,
+                        })),
+                        org: orgFromSubdomain,
+                      });
+                      void writer.close();
+                      return;
+                    }
+                  } else {
+                    // Multiple codespaces and no org filter - user needs to choose
                     sendEvent("multiple", {
                       message: "Multiple codespaces found. Please select one.",
-                      codespaces: orgCodespaces.map((cs) => ({
+                      codespaces: storedCodespaces.map((cs) => ({
                         name: cs.codespaceName,
                         lastUsed: cs.updatedAt,
                         repository: cs.githubRepository,
                       })),
-                      org: orgFromSubdomain,
+                      org: null,
                     });
                     void writer.close();
                     return;
                   }
-                } else {
-                  // Multiple codespaces and no org filter - user needs to choose
-                  sendEvent("multiple", {
-                    message: "Multiple codespaces found. Please select one.",
-                    codespaces: storedCodespaces.map((cs) => ({
-                      name: cs.codespaceName,
-                      lastUsed: cs.updatedAt,
-                      repository: cs.githubRepository,
-                    })),
-                    org: null,
-                  });
-                  void writer.close();
-                  return;
                 }
               }
             }
@@ -1081,6 +1119,7 @@ export function createApp(env: Env) {
               sendEvent("error", {
                 message:
                   "Authentication error accessing codespace. The stored credentials may be expired or the codespace may not have sent fresh credentials yet. Please wait a moment and try again, or check that Catnip is properly installed in your codespace.",
+                codespaceName: targetCodespace.name,
                 retryAfter: 30,
               });
               void writer.close();
@@ -1093,6 +1132,7 @@ export function createApp(env: Env) {
               sendEvent("error", {
                 message:
                   "Codespace is still starting up. Please wait a moment and try again.",
+                codespaceName: targetCodespace.name,
                 retryAfter: 15,
               });
               void writer.close();

@@ -5,7 +5,7 @@
 
 **The developer environment that's like catnip for agentic programming.**
 
-**🎯 Perfect for**: Building LLM applications, agentic systems, or any project where you want multiple AI coding assistants working in parallel without stepping on each other's toes.
+**🎯 Perfect for**: Getting the most out of coding agents. Catnip helps you stay organized, run many agents in parallel, and operate agents on the go with our mobile interface.
 
 [![GitHub Stars](https://img.shields.io/github/stars/wandb/catnip?style=social)](https://github.com/wandb/catnip)
 [![Docker Pulls](https://img.shields.io/docker/pulls/wandb/catnip)](https://hub.docker.com/r/wandb/catnip)
@@ -43,6 +43,7 @@ Think of Catnip as a **multi-agent coding workspace** that solves the chaos of h
 - **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK]
   (https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
 - **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
+- **📱 Mobile Interface**: Catnip works on a mobile device. It's like having your own OpenAI Codex service.
 - **💻 Full Terminal Access**: Open multiple terminals via the web interface, CLI, or directly via SSH.
 - **👀 Preview Changes**: Catnip has a built in proxy and port detection. Start a web service and preview it live!
 - **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is supported.
@@ -51,7 +52,7 @@ Think of Catnip as a **multi-agent coding workspace** that solves the chaos of h
 
 ### Github Codespaces / Devcontainers
 
-You can add Catnip to your `.devcontainer/devcontainer.json`:
+You can add Catnip to a `.devcontainer/devcontainer.json` in an existing GitHub repository. This gives you complete control over the environment that claude operates in. If you don't have a devcontainer config, add the following to your repo's github url: `/new/main?dev_container_template=1&filename=.devcontainer%2Fdevcontainer.json` to create one. Just add the catnip feature and ensure the port is forwarded:
 
 ```json
 {
@@ -64,9 +65,17 @@ You can add Catnip to your `.devcontainer/devcontainer.json`:
 }
 ```
 
-Look for the cat logo in left sidebar. That will allow you to open the catnip interface in a new tab.
+> [!TIP]
+> Why 6369 you might ask? Type C A T S on your telephone keypad and you'll find the answer 🤓
+
+Once your codespace is loaded, look for the cat logo in left sidebar. That will allow you to open the catnip interface in a new tab. You can also use catnip from a mobile device! Goto [catnip.run](https://catnip.run) and login to your github account. We will automatically start your codespace if needed and then redirect you to the catnip mobile interface. Finally you can vibe code on the go!
+
+> [!NOTE]
+> To make this work, catnip pings our service running at catnip.run with the name of the codespace and repo it's running in when it boots up. This means you need to start the codespace from the GitHub UI or CLI at least once to be able to access the codespace on mobile. We also store the temporary GITHUB_TOKEN in our backend so we can verify catnip is running within a private codespace. These credentials are encrypted and pruned every 24 hours, see [codespace-store.ts](./worker/codespace-store.ts)
 
 ### Local Development
+
+You can also run catnip locally:
 
 ```bash
 curl -sSfL install.catnip.sh | sh
@@ -76,7 +85,7 @@ catnip run
 # Open http://localhost:6369 🎉
 ```
 
-`catnip` is a golang binary with a vite SPA embedded in it. The [wandb/catnip](./container/Dockerfile) container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container.
+`catnip` is a golang binary with a vite SPA embedded in it. The [wandb/catnip](./container/Dockerfile) container was inspired by the [openai/codex-universal](https://github.com/openai/codex-universal) container. Calling `catnip run` starts the universal container with catnip pre-installed.
 
 It comes pre-configured with node, python, golang, gcc, and rust. You can have the container install a different version of the language on boot by setting any of these environment variables:
 
@@ -89,7 +98,7 @@ CATNIP_GO_VERSION=1.22
 ```
 
 > [!NOTE]
-> In the future we intend to support custom base images.
+> If you want complete control of your environment, run catnip in a devcontainer as described above
 
 ### Environment Setup
 
@@ -157,7 +166,8 @@ This is especially powerful for LLM and agentic application development where yo
 
 ### Coming Soon
 
-- [ ] 🎯 Custom base images
+- [x] 🎯 Native devcontainer support
+- [x] 📱 Mobile UI
 - [ ] 🔄 Restore to previous checkpoints
 - [ ] 🤖 Support for more AI coding agents
 - [ ] 🌐 Cloud based deployments

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -80,7 +80,21 @@ export function CodespaceAccess({
   };
 
   const accessCodespace = async (org?: string, codespaceName?: string) => {
-    resetState();
+    if (!codespaceName) {
+      resetState();
+    } else {
+      setError("");
+      setCodespaces([]);
+      setShowSetup(false);
+
+      // Update browser URL with codespace parameters
+      const url = new URL(window.location.href);
+      url.searchParams.set("cs", codespaceName);
+      if (org) {
+        url.searchParams.set("org", org);
+      }
+      window.history.pushState({}, "", url.toString());
+    }
     setIsConnecting(true);
     setStatusMessage("🔄 Finding your codespace...");
     setStatusStep("search");
@@ -112,7 +126,18 @@ export function CodespaceAccess({
 
     eventSource.addEventListener("error", (event: MessageEvent) => {
       const data = JSON.parse(event.data);
-      setError("❌ " + data.message);
+
+      let codespaceUrl = "#";
+      const targetCodespace = codespaceName || data.codespaceName;
+      if (targetCodespace) {
+        codespaceUrl = `https://${targetCodespace}.github.dev`;
+      }
+
+      const errorMessage =
+        codespaceUrl !== "#"
+          ? `❌ Ensure you've added 6369 to the forwardPorts directory in your devcontainer.json. You can also try <a href="${codespaceUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">accessing the codespace directly</a>.`
+          : `❌ Ensure you've added 6369 to the forwardPorts directory in your devcontainer.json. Please try again.`;
+      setError(errorMessage);
       setIsConnecting(false);
       eventSource.close();
     });
@@ -128,16 +153,42 @@ export function CodespaceAccess({
 
     eventSource.addEventListener("multiple", (event: MessageEvent) => {
       const data = JSON.parse(event.data);
-      setCodespaces(data.codespaces);
-      setShowSelection(true);
-      setSelectedOrg(data.org);
-      setIsConnecting(false);
-      eventSource.close();
+      const urlParams = new URLSearchParams(window.location.search);
+      const codespaceName = urlParams.get("cs");
+
+      if (!codespaceName) {
+        setCodespaces(data.codespaces);
+        setShowSelection(true);
+        setSelectedOrg(data.org);
+        setIsConnecting(false);
+        eventSource.close();
+      } else {
+        // If we requested a specific codespace but got multiple, that's an error
+        setError(
+          `❌ Requested codespace "${codespaceName}" not found in your available codespaces.`,
+        );
+        setIsConnecting(false);
+        eventSource.close();
+      }
     });
 
     eventSource.onerror = () => {
-      setError("❌ Connection failed. Please try again.");
+      const urlParams = new URLSearchParams(window.location.search);
+      const targetCodespace = codespaceName || urlParams.get("cs");
+
+      let errorMessage =
+        "❌ Connection failed. Ensure you've added 6369 to the forwardPorts directory in your devcontainer.json.";
+      if (targetCodespace) {
+        const codespaceUrl = `https://${targetCodespace}.github.dev`;
+        errorMessage += ` You can also try <a href="${codespaceUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">accessing the codespace directly</a>.`;
+      } else {
+        errorMessage += " Please try again.";
+      }
+
+      setError(errorMessage);
       setIsConnecting(false);
+      setStatusMessage("");
+      setStatusStep(null);
       eventSource.close();
     };
   };
@@ -153,6 +204,20 @@ export function CodespaceAccess({
       goToOrg();
     }
   };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const codespaceName = urlParams.get("cs");
+      const orgParam = urlParams.get("org");
+
+      if (codespaceName) {
+        void accessCodespace(orgParam || undefined, codespaceName);
+      } else if (orgParam) {
+        setOrgName(orgParam);
+      }
+    }
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return (
@@ -268,29 +333,33 @@ export function CodespaceAccess({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            {codespaces.map((cs, index) => (
-              <Card
-                key={index}
-                className="bg-gray-900 border-gray-700 cursor-pointer transition-colors hover:bg-gray-800"
-                onClick={() =>
-                  accessCodespace(selectedOrg || undefined, cs.name)
-                }
-              >
-                <CardContent className="p-3">
-                  <div className="font-semibold text-white mb-1">
-                    {cs.name.replace(/-/g, " ")}
-                  </div>
-                  {cs.repository && (
-                    <div className="text-sm text-blue-400 mb-1">
-                      {cs.repository}
-                    </div>
-                  )}
-                  <div className="text-sm text-gray-400">
-                    Last used: {new Date(cs.lastUsed).toLocaleString()}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            {codespaces.map((cs, index) => {
+              const url = new URL(window.location.href);
+              url.searchParams.set("cs", cs.name);
+              if (selectedOrg) {
+                url.searchParams.set("org", selectedOrg);
+              }
+
+              return (
+                <a key={index} href={url.toString()} className="block">
+                  <Card className="bg-gray-900 border-gray-700 cursor-pointer transition-colors hover:bg-gray-800">
+                    <CardContent className="p-3">
+                      <div className="font-semibold text-white mb-1">
+                        {cs.name.replace(/-/g, " ")}
+                      </div>
+                      {cs.repository && (
+                        <div className="text-sm text-blue-400 mb-1">
+                          {cs.repository}
+                        </div>
+                      )}
+                      <div className="text-sm text-gray-400">
+                        Last used: {new Date(cs.lastUsed).toLocaleString()}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </a>
+              );
+            })}
           </CardContent>
         </Card>
       </div>
@@ -346,7 +415,10 @@ export function CodespaceAccess({
           {error && (
             <Card className="bg-red-950/50 border-red-800/50">
               <CardContent className="p-3">
-                <span className="text-red-100 font-medium">{error}</span>
+                <span
+                  className="text-red-100 font-medium text-sm"
+                  dangerouslySetInnerHTML={{ __html: error }}
+                />
               </CardContent>
             </Card>
           )}
