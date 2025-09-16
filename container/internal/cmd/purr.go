@@ -18,8 +18,9 @@ import (
 )
 
 var purrCmd = &cobra.Command{
-	Use:   "purr [command...]",
-	Short: "Execute command while intercepting terminal title changes",
+	Use:    "purr [command...]",
+	Short:  "Execute command while intercepting terminal title changes",
+	Hidden: true,
 	Long: `Execute a command while monitoring its output for terminal title escape sequences.
 	
 This command wraps another command and logs any terminal title changes to a file

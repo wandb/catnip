@@ -70,8 +70,9 @@ This command will:
 }
 
 var hookCmd = &cobra.Command{
-	Use:   "hook",
-	Short: "Process Claude Code hook events (internal use)",
+	Use:    "hook",
+	Short:  "Process Claude Code hook events (internal use)",
+	Hidden: true,
 	Long: `# 🪝 Process Claude Code Hook Events
 
 This command processes hook events from Claude Code and forwards them to the catnip server.

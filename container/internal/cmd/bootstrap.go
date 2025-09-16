@@ -13,8 +13,9 @@ import (
 )
 
 var bootstrapCmd = &cobra.Command{
-	Use:   "bootstrap",
-	Short: "🚀 Bootstrap Catnip environment with required dependencies",
+	Use:    "bootstrap",
+	Short:  "🚀 Bootstrap Catnip environment with required dependencies",
+	Hidden: true,
 	Long: `# 🐱 Bootstrap Catnip Environment
 
 **Ensures all required dependencies are installed for optimal Catnip experience.**
