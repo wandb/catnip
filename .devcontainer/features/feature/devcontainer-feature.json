@@ -1,6 +1,6 @@
 {
   "id": "feature",
-  "version": "1.0.17",
+  "version": "1.1.0",
   "name": "catnip",
   "description": "Ensures SSH, installs catnip, Claude CLI, GitHub CLI, and Catnip VS Code sidebar extension.",
   "options": {
@@ -11,7 +11,17 @@
     },
     "installCatnip": { "type": "boolean", "default": true },
     "installClaude": { "type": "boolean", "default": true },
-    "installGh": { "type": "boolean", "default": true }
+    "installGh": { "type": "boolean", "default": true },
+    "debug": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable debug mode for enhanced logging and troubleshooting"
+    },
+    "dev": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable development mode for internal testing"
+    }
   },
   "entrypoint": "/usr/local/share/catnip-init.sh",
   "customizations": {

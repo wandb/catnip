@@ -3,6 +3,10 @@ set -euo pipefail
 
 SSHD_PORT="${SSHD_PORT:-2222}"
 
+# Feature options
+DEBUG="${DEBUG:-false}"
+CATNIP_DEV="${CATNIP_DEV:-false}"
+
 # --- user ------------------------------------------------------------------
 USERNAME="${USERNAME:-"${_REMOTE_USER:-"automatic"}"}"
 # Determine the appropriate non-root user
@@ -218,6 +222,11 @@ export CATNIP_WORKSPACE_DIR=/worktrees
 export CATNIP_HOME_DIR=$USERHOME
 export CATNIP_VOLUME_DIR=/workspaces/.catnip/state
 export CATNIP_LIVE_DIR=/workspaces
+# Forward debug
+export DEBUG=$DEBUG
+export CATNIP_DEV=$CATNIP_DEV
+# Tell codespaces to not muck with our shell (/etc/profile.d/codespaces.sh)
+export SHELL_LOGGED_IN=true
 
 # GitHub/Codespace environment (populated during codespace startup)
 # These will be filled in by the post-start hook

@@ -42,7 +42,8 @@ The feature supports several configuration options:
       "ensureSsh": true,
       "installCatnip": true,
       "installClaude": true,
-      "installGh": true
+      "installGh": true,
+      "debug": false
     }
   }
 }
@@ -54,6 +55,7 @@ The feature supports several configuration options:
 - `installCatnip` (boolean): Install the catnip binary and services (default: `true`)
 - `installClaude` (boolean): Install the Claude CLI for AI assistance (default: `true`)
 - `installGh` (boolean): Install GitHub CLI for seamless Git integration (default: `true`)
+- `debug` (boolean): Enable debug mode for enhanced logging and troubleshooting (default: `false`)
 
 ## What's Included
 
