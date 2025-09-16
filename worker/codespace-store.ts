@@ -164,10 +164,10 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       const getAllParam = url.searchParams.get("all");
 
       if (getAllParam === "true") {
-        // Get all valid credentials by GitHub user
+        // Get all codespaces by GitHub user (including those without credentials)
         const rows = this.sql
           .exec(
-            "SELECT * FROM codespace_credentials WHERE github_user = ? AND encrypted_data IS NOT NULL ORDER BY updated_at DESC",
+            "SELECT * FROM codespace_credentials WHERE github_user = ? ORDER BY updated_at DESC",
             githubUser,
           )
           .toArray();
@@ -176,7 +176,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
           return new Response("Not found", { status: 404 });
         }
 
-        const validCodespaces: CodespaceCredentials[] = [];
+        const availableCodespaces: CodespaceCredentials[] = [];
         const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
 
         for (const row of rows) {
@@ -189,13 +189,21 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             updatedAt: row.updated_at as number,
           } as StoredCodespaceCredentials;
 
-          // Skip if credentials are already nullified (expired)
+          // If credentials are nullified (expired), create a basic codespace entry
           if (
             !result.encryptedData ||
             !result.salt ||
             !result.iv ||
             !result.keyId
           ) {
+            const basicCodespace: CodespaceCredentials = {
+              githubToken: "", // Empty token - will need to be refreshed
+              githubUser: githubUser,
+              codespaceName: row.codespace_name as string,
+              createdAt: result.createdAt,
+              updatedAt: result.updatedAt,
+            };
+            availableCodespaces.push(basicCodespace);
             continue;
           }
 
@@ -209,23 +217,42 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
                 "UPDATE codespace_credentials SET key_id = NULL, salt = NULL, iv = NULL, encrypted_data = NULL WHERE codespace_name = ?",
                 credentials.codespaceName,
               );
+
+              // Still add as available codespace without credentials
+              const basicCodespace: CodespaceCredentials = {
+                githubToken: "", // Empty token - will need to be refreshed
+                githubUser: githubUser,
+                codespaceName: credentials.codespaceName,
+                createdAt: credentials.createdAt,
+                updatedAt: credentials.updatedAt,
+              };
+              availableCodespaces.push(basicCodespace);
               continue;
             }
 
-            validCodespaces.push(credentials);
+            availableCodespaces.push(credentials);
           } catch (error) {
             console.error("Decryption error for codespace:", error);
+            // Still add as available codespace without credentials
+            const basicCodespace: CodespaceCredentials = {
+              githubToken: "", // Empty token - will need to be refreshed
+              githubUser: githubUser,
+              codespaceName: row.codespace_name as string,
+              createdAt: result.createdAt,
+              updatedAt: result.updatedAt,
+            };
+            availableCodespaces.push(basicCodespace);
             continue;
           }
         }
 
-        if (validCodespaces.length === 0) {
-          return new Response("No valid credentials found", { status: 404 });
+        if (availableCodespaces.length === 0) {
+          return new Response("No codespaces found", { status: 404 });
         }
 
-        return Response.json(validCodespaces);
+        return Response.json(availableCodespaces);
       } else {
-        // Get most recent credentials by GitHub user (existing behavior)
+        // Get most recent codespace by GitHub user (including those without credentials)
         const rows = this.sql
           .exec(
             "SELECT * FROM codespace_credentials WHERE github_user = ? ORDER BY updated_at DESC LIMIT 1",
@@ -254,7 +281,15 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
           !result.iv ||
           !result.keyId
         ) {
-          return new Response("Credentials expired", { status: 404 });
+          // Return basic codespace info without credentials
+          const basicCodespace: CodespaceCredentials = {
+            githubToken: "", // Empty token - will need to be refreshed
+            githubUser: githubUser,
+            codespaceName: row.codespace_name as string,
+            createdAt: result.createdAt,
+            updatedAt: result.updatedAt,
+          };
+          return Response.json(basicCodespace);
         }
 
         try {
@@ -268,13 +303,30 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               "UPDATE codespace_credentials SET key_id = NULL, salt = NULL, iv = NULL, encrypted_data = NULL WHERE codespace_name = ?",
               credentials.codespaceName,
             );
-            return new Response("Credentials expired", { status: 404 });
+
+            // Return basic codespace info without credentials
+            const basicCodespace: CodespaceCredentials = {
+              githubToken: "", // Empty token - will need to be refreshed
+              githubUser: githubUser,
+              codespaceName: credentials.codespaceName,
+              createdAt: credentials.createdAt,
+              updatedAt: credentials.updatedAt,
+            };
+            return Response.json(basicCodespace);
           }
 
           return Response.json(credentials);
         } catch (error) {
           console.error("Decryption error:", error);
-          return new Response("Invalid credentials", { status: 500 });
+          // Return basic codespace info without credentials on decryption error
+          const basicCodespace: CodespaceCredentials = {
+            githubToken: "", // Empty token - will need to be refreshed
+            githubUser: githubUser,
+            codespaceName: row.codespace_name as string,
+            createdAt: result.createdAt,
+            updatedAt: result.updatedAt,
+          };
+          return Response.json(basicCodespace);
         }
       }
     }

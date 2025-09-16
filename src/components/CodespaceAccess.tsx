@@ -382,7 +382,16 @@ export function CodespaceAccess({
         </CardHeader>
         <CardContent className="space-y-4">
           <Button
-            onClick={() => accessCodespace()}
+            onClick={() => {
+              // Check URL parameters and preserve them when retrying
+              const urlParams = new URLSearchParams(window.location.search);
+              const codespaceName = urlParams.get("cs");
+              const orgParam = urlParams.get("org");
+              void accessCodespace(
+                orgParam || undefined,
+                codespaceName || undefined,
+              );
+            }}
             disabled={isConnecting}
             className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 text-white flex items-center justify-center"
           >

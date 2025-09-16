@@ -81,6 +81,7 @@ function shouldRouteToContainer(pathname: string): boolean {
 async function checkCodespaceHealth(
   codespaceUrl: string,
   githubToken: string,
+  options: { hasFreshCredentials?: boolean } = {},
 ): Promise<{ healthy: boolean; lastStatus?: number; lastError?: string }> {
   const maxAttempts = 8; // Check for up to 40 seconds (8 * 5s)
   const delayMs = 5000; // 5 second intervals
@@ -111,14 +112,20 @@ async function checkCodespaceHealth(
 
       console.log(`Health check attempt ${attempt} failed: ${response.status}`);
 
-      // If we get a 401, it's likely a token issue, stop early
+      // If we get a 401, check if we should be patient with fresh credentials
       if (response.status === 401) {
-        console.log(`Stopping health check due to 401 authentication error`);
-        return {
-          healthy: false,
-          lastStatus: 401,
-          lastError: "Authentication failed",
-        };
+        if (options.hasFreshCredentials && attempt <= 6) {
+          console.log(
+            `Got 401 on attempt ${attempt}, but continuing due to fresh credentials`,
+          );
+        } else {
+          console.log(`Stopping health check due to 401 authentication error`);
+          return {
+            healthy: false,
+            lastStatus: 401,
+            lastError: "Authentication failed",
+          };
+        }
       }
     } catch (error) {
       console.log(`Health check attempt ${attempt} error:`, error);
@@ -1007,8 +1014,8 @@ export function createApp(env: Env) {
         const codespaceUrl = `https://${targetCodespace.name}-6369.app.github.dev?catnip=true`;
         const healthCheckUrl = `https://${targetCodespace.name}-6369.app.github.dev`;
 
-        // If we have stored credentials, check health endpoint
-        if (selectedCodespace && selectedCodespace.githubToken) {
+        // Check health endpoint - either with stored credentials or wait for fresh ones
+        if (selectedCodespace) {
           console.log("Checking codespace health before redirect...");
           sendEvent("status", {
             message: "Starting catnip server",
@@ -1016,12 +1023,15 @@ export function createApp(env: Env) {
           });
 
           // Try to get the freshest credentials before health check
-          let healthCheckToken = selectedCodespace.githubToken;
+          let healthCheckToken = selectedCodespace.githubToken || "";
           let credentialsRefreshed = false;
 
-          // If codespace was just started, retry credential refresh multiple times
+          // If we don't have credentials or codespace was just started, retry credential refresh multiple times
           const maxRefreshAttempts =
-            targetCodespace.state !== "Available" ? 3 : 1;
+            !selectedCodespace.githubToken ||
+            targetCodespace.state !== "Available"
+              ? 7
+              : 1;
 
           for (let attempt = 1; attempt <= maxRefreshAttempts; attempt++) {
             try {
@@ -1038,19 +1048,33 @@ export function createApp(env: Env) {
                 const refreshedCredentials =
                   (await refreshResponse.json()) as CodespaceCredentials;
                 if (refreshedCredentials.githubToken) {
+                  const hadToken = !!selectedCodespace.githubToken;
+                  const credentialsAge = new Date(
+                    refreshedCredentials.updatedAt,
+                  ).toLocaleString();
+                  const tokenPreview =
+                    refreshedCredentials.githubToken.substring(0, 7) + "...";
+
                   if (
+                    !hadToken ||
                     refreshedCredentials.githubToken !==
-                    selectedCodespace.githubToken
+                      selectedCodespace.githubToken
                   ) {
-                    console.log("Fresh GitHub token received for health check");
+                    console.log(
+                      hadToken
+                        ? `Fresh GitHub token received for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`
+                        : `GitHub token received for codespace without stored credentials - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
+                    );
                     credentialsRefreshed = true;
                   } else {
-                    console.log("Using existing GitHub token for health check");
+                    console.log(
+                      `Using existing GitHub token for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
+                    );
                   }
                   healthCheckToken = refreshedCredentials.githubToken;
                   selectedCodespace = refreshedCredentials; // Update our local copy
 
-                  // If we got fresh credentials, we can break early
+                  // If we got fresh credentials or we didn't have any before, we can break early
                   if (credentialsRefreshed) {
                     break;
                   }
@@ -1069,33 +1093,59 @@ export function createApp(env: Env) {
 
             // Wait between attempts (except on last attempt)
             if (attempt < maxRefreshAttempts) {
-              console.log("Waiting for codespace to send fresh credentials...");
-              await new Promise((resolve) => setTimeout(resolve, 5000));
+              const waitTime = !selectedCodespace.githubToken ? 6000 : 5000; // Longer wait if no initial credentials
+              console.log(
+                `Waiting for codespace to send fresh credentials... (${waitTime / 1000}s)`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, waitTime));
             }
           }
 
           if (credentialsRefreshed) {
             console.log("Using refreshed credentials for health check");
+            // Give extra time for fresh credentials to propagate
+            sendEvent("status", {
+              message: "Waiting for fresh credentials to propagate",
+              step: "initializing",
+            });
+            await new Promise((resolve) => setTimeout(resolve, 8000));
           } else {
             console.log("Using original stored credentials for health check");
+            // Give catnip a moment to be ready for health check
+            sendEvent("status", {
+              message: "Waiting for catnip to be ready",
+              step: "initializing",
+            });
+            // Shorter wait since we already waited during credential refresh attempts
+            await new Promise((resolve) => setTimeout(resolve, 3000));
           }
-
-          // Give catnip a moment to be ready for health check
-          sendEvent("status", {
-            message: "Waiting for catnip to be ready",
-            step: "initializing",
-          });
-          // Shorter wait since we already waited during credential refresh attempts
-          await new Promise((resolve) => setTimeout(resolve, 3000));
 
           sendEvent("status", {
             message: "Waiting for catnip to be ready",
             step: "health",
           });
 
+          // If we still don't have a token after refresh attempts, try direct connect
+          if (!healthCheckToken) {
+            console.log(
+              "No stored credentials available, attempting direct connection",
+            );
+            sendEvent("success", {
+              message: "Connecting to codespace (credentials pending)",
+              codespaceUrl,
+              step: "ready",
+            });
+            void writer.close();
+            return;
+          }
+
+          console.log(
+            `Starting health check with token: ${healthCheckToken.substring(0, 7)}..., credentials age: ${new Date(selectedCodespace.updatedAt).toLocaleString()}`,
+          );
           const healthResult = await checkCodespaceHealth(
             healthCheckUrl,
             healthCheckToken,
+            { hasFreshCredentials: credentialsRefreshed },
           );
 
           if (healthResult.healthy) {
