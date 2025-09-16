@@ -2102,9 +2102,14 @@ func (s *GitService) disableGPGSigning(workspaceDir string) error {
 func (s *GitService) runGitCommitWithGPGFallback(workspaceDir string, args ...string) ([]byte, error) {
 	output, err := s.runGitCommand(workspaceDir, args...)
 	if err != nil {
+		// Check both the output (stdout) and error message (which includes stderr) for GPG errors
 		outputStr := string(output)
-		if s.isGPGSigningError(outputStr) {
+		errorStr := err.Error()
+
+		if s.isGPGSigningError(outputStr) || s.isGPGSigningError(errorStr) {
 			logger.Warnf("🔐 Detected GPG signing error, disabling commit.gpgsign for repository: %s", workspaceDir)
+			logger.Debugf("🔍 GPG error detected in: output=%q, error=%q", outputStr, errorStr)
+
 			if disableErr := s.disableGPGSigning(workspaceDir); disableErr != nil {
 				logger.Errorf("❌ Failed to disable GPG signing: %v", disableErr)
 				return output, err

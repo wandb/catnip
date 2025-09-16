@@ -12,4 +12,7 @@ export CODESPACE_NAME="${CODESPACE_NAME:-}"
 export GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
 export CODESPACES="${CODESPACES:-}"
 export PATH="${PATH:-}"
+# TODO: we'll likely want to forward other env vars here
+export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
 EOF
