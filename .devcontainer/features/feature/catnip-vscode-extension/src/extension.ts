@@ -2,8 +2,24 @@ import * as vscode from "vscode";
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
+import * as QRCode from "qrcode";
 
 const execAsync = promisify(exec);
+
+// Device detection function
+function isMobileDevice(): boolean {
+  // In VSCode extension context, we can check the environment
+  // If we're in a mobile browser or mobile VSCode environment
+  const userAgent = process.env.VSCODE_USER_AGENT || "";
+  const platform = process.platform;
+
+  // Check for mobile user agents or environments
+  return (
+    /android|iphone|ipad|mobile/i.test(userAgent) ||
+    platform === "android" ||
+    process.env.CODESPACE_MOBILE === "true"
+  );
+}
 
 // Catnip management functions
 async function isCatnipRunning(): Promise<boolean> {
@@ -68,14 +84,35 @@ class CatnipViewProvider implements vscode.TreeDataProvider<CatnipItem> {
       const running = await isCatnipRunning();
 
       if (running) {
-        return [
-          new CatnipItem(
-            "💻 Open Catnip Interface",
-            "Click to open the catnip development environment",
-            vscode.TreeItemCollapsibleState.None,
-            "catnip.openInterface",
-          ),
-        ];
+        const isMobile = isMobileDevice();
+
+        if (isMobile) {
+          // Mobile view: show cat logo
+          return [
+            new CatnipItem(
+              "🐱",
+              "Open Catnip Interface",
+              vscode.TreeItemCollapsibleState.None,
+              "catnip.openInterface",
+            ),
+          ];
+        } else {
+          // Desktop view: show button + QR code
+          return [
+            new CatnipItem(
+              "💻 Open Catnip Interface",
+              "Click to open the catnip development environment",
+              vscode.TreeItemCollapsibleState.None,
+              "catnip.openInterface",
+            ),
+            new CatnipItem(
+              "📱 Open on Mobile",
+              "Scan QR code to open on mobile device",
+              vscode.TreeItemCollapsibleState.None,
+              "catnip.showQR",
+            ),
+          ];
+        }
       } else {
         return [
           new CatnipItem(
@@ -198,7 +235,50 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  context.subscriptions.push(openInterfaceCommand, openLogsCommand);
+  const showQRCommand = vscode.commands.registerCommand(
+    "catnip.showQR",
+    async () => {
+      const codespaceName = process.env.CODESPACE_NAME;
+
+      if (!codespaceName) {
+        vscode.window.showWarningMessage(
+          "QR code is only available in GitHub Codespaces environment",
+        );
+        return;
+      }
+
+      const url = `https://catnip.run?cs=${codespaceName}`;
+
+      try {
+        // Generate QR code as data URL
+        const qrDataUrl = await QRCode.toDataURL(url, {
+          width: 300,
+          margin: 2,
+        });
+
+        // Create and show webview panel with QR code
+        const panel = vscode.window.createWebviewPanel(
+          "catnipQR",
+          "Catnip Mobile QR Code",
+          vscode.ViewColumn.Beside,
+          {
+            enableScripts: false,
+            retainContextWhenHidden: true,
+          },
+        );
+
+        panel.webview.html = getQRWebviewContent(qrDataUrl, url);
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to generate QR code: ${error}`);
+      }
+    },
+  );
+
+  context.subscriptions.push(
+    openInterfaceCommand,
+    openLogsCommand,
+    showQRCommand,
+  );
 }
 
 function getWebviewContent(): string {
@@ -255,6 +335,79 @@ function getWebviewContent(): string {
             document.getElementById('content').appendChild(iframe);
         }, 1000);
     </script>
+</body>
+</html>`;
+}
+
+function getQRWebviewContent(qrDataUrl: string, url: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catnip Mobile QR Code</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+        }
+        .container {
+            text-align: center;
+            max-width: 400px;
+        }
+        .qr-code {
+            margin: 20px 0;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            display: inline-block;
+        }
+        .qr-code img {
+            display: block;
+            margin: 0 auto;
+        }
+        .url {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: var(--vscode-textBlockQuote-background);
+            border-radius: 4px;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .instructions {
+            margin-top: 20px;
+            color: var(--vscode-descriptionForeground);
+            line-height: 1.5;
+        }
+        h2 {
+            color: var(--vscode-titleBar-activeForeground);
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>📱 Open Catnip on Mobile</h2>
+        <p class="instructions">
+            Scan this QR code with your mobile device to open Catnip:
+        </p>
+        <div class="qr-code">
+            <img src="${qrDataUrl}" alt="QR Code for Catnip Mobile" />
+        </div>
+        <div class="url">${url}</div>
+        <p class="instructions">
+            <small>This will open Catnip in your mobile browser with your current Codespace session.</small>
+        </p>
+    </div>
 </body>
 </html>`;
 }
