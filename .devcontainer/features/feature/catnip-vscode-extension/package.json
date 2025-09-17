@@ -33,6 +33,11 @@
         "command": "catnip.openLogs",
         "title": "Open Catnip Logs",
         "icon": "📋"
+      },
+      {
+        "command": "catnip.showQR",
+        "title": "Show QR Code",
+        "icon": "📱"
       }
     ],
     "viewsContainers": {
@@ -61,9 +66,13 @@
     "package": "npx @vscode/vsce package --out ../catnip-sidebar.vsix",
     "build": "npm run compile && npm run package"
   },
+  "dependencies": {
+    "qrcode": "^1.5.3"
+  },
   "devDependencies": {
     "@types/vscode": "^1.74.0",
     "@types/node": "^18.0.0",
+    "@types/qrcode": "^1.5.5",
     "typescript": "^5.0.0",
     "@vscode/vsce": "^2.21.0"
   }
