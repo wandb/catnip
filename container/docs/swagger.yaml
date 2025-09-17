@@ -1,4 +1,276 @@
 definitions:
+  github_com_vanpelt_catnip_internal_models.AgentCompletionRequest:
+    properties:
+      agent_options:
+        additionalProperties: true
+        description: Agent-specific options
+        type: object
+      max_turns:
+        description: Maximum number of turns in the conversation
+        example: 10
+        type: integer
+      model:
+        description: Optional model override (agent-specific)
+        example: claude-3-5-sonnet-20241022
+        type: string
+      prompt:
+        description: The prompt/message to send to the agent
+        example: Help me debug this error
+        type: string
+      resume:
+        description: Whether to resume the most recent session for this working directory
+        example: true
+        type: boolean
+      stream:
+        description: Whether to stream the response
+        example: true
+        type: boolean
+      suppress_events:
+        description: Whether to suppress events for this automated operation
+        example: true
+        type: boolean
+      system_prompt:
+        description: Optional system prompt override
+        example: You are a helpful coding assistant
+        type: string
+      working_directory:
+        description: Working directory for the command
+        example: /workspace/my-project
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentCompletionResponse:
+    properties:
+      agent_type:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentType'
+        description: Agent that generated this response
+      error:
+        description: Any error that occurred
+        type: string
+      is_chunk:
+        description: Whether this is a streaming chunk or complete response
+        example: false
+        type: boolean
+      is_last:
+        description: Whether this is the last chunk in a stream
+        example: true
+        type: boolean
+      response:
+        description: The generated response text
+        example: I can help you debug that error...
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentEvent:
+    properties:
+      agent_type:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentType'
+        description: Agent type that generated this event
+      data:
+        additionalProperties: true
+        description: Additional event-specific data
+        type: object
+      event_type:
+        description: Type of the event (UserPromptSubmit, Stop, etc.)
+        example: UserPromptSubmit
+        type: string
+      session_id:
+        description: Session ID if available
+        example: abc123-def456-ghi789
+        type: string
+      timestamp:
+        description: Timestamp of the event
+        type: string
+      working_directory:
+        description: Working directory where the event occurred
+        example: /workspace/my-project
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentFullSessionData:
+    properties:
+      allSessions:
+        description: All sessions available for this workspace
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionListEntry'
+        type: array
+      messageCount:
+        description: Total message count in full data
+        type: integer
+      messages:
+        description: Full conversation history (only when full=true)
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionMessage'
+        type: array
+      sessionInfo:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionSummary'
+        description: Basic session information
+      userPrompts:
+        description: User prompts/history (agent-specific format)
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentHistoryEntry'
+        type: array
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentHistoryEntry:
+    properties:
+      data:
+        additionalProperties: true
+        description: Agent-specific data
+        type: object
+      display:
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentSessionListEntry:
+    properties:
+      endTime:
+        description: When the session ended (if available)
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      isActive:
+        description: Whether this session is currently active
+        example: false
+        type: boolean
+      lastModified:
+        description: When the session was last modified
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      sessionId:
+        description: Unique session identifier
+        example: abc123-def456-ghi789
+        type: string
+      startTime:
+        description: When the session started (if available)
+        example: "2024-01-15T14:30:00Z"
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentSessionMessage:
+    properties:
+      agentType:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentType'
+        description: Agent-specific message data
+      content:
+        additionalProperties: true
+        description: Raw agent-specific content
+        type: object
+      timestamp:
+        type: string
+      type:
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentSessionSummary:
+    properties:
+      agentType:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentType'
+        description: Agent type
+        example: claude
+      allSessions:
+        description: List of all available sessions for this worktree
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionListEntry'
+        type: array
+      currentSessionId:
+        description: ID of the currently active session
+        example: xyz789-ghi012
+        type: string
+      header:
+        description: Header/title of the session
+        example: Fix bug in user authentication
+        type: string
+      isActive:
+        description: Whether this session is currently active
+        example: true
+        type: boolean
+      lastCost:
+        description: |-
+          Metrics (from completed sessions)
+          Cost in USD of the last completed session (agent-specific)
+        example: 0.25
+        type: number
+      lastDuration:
+        description: Duration in seconds of the last session
+        example: 3600
+        type: integer
+      lastSessionId:
+        description: ID of the most recent completed session
+        example: abc123-def456
+        type: string
+      lastTotalInputTokens:
+        description: Total input tokens used in the last session (agent-specific)
+        example: 15000
+        type: integer
+      lastTotalOutputTokens:
+        description: Total output tokens generated in the last session (agent-specific)
+        example: 8500
+        type: integer
+      sessionEndTime:
+        description: When the last session ended (if not active)
+        example: "2024-01-15T16:45:30Z"
+        type: string
+      sessionStartTime:
+        description: When the current session started
+        example: "2024-01-15T14:30:00Z"
+        type: string
+      turnCount:
+        description: Number of conversation turns in the session
+        example: 15
+        type: integer
+      worktreePath:
+        description: Path to the worktree directory
+        example: /workspace/my-project
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentSettings:
+    properties:
+      agentSpecificSettings:
+        additionalProperties: true
+        description: Agent-specific settings
+        type: object
+      agentType:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentType'
+        description: Agent type
+      hasCompletedOnboarding:
+        description: Whether user has completed onboarding
+        example: true
+        type: boolean
+      isAuthenticated:
+        description: Whether user is authenticated
+        example: true
+        type: boolean
+      notificationsEnabled:
+        description: Whether notifications are enabled
+        example: true
+        type: boolean
+      numStartups:
+        description: Number of times agent has been started
+        example: 15
+        type: integer
+      version:
+        description: Version information
+        example: 1.2.3
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentSettingsUpdateRequest:
+    properties:
+      agentSpecificSettings:
+        additionalProperties: true
+        description: Agent-specific settings updates
+        type: object
+      notificationsEnabled:
+        description: Whether notifications should be enabled
+        example: true
+        type: boolean
+    type: object
+  github_com_vanpelt_catnip_internal_models.AgentType:
+    enum:
+    - claude
+    - codex
+    type: string
+    x-enum-varnames:
+    - AgentTypeClaude
+    - AgentTypeCodex
   github_com_vanpelt_catnip_internal_models.ClaudeActivityState:
     enum:
     - inactive
@@ -1051,6 +1323,226 @@ info:
   title: Catnip Container API
   version: "1.0"
 paths:
+  /v1/agents:
+    get:
+      description: Returns a list of all registered coding agents
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+      summary: Get available agents
+      tags:
+      - agents
+  /v1/agents/events:
+    post:
+      consumes:
+      - application/json
+      description: Receives event notifications from coding agents for activity tracking
+      parameters:
+      - description: Agent event
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentEvent'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Handle agent events
+      tags:
+      - agents
+  /v1/agents/latest-message:
+    get:
+      description: Returns the most recent assistant message from any coding agent
+        session for a specific worktree
+      parameters:
+      - description: Worktree path
+        in: query
+        name: worktree_path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get worktree latest assistant message
+      tags:
+      - agents
+  /v1/agents/messages:
+    post:
+      consumes:
+      - application/json
+      description: Creates a completion using any registered coding agent, supporting
+        both streaming and non-streaming responses, with resume functionality
+      parameters:
+      - description: Create completion request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentCompletionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentCompletionResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create agent messages
+      tags:
+      - agents
+  /v1/agents/session:
+    get:
+      description: Returns coding agent session metadata for a specific worktree
+      parameters:
+      - description: Worktree path
+        in: query
+        name: worktree_path
+        required: true
+        type: string
+      - description: Agent type (defaults to Claude for backward compatibility)
+        in: query
+        name: agent_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionSummary'
+      summary: Get worktree session summary
+      tags:
+      - agents
+  /v1/agents/session/{uuid}:
+    get:
+      description: Returns complete session data including all messages for a specific
+        session UUID
+      parameters:
+      - description: Session UUID
+        in: path
+        name: uuid
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentFullSessionData'
+      summary: Get session by UUID
+      tags:
+      - agents
+  /v1/agents/sessions:
+    get:
+      description: Returns coding agent session metadata for all worktrees with agent
+        data
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionSummary'
+            type: object
+      summary: Get all worktree session summaries
+      tags:
+      - agents
+  /v1/agents/settings:
+    get:
+      description: Returns coding agent configuration settings including authentication
+        status and other metadata
+      parameters:
+      - description: Agent type (defaults to Claude)
+        in: query
+        name: agent_type
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSettings'
+      summary: Get agent settings
+      tags:
+      - agents
+    put:
+      consumes:
+      - application/json
+      description: Updates coding agent configuration settings
+      parameters:
+      - description: Agent type (defaults to Claude)
+        in: query
+        name: agent_type
+        type: string
+      - description: Settings update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSettingsUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.AgentSettings'
+      summary: Update agent settings
+      tags:
+      - agents
+  /v1/agents/todos:
+    get:
+      description: Returns the most recent TodoWrite structure from any coding agent
+        session for a specific worktree
+      parameters:
+      - description: Worktree path
+        in: query
+        name: worktree_path
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Todo'
+            type: array
+      summary: Get worktree todos
+      tags:
+      - agents
   /v1/auth/github/reset:
     post:
       description: Clears any active authentication process

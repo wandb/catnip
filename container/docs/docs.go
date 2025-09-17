@@ -15,6 +15,333 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/v1/agents": {
+            "get": {
+                "description": "Returns a list of all registered coding agents",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get available agents",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/events": {
+            "post": {
+                "description": "Receives event notifications from coding agents for activity tracking",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Handle agent events",
+                "parameters": [
+                    {
+                        "description": "Agent event",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentEvent"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/latest-message": {
+            "get": {
+                "description": "Returns the most recent assistant message from any coding agent session for a specific worktree",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get worktree latest assistant message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree path",
+                        "name": "worktree_path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/messages": {
+            "post": {
+                "description": "Creates a completion using any registered coding agent, supporting both streaming and non-streaming responses, with resume functionality",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Create agent messages",
+                "parameters": [
+                    {
+                        "description": "Create completion request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentCompletionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentCompletionResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/session": {
+            "get": {
+                "description": "Returns coding agent session metadata for a specific worktree",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get worktree session summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree path",
+                        "name": "worktree_path",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent type (defaults to Claude for backward compatibility)",
+                        "name": "agent_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionSummary"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/session/{uuid}": {
+            "get": {
+                "description": "Returns complete session data including all messages for a specific session UUID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get session by UUID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session UUID",
+                        "name": "uuid",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentFullSessionData"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/sessions": {
+            "get": {
+                "description": "Returns coding agent session metadata for all worktrees with agent data",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get all worktree session summaries",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionSummary"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/settings": {
+            "get": {
+                "description": "Returns coding agent configuration settings including authentication status and other metadata",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get agent settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent type (defaults to Claude)",
+                        "name": "agent_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSettings"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Updates coding agent configuration settings",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Update agent settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent type (defaults to Claude)",
+                        "name": "agent_type",
+                        "in": "query"
+                    },
+                    {
+                        "description": "Settings update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSettingsUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSettings"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agents/todos": {
+            "get": {
+                "description": "Returns the most recent TodoWrite structure from any coding agent session for a specific worktree",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "summary": "Get worktree todos",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Worktree path",
+                        "name": "worktree_path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/github/reset": {
             "post": {
                 "description": "Clears any active authentication process",
@@ -1642,6 +1969,380 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_vanpelt_catnip_internal_models.AgentCompletionRequest": {
+            "type": "object",
+            "properties": {
+                "agent_options": {
+                    "description": "Agent-specific options",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "max_turns": {
+                    "description": "Maximum number of turns in the conversation",
+                    "type": "integer",
+                    "example": 10
+                },
+                "model": {
+                    "description": "Optional model override (agent-specific)",
+                    "type": "string",
+                    "example": "claude-3-5-sonnet-20241022"
+                },
+                "prompt": {
+                    "description": "The prompt/message to send to the agent",
+                    "type": "string",
+                    "example": "Help me debug this error"
+                },
+                "resume": {
+                    "description": "Whether to resume the most recent session for this working directory",
+                    "type": "boolean",
+                    "example": true
+                },
+                "stream": {
+                    "description": "Whether to stream the response",
+                    "type": "boolean",
+                    "example": true
+                },
+                "suppress_events": {
+                    "description": "Whether to suppress events for this automated operation",
+                    "type": "boolean",
+                    "example": true
+                },
+                "system_prompt": {
+                    "description": "Optional system prompt override",
+                    "type": "string",
+                    "example": "You are a helpful coding assistant"
+                },
+                "working_directory": {
+                    "description": "Working directory for the command",
+                    "type": "string",
+                    "example": "/workspace/my-project"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentCompletionResponse": {
+            "type": "object",
+            "properties": {
+                "agent_type": {
+                    "description": "Agent that generated this response",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentType"
+                        }
+                    ]
+                },
+                "error": {
+                    "description": "Any error that occurred",
+                    "type": "string"
+                },
+                "is_chunk": {
+                    "description": "Whether this is a streaming chunk or complete response",
+                    "type": "boolean",
+                    "example": false
+                },
+                "is_last": {
+                    "description": "Whether this is the last chunk in a stream",
+                    "type": "boolean",
+                    "example": true
+                },
+                "response": {
+                    "description": "The generated response text",
+                    "type": "string",
+                    "example": "I can help you debug that error..."
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentEvent": {
+            "type": "object",
+            "properties": {
+                "agent_type": {
+                    "description": "Agent type that generated this event",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentType"
+                        }
+                    ]
+                },
+                "data": {
+                    "description": "Additional event-specific data",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "event_type": {
+                    "description": "Type of the event (UserPromptSubmit, Stop, etc.)",
+                    "type": "string",
+                    "example": "UserPromptSubmit"
+                },
+                "session_id": {
+                    "description": "Session ID if available",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "timestamp": {
+                    "description": "Timestamp of the event",
+                    "type": "string"
+                },
+                "working_directory": {
+                    "description": "Working directory where the event occurred",
+                    "type": "string",
+                    "example": "/workspace/my-project"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentFullSessionData": {
+            "type": "object",
+            "properties": {
+                "allSessions": {
+                    "description": "All sessions available for this workspace",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionListEntry"
+                    }
+                },
+                "messageCount": {
+                    "description": "Total message count in full data",
+                    "type": "integer"
+                },
+                "messages": {
+                    "description": "Full conversation history (only when full=true)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionMessage"
+                    }
+                },
+                "sessionInfo": {
+                    "description": "Basic session information",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionSummary"
+                        }
+                    ]
+                },
+                "userPrompts": {
+                    "description": "User prompts/history (agent-specific format)",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentHistoryEntry"
+                    }
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentHistoryEntry": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "description": "Agent-specific data",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "display": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentSessionListEntry": {
+            "type": "object",
+            "properties": {
+                "endTime": {
+                    "description": "When the session ended (if available)",
+                    "type": "string",
+                    "example": "2024-01-15T16:45:30Z"
+                },
+                "isActive": {
+                    "description": "Whether this session is currently active",
+                    "type": "boolean",
+                    "example": false
+                },
+                "lastModified": {
+                    "description": "When the session was last modified",
+                    "type": "string",
+                    "example": "2024-01-15T16:45:30Z"
+                },
+                "sessionId": {
+                    "description": "Unique session identifier",
+                    "type": "string",
+                    "example": "abc123-def456-ghi789"
+                },
+                "startTime": {
+                    "description": "When the session started (if available)",
+                    "type": "string",
+                    "example": "2024-01-15T14:30:00Z"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentSessionMessage": {
+            "type": "object",
+            "properties": {
+                "agentType": {
+                    "description": "Agent-specific message data",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentType"
+                        }
+                    ]
+                },
+                "content": {
+                    "description": "Raw agent-specific content",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentSessionSummary": {
+            "type": "object",
+            "properties": {
+                "agentType": {
+                    "description": "Agent type",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentType"
+                        }
+                    ],
+                    "example": "claude"
+                },
+                "allSessions": {
+                    "description": "List of all available sessions for this worktree",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentSessionListEntry"
+                    }
+                },
+                "currentSessionId": {
+                    "description": "ID of the currently active session",
+                    "type": "string",
+                    "example": "xyz789-ghi012"
+                },
+                "header": {
+                    "description": "Header/title of the session",
+                    "type": "string",
+                    "example": "Fix bug in user authentication"
+                },
+                "isActive": {
+                    "description": "Whether this session is currently active",
+                    "type": "boolean",
+                    "example": true
+                },
+                "lastCost": {
+                    "description": "Metrics (from completed sessions)\nCost in USD of the last completed session (agent-specific)",
+                    "type": "number",
+                    "example": 0.25
+                },
+                "lastDuration": {
+                    "description": "Duration in seconds of the last session",
+                    "type": "integer",
+                    "example": 3600
+                },
+                "lastSessionId": {
+                    "description": "ID of the most recent completed session",
+                    "type": "string",
+                    "example": "abc123-def456"
+                },
+                "lastTotalInputTokens": {
+                    "description": "Total input tokens used in the last session (agent-specific)",
+                    "type": "integer",
+                    "example": 15000
+                },
+                "lastTotalOutputTokens": {
+                    "description": "Total output tokens generated in the last session (agent-specific)",
+                    "type": "integer",
+                    "example": 8500
+                },
+                "sessionEndTime": {
+                    "description": "When the last session ended (if not active)",
+                    "type": "string",
+                    "example": "2024-01-15T16:45:30Z"
+                },
+                "sessionStartTime": {
+                    "description": "When the current session started",
+                    "type": "string",
+                    "example": "2024-01-15T14:30:00Z"
+                },
+                "turnCount": {
+                    "description": "Number of conversation turns in the session",
+                    "type": "integer",
+                    "example": 15
+                },
+                "worktreePath": {
+                    "description": "Path to the worktree directory",
+                    "type": "string",
+                    "example": "/workspace/my-project"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentSettings": {
+            "type": "object",
+            "properties": {
+                "agentSpecificSettings": {
+                    "description": "Agent-specific settings",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "agentType": {
+                    "description": "Agent type",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.AgentType"
+                        }
+                    ]
+                },
+                "hasCompletedOnboarding": {
+                    "description": "Whether user has completed onboarding",
+                    "type": "boolean",
+                    "example": true
+                },
+                "isAuthenticated": {
+                    "description": "Whether user is authenticated",
+                    "type": "boolean",
+                    "example": true
+                },
+                "notificationsEnabled": {
+                    "description": "Whether notifications are enabled",
+                    "type": "boolean",
+                    "example": true
+                },
+                "numStartups": {
+                    "description": "Number of times agent has been started",
+                    "type": "integer",
+                    "example": 15
+                },
+                "version": {
+                    "description": "Version information",
+                    "type": "string",
+                    "example": "1.2.3"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentSettingsUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "agentSpecificSettings": {
+                    "description": "Agent-specific settings updates",
+                    "type": "object",
+                    "additionalProperties": true
+                },
+                "notificationsEnabled": {
+                    "description": "Whether notifications should be enabled",
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.AgentType": {
+            "type": "string",
+            "enum": [
+                "claude",
+                "codex"
+            ],
+            "x-enum-varnames": [
+                "AgentTypeClaude",
+                "AgentTypeCodex"
+            ]
+        },
         "github_com_vanpelt_catnip_internal_models.ClaudeActivityState": {
             "type": "string",
             "enum": [
