@@ -1,47 +1,71 @@
-# Repository Guidelines
+# AGENTS.md
 
-## Project Structure & Module Organization
+Canonical playbook for all coding agents working in the Catnip repo. Model-specific quirks live alongside this file (for example `CLAUDE.md`). Always start here, then consult your agent supplement if one exists.
 
-- `src/`: React + TypeScript SPA.
-  - `components/` (PascalCase `.tsx`), `routes/` (TanStack Router), `lib/` utilities, `hooks/` (files start with `use-`), `stores/`, `types/`.
-- `worker/`: Cloudflare Worker (entry `worker/index.ts`) and scripts in `worker/scripts/`.
-- `public/`: static assets; `dist/`: build output.
-- `container/`: container build files; `docs/`: documentation; `scripts/`: repo maintenance.
-- Path alias: import from `@/*` (configured in `tsconfig`). Example: `import { cn } from "@/lib/utils"`.
+## Project Summary
 
-## Build, Test, and Development Commands
+Catnip is an agent-friendly development environment composed of:
 
-- `pnpm dev`: run Vite dev server at `http://localhost:5173`.
-- `pnpm dev:cf:vite`: SPA with Cloudflare dev flag for local Worker integration.
-- `pnpm dev:cf`: build SPA then run `wrangler dev` (Worker + assets); logs are tee’d to `/tmp/wrangler.log`.
-- `pnpm build`: type-check then Vite build to `dist/`.
-- `pnpm preview`: serve built assets locally.
-- `pnpm typecheck` / `pnpm typecheck:worker`: strict TS checks for app/worker.
-- `pnpm lint`: ESLint over repo.
-- `pnpm format:changed`: Prettier on staged/changed files.
-- Containers: `just build-dev` then `just run-dev` for full-stack containerized dev.
+- **Frontend**: React + TypeScript SPA built with Vite, ShadCN UI, Tailwind CSS, and TanStack Router
+- **Container**: Unified Go binary (`catnip`) providing CLI tools and JSONRPC-powered APIs
+- **Worker**: Cloudflare Worker using Hono for production edge logic
 
-## Coding Style & Naming Conventions
+## Repository Layout
 
-- TypeScript strict enabled; prefer explicit types where helpful.
-- ESLint rules in `eslint.config.js`; unused vars allowed with leading `_`.
-- Components: PascalCase filenames and exports. Hooks: `use-*.ts` in `src/hooks`.
-- Imports: prefer `@/*` alias; avoid deep relative chains.
-- Formatting: Prettier is available; use `pnpm format:changed` before commits.
+```
+catnip/
+├── src/                 React app (components, routes, hooks, lib, stores, types)
+├── worker/              Cloudflare Worker entry `worker/index.ts` and scripts
+├── container/           Go application, `just` tasks, and setup files
+├── docs/                Additional documentation
+├── public/              Static assets served by Vite
+├── dist/                Build output (generated)
+└── scripts/             Repository maintenance scripts
+```
 
-## Testing Guidelines
+Path aliases are configured so the frontend imports from `@/*` (e.g. `import { cn } from "@/lib/utils"`).
 
-- No unit test runner is configured yet. Use `pnpm typecheck` and `pnpm lint` as gates.
-- For new tests, prefer colocated files named `*.test.ts(x)` under `src/` and keep fast, isolated modules.
-- Validate end-to-end flows via `pnpm dev:cf` (Worker) or `pnpm dev` (SPA).
+## Core Commands
 
-## Commit & Pull Request Guidelines
+- `pnpm dev`: Vite dev server at `http://localhost:5173`
+- `pnpm dev:cf:vite`: SPA dev server with Cloudflare integration flag
+- `pnpm dev:cf`: Build SPA then run `wrangler dev` (worker + assets); logs stream to `/tmp/wrangler.log`
+- `pnpm build`: Type-check then Vite build to `dist/`
+- `pnpm preview`: Serve the built bundle locally
+- `pnpm typecheck` / `pnpm typecheck:worker`: Strict TypeScript validation for app/worker
+- `pnpm lint`: Run ESLint over the repo
+- `pnpm format:changed`: Prettier on staged or changed files
+- `just build-dev` then `just run-dev`: Containerized Go + frontend development flow
 
-- Commits: short imperative subject with scope prefix when helpful (e.g., `CLI: reannounce host port mappings`, `UI: fix sidebar hostPort`).
-- PRs: include summary, linked issues, screenshots/recordings for UI, and notes on dev/testing steps. Update `docs/` when user-facing behavior changes.
+## Coding & Styling Guidelines
 
-## Security & Configuration Tips
+- TypeScript is strict; add explicit types when it improves clarity
+- Component files are PascalCase `.tsx`; hooks live in `src/hooks` with `use-*.ts` names
+- Prefer `@/*` imports over deep relative chains
+- ESLint allows unused vars only when prefixed with `_`
+- Use Prettier formatting before commits (`pnpm format:changed`)
+- Reuse ShadCN theme tokens; avoid custom styling unless required
 
-- Secrets: never commit secrets. Use Wrangler secrets (e.g., `wrangler secret put GITHUB_APP_PRIVATE_KEY`).
-- Env: local overrides in `.env.local`; deployment vars are set per-environment in `wrangler.jsonc`.
-- On workspace creation, the container runs `./setup.sh`—install any dependencies there.
+## Testing Expectations
+
+- No unit test runner is configured yet; rely on `pnpm typecheck` and `pnpm lint`
+- Add colocated tests as `*.test.ts(x)` if needed, kept fast and isolated
+- Validate end-to-end flows via `pnpm dev` or `pnpm dev:cf`
+
+## Development Environment Notes
+
+- Dev servers auto-rebuild frontend and Go code; assume they are running
+- Avoid restarting containers unless explicitly asked—the dev server manages restarts
+- For Go changes, run `just build` inside `container/` to ensure compilation
+- Tooltip components must use `TooltipPrimitive.Provider`, `.Root`, etc. Never mount `TooltipPrimitive` directly
+
+## Security & Configuration
+
+- Never commit secrets; use Wrangler secrets (e.g. `wrangler secret put GITHUB_APP_PRIVATE_KEY`)
+- Local overrides belong in `.env.local`; deployment env vars are defined in `wrangler.jsonc`
+- Workspace initialization runs `./setup.sh`; add dependency installs there when needed
+
+## Working With Agents
+
+- Treat `AGENTS.md` as the source of truth for shared workflows
+- Keep per-agent documents lean—focus on deviations or ergonomics specific to that model and link back here for the baseline instructions

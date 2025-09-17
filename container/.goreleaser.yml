@@ -186,13 +186,14 @@ release:
 
     ```bash
     # Quick install (latest version)
-    curl -sfL install.catnip.sh | sh
+    curl -sSfL install.catnip.sh | sh
 
     # Install specific version
-    curl -sfL install.catnip.sh | sh -s -- --version {{.Version}}
+    curl -sSfL install.catnip.sh | sh -s -- --version v{{.Version}}
     ```
 
-    **macOS Users**: The macOS version now includes native notification support through app bundle packaging. The installer will set up both the app bundle and CLI wrapper automatically.
+    > [!NOTE]
+    > The macOS version now includes native notification support through app bundle packaging. The installer will set up both the app bundle and CLI wrapper automatically.
 
     ### 📋 What's Changed
 

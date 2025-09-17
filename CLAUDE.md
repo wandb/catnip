@@ -1,71 +1,24 @@
 # CLAUDE.md
 
-## Project Overview
+Supplemental guidance for Anthropic Claude when working in this repository. Read `AGENTS.md` first for shared conventions, then apply the adjustments below.
 
-Catnip is an agentic coding environment with three main components:
+## Collaboration Style
 
-- **Frontend**: React/Vite SPA using ShadCN UI, Tailwind CSS, and TanStack Router
-- **Container**: Unified Go binary (`catnip`) providing both CLI tools and server APIs for sandboxed development
-- **Worker**: Hono-based Cloudflare Worker (production only)
+- Think out loud when the task is ambiguous, but keep the final answer concise
+- When tackling multi-step work, outline the intended plan before running commands and update it as you progress
+- Prefer actionable bullet points over prose when surfacing findings or next steps
 
-## Tech Stack & Conventions
+## Tooling Notes
 
-### Frontend
+- Use the provided CLI tools and scripts referenced in `AGENTS.md`; avoid launching alternative package managers or editors
+- Treat any long-running or potentially destructive command as opt-in—confirm with the user before executing
 
-- Package manager: `pnpm`
-- UI Components: [ShadCN](https://ui.shadcn.com/docs/components) - add with `pnpm dlx shadcn@latest add button`
-- Styling: Tailwind CSS with dark/light mode support
-- Router: TanStack Router
+## Sandbox Awareness
 
-### Backend
+- The Claude harness may queue shell commands; group related operations where possible to reduce round-trips
+- Surface permission or sandbox limitations immediately and suggest workarounds rather than retrying blindly
 
-- Language: Go
-- Build tool: `just` (run `just build` in container/ directory)
-- Documentation: OpenAPI/Swagger (auto-generated on build - ensure API endpoints and models are well commented)
-- Architecture: JSONRPC where possible
-- Terminal UI: Bubbletea-based CLI tool (`catnip`)
+## When In Doubt
 
-## Directory Structure
-
-```
-catnip/
-├── src/                     # Frontend React/Vite application
-│   ├── components/         # React components including ShadCN UI
-│   ├── routes/            # TanStack Router pages
-│   └── lib/               # Utilities and shared code
-├── container/             # Go application running in Docker
-│   ├── cmd/               # Unified binary entry point
-│   ├── internal/          # Internal Go packages
-│   └── setup/             # Container setup scripts
-├── worker/                # Cloudflare Worker (Hono-based)
-└── public/                # Static assets
-```
-
-## Development Guidelines
-
-### General Rules
-
-- Dev server auto-rebuilds Go and frontend - assume it's running
-- Don't restart containers unless explicitly asked
-- Use ShadCN theme variables whenever possible
-- For Go changes, run `just build` in container/ directory to ensure compilation
-- Don't restart the container, our dev server uses air to restart the main binary automatically and restarting the container causes state to be lost
-
-### Common Issues & Best Practices
-
-- **TooltipPrimitive**: Always use `TooltipPrimitive.Provider`, `TooltipPrimitive.Root`, etc. - never use `TooltipPrimitive` directly as a JSX component. This is a recurring issue when working with Radix UI tooltips.
-
-### Container Commands
-
-- Exec in the container: `docker exec -u 1000 catnip-dev bash --login -c '...'` (use uid 1000 and --login for proper path and perms, you can always run sudo if needed)
-- View logs: `docker logs --tail 50 catnip-dev`
-
-### Port System
-
-- Services auto-detected and appear in dashboard
-- Preview: `/preview/$PORT` (full-screen iframe)
-- Direct access: `/$PORT/` (proxy with SPA routing)
-
-## Essential Files
-
-- `docs/` - Additional documentation
+- Link back to the relevant section in `AGENTS.md` instead of duplicating content
+- Ask the user for clarification whenever expectations conflict or the repository appears out of sync with the documented workflows
