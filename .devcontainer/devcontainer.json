@@ -33,6 +33,9 @@
       "version": "latest"
     },
     "ghcr.io/devcontainers/features/docker-in-docker:2": {},
-    "./features/feature": {}
+    "./features/feature": {
+      "debug": true,
+      "dev": true
+    }
   }
 }
