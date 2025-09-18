@@ -470,6 +470,45 @@ export function createApp(env: Env) {
     return c.redirect("/");
   });
 
+  // Mobile OAuth initiation endpoint
+  app.get("/v1/auth/github/mobile", async (c) => {
+    const redirectUri = c.req.query("redirect_uri") || "catnip://auth";
+    const state = c.req.query("state") || crypto.randomUUID();
+
+    // Store mobile OAuth state in cookie
+    setCookie(c, "mobile-oauth-state", JSON.stringify({
+      redirectUri,
+      state,
+      initiated: Date.now()
+    }), {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+      maxAge: 10 * 60, // 10 minutes
+      path: "/"
+    });
+
+    // Redirect to standard OAuth flow
+    const currentUrl = new URL(c.req.url);
+    const githubAuthUrl = `${currentUrl.protocol}//${currentUrl.host}/v1/auth/github`;
+
+    return c.redirect(githubAuthUrl);
+  });
+
+  // Mobile logout endpoint
+  app.post("/v1/auth/mobile/logout", async (c) => {
+    const mobileToken = c.get("mobileToken");
+
+    if (mobileToken) {
+      const sessionDO = c.env.SESSIONS.get(c.env.SESSIONS.idFromName("global"));
+      await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`, {
+        method: "DELETE"
+      });
+    }
+
+    return c.json({ success: true });
+  });
+
   // Logout endpoint
   app.get("/v1/auth/logout", async (c) => {
     const sessionId = c.get("sessionId");
