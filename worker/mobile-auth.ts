@@ -1,6 +1,6 @@
 // Mobile OAuth relay endpoints
 import { Context } from "hono";
-import { setCookie } from "hono/cookie";
+import { setCookie, getCookie } from "hono/cookie";
 
 interface MobileSessionData {
   sessionId: string;
@@ -32,17 +32,22 @@ export async function initiateMobileOAuth(c: Context) {
   const state = c.req.query("state") || crypto.randomUUID();
 
   // Store the mobile OAuth state in a temporary cookie
-  setCookie(c, "mobile-oauth-state", JSON.stringify({
-    redirectUri,
-    state,
-    initiated: Date.now()
-  }), {
-    httpOnly: true,
-    secure: true,
-    sameSite: "Lax",
-    maxAge: 10 * 60, // 10 minutes
-    path: "/"
-  });
+  setCookie(
+    c,
+    "mobile-oauth-state",
+    JSON.stringify({
+      redirectUri,
+      state,
+      initiated: Date.now(),
+    }),
+    {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+      maxAge: 10 * 60, // 10 minutes
+      path: "/",
+    },
+  );
 
   // Redirect to the standard GitHub OAuth endpoint
   const currentUrl = new URL(c.req.url);
@@ -55,8 +60,12 @@ export async function initiateMobileOAuth(c: Context) {
  * Mobile OAuth callback handler
  * This is called after successful GitHub OAuth to relay the session to the mobile app
  */
-export async function handleMobileOAuthCallback(c: Context, sessionId: string, sessionData: any) {
-  const mobileState = c.req.cookie("mobile-oauth-state");
+export async function handleMobileOAuthCallback(
+  c: Context,
+  sessionId: string,
+  sessionData: any,
+) {
+  const mobileState = getCookie(c, "mobile-oauth-state");
 
   if (!mobileState) {
     // Not a mobile OAuth flow, continue normally
@@ -64,7 +73,7 @@ export async function handleMobileOAuthCallback(c: Context, sessionId: string, s
   }
 
   try {
-    const { redirectUri, state } = JSON.parse(mobileState.value);
+    const { redirectUri, state } = JSON.parse(mobileState);
 
     // Generate a mobile-specific session token
     const mobileToken = generateMobileToken();
@@ -79,13 +88,13 @@ export async function handleMobileOAuthCallback(c: Context, sessionId: string, s
       username: sessionData.username,
       mobileToken,
       createdAt: Date.now(),
-      expiresAt: sessionData.expiresAt
+      expiresAt: sessionData.expiresAt,
     };
 
     // Store mobile session mapping
     await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`, {
       method: "PUT",
-      body: JSON.stringify(mobileSession)
+      body: JSON.stringify(mobileSession),
     });
 
     // Clear the mobile OAuth state cookie
@@ -94,7 +103,7 @@ export async function handleMobileOAuthCallback(c: Context, sessionId: string, s
       secure: true,
       sameSite: "Lax",
       maxAge: 0,
-      path: "/"
+      path: "/",
     });
 
     // Build the redirect URL with the mobile token
@@ -127,25 +136,29 @@ export async function validateMobileSession(c: Context): Promise<any> {
   try {
     // Get the mobile session from Durable Object
     const sessionDO = c.env.SESSIONS.get(c.env.SESSIONS.idFromName("global"));
-    const response = await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`);
+    const response = await sessionDO.fetch(
+      `https://internal/mobile-session/${mobileToken}`,
+    );
 
     if (!response.ok) {
       return null;
     }
 
-    const mobileSession = await response.json() as MobileSessionData;
+    const mobileSession = (await response.json()) as MobileSessionData;
 
     // Check if mobile session is expired
     if (Date.now() > mobileSession.expiresAt) {
       // Delete expired session
       await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`, {
-        method: "DELETE"
+        method: "DELETE",
       });
       return null;
     }
 
     // Get the actual session data
-    const sessionResponse = await sessionDO.fetch(`https://internal/session/${mobileSession.sessionId}`);
+    const sessionResponse = await sessionDO.fetch(
+      `https://internal/session/${mobileSession.sessionId}`,
+    );
 
     if (!sessionResponse.ok) {
       return null;
@@ -178,7 +191,7 @@ export async function handleMobileLogout(c: Context) {
   if (mobileToken) {
     const sessionDO = c.env.SESSIONS.get(c.env.SESSIONS.idFromName("global"));
     await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`, {
-      method: "DELETE"
+      method: "DELETE",
     });
   }
 

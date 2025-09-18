@@ -37,8 +37,13 @@ function TodoList({ todos }: { todos: Todo[] }) {
 }
 
 export default function WorkspaceDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, workspaceData } = useLocalSearchParams<{
+    id: string;
+    workspaceData?: string;
+  }>();
   const navigation = useNavigation();
+
+  console.log("🐱 WorkspaceDetailScreen loaded with ID:", id);
 
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
@@ -51,14 +56,34 @@ export default function WorkspaceDetailScreen() {
     if (!id) return;
 
     try {
-      const data = await api.getWorkspace(id);
+      let data: WorkspaceInfo;
+
+      // Try to use passed workspace data first
+      if (workspaceData) {
+        try {
+          data = JSON.parse(workspaceData);
+          console.log("🐱 Using passed workspace data:", data);
+        } catch (parseError) {
+          console.error(
+            "🐱 Failed to parse workspace data, falling back to API:",
+            parseError,
+          );
+          const decodedId = decodeURIComponent(id);
+          data = await api.getWorkspace(decodedId);
+        }
+      } else {
+        console.log("🐱 No workspace data passed, using API");
+        const decodedId = decodeURIComponent(id);
+        data = await api.getWorkspace(decodedId);
+      }
+
       setWorkspace(data);
 
       // Determine phase based on workspace state
       if (data.claude_activity_state === "active") {
         setPhase("working");
       } else if (
-        data.latest_claude_message ||
+        data.latest_session_title ||
         (data.todos && data.todos.length > 0)
       ) {
         setPhase("completed");
@@ -70,7 +95,7 @@ export default function WorkspaceDetailScreen() {
       setError(err.message || "Failed to load workspace");
       setPhase("error");
     }
-  }, [id]);
+  }, [id, workspaceData]);
 
   useEffect(() => {
     loadWorkspace();
@@ -82,7 +107,8 @@ export default function WorkspaceDetailScreen() {
 
     const interval = setInterval(async () => {
       try {
-        const data = await api.getWorkspace(id);
+        const decodedId = decodeURIComponent(id);
+        const data = await api.getWorkspace(decodedId);
         setWorkspace(data);
 
         // Check if work is completed
@@ -109,13 +135,13 @@ export default function WorkspaceDetailScreen() {
   }, [workspace, navigation]);
 
   const handleSendPrompt = async () => {
-    if (!prompt.trim() || !id) return;
+    if (!prompt.trim() || !workspace) return;
 
     setIsSubmitting(true);
     setError("");
 
     try {
-      await api.sendPrompt(id, prompt.trim());
+      await api.sendPrompt(workspace.path, prompt.trim());
       setPrompt("");
       setShowPromptInput(false);
       setPhase("working");
@@ -166,7 +192,7 @@ export default function WorkspaceDetailScreen() {
             {workspace.name.split("/")[1] || workspace.name}
           </Text>
           <Text style={styles.headerSubtitle}>
-            {workspace.repository} · {cleanBranch}
+            {workspace.repo_id || "Unknown repo"} · {cleanBranch}
           </Text>
         </View>
 
@@ -200,11 +226,11 @@ export default function WorkspaceDetailScreen() {
                 <Text style={styles.statusText}>Claude is working...</Text>
               </View>
 
-              {workspace.latest_claude_message && (
+              {workspace.latest_session_title && (
                 <View style={styles.messageBox}>
-                  <Text style={styles.messageLabel}>Session Context:</Text>
+                  <Text style={styles.messageLabel}>Session:</Text>
                   <Text style={styles.messageText}>
-                    {workspace.latest_claude_message}
+                    {workspace.latest_session_title}
                   </Text>
                 </View>
               )}
@@ -220,10 +246,10 @@ export default function WorkspaceDetailScreen() {
 
           {phase === "completed" && (
             <View style={styles.completedSection}>
-              {workspace.latest_claude_message && (
+              {workspace.latest_session_title && (
                 <View style={styles.messageBox}>
                   <Text style={styles.messageText}>
-                    {workspace.latest_claude_message}
+                    {workspace.latest_session_title}
                   </Text>
                 </View>
               )}
@@ -248,7 +274,7 @@ export default function WorkspaceDetailScreen() {
           {phase === "input" && (
             <Pressable
               onPress={handleSendPrompt}
-              disabled={!prompt.trim() || isSubmitting}
+              disabled={!prompt.trim() || isSubmitting || !workspace}
             >
               <LinearGradient
                 colors={["#7c3aed", "#3b82f6"]}
@@ -256,7 +282,8 @@ export default function WorkspaceDetailScreen() {
                 end={{ x: 1, y: 0 }}
                 style={[
                   styles.primaryButton,
-                  (!prompt.trim() || isSubmitting) && styles.buttonDisabled,
+                  (!prompt.trim() || isSubmitting || !workspace) &&
+                    styles.buttonDisabled,
                 ]}
               >
                 {isSubmitting ? (
@@ -285,7 +312,7 @@ export default function WorkspaceDetailScreen() {
                     <Pressable
                       style={[styles.primaryButton, styles.flexButton]}
                       onPress={handleSendPrompt}
-                      disabled={!prompt.trim() || isSubmitting}
+                      disabled={!prompt.trim() || isSubmitting || !workspace}
                     >
                       <Text style={styles.primaryButtonText}>Send</Text>
                     </Pressable>

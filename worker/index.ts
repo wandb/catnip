@@ -60,6 +60,7 @@ type Variables = {
   accessToken: string;
   sessionId: string;
   session: SessionData;
+  mobileToken: string;
 };
 
 type HonoEnv = {
@@ -101,7 +102,7 @@ async function checkCodespaceHealth(
           "X-Github-Token": githubToken,
           "User-Agent": "Catnip-Worker/1.0",
         },
-        signal: AbortSignal.timeout(3000), // 3 second timeout per request
+        signal: AbortSignal.timeout(10000), // 10 second timeout per request
       });
 
       lastStatus = response.status;
@@ -166,7 +167,6 @@ export function createApp(env: Env) {
     const authHeader = c.req.header("Authorization");
     if (authHeader?.startsWith("Bearer ")) {
       const mobileToken = authHeader.substring(7);
-
       try {
         // Get mobile session from Durable Object
         const sessionDO = c.env.SESSIONS.get(
@@ -177,7 +177,9 @@ export function createApp(env: Env) {
         );
 
         if (mobileResponse.ok) {
-          const mobileSession = await mobileResponse.json();
+          const mobileSession = (await mobileResponse.json()) as {
+            sessionId: string;
+          };
 
           // Get the actual session data
           const sessionResponse = await sessionDO.fetch(
@@ -380,15 +382,18 @@ export function createApp(env: Env) {
         const mobileToken = generateMobileToken();
 
         // Store the mobile session mapping
-        await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            sessionId,
-            userId: sessionData.userId,
-            username: sessionData.username,
-            expiresAt: sessionData.expiresAt,
-          }),
-        });
+        await sessionDO.fetch(
+          `https://internal/mobile-session/${mobileToken}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              sessionId,
+              userId: sessionData.userId,
+              username: sessionData.username,
+              expiresAt: sessionData.expiresAt,
+            }),
+          },
+        );
 
         // Clear the mobile OAuth state cookie
         setCookie(c, "mobile-oauth-state", "", {
@@ -476,17 +481,22 @@ export function createApp(env: Env) {
     const state = c.req.query("state") || crypto.randomUUID();
 
     // Store mobile OAuth state in cookie
-    setCookie(c, "mobile-oauth-state", JSON.stringify({
-      redirectUri,
-      state,
-      initiated: Date.now()
-    }), {
-      httpOnly: true,
-      secure: true,
-      sameSite: "Lax",
-      maxAge: 10 * 60, // 10 minutes
-      path: "/"
-    });
+    setCookie(
+      c,
+      "mobile-oauth-state",
+      JSON.stringify({
+        redirectUri,
+        state,
+        initiated: Date.now(),
+      }),
+      {
+        httpOnly: true,
+        secure: true,
+        sameSite: "Lax",
+        maxAge: 10 * 60, // 10 minutes
+        path: "/",
+      },
+    );
 
     // Redirect to standard OAuth flow
     const currentUrl = new URL(c.req.url);
@@ -502,7 +512,7 @@ export function createApp(env: Env) {
     if (mobileToken) {
       const sessionDO = c.env.SESSIONS.get(c.env.SESSIONS.idFromName("global"));
       await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`, {
-        method: "DELETE"
+        method: "DELETE",
       });
     }
 
@@ -1446,27 +1456,19 @@ export function createApp(env: Env) {
   // Authentication middleware for protected routes
   async function requireAuth(c: Context<HonoEnv>, next: () => Promise<void>) {
     const session = c.get("session");
+    const username = c.get("username");
+    const accessToken = c.get("accessToken");
 
-    if (!session) {
-      // Check Authorization header for API access
-      const authHeader = c.req.header("Authorization");
-      if (authHeader?.startsWith("Bearer ")) {
-        const token = authHeader.substring(7);
-        // TODO: Validate GitHub token
-        c.set("accessToken", token);
-        return next();
+    // If we have session data from mobile middleware, we're authenticated
+    if (session || (username && accessToken)) {
+      // Check if expired for regular sessions
+      if (session && Date.now() > session.expiresAt) {
+        throw new HTTPException(401, { message: "Session expired" });
       }
-
-      throw new HTTPException(401, { message: "Authentication required" });
+      return next();
     }
 
-    // Check if expired
-    if (Date.now() > session.expiresAt) {
-      throw new HTTPException(401, { message: "Session expired" });
-    }
-
-    // Access token already loaded by middleware
-    return next();
+    throw new HTTPException(401, { message: "Authentication required" });
   }
 
   // Protected container routes
@@ -1523,9 +1525,91 @@ export function createApp(env: Env) {
     }
 
     // Check if this should route to container
-    // Disable container routing for main catnip.run domain (codespace-only)
     const isMainDomain =
       url.hostname === "catnip.run" || url.hostname.endsWith(".catnip.run");
+
+    // Check for mobile app requests with codespace name header
+    const codespaceName = c.req.header("X-Codespace-Name");
+    const isMobileCodespaceRequest =
+      isMainDomain && codespaceName && shouldRouteToContainer(url.pathname);
+
+    if (isMobileCodespaceRequest) {
+      console.log(
+        `Mobile codespace request for ${codespaceName}: ${url.pathname}`,
+      );
+
+      try {
+        // Get stored codespace credentials
+        const codespaceStore = c.env.CODESPACE_STORE.get(
+          c.env.CODESPACE_STORE.idFromName("global"),
+        );
+
+        const username = c.get("username");
+        if (!username) {
+          console.error("No username found for mobile codespace request");
+          return c.text("Authentication required", 401);
+        }
+
+        // Get specific codespace credentials by username and codespace name
+        const credentialsResponse = await codespaceStore.fetch(
+          `https://internal/codespace/${username}/${codespaceName}`,
+        );
+
+        if (!credentialsResponse.ok) {
+          console.error(
+            `No credentials found for user: ${username}, codespace: ${codespaceName}`,
+          );
+          return c.text("Codespace credentials not found", 404);
+        }
+
+        const credentials = (await credentialsResponse.json()) as {
+          codespaceName: string;
+          githubToken: string;
+        };
+
+        console.log(`Found credentials for ${username}/${codespaceName}`);
+
+        // Check if we have a valid token
+        if (!credentials.githubToken || credentials.githubToken === "") {
+          console.error(
+            `No valid GitHub token for ${username}/${codespaceName}`,
+          );
+          return c.text(
+            "Codespace credentials expired - please reconnect",
+            401,
+          );
+        }
+
+        // Proxy to codespace
+        const codespaceUrl = `https://${codespaceName}-6369.app.github.dev`;
+        const proxyUrl = `${codespaceUrl}${url.pathname}${url.search}`;
+
+        console.log(`Proxying mobile request to: ${proxyUrl}`);
+
+        const proxyHeaders = new Headers(c.req.raw.headers);
+        proxyHeaders.set("X-Github-Token", credentials.githubToken);
+        proxyHeaders.set("User-Agent", "Catnip-Mobile/1.0");
+        proxyHeaders.delete("X-Codespace-Name"); // Remove our custom header
+
+        const proxyResponse = await fetch(proxyUrl, {
+          method: c.req.method,
+          headers: proxyHeaders,
+          body:
+            c.req.method !== "GET" && c.req.method !== "HEAD"
+              ? c.req.raw.body
+              : undefined,
+        });
+
+        return new Response(proxyResponse.body, {
+          status: proxyResponse.status,
+          statusText: proxyResponse.statusText,
+          headers: proxyResponse.headers,
+        });
+      } catch (error) {
+        console.error("Error proxying to codespace:", error);
+        return c.text("Failed to connect to codespace", 500);
+      }
+    }
 
     if (shouldRouteToContainer(url.pathname) && !isMainDomain) {
       const userId = c.get("userId") || "default";

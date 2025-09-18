@@ -7,6 +7,9 @@ import {
   RefreshControl,
   StyleSheet,
   ActivityIndicator,
+  Alert,
+  TextInput,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -19,6 +22,16 @@ function WorkspaceCard({
   workspace: WorkspaceInfo;
   onPress: () => void;
 }) {
+  console.log("🚀 NEW WorkspaceCard CODE LOADED");
+  // Debug log to see what might be causing the Text rendering issue
+  console.log("🐱 WorkspaceCard rendering:", {
+    id: workspace.id,
+    name: workspace.name,
+    branch: workspace.branch,
+    repo_id: workspace.repo_id,
+    commit_count: workspace.commit_count,
+    is_dirty: workspace.is_dirty,
+  });
   const getStatusColor = () => {
     switch (workspace.claude_activity_state) {
       case "active":
@@ -31,13 +44,30 @@ function WorkspaceCard({
   };
 
   const getTitle = () => {
-    const parts = workspace.name.split("/");
-    return parts[1] || workspace.name;
+    // For worktrees, name is already the friendly name like "feature-api-docs"
+    const name = workspace.name;
+    if (typeof name === "string" && name.trim()) {
+      return name;
+    }
+    return "Unnamed workspace";
   };
 
-  const cleanBranch = workspace.branch.startsWith("/")
-    ? workspace.branch.slice(1)
-    : workspace.branch;
+  const getCleanBranch = () => {
+    const branch = workspace.branch;
+    if (typeof branch === "string" && branch.trim()) {
+      // Handle refs/catnip/name format
+      if (branch.startsWith("refs/catnip/")) {
+        return branch.replace("refs/catnip/", "");
+      }
+      // Handle leading slash
+      if (branch.startsWith("/")) {
+        return branch.slice(1);
+      }
+      return branch;
+    }
+    return "main";
+  };
+  const cleanBranch = getCleanBranch();
 
   const completedTodos =
     workspace.todos?.filter((t) => t.status === "completed").length || 0;
@@ -55,16 +85,19 @@ function WorkspaceCard({
           />
           <Text style={styles.cardTitle}>{getTitle()}</Text>
         </View>
-        {workspace.commit_count && workspace.commit_count > 0 && (
+        {workspace.commit_count > 0 && (
           <Text style={styles.commitCount}>+{workspace.commit_count}</Text>
         )}
       </View>
 
       <Text style={styles.cardSubtitle}>
-        {workspace.repository}/{getTitle()} · {cleanBranch}
+        {typeof workspace.repo_id === "string"
+          ? workspace.repo_id
+          : "Unknown repo"}{" "}
+        · {cleanBranch}
       </Text>
 
-      {workspace.is_dirty && (
+      {!!workspace.is_dirty && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>Modified</Text>
         </View>
@@ -79,7 +112,9 @@ function WorkspaceCard({
             <View
               style={[
                 styles.progressFill,
-                { width: `${(completedTodos / totalTodos) * 100}%` },
+                {
+                  width: `${totalTodos > 0 ? (completedTodos / totalTodos) * 100 : 0}%`,
+                },
               ]}
             />
           </View>
@@ -100,6 +135,11 @@ export default function WorkspacesScreen() {
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [repository, setRepository] = useState("");
+  const [branch, setBranch] = useState("main");
 
   useEffect(() => {
     loadWorkspaces();
@@ -107,6 +147,7 @@ export default function WorkspacesScreen() {
 
   const loadWorkspaces = async () => {
     try {
+      setError(null);
       const data = await api.getWorkspaces();
       setWorkspaces(
         data.sort((a, b) => {
@@ -120,7 +161,10 @@ export default function WorkspacesScreen() {
         }),
       );
     } catch (error) {
-      console.error("Failed to load workspaces:", error);
+      console.error("🎯 Failed to load workspaces:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to load workspaces",
+      );
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -133,7 +177,61 @@ export default function WorkspacesScreen() {
   };
 
   const handleWorkspacePress = (workspace: WorkspaceInfo) => {
-    router.push(`/workspace/${workspace.id}`);
+    // Pass workspace data directly through navigation params
+    console.log("🐱 WorkspacePress:", {
+      id: workspace.id,
+      name: workspace.name,
+      path: workspace.path,
+    });
+    const encodedId = encodeURIComponent(workspace.id);
+    console.log("🐱 Navigating to:", `/workspace/${encodedId}`);
+    router.push({
+      pathname: `/workspace/${encodedId}`,
+      params: { workspaceData: JSON.stringify(workspace) },
+    });
+  };
+
+  const handleCreateWorkspace = async () => {
+    if (!repository.trim()) {
+      Alert.alert("Error", "Please enter a repository in format 'owner/repo'");
+      return;
+    }
+
+    if (!repository.includes("/")) {
+      Alert.alert("Error", "Repository must be in format 'owner/repo'");
+      return;
+    }
+
+    setIsCreating(true);
+    try {
+      console.log("🎯 Creating workspace:", {
+        repository,
+        branch,
+      });
+      const newWorkspace = await api.createWorkspace(
+        repository.trim(),
+        branch.trim() || "main",
+      );
+      console.log("🎯 Created workspace:", newWorkspace);
+
+      // Add the new workspace to the list
+      setWorkspaces((prev) => [newWorkspace, ...prev]);
+
+      // Reset modal state
+      setShowCreateModal(false);
+      setRepository("");
+      setBranch("main");
+
+      Alert.alert("Success", "Workspace created successfully!");
+    } catch (error) {
+      console.error("🎯 Failed to create workspace:", error);
+      Alert.alert(
+        "Error",
+        `Failed to create workspace: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   if (isLoading) {
@@ -147,6 +245,23 @@ export default function WorkspacesScreen() {
     );
   }
 
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyTitle}>Error loading workspaces</Text>
+          <Text style={styles.emptySubtitle}>{error}</Text>
+          <Pressable
+            style={styles.retryButton}
+            onPress={() => loadWorkspaces()}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (workspaces.length === 0) {
     return (
       <SafeAreaView style={styles.container}>
@@ -155,6 +270,12 @@ export default function WorkspacesScreen() {
           <Text style={styles.emptySubtitle}>
             Create a workspace to get started
           </Text>
+          <Pressable
+            style={styles.createButton}
+            onPress={() => setShowCreateModal(true)}
+          >
+            <Text style={styles.createButtonText}>Create Workspace</Text>
+          </Pressable>
         </View>
       </SafeAreaView>
     );
@@ -187,6 +308,60 @@ export default function WorkspacesScreen() {
           />
         }
       />
+
+      {/* Create Workspace Modal */}
+      <Modal
+        visible={showCreateModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowCreateModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Create Workspace</Text>
+
+            <Text style={styles.inputLabel}>Repository *</Text>
+            <TextInput
+              style={styles.input}
+              value={repository}
+              onChangeText={setRepository}
+              placeholder="owner/repo"
+              placeholderTextColor="#666"
+              autoCapitalize="none"
+            />
+
+            <Text style={styles.inputLabel}>Branch</Text>
+            <TextInput
+              style={styles.input}
+              value={branch}
+              onChangeText={setBranch}
+              placeholder="main"
+              placeholderTextColor="#666"
+              autoCapitalize="none"
+            />
+
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowCreateModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalButton, styles.createModalButton]}
+                onPress={handleCreateWorkspace}
+                disabled={isCreating}
+              >
+                {isCreating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.createModalButtonText}>Create</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -320,5 +495,99 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: 16,
     color: "#666",
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: "#dc2626",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  retryButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  createButton: {
+    backgroundColor: "#7c3aed",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  createButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: "#333",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#fff",
+    marginBottom: 24,
+    textAlign: "center",
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#fff",
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  input: {
+    backgroundColor: "#333",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    color: "#fff",
+    borderWidth: 1,
+    borderColor: "#555",
+  },
+  modalButtons: {
+    flexDirection: "row",
+    marginTop: 24,
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  cancelButton: {
+    backgroundColor: "#333",
+    borderWidth: 1,
+    borderColor: "#555",
+  },
+  cancelButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  createModalButton: {
+    backgroundColor: "#7c3aed",
+  },
+  createModalButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

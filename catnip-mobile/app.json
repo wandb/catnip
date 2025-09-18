@@ -27,7 +27,8 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-dev-client"
+      "expo-dev-client",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

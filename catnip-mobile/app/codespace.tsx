@@ -1,60 +1,144 @@
-import { useState } from 'react';
-import { View, Text, Pressable, TextInput, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { api, CodespaceInfo } from '../lib/api';
-import { useAuth } from '../hooks/useAuth';
+import { useState, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  TextInput,
+  ScrollView,
+  StyleSheet,
+  ActivityIndicator,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import * as SecureStore from "expo-secure-store";
+import { api, CodespaceInfo } from "../lib/api";
+import { useAuth } from "../hooks/useAuth";
 
-type Phase = 'connect' | 'connecting' | 'setup' | 'selection' | 'error';
+type Phase = "connect" | "connecting" | "setup" | "selection" | "error";
 
 export default function CodespaceScreen() {
   const router = useRouter();
   const { logout } = useAuth();
-  const [phase, setPhase] = useState<Phase>('connect');
-  const [orgName, setOrgName] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
-  const [error, setError] = useState('');
+  const [phase, setPhase] = useState<Phase>("connect");
+  const [orgName, setOrgName] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [error, setError] = useState("");
   const [codespaces, setCodespaces] = useState<CodespaceInfo[]>([]);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = null;
+      }
+    };
+  }, []);
 
   const handleConnect = async (codespaceName?: string, org?: string) => {
-    setPhase('connecting');
-    setError('');
-    setStatusMessage('🔄 Finding your codespace...');
+    console.log("🎯 handleConnect called with:", { codespaceName, org });
+
+    // Cleanup any existing connection
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
+    }
+
+    setPhase("connecting");
+    setError("");
+    setStatusMessage("🔄 Finding your codespace...");
 
     try {
-      await api.connectCodespace(codespaceName, org, (event) => {
-        if (event.type === 'status') {
-          setStatusMessage(event.message);
-        } else if (event.type === 'success') {
-          setStatusMessage('✅ ' + event.message);
-          // Navigate to workspaces after successful connection
-          setTimeout(() => {
-            router.replace('/workspaces');
-          }, 1000);
-        } else if (event.type === 'error') {
-          setError(event.message);
-          setPhase('error');
-        } else if (event.type === 'setup') {
-          setPhase('setup');
-          setError(event.message);
-        } else if (event.type === 'multiple') {
-          setCodespaces(event.codespaces);
-          setPhase('selection');
-        }
-      });
+      console.log("🎯 Calling api.connectCodespace...");
+      const { promise, cleanup } = api.connectCodespace(
+        codespaceName,
+        org,
+        async (event) => {
+          console.log("🎯 Received event:", event);
+
+          if (event.type === "status") {
+            console.log("🎯 Status event:", event.message);
+            setStatusMessage(event.message);
+          } else if (event.type === "success") {
+            console.log("🎯 Success event:", event.message);
+            setStatusMessage("✅ " + event.message);
+
+            // Extract and store codespace name from the success event
+            if (event.codespaceUrl) {
+              try {
+                const url = new URL(event.codespaceUrl);
+                const hostname = url.hostname;
+                // Extract codespace name from hostname like "codespace-name-6369.app.github.dev"
+                const codespaceNameMatch = hostname.match(
+                  /^(.+)-6369\.app\.github\.dev$/,
+                );
+                if (codespaceNameMatch) {
+                  const extractedCodespaceName = codespaceNameMatch[1];
+                  console.log(
+                    "🎯 Extracted codespace name:",
+                    extractedCodespaceName,
+                  );
+                  await SecureStore.setItemAsync(
+                    "codespace_name",
+                    extractedCodespaceName,
+                  );
+                }
+              } catch (error) {
+                console.error("🎯 Failed to extract codespace name:", error);
+              }
+            }
+
+            // Clear cleanup ref since connection succeeded
+            cleanupRef.current = null;
+            // Navigate to workspaces after successful connection
+            setTimeout(() => {
+              console.log("🎯 Navigating to workspaces...");
+              router.replace("/workspaces");
+            }, 1000);
+          } else if (event.type === "error") {
+            console.log("🎯 Error event:", event.message);
+            setError(event.message);
+            setPhase("error");
+            // Clear cleanup ref since connection failed
+            cleanupRef.current = null;
+          } else if (event.type === "setup") {
+            console.log("🎯 Setup event:", event.message);
+            setPhase("setup");
+            setError(event.message);
+            // Clear cleanup ref since we're in setup phase
+            cleanupRef.current = null;
+          } else if (event.type === "multiple") {
+            console.log("🎯 Multiple codespaces found:", event.codespaces);
+            setCodespaces(event.codespaces);
+            setPhase("selection");
+            // Clear cleanup ref since we're in selection phase
+            cleanupRef.current = null;
+          }
+        },
+      );
+
+      // Store cleanup function
+      cleanupRef.current = cleanup;
+
+      await promise;
+      console.log("🎯 api.connectCodespace completed successfully");
     } catch (err: any) {
-      setError(err.message || 'Connection failed');
-      setPhase('error');
+      console.error("🎯 Error in handleConnect:", err);
+      setError(err.message || "Connection failed");
+      setPhase("error");
+      // Clear cleanup ref on error
+      cleanupRef.current = null;
     }
   };
 
   const handleLogout = async () => {
     await logout();
-    router.replace('/auth');
+    router.replace("/auth");
   };
 
-  if (phase === 'setup') {
+  if (phase === "setup") {
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -77,7 +161,10 @@ export default function CodespaceScreen() {
               <Text style={styles.stepText}>2. Create a new codespace</Text>
               <Text style={styles.stepText}>3. Return here to connect</Text>
             </View>
-            <Pressable onPress={() => setPhase('connect')} style={styles.secondaryButton}>
+            <Pressable
+              onPress={() => setPhase("connect")}
+              style={styles.secondaryButton}
+            >
               <Text style={styles.secondaryButtonText}>Back</Text>
             </Pressable>
           </View>
@@ -86,7 +173,7 @@ export default function CodespaceScreen() {
     );
   }
 
-  if (phase === 'selection') {
+  if (phase === "selection") {
     return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -99,14 +186,21 @@ export default function CodespaceScreen() {
                 style={styles.codespaceItem}
                 onPress={() => handleConnect(cs.name, orgName)}
               >
-                <Text style={styles.codespaceTitle}>{cs.name.replace(/-/g, ' ')}</Text>
-                {cs.repository && <Text style={styles.codespaceRepo}>{cs.repository}</Text>}
+                <Text style={styles.codespaceTitle}>
+                  {cs.name.replace(/-/g, " ")}
+                </Text>
+                {cs.repository && (
+                  <Text style={styles.codespaceRepo}>{cs.repository}</Text>
+                )}
                 <Text style={styles.codespaceDate}>
                   Last used: {new Date(cs.lastUsed).toLocaleDateString()}
                 </Text>
               </Pressable>
             ))}
-            <Pressable onPress={() => setPhase('connect')} style={styles.secondaryButton}>
+            <Pressable
+              onPress={() => setPhase("connect")}
+              style={styles.secondaryButton}
+            >
               <Text style={styles.secondaryButtonText}>Back</Text>
             </Pressable>
           </View>
@@ -122,20 +216,25 @@ export default function CodespaceScreen() {
           <Text style={styles.logo}>🐱</Text>
           <Text style={styles.title}>Catnip</Text>
           <Text style={styles.subtitle}>
-            {orgName ? `Access codespaces in ${orgName}` : 'Access your GitHub Codespaces'}
+            {orgName
+              ? `Access codespaces in ${orgName}`
+              : "Access your GitHub Codespaces"}
           </Text>
 
           <Pressable
             onPress={() => handleConnect(undefined, orgName || undefined)}
-            disabled={phase === 'connecting'}
+            disabled={phase === "connecting"}
           >
             <LinearGradient
-              colors={['#7c3aed', '#3b82f6']}
+              colors={["#7c3aed", "#3b82f6"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
-              style={[styles.button, phase === 'connecting' && styles.buttonDisabled]}
+              style={[
+                styles.button,
+                phase === "connecting" && styles.buttonDisabled,
+              ]}
             >
-              {phase === 'connecting' ? (
+              {phase === "connecting" ? (
                 <View style={styles.buttonContent}>
                   <ActivityIndicator color="#fff" size="small" />
                   <Text style={styles.buttonText}>Connecting...</Text>
@@ -168,12 +267,15 @@ export default function CodespaceScreen() {
               placeholderTextColor="#666"
               value={orgName}
               onChangeText={setOrgName}
-              editable={phase !== 'connecting'}
+              editable={phase !== "connecting"}
             />
             <Pressable
-              style={[styles.goButton, (!orgName || phase === 'connecting') && styles.buttonDisabled]}
+              style={[
+                styles.goButton,
+                (!orgName || phase === "connecting") && styles.buttonDisabled,
+              ]}
               onPress={() => handleConnect(undefined, orgName)}
-              disabled={!orgName || phase === 'connecting'}
+              disabled={!orgName || phase === "connecting"}
             >
               <Text style={styles.goButtonText}>Go</Text>
             </Pressable>
@@ -191,189 +293,189 @@ export default function CodespaceScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: "#0a0a0a",
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     padding: 24,
   },
   card: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: "#1a1a1a",
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: "#333",
   },
   logo: {
     fontSize: 48,
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: 16,
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    textAlign: 'center',
+    fontWeight: "bold",
+    color: "#fff",
+    textAlign: "center",
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
+    color: "#999",
+    textAlign: "center",
     marginBottom: 24,
   },
   button: {
     paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 16,
   },
   buttonDisabled: {
     opacity: 0.5,
   },
   buttonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   buttonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   statusBox: {
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    backgroundColor: "rgba(59, 130, 246, 0.1)",
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderColor: "rgba(59, 130, 246, 0.3)",
     borderRadius: 12,
     padding: 12,
     marginBottom: 16,
   },
   statusText: {
-    color: '#93bbfc',
+    color: "#93bbfc",
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
   },
   errorBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderColor: "rgba(239, 68, 68, 0.3)",
     borderRadius: 12,
     padding: 12,
     marginBottom: 16,
   },
   errorText: {
-    color: '#fca5a5',
+    color: "#fca5a5",
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
   },
   divider: {
     height: 1,
-    backgroundColor: '#333',
+    backgroundColor: "#333",
     marginVertical: 24,
   },
   orText: {
-    color: '#999',
+    color: "#999",
     fontSize: 14,
     marginBottom: 16,
   },
   inputContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
     marginBottom: 24,
   },
   input: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: "#0a0a0a",
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: "#333",
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    color: '#fff',
+    color: "#fff",
     fontSize: 14,
   },
   goButton: {
-    backgroundColor: '#4b5563',
+    backgroundColor: "#4b5563",
     paddingHorizontal: 24,
     borderRadius: 12,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   goButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   logoutButton: {
-    alignItems: 'center',
+    alignItems: "center",
   },
   logoutText: {
-    color: '#ef4444',
+    color: "#ef4444",
     fontSize: 14,
   },
   cardTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
+    fontWeight: "bold",
+    color: "#fff",
     marginBottom: 8,
   },
   description: {
     fontSize: 14,
-    color: '#999',
+    color: "#999",
     marginBottom: 24,
   },
   setupSteps: {
     marginBottom: 24,
   },
   stepText: {
-    color: '#ccc',
+    color: "#ccc",
     fontSize: 14,
     marginBottom: 12,
   },
   codeBlock: {
-    backgroundColor: '#0a0a0a',
+    backgroundColor: "#0a0a0a",
     borderRadius: 8,
     padding: 12,
     marginVertical: 8,
   },
   codeText: {
-    color: '#4ade80',
-    fontFamily: 'monospace',
+    color: "#4ade80",
+    fontFamily: "monospace",
     fontSize: 12,
   },
   secondaryButton: {
-    backgroundColor: '#333',
+    backgroundColor: "#333",
     paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   secondaryButtonText: {
-    color: '#ccc',
+    color: "#ccc",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   codespaceItem: {
-    backgroundColor: '#0a0a0a',
+    backgroundColor: "#0a0a0a",
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: "#333",
   },
   codespaceTitle: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 4,
   },
   codespaceRepo: {
-    color: '#3b82f6',
+    color: "#3b82f6",
     fontSize: 14,
     marginBottom: 4,
   },
   codespaceDate: {
-    color: '#666',
+    color: "#666",
     fontSize: 12,
   },
 });
