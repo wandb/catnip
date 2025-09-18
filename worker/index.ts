@@ -152,7 +152,7 @@ export function createApp(env: Env) {
   // CORS for API routes
   app.use("/v1/*", cors());
 
-  // Session middleware - load session from signed cookie
+  // Session middleware - load session from signed cookie or mobile token
   app.use("*", async (c, next) => {
     // Skip session loading if no encryption key
     if (!c.env.CATNIP_ENCRYPTION_KEY) {
@@ -162,36 +162,76 @@ export function createApp(env: Env) {
       return next();
     }
 
-    try {
-      const sessionId = await getSignedCookie(
-        c,
-        c.env.CATNIP_ENCRYPTION_KEY,
-        "catnip-session",
-      );
-      if (sessionId) {
-        try {
-          // Get session from Durable Object
-          const sessionDO = c.env.SESSIONS.get(
-            c.env.SESSIONS.idFromName("global"),
-          );
-          const response = await sessionDO.fetch(
-            `https://internal/session/${sessionId}`,
+    // First check for mobile token in Authorization header
+    const authHeader = c.req.header("Authorization");
+    if (authHeader?.startsWith("Bearer ")) {
+      const mobileToken = authHeader.substring(7);
+
+      try {
+        // Get mobile session from Durable Object
+        const sessionDO = c.env.SESSIONS.get(
+          c.env.SESSIONS.idFromName("global"),
+        );
+        const mobileResponse = await sessionDO.fetch(
+          `https://internal/mobile-session/${mobileToken}`,
+        );
+
+        if (mobileResponse.ok) {
+          const mobileSession = await mobileResponse.json();
+
+          // Get the actual session data
+          const sessionResponse = await sessionDO.fetch(
+            `https://internal/session/${mobileSession.sessionId}`,
           );
 
-          if (response.ok) {
-            const session = await response.json<SessionData>();
+          if (sessionResponse.ok) {
+            const session = await sessionResponse.json<SessionData>();
             c.set("session", session);
-            c.set("sessionId", sessionId);
+            c.set("sessionId", mobileSession.sessionId);
             c.set("userId", session.userId);
             c.set("username", session.username);
             c.set("accessToken", session.accessToken);
+            c.set("mobileToken", mobileToken);
           }
-        } catch (error) {
-          console.error("Failed to load session from DO:", error);
         }
+      } catch (error) {
+        console.error("Failed to load mobile session:", error);
       }
-    } catch (error) {
-      console.error("Failed to get signed cookie:", error);
+    }
+
+    // Fall back to cookie-based session if no mobile token
+    if (!c.get("session")) {
+      try {
+        const sessionId = await getSignedCookie(
+          c,
+          c.env.CATNIP_ENCRYPTION_KEY,
+          "catnip-session",
+        );
+        if (sessionId) {
+          try {
+            // Get session from Durable Object
+            const sessionDO = c.env.SESSIONS.get(
+              c.env.SESSIONS.idFromName("global"),
+            );
+            const response = await sessionDO.fetch(
+              `https://internal/session/${sessionId}`,
+            );
+
+            if (response.ok) {
+              const session = await response.json<SessionData>();
+              c.set("session", session);
+              c.set("sessionId", sessionId);
+              c.set("userId", session.userId);
+              c.set("username", session.username);
+              c.set("accessToken", session.accessToken);
+            }
+          } catch (error) {
+            console.error("Failed to load session from DO:", error);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to get signed cookie:", error);
+      }
     }
 
     await next();
