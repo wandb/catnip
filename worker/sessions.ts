@@ -46,6 +46,19 @@ export class SessionStore extends DurableObject<Record<string, any>> {
       CREATE INDEX IF NOT EXISTS idx_refreshed_at ON sessions(refreshed_at);
       CREATE INDEX IF NOT EXISTS idx_expires_at ON sessions(expires_at);
       CREATE INDEX IF NOT EXISTS idx_refresh_token_expires_at ON sessions(refresh_token_expires_at);
+
+      -- Mobile session tokens table
+      CREATE TABLE IF NOT EXISTS mobile_sessions (
+        mobile_token TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_mobile_session_id ON mobile_sessions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_mobile_expires ON mobile_sessions(expires_at);
     `);
 
     // Migrate existing sessions table if needed
