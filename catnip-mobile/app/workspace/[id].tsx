@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,13 +9,13 @@ import {
   Platform,
   StyleSheet,
   ActivityIndicator,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useNavigation } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { api, WorkspaceInfo, Todo } from '../../lib/api';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams, useNavigation } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { api, WorkspaceInfo, Todo } from "../../lib/api";
 
-type Phase = 'loading' | 'input' | 'working' | 'completed' | 'error';
+type Phase = "loading" | "input" | "working" | "completed" | "error";
 
 function TodoList({ todos }: { todos: Todo[] }) {
   return (
@@ -25,8 +25,8 @@ function TodoList({ todos }: { todos: Todo[] }) {
           <View
             style={[
               styles.todoStatus,
-              todo.status === 'completed' && styles.todoCompleted,
-              todo.status === 'in_progress' && styles.todoInProgress,
+              todo.status === "completed" && styles.todoCompleted,
+              todo.status === "in_progress" && styles.todoInProgress,
             ]}
           />
           <Text style={styles.todoText}>{todo.content}</Text>
@@ -41,11 +41,11 @@ export default function WorkspaceDetailScreen() {
   const navigation = useNavigation();
 
   const [workspace, setWorkspace] = useState<WorkspaceInfo | null>(null);
-  const [phase, setPhase] = useState<Phase>('loading');
-  const [prompt, setPrompt] = useState('');
+  const [phase, setPhase] = useState<Phase>("loading");
+  const [prompt, setPrompt] = useState("");
   const [showPromptInput, setShowPromptInput] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const loadWorkspace = useCallback(async () => {
     if (!id) return;
@@ -55,17 +55,20 @@ export default function WorkspaceDetailScreen() {
       setWorkspace(data);
 
       // Determine phase based on workspace state
-      if (data.claude_activity_state === 'active') {
-        setPhase('working');
-      } else if (data.latest_claude_message || (data.todos && data.todos.length > 0)) {
-        setPhase('completed');
+      if (data.claude_activity_state === "active") {
+        setPhase("working");
+      } else if (
+        data.latest_claude_message ||
+        (data.todos && data.todos.length > 0)
+      ) {
+        setPhase("completed");
       } else {
-        setPhase('input');
+        setPhase("input");
       }
     } catch (err: any) {
-      console.error('Failed to load workspace:', err);
-      setError(err.message || 'Failed to load workspace');
-      setPhase('error');
+      console.error("Failed to load workspace:", err);
+      setError(err.message || "Failed to load workspace");
+      setPhase("error");
     }
   }, [id]);
 
@@ -75,7 +78,7 @@ export default function WorkspaceDetailScreen() {
 
   // Poll for updates when workspace is active
   useEffect(() => {
-    if (phase !== 'working') return;
+    if (phase !== "working") return;
 
     const interval = setInterval(async () => {
       try {
@@ -83,12 +86,14 @@ export default function WorkspaceDetailScreen() {
         setWorkspace(data);
 
         // Check if work is completed
-        if (data.claude_activity_state === 'inactive' ||
-            (data.todos && data.todos.every(t => t.status === 'completed'))) {
-          setPhase('completed');
+        if (
+          data.claude_activity_state === "inactive" ||
+          (data.todos && data.todos.every((t) => t.status === "completed"))
+        ) {
+          setPhase("completed");
         }
       } catch (err) {
-        console.error('Failed to poll workspace:', err);
+        console.error("Failed to poll workspace:", err);
       }
     }, 2000);
 
@@ -98,7 +103,7 @@ export default function WorkspaceDetailScreen() {
   // Set navigation title
   useEffect(() => {
     if (workspace) {
-      const title = workspace.name.split('/')[1] || workspace.name;
+      const title = workspace.name.split("/")[1] || workspace.name;
       navigation.setOptions({ title });
     }
   }, [workspace, navigation]);
@@ -107,21 +112,21 @@ export default function WorkspaceDetailScreen() {
     if (!prompt.trim() || !id) return;
 
     setIsSubmitting(true);
-    setError('');
+    setError("");
 
     try {
       await api.sendPrompt(id, prompt.trim());
-      setPrompt('');
+      setPrompt("");
       setShowPromptInput(false);
-      setPhase('working');
+      setPhase("working");
     } catch (err: any) {
-      setError(err.message || 'Failed to send prompt');
+      setError(err.message || "Failed to send prompt");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (phase === 'loading') {
+  if (phase === "loading") {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContainer}>
@@ -132,12 +137,12 @@ export default function WorkspaceDetailScreen() {
     );
   }
 
-  if (phase === 'error' || !workspace) {
+  if (phase === "error" || !workspace) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContainer}>
           <Text style={styles.errorTitle}>Error</Text>
-          <Text style={styles.errorText}>{error || 'Workspace not found'}</Text>
+          <Text style={styles.errorText}>{error || "Workspace not found"}</Text>
           <Pressable onPress={loadWorkspace} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </Pressable>
@@ -146,19 +151,19 @@ export default function WorkspaceDetailScreen() {
     );
   }
 
-  const cleanBranch = workspace.branch.startsWith('/')
+  const cleanBranch = workspace.branch.startsWith("/")
     ? workspace.branch.slice(1)
     : workspace.branch;
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={styles.container} edges={["bottom"]}>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>
-            {workspace.name.split('/')[1] || workspace.name}
+            {workspace.name.split("/")[1] || workspace.name}
           </Text>
           <Text style={styles.headerSubtitle}>
             {workspace.repository} · {cleanBranch}
@@ -170,7 +175,7 @@ export default function WorkspaceDetailScreen() {
           contentContainerStyle={styles.contentContainer}
           keyboardShouldPersistTaps="handled"
         >
-          {phase === 'input' && (
+          {phase === "input" && (
             <View style={styles.inputSection}>
               <Text style={styles.sectionTitle}>Start Working</Text>
               <Text style={styles.sectionSubtitle}>
@@ -188,7 +193,7 @@ export default function WorkspaceDetailScreen() {
             </View>
           )}
 
-          {phase === 'working' && (
+          {phase === "working" && (
             <View style={styles.workingSection}>
               <View style={styles.statusContainer}>
                 <ActivityIndicator size="small" color="#7c3aed" />
@@ -198,7 +203,9 @@ export default function WorkspaceDetailScreen() {
               {workspace.latest_claude_message && (
                 <View style={styles.messageBox}>
                   <Text style={styles.messageLabel}>Session Context:</Text>
-                  <Text style={styles.messageText}>{workspace.latest_claude_message}</Text>
+                  <Text style={styles.messageText}>
+                    {workspace.latest_claude_message}
+                  </Text>
                 </View>
               )}
 
@@ -211,11 +218,13 @@ export default function WorkspaceDetailScreen() {
             </View>
           )}
 
-          {phase === 'completed' && (
+          {phase === "completed" && (
             <View style={styles.completedSection}>
               {workspace.latest_claude_message && (
                 <View style={styles.messageBox}>
-                  <Text style={styles.messageText}>{workspace.latest_claude_message}</Text>
+                  <Text style={styles.messageText}>
+                    {workspace.latest_claude_message}
+                  </Text>
                 </View>
               )}
 
@@ -236,18 +245,18 @@ export default function WorkspaceDetailScreen() {
         </ScrollView>
 
         <View style={styles.footer}>
-          {phase === 'input' && (
+          {phase === "input" && (
             <Pressable
               onPress={handleSendPrompt}
               disabled={!prompt.trim() || isSubmitting}
             >
               <LinearGradient
-                colors={['#7c3aed', '#3b82f6']}
+                colors={["#7c3aed", "#3b82f6"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[
                   styles.primaryButton,
-                  (!prompt.trim() || isSubmitting) && styles.buttonDisabled
+                  (!prompt.trim() || isSubmitting) && styles.buttonDisabled,
                 ]}
               >
                 {isSubmitting ? (
@@ -259,7 +268,7 @@ export default function WorkspaceDetailScreen() {
             </Pressable>
           )}
 
-          {(phase === 'completed') && (
+          {phase === "completed" && (
             <>
               {showPromptInput ? (
                 <View style={styles.promptInputContainer}>
@@ -284,7 +293,7 @@ export default function WorkspaceDetailScreen() {
                       style={[styles.secondaryButton, styles.flexButton]}
                       onPress={() => {
                         setShowPromptInput(false);
-                        setPrompt('');
+                        setPrompt("");
                       }}
                     >
                       <Text style={styles.secondaryButtonText}>Cancel</Text>
@@ -310,25 +319,23 @@ export default function WorkspaceDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: "#0a0a0a",
   },
   header: {
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    borderBottomColor: "#1a1a1a",
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
+    fontWeight: "600",
+    color: "#fff",
     marginBottom: 4,
-    fontFamily: 'Inter-SemiBold',
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#666',
-    fontFamily: 'Inter-Regular',
+    color: "#666",
   },
   content: {
     flex: 1,
@@ -337,86 +344,79 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   inputSection: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 40,
   },
   sectionTitle: {
     fontSize: 24,
-    fontWeight: '600',
-    color: '#fff',
+    fontWeight: "600",
+    color: "#fff",
     marginBottom: 8,
-    fontFamily: 'Inter-SemiBold',
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: '#666',
+    color: "#666",
     marginBottom: 24,
-    textAlign: 'center',
-    fontFamily: 'Inter-Regular',
+    textAlign: "center",
   },
   promptInput: {
-    width: '100%',
-    backgroundColor: '#1a1a1a',
+    width: "100%",
+    backgroundColor: "#1a1a1a",
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: "#333",
     borderRadius: 12,
     padding: 16,
-    color: '#fff',
+    color: "#fff",
     fontSize: 14,
     minHeight: 120,
-    fontFamily: 'Inter-Regular',
   },
   workingSection: {
     marginTop: 20,
   },
   statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginBottom: 24,
   },
   statusText: {
-    color: '#999',
+    color: "#999",
     fontSize: 14,
-    fontFamily: 'Inter-Regular',
   },
   messageBox: {
-    backgroundColor: 'rgba(124, 58, 237, 0.1)',
+    backgroundColor: "rgba(124, 58, 237, 0.1)",
     borderWidth: 1,
-    borderColor: 'rgba(124, 58, 237, 0.2)',
+    borderColor: "rgba(124, 58, 237, 0.2)",
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
   },
   messageLabel: {
     fontSize: 12,
-    color: 'rgba(124, 58, 237, 0.8)',
+    color: "rgba(124, 58, 237, 0.8)",
     marginBottom: 8,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontWeight: "600",
   },
   messageText: {
-    color: '#ccc',
+    color: "#ccc",
     fontSize: 14,
     lineHeight: 20,
-    fontFamily: 'Inter-Regular',
   },
   completedSection: {
     marginTop: 20,
   },
   sectionLabel: {
     fontSize: 14,
-    color: '#999',
+    color: "#999",
     marginBottom: 12,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontWeight: "600",
   },
   todosContainer: {
     gap: 8,
   },
   todoItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 12,
     paddingVertical: 8,
   },
@@ -424,118 +424,110 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#333',
+    backgroundColor: "#333",
     marginTop: 6,
   },
   todoCompleted: {
-    backgroundColor: '#22c55e',
+    backgroundColor: "#22c55e",
   },
   todoInProgress: {
-    backgroundColor: '#eab308',
+    backgroundColor: "#eab308",
   },
   todoText: {
-    color: '#ccc',
+    color: "#ccc",
     fontSize: 14,
     flex: 1,
     lineHeight: 20,
-    fontFamily: 'Inter-Regular',
   },
   footer: {
     padding: 20,
     borderTopWidth: 1,
-    borderTopColor: '#1a1a1a',
+    borderTopColor: "#1a1a1a",
   },
   primaryButton: {
-    backgroundColor: '#7c3aed',
+    backgroundColor: "#7c3aed",
     paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   secondaryButton: {
-    backgroundColor: '#333',
+    backgroundColor: "#333",
     paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   buttonDisabled: {
     opacity: 0.5,
   },
   primaryButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontWeight: "600",
   },
   secondaryButtonText: {
-    color: '#ccc',
+    color: "#ccc",
     fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontWeight: "600",
   },
   promptInputContainer: {
     gap: 12,
   },
   bottomPromptInput: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: "#1a1a1a",
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: "#333",
     borderRadius: 12,
     padding: 12,
-    color: '#fff',
+    color: "#fff",
     fontSize: 14,
     minHeight: 80,
-    fontFamily: 'Inter-Regular',
   },
   buttonRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
   },
   flexButton: {
     flex: 1,
   },
   errorBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderColor: "rgba(239, 68, 68, 0.3)",
     borderRadius: 12,
     padding: 12,
     marginTop: 16,
   },
   errorText: {
-    color: '#fca5a5',
+    color: "#fca5a5",
     fontSize: 14,
-    fontFamily: 'Inter-Regular',
   },
   centerContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   loadingText: {
-    color: '#666',
+    color: "#666",
     marginTop: 16,
     fontSize: 16,
-    fontFamily: 'Inter-Regular',
   },
   errorTitle: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#fff',
+    fontWeight: "600",
+    color: "#fff",
     marginBottom: 8,
-    fontFamily: 'Inter-SemiBold',
   },
   retryButton: {
-    backgroundColor: '#7c3aed',
+    backgroundColor: "#7c3aed",
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
     marginTop: 16,
   },
   retryButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
+    fontWeight: "600",
   },
 });
