@@ -6,7 +6,7 @@ A modern React Native/Expo mobile application for accessing Catnip workspaces an
 
 - **Modern Expo SDK 52**: Using the latest and greatest Expo features
 - **File-based Routing**: Expo Router for seamless navigation
-- **GitHub OAuth**: Secure authentication via Expo AuthSession
+- **OAuth Relay**: Secure authentication via worker-managed OAuth flow
 - **Codespace Access**: Connect to GitHub Codespaces with real-time updates
 - **Workspace Management**: View and interact with your Catnip workspaces
 - **Claude Integration**: Send prompts and monitor AI task execution
@@ -17,7 +17,7 @@ A modern React Native/Expo mobile application for accessing Catnip workspaces an
 
 - **Expo SDK 52** - Latest Expo platform
 - **Expo Router** - File-based routing with typed routes
-- **Expo AuthSession** - OAuth authentication
+- **OAuth Relay** - Server-managed authentication via deep links
 - **Expo SecureStore** - Secure token storage
 - **TypeScript** - Full type safety
 - **React Native** - Cross-platform mobile development
@@ -25,6 +25,7 @@ A modern React Native/Expo mobile application for accessing Catnip workspaces an
 ## Architecture
 
 The app uses Expo's modern architecture:
+
 - File-based routing with `app/` directory
 - No custom React Native dependencies
 - All APIs handled via Expo's built-in fetch
@@ -33,7 +34,8 @@ The app uses Expo's modern architecture:
 ### API Integration
 
 Connects to Catnip CloudFlare worker at `catnip.run/v1/*`:
-- **Authentication**: `POST /v1/auth/github`
+
+- **Authentication**: `GET /v1/auth/github/mobile` (OAuth relay)
 - **Codespace Access**: `GET /v1/codespace` (SSE)
 - **Workspaces**: `GET /v1/workspaces`
 - **Claude Prompts**: `POST /v1/workspaces/:id/prompt`
@@ -41,6 +43,7 @@ Connects to Catnip CloudFlare worker at `catnip.run/v1/*`:
 ## Setup
 
 1. **Install dependencies**:
+
 ```bash
 cd catnip-mobile
 export VOLTA_HOME="$HOME/.volta" && export PATH="$VOLTA_HOME/bin:$PATH"
@@ -48,18 +51,21 @@ export PNPM_HOME="/home/vscode/.local/share/pnpm" && export PATH="$PNPM_HOME:$PA
 pnpm install
 ```
 
-2. **Set up environment variables**:
-Create `.env.local`:
+2. **Optional environment variables**:
+   Create `.env.local` if using custom API base URL:
+
 ```
-EXPO_PUBLIC_GITHUB_CLIENT_ID=your_github_oauth_app_client_id
+EXPO_PUBLIC_CATNIP_BASE_URL=https://your-custom-domain.com
 ```
 
 3. **Start the development server**:
+
 ```bash
 pnpm start
 ```
 
 4. **Run on devices**:
+
 - **iOS**: `pnpm run ios` (requires macOS)
 - **Android**: `pnpm run android` (requires Android Studio/emulator)
 - **Web**: `pnpm run web` (for testing)
@@ -86,7 +92,7 @@ lib/
 ## Navigation Flow
 
 1. **Splash** (`index.tsx`) - Routes to auth or codespace based on auth status
-2. **Auth** (`auth.tsx`) - GitHub OAuth login
+2. **Auth** (`auth.tsx`) - OAuth relay login via browser
 3. **Codespace** (`codespace.tsx`) - Connect to GitHub Codespace
 4. **Workspaces** (`workspaces.tsx`) - List of available workspaces
 5. **Workspace Detail** (`workspace/[id].tsx`) - Interact with Claude
@@ -94,16 +100,20 @@ lib/
 ## Key Features
 
 ### Authentication
-- Uses Expo AuthSession for secure OAuth flow
-- Stores tokens in Expo SecureStore (encrypted)
-- Supports both GitHub and codespace tokens
+
+- Uses OAuth relay pattern for maximum security
+- Mobile app never handles GitHub tokens directly
+- Worker manages GitHub OAuth server-side
+- Only session tokens stored on mobile device
 
 ### Real-time Updates
+
 - Server-sent events for codespace connection
 - Polling for workspace status changes
 - Live todo list updates during Claude execution
 
 ### Modern UI
+
 - Dark theme optimized for mobile
 - Gradient buttons and modern styling
 - Responsive layouts with SafeAreaView
@@ -112,18 +122,23 @@ lib/
 ## Development
 
 ### Adding New Screens
+
 Create new files in `app/` directory:
+
 - `app/new-screen.tsx` → `/new-screen`
 - `app/folder/screen.tsx` → `/folder/screen`
 - `app/folder/[param].tsx` → `/folder/:param`
 
 ### Environment Variables
+
 Use `EXPO_PUBLIC_` prefix for client-side variables:
+
 ```typescript
-process.env.EXPO_PUBLIC_GITHUB_CLIENT_ID
+process.env.EXPO_PUBLIC_CATNIP_BASE_URL; // Optional custom API URL
 ```
 
 ### Building for Production
+
 ```bash
 # iOS
 eas build --platform ios
