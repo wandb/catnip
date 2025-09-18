@@ -370,6 +370,48 @@ export function createApp(env: Env) {
       body: JSON.stringify(sessionData),
     });
 
+    // Check if this is a mobile OAuth flow
+    const mobileState = getCookie(c, "mobile-oauth-state");
+    if (mobileState) {
+      try {
+        const { redirectUri, state } = JSON.parse(mobileState);
+
+        // Generate a mobile session token
+        const mobileToken = generateMobileToken();
+
+        // Store the mobile session mapping
+        await sessionDO.fetch(`https://internal/mobile-session/${mobileToken}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            sessionId,
+            userId: sessionData.userId,
+            username: sessionData.username,
+            expiresAt: sessionData.expiresAt,
+          }),
+        });
+
+        // Clear the mobile OAuth state cookie
+        setCookie(c, "mobile-oauth-state", "", {
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+          maxAge: 0,
+          path: "/",
+        });
+
+        // Redirect to mobile app with token
+        const redirectUrl = new URL(redirectUri);
+        redirectUrl.searchParams.set("token", mobileToken);
+        redirectUrl.searchParams.set("state", state);
+        redirectUrl.searchParams.set("username", sessionData.username);
+
+        return c.redirect(redirectUrl.toString());
+      } catch (error) {
+        console.error("Mobile OAuth callback error:", error);
+        // Fall through to standard web flow
+      }
+    }
+
     // Set signed cookie with just session ID
     if (!c.env.CATNIP_ENCRYPTION_KEY) {
       console.error(
