@@ -304,6 +304,62 @@ export class SessionStore extends DurableObject<Record<string, any>> {
       return new Response("OK");
     }
 
+    // Handle mobile session endpoints
+    if (url.pathname.startsWith("/mobile-session/")) {
+      const mobileToken = url.pathname.split("/").pop();
+
+      if (request.method === "GET" && mobileToken) {
+        // Get mobile session
+        const rows = this.sql.exec(
+          "SELECT * FROM mobile_sessions WHERE mobile_token = ? AND expires_at > ? LIMIT 1",
+          mobileToken,
+          Date.now(),
+        ).toArray();
+
+        if (!rows[0]) {
+          return new Response("Not found", { status: 404 });
+        }
+
+        return Response.json({
+          sessionId: rows[0].session_id,
+          userId: rows[0].user_id,
+          username: rows[0].username,
+          createdAt: rows[0].created_at,
+          expiresAt: rows[0].expires_at,
+        });
+      }
+
+      if (request.method === "PUT" && mobileToken) {
+        // Store mobile session
+        const data = await request.json();
+        const now = Date.now();
+
+        // Delete any existing mobile session for this token
+        this.sql.exec("DELETE FROM mobile_sessions WHERE mobile_token = ?", mobileToken);
+
+        // Insert new mobile session
+        this.sql.exec(
+          `INSERT INTO mobile_sessions
+            (mobile_token, session_id, user_id, username, created_at, expires_at)
+          VALUES (?, ?, ?, ?, ?, ?)`,
+          mobileToken,
+          data.sessionId,
+          data.userId,
+          data.username,
+          now,
+          data.expiresAt,
+        );
+
+        return new Response("OK");
+      }
+
+      if (request.method === "DELETE" && mobileToken) {
+        // Delete mobile session
+        this.sql.exec("DELETE FROM mobile_sessions WHERE mobile_token = ?", mobileToken);
+        return new Response("OK");
+      }
+    }
+
     if (request.method === "POST" && url.pathname.endsWith("/refresh")) {
       // Refresh token endpoint
       const { sessionId: sid, refreshToken: _refreshToken } =
