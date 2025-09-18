@@ -10,6 +10,7 @@ import { HTTPException } from "hono/http-exception";
 import { githubAuth } from "@hono/oauth-providers/github";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
+import { generateMobileToken } from "./mobile-auth";
 
 // Durable Object for container management
 export class CatnipContainer extends Container {
