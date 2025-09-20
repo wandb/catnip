@@ -157,6 +157,92 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
     await this.initKeys();
     const url = new URL(request.url);
     const pathParts = url.pathname.split("/");
+
+    // Handle specific codespace lookup: /internal/codespace/{username}/{codespaceName}
+    if (pathParts.length >= 4 && request.method === "GET") {
+      const codespaceName = pathParts.pop();
+      const githubUser = pathParts.pop();
+
+      if (githubUser && codespaceName) {
+        const rows = this.sql
+          .exec(
+            "SELECT * FROM codespace_credentials WHERE github_user = ? AND codespace_name = ? ORDER BY updated_at DESC LIMIT 1",
+            githubUser,
+            codespaceName,
+          )
+          .toArray();
+
+        if (rows.length === 0) {
+          return new Response("Codespace not found", { status: 404 });
+        }
+
+        const row = rows[0];
+        const result = {
+          keyId: row.key_id as number | null,
+          salt: row.salt as string | null,
+          iv: row.iv as string | null,
+          encryptedData: row.encrypted_data as string | null,
+          createdAt: row.created_at as number,
+          updatedAt: row.updated_at as number,
+        } as StoredCodespaceCredentials;
+
+        // Check if credentials are already nullified (expired)
+        if (
+          !result.encryptedData ||
+          !result.salt ||
+          !result.iv ||
+          !result.keyId
+        ) {
+          // Return basic codespace info without credentials
+          const basicCodespace: CodespaceCredentials = {
+            githubToken: "", // Empty token - will need to be refreshed
+            githubUser: githubUser,
+            codespaceName: row.codespace_name as string,
+            createdAt: result.createdAt,
+            updatedAt: result.updatedAt,
+          };
+          return Response.json(basicCodespace);
+        }
+
+        try {
+          const credentials = await this.decrypt(result);
+
+          // Check if credentials are expired (24 hours)
+          const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+          if (credentials.updatedAt < twentyFourHoursAgo) {
+            // Null out expired credentials but keep codespace record
+            this.sql.exec(
+              "UPDATE codespace_credentials SET key_id = NULL, salt = NULL, iv = NULL, encrypted_data = NULL WHERE codespace_name = ?",
+              credentials.codespaceName,
+            );
+
+            // Return basic codespace info without credentials
+            const basicCodespace: CodespaceCredentials = {
+              githubToken: "", // Empty token - will need to be refreshed
+              githubUser: githubUser,
+              codespaceName: credentials.codespaceName,
+              createdAt: credentials.createdAt,
+              updatedAt: credentials.updatedAt,
+            };
+            return Response.json(basicCodespace);
+          }
+
+          return Response.json(credentials);
+        } catch (error) {
+          console.error("Decryption error:", error);
+          // Return basic codespace info without credentials on decryption error
+          const basicCodespace: CodespaceCredentials = {
+            githubToken: "", // Empty token - will need to be refreshed
+            githubUser: githubUser,
+            codespaceName: row.codespace_name as string,
+            createdAt: result.createdAt,
+            updatedAt: result.updatedAt,
+          };
+          return Response.json(basicCodespace);
+        }
+      }
+    }
+
     const githubUser = pathParts.pop();
 
     if (request.method === "GET" && githubUser) {
