@@ -107,14 +107,14 @@ class CatnipAPI {
             cleanup();
             reject(new Error("Connection timeout: Server not responding"));
           }
-        }, 120000);
+        }, 120000) as any;
 
         eventSource.addEventListener("open", () => {
           console.log("🐱 SSE connection opened");
         });
 
         // Handle specific event types that your server sends
-        eventSource.addEventListener("status", (event) => {
+        eventSource.addEventListener("status" as any, (event: any) => {
           if (isResolved) return;
 
           try {
@@ -129,7 +129,7 @@ class CatnipAPI {
           }
         });
 
-        eventSource.addEventListener("success", async (event) => {
+        eventSource.addEventListener("success" as any, async (event: any) => {
           if (isResolved) return;
           console.log("🐱 Codespace ready!");
 
@@ -154,7 +154,7 @@ class CatnipAPI {
           }
         });
 
-        eventSource.addEventListener("error", (event) => {
+        eventSource.addEventListener("error", (event: any) => {
           if (isResolved) return;
           console.log("🐱 Error event received:", event.data);
 
@@ -179,7 +179,7 @@ class CatnipAPI {
           }
         });
 
-        eventSource.addEventListener("setup", (event) => {
+        eventSource.addEventListener("setup" as any, (event: any) => {
           if (isResolved) return;
           console.log("🐱 Setup event received:", event.data);
 
@@ -195,7 +195,7 @@ class CatnipAPI {
           }
         });
 
-        eventSource.addEventListener("multiple", (event) => {
+        eventSource.addEventListener("multiple" as any, (event: any) => {
           if (isResolved) return;
           console.log("🐱 Multiple event received:", event.data);
 
@@ -212,12 +212,12 @@ class CatnipAPI {
         });
 
         // Fallback for generic message events
-        eventSource.addEventListener("message", (event) => {
+        eventSource.addEventListener("message", (event: any) => {
           if (isResolved) return;
           console.log("🐱 Generic message received:", event.data);
 
           try {
-            const data = JSON.parse(event.data);
+            const data = event.data ? JSON.parse(event.data) : null;
             console.log("🐱 Parsed generic message:", data);
 
             if (onEvent) {
@@ -234,11 +234,11 @@ class CatnipAPI {
         });
 
         // Handle connection errors (not event data errors)
-        eventSource.onerror = (error) => {
+        (eventSource as any).onerror = (error: any) => {
           if (isResolved) return;
           console.error("🐱 SSE connection error:", error);
 
-          const errorMessage = error.message || "SSE connection failed";
+          const errorMessage = error?.message || "SSE connection failed";
           if (onEvent) {
             onEvent({
               type: "error",
@@ -258,10 +258,24 @@ class CatnipAPI {
     return { promise, cleanup };
   }
 
-  async getWorkspaces(): Promise<WorkspaceInfo[]> {
+  async getWorkspaces(
+    ifNoneMatch?: string,
+  ): Promise<{ workspaces: WorkspaceInfo[]; etag?: string } | null> {
     try {
       const headers = await this.getHeaders(true); // Include codespace header
+
+      // Add If-None-Match header for conditional request
+      if (ifNoneMatch) {
+        (headers as Record<string, string>)["If-None-Match"] = ifNoneMatch;
+      }
+
       const response = await fetch(`${BASE_URL}/v1/git/worktrees`, { headers });
+
+      // Handle 304 Not Modified - content unchanged
+      if (response.status === 304) {
+        console.log("🐱 Workspaces not modified (304)");
+        return null;
+      }
 
       if (!response.ok) {
         const responseText = await response.text();
@@ -279,17 +293,18 @@ class CatnipAPI {
 
       if (!responseText || responseText.trim() === "") {
         console.log("🐱 Empty response from workspaces endpoint");
-        return [];
+        return { workspaces: [] };
       }
 
       try {
         const parsed = JSON.parse(responseText);
-        console.log(
-          "🐱 Loaded",
-          Array.isArray(parsed) ? parsed.length : 0,
-          "workspaces",
-        );
-        return Array.isArray(parsed) ? parsed : [];
+        const workspaces = Array.isArray(parsed) ? parsed : [];
+        console.log("🐱 Loaded", workspaces.length, "workspaces");
+
+        // Extract ETag from response headers
+        const etag = response.headers.get("ETag") || undefined;
+
+        return { workspaces, etag };
       } catch (parseError) {
         console.error("🐱 Error parsing workspaces JSON:", parseError);
         throw new Error("Invalid JSON response from workspaces endpoint");
@@ -300,62 +315,118 @@ class CatnipAPI {
     }
   }
 
-  async getWorkspace(id: string): Promise<WorkspaceInfo> {
-    const headers = await this.getHeaders(true); // Include codespace header
-    const encodedId = encodeURIComponent(id);
-    const url = `${BASE_URL}/v1/git/worktrees/${encodedId}`;
-
-    console.log("🐱 Fetching workspace:", { id, encodedId, url });
-    console.log("🐱 Request headers:", headers);
-
-    const response = await fetch(url, { headers });
-
-    console.log("🐱 Workspace response:", {
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-    });
-
-    if (!response.ok) {
-      const responseText = await response.text();
-      console.error(
-        "🐱 Failed to fetch workspace:",
-        response.status,
-        responseText,
-      );
-      throw new Error(
-        `Failed to fetch workspace (${response.status}): ${responseText}`,
-      );
-    }
-
-    const responseText = await response.text();
-    console.log("🐱 Raw workspace response:", responseText.substring(0, 200));
-
+  async getWorkspace(
+    id: string,
+    ifNoneMatch?: string,
+  ): Promise<{ workspace: WorkspaceInfo; etag?: string } | null> {
     try {
-      return JSON.parse(responseText);
-    } catch (parseError) {
-      console.error("🐱 Failed to parse workspace JSON:", parseError);
-      console.error("🐱 Response text:", responseText);
-      throw new Error(
-        `Invalid JSON response: ${responseText.substring(0, 100)}`,
+      // Get all workspaces with ETag support
+      const result = await this.getWorkspaces(ifNoneMatch);
+
+      // If 304 Not Modified, return null
+      if (result === null) {
+        return null;
+      }
+
+      const workspace = result.workspaces.find((w) => w.id === id);
+
+      if (!workspace) {
+        throw new Error(`Workspace with ID ${id} not found`);
+      }
+
+      console.log("🐱 Found workspace:", workspace);
+      return { workspace, etag: result.etag };
+    } catch (error) {
+      console.error("🐱 Error getting workspace:", error);
+      throw error;
+    }
+  }
+
+  async getClaudeSessions(): Promise<Record<string, any>> {
+    try {
+      const headers = await this.getHeaders(true);
+      const response = await fetch(`${BASE_URL}/v1/claude/sessions`, {
+        headers,
+      });
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error(
+          "🐱 Failed to fetch Claude sessions:",
+          response.status,
+          responseText,
+        );
+        return {};
+      }
+
+      const result = await response.json();
+      return result || {};
+    } catch (error) {
+      console.error("🐱 Error fetching Claude sessions:", error);
+      return {};
+    }
+  }
+
+  async getWorktreeLatestMessage(
+    worktreePath: string,
+  ): Promise<{ content: string; isError: boolean }> {
+    try {
+      const headers = await this.getHeaders(true);
+      const response = await fetch(
+        `${BASE_URL}/v1/claude/latest-message?worktree_path=${encodeURIComponent(worktreePath)}`,
+        { headers },
       );
+
+      if (!response.ok) {
+        const responseText = await response.text();
+        console.error(
+          "🐱 Failed to fetch latest message:",
+          response.status,
+          responseText,
+        );
+        return { content: "Failed to fetch message", isError: true };
+      }
+
+      const result = await response.json();
+      return {
+        content: result.content || "",
+        isError: result.isError || false,
+      };
+    } catch (error) {
+      console.error("🐱 Error fetching latest message:", error);
+      return { content: "Error fetching message", isError: true };
     }
   }
 
   async sendPrompt(workspacePath: string, prompt: string): Promise<void> {
     const headers = await this.getHeaders(true); // Include codespace header
-    const response = await fetch(`${BASE_URL}/v1/claude/messages`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        prompt: prompt,
-        working_directory: workspacePath,
-      }),
+
+    // Use SSE endpoint for PTY session (gives us auto-commits and session tracking)
+    const params = new URLSearchParams({
+      session: workspacePath,
+      agent: "claude",
+      prompt: prompt,
     });
 
-    if (!response.ok) {
-      throw new Error("Failed to send prompt");
-    }
+    const url = `${BASE_URL}/v1/pty/sse?${params.toString()}`;
+
+    // Fire off the SSE request asynchronously - we don't need to process the stream
+    // The backend will handle prompt injection into the PTY session
+    fetch(url, { headers })
+      .then((response) => {
+        if (!response.ok) {
+          console.error("Failed to send prompt via SSE:", response.status);
+        } else {
+          console.log("Prompt sent successfully via SSE");
+          // Close the stream immediately since we don't need to read it
+          response.body?.cancel();
+        }
+      })
+      .catch((error) => {
+        console.error("Error sending prompt via SSE:", error);
+      });
+
+    // Return immediately - prompt injection happens asynchronously in the PTY session
   }
 
   async createWorkspace(

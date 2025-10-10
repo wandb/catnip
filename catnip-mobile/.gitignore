@@ -33,4 +33,4 @@ yarn-error.*
 .env*.local
 
 # typescript
-*.tsbuildinfo
+*.tsbuildinfo.validate-build/

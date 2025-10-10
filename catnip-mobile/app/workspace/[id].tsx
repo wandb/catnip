@@ -2,18 +2,23 @@ import { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
-  TextInput,
-  Pressable,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   ActivityIndicator,
+  TouchableWithoutFeedback,
+  Keyboard,
+  InputAccessoryView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams, useNavigation } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { useHeaderHeight } from "@react-navigation/elements";
+import { useFocusEffect } from "@react-navigation/native";
 import { api, WorkspaceInfo, Todo } from "../../lib/api";
+import { GlassInput, IOSButton, GlassIconButton } from "../../components/ui";
+import { theme } from "../../theme";
+import React from "react";
 
 type Phase = "loading" | "input" | "working" | "completed" | "error";
 
@@ -41,7 +46,10 @@ export default function WorkspaceDetailScreen() {
     id: string;
     workspaceData?: string;
   }>();
+  const router = useRouter();
   const navigation = useNavigation();
+  const headerHeight = useHeaderHeight();
+  const inputAccessoryViewID = "workspace-input";
 
   console.log("🐱 WorkspaceDetailScreen loaded with ID:", id);
 
@@ -79,16 +87,66 @@ export default function WorkspaceDetailScreen() {
 
       setWorkspace(data);
 
-      // Determine phase based on workspace state
-      if (data.claude_activity_state === "active") {
-        setPhase("working");
-      } else if (
-        data.latest_session_title ||
-        (data.todos && data.todos.length > 0)
-      ) {
-        setPhase("completed");
-      } else {
-        setPhase("input");
+      // Load Claude session data and latest message
+      try {
+        const sessions = await api.getClaudeSessions();
+        const sessionData = sessions[data.path];
+
+        if (sessionData && sessionData.turnCount > 0) {
+          console.log("🐱 Found Claude session for workspace:", sessionData);
+
+          // Get the latest message
+          const messageResult = await api.getWorktreeLatestMessage(data.path);
+          if (messageResult.isError) {
+            setError(messageResult.content);
+            setPhase("error");
+          } else {
+            // Update workspace with latest Claude data
+            setWorkspace((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    latest_session_title: messageResult.content,
+                    claude_activity_state: sessionData.isActive
+                      ? "active"
+                      : "inactive",
+                  }
+                : prev,
+            );
+
+            // Determine phase based on Claude activity
+            if (sessionData.isActive) {
+              setPhase("working");
+            } else {
+              setPhase("completed");
+            }
+          }
+        } else {
+          // No Claude session found - determine phase based on workspace state
+          if (data.claude_activity_state === "active") {
+            setPhase("working");
+          } else if (
+            data.latest_session_title ||
+            (data.todos && data.todos.length > 0)
+          ) {
+            setPhase("completed");
+          } else {
+            setPhase("input");
+          }
+        }
+      } catch (claudeError) {
+        console.warn("Failed to load Claude data:", claudeError);
+        // Fall back to workspace-based phase determination
+        if (data.claude_activity_state === "active") {
+          setPhase("working");
+        } else if (
+          data.latest_session_title ||
+          (data.todos && data.todos.length > 0)
+        ) {
+          setPhase("completed");
+        } else {
+          setPhase("input");
+        }
       }
     } catch (err: any) {
       console.error("Failed to load workspace:", err);
@@ -103,36 +161,80 @@ export default function WorkspaceDetailScreen() {
 
   // Poll for updates when workspace is active
   useEffect(() => {
-    if (phase !== "working") return;
+    if (phase !== "working" || !workspace) return;
 
     const interval = setInterval(async () => {
       try {
-        const decodedId = decodeURIComponent(id);
-        const data = await api.getWorkspace(decodedId);
-        setWorkspace(data);
+        // Check Claude session status
+        const sessions = await api.getClaudeSessions();
+        const sessionData = sessions[workspace.path];
 
-        // Check if work is completed
-        if (
-          data.claude_activity_state === "inactive" ||
-          (data.todos && data.todos.every((t) => t.status === "completed"))
-        ) {
-          setPhase("completed");
+        if (sessionData) {
+          // Get the latest message
+          const messageResult = await api.getWorktreeLatestMessage(
+            workspace.path,
+          );
+
+          if (messageResult.isError) {
+            setError(messageResult.content);
+            setPhase("error");
+            return;
+          }
+
+          // Update workspace with latest data
+          setWorkspace((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  latest_session_title: messageResult.content,
+                  claude_activity_state: sessionData.isActive
+                    ? "active"
+                    : "inactive",
+                }
+              : prev,
+          );
+
+          // Check if work is completed
+          if (!sessionData.isActive) {
+            setPhase("completed");
+          }
+        } else {
+          // No session data - refresh workspace data
+          const decodedId = decodeURIComponent(id);
+          const refreshedData = await api.getWorkspace(decodedId);
+          setWorkspace(refreshedData);
+
+          if (refreshedData.claude_activity_state === "inactive") {
+            setPhase("completed");
+          }
         }
       } catch (err) {
-        console.error("Failed to poll workspace:", err);
+        console.error("Failed to poll workspace updates:", err);
+        // Don't change phase on polling errors - just log them
       }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [phase, id]);
+  }, [phase, id, workspace?.path]);
 
-  // Set navigation title
-  useEffect(() => {
-    if (workspace) {
-      const title = workspace.name.split("/")[1] || workspace.name;
-      navigation.setOptions({ title });
-    }
-  }, [workspace, navigation]);
+  // Set custom header buttons and title
+  useFocusEffect(
+    React.useCallback(() => {
+      if (workspace) {
+        const title = workspace.name.split("/")[1] || workspace.name;
+        navigation.setOptions({
+          title,
+          headerLeft: () => (
+            <GlassIconButton
+              icon="chevron-back"
+              onPress={() => router.back()}
+              color={theme.colors.brand.primary}
+            />
+          ),
+        });
+      }
+    }, [workspace, navigation, router]),
+  );
 
   const handleSendPrompt = async () => {
     if (!prompt.trim() || !workspace) return;
@@ -169,9 +271,12 @@ export default function WorkspaceDetailScreen() {
         <View style={styles.centerContainer}>
           <Text style={styles.errorTitle}>Error</Text>
           <Text style={styles.errorText}>{error || "Workspace not found"}</Text>
-          <Pressable onPress={loadWorkspace} style={styles.retryButton}>
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </Pressable>
+          <IOSButton
+            title="Retry"
+            onPress={loadWorkspace}
+            variant="primary"
+            style={styles.retryButton}
+          />
         </View>
       </SafeAreaView>
     );
@@ -182,163 +287,165 @@ export default function WorkspaceDetailScreen() {
     : workspace.branch;
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
-      <KeyboardAvoidingView
-        style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>
-            {workspace.name.split("/")[1] || workspace.name}
-          </Text>
-          <Text style={styles.headerSubtitle}>
-            {workspace.repo_id || "Unknown repo"} · {cleanBranch}
-          </Text>
-        </View>
-
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={styles.contentContainer}
-          keyboardShouldPersistTaps="handled"
+    <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          {phase === "input" && (
-            <View style={styles.inputSection}>
-              <Text style={styles.sectionTitle}>Start Working</Text>
-              <Text style={styles.sectionSubtitle}>
-                Describe what you'd like to work on
-              </Text>
-              <TextInput
-                style={styles.promptInput}
-                placeholder="Describe your task..."
-                placeholderTextColor="#666"
-                value={prompt}
-                onChangeText={setPrompt}
-                multiline
-                textAlignVertical="top"
-              />
-            </View>
-          )}
-
-          {phase === "working" && (
-            <View style={styles.workingSection}>
-              <View style={styles.statusContainer}>
-                <ActivityIndicator size="small" color="#7c3aed" />
-                <Text style={styles.statusText}>Claude is working...</Text>
+          <ScrollView
+            style={styles.content}
+            contentContainerStyle={[
+              styles.contentContainer,
+              { paddingTop: headerHeight + theme.spacing.xl },
+            ]}
+            keyboardShouldPersistTaps="handled"
+          >
+            {phase === "input" && (
+              <View style={styles.inputSection}>
+                <Text style={styles.sectionTitle}>Start Working</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Describe what you'd like to work on
+                </Text>
+                <GlassInput
+                  placeholder="Describe your task..."
+                  value={prompt}
+                  onChangeText={setPrompt}
+                  multiline
+                  style={styles.promptInput}
+                  inputAccessoryViewID={
+                    Platform.OS === "ios" ? inputAccessoryViewID : undefined
+                  }
+                />
               </View>
+            )}
 
-              {workspace.latest_session_title && (
-                <View style={styles.messageBox}>
-                  <Text style={styles.messageLabel}>Session:</Text>
-                  <Text style={styles.messageText}>
-                    {workspace.latest_session_title}
-                  </Text>
-                </View>
-              )}
-
-              {workspace.todos && workspace.todos.length > 0 && (
-                <View>
-                  <Text style={styles.sectionLabel}>Progress:</Text>
-                  <TodoList todos={workspace.todos} />
-                </View>
-              )}
-            </View>
-          )}
-
-          {phase === "completed" && (
-            <View style={styles.completedSection}>
-              {workspace.latest_session_title && (
-                <View style={styles.messageBox}>
-                  <Text style={styles.messageText}>
-                    {workspace.latest_session_title}
-                  </Text>
-                </View>
-              )}
-
-              {workspace.todos && workspace.todos.length > 0 && (
-                <View>
-                  <Text style={styles.sectionLabel}>Tasks:</Text>
-                  <TodoList todos={workspace.todos} />
-                </View>
-              )}
-            </View>
-          )}
-
-          {error && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-        </ScrollView>
-
-        <View style={styles.footer}>
-          {phase === "input" && (
-            <Pressable
-              onPress={handleSendPrompt}
-              disabled={!prompt.trim() || isSubmitting || !workspace}
-            >
-              <LinearGradient
-                colors={["#7c3aed", "#3b82f6"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[
-                  styles.primaryButton,
-                  (!prompt.trim() || isSubmitting || !workspace) &&
-                    styles.buttonDisabled,
-                ]}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>Start Working</Text>
-                )}
-              </LinearGradient>
-            </Pressable>
-          )}
-
-          {phase === "completed" && (
-            <>
-              {showPromptInput ? (
-                <View style={styles.promptInputContainer}>
-                  <TextInput
-                    style={styles.bottomPromptInput}
-                    placeholder="Describe what you'd like to change..."
-                    placeholderTextColor="#666"
-                    value={prompt}
-                    onChangeText={setPrompt}
-                    multiline
-                    textAlignVertical="top"
+            {phase === "working" && (
+              <View style={styles.workingSection}>
+                <View style={styles.statusContainer}>
+                  <ActivityIndicator
+                    size="small"
+                    color={theme.colors.brand.primary}
                   />
-                  <View style={styles.buttonRow}>
-                    <Pressable
-                      style={[styles.primaryButton, styles.flexButton]}
-                      onPress={handleSendPrompt}
-                      disabled={!prompt.trim() || isSubmitting || !workspace}
-                    >
-                      <Text style={styles.primaryButtonText}>Send</Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.secondaryButton, styles.flexButton]}
+                  <Text style={styles.statusText}>Claude is working...</Text>
+                </View>
+
+                {workspace.latest_session_title && (
+                  <View style={styles.messageBox}>
+                    <Text style={styles.messageLabel}>Session:</Text>
+                    <Text style={styles.messageText}>
+                      {workspace.latest_session_title}
+                    </Text>
+                  </View>
+                )}
+
+                {workspace.todos && workspace.todos.length > 0 && (
+                  <View>
+                    <Text style={styles.sectionLabel}>Progress:</Text>
+                    <TodoList todos={workspace.todos} />
+                  </View>
+                )}
+              </View>
+            )}
+
+            {phase === "completed" && (
+              <View style={styles.completedSection}>
+                {workspace.latest_session_title && (
+                  <View style={styles.messageBox}>
+                    <Text style={styles.messageText}>
+                      {workspace.latest_session_title}
+                    </Text>
+                  </View>
+                )}
+
+                {workspace.todos && workspace.todos.length > 0 && (
+                  <View>
+                    <Text style={styles.sectionLabel}>Tasks:</Text>
+                    <TodoList todos={workspace.todos} />
+                  </View>
+                )}
+              </View>
+            )}
+
+            {error && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+          </ScrollView>
+
+          <View style={styles.footer}>
+            {phase === "input" && (
+              <IOSButton
+                title="Start Working"
+                onPress={handleSendPrompt}
+                disabled={!prompt.trim() || isSubmitting || !workspace}
+                loading={isSubmitting}
+                variant="primary"
+                size="large"
+              />
+            )}
+
+            {phase === "completed" && (
+              <>
+                {showPromptInput ? (
+                  <View style={styles.promptInputContainer}>
+                    <GlassInput
+                      placeholder="Describe what you'd like to change..."
+                      value={prompt}
+                      onChangeText={setPrompt}
+                      multiline
+                      style={styles.bottomPromptInput}
+                      autoFocus
+                      inputAccessoryViewID={
+                        Platform.OS === "ios" ? inputAccessoryViewID : undefined
+                      }
+                    />
+                    <IOSButton
+                      title="Cancel"
                       onPress={() => {
                         setShowPromptInput(false);
                         setPrompt("");
+                        Keyboard.dismiss();
                       }}
-                    >
-                      <Text style={styles.secondaryButtonText}>Cancel</Text>
-                    </Pressable>
+                      variant="secondary"
+                    />
                   </View>
-                </View>
-              ) : (
-                <Pressable
-                  style={styles.primaryButton}
-                  onPress={() => setShowPromptInput(true)}
-                >
-                  <Text style={styles.primaryButtonText}>Ask for changes</Text>
-                </Pressable>
-              )}
-            </>
-          )}
-        </View>
-      </KeyboardAvoidingView>
+                ) : (
+                  <IOSButton
+                    title="Ask for changes"
+                    onPress={() => setShowPromptInput(true)}
+                    variant="primary"
+                  />
+                )}
+              </>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
+
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={inputAccessoryViewID}>
+          <View style={styles.inputAccessory}>
+            <TouchableWithoutFeedback
+              onPress={() => {
+                if (!prompt.trim() || isSubmitting || !workspace) return;
+                handleSendPrompt();
+              }}
+            >
+              <View
+                style={[
+                  styles.accessoryButton,
+                  (!prompt.trim() || isSubmitting || !workspace) &&
+                    styles.accessoryButtonDisabled,
+                ]}
+              >
+                <Text style={styles.accessoryButtonText}>↑</Text>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </InputAccessoryView>
+      )}
     </SafeAreaView>
   );
 }
@@ -346,215 +453,176 @@ export default function WorkspaceDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0a0a0a",
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1a1a1a",
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: "#666",
+    backgroundColor: theme.colors.background.grouped,
   },
   content: {
     flex: 1,
   },
   contentContainer: {
-    padding: 20,
+    paddingBottom: theme.spacing.lg,
   },
   inputSection: {
-    alignItems: "center",
-    marginTop: 40,
+    backgroundColor: theme.colors.background.secondary,
+    marginHorizontal: theme.spacing.md,
+    borderRadius: theme.spacing.radius.lg,
+    padding: theme.spacing.md,
+    paddingTop: theme.spacing.lg,
+    paddingBottom: theme.spacing.lg,
   },
   sectionTitle: {
-    fontSize: 24,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 8,
+    ...theme.typography.title1,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.sm,
+    textAlign: "center",
   },
   sectionSubtitle: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 24,
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.lg,
     textAlign: "center",
   },
   promptInput: {
     width: "100%",
-    backgroundColor: "#1a1a1a",
-    borderWidth: 1,
-    borderColor: "#333",
-    borderRadius: 12,
-    padding: 16,
-    color: "#fff",
-    fontSize: 14,
     minHeight: 120,
   },
   workingSection: {
-    marginTop: 20,
+    backgroundColor: theme.colors.background.secondary,
+    marginHorizontal: theme.spacing.md,
+    borderRadius: theme.spacing.radius.lg,
+    padding: theme.spacing.component.cardPadding,
   },
   statusContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 24,
+    gap: theme.spacing.md,
+    marginBottom: theme.spacing.lg,
   },
   statusText: {
-    color: "#999",
-    fontSize: 14,
+    ...theme.typography.callout,
+    color: theme.colors.text.secondary,
   },
   messageBox: {
-    backgroundColor: "rgba(124, 58, 237, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(124, 58, 237, 0.2)",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    marginBottom: theme.spacing.lg,
+    backgroundColor: theme.colors.fill.secondary,
+    borderRadius: theme.spacing.radius.md,
+    padding: theme.spacing.md,
   },
   messageLabel: {
-    fontSize: 12,
-    color: "rgba(124, 58, 237, 0.8)",
-    marginBottom: 8,
-    fontWeight: "600",
+    ...theme.typography.caption1Emphasized,
+    color: theme.colors.brand.primary,
+    marginBottom: theme.spacing.sm,
   },
   messageText: {
-    color: "#ccc",
-    fontSize: 14,
+    ...theme.typography.body,
+    color: theme.colors.text.primary,
     lineHeight: 20,
   },
   completedSection: {
-    marginTop: 20,
+    backgroundColor: theme.colors.background.secondary,
+    marginHorizontal: theme.spacing.md,
+    borderRadius: theme.spacing.radius.lg,
+    padding: theme.spacing.component.cardPadding,
   },
   sectionLabel: {
-    fontSize: 14,
-    color: "#999",
-    marginBottom: 12,
-    fontWeight: "600",
+    ...theme.typography.calloutEmphasized,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.md,
   },
   todosContainer: {
-    gap: 8,
+    gap: theme.spacing.sm,
   },
   todoItem: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 12,
-    paddingVertical: 8,
+    gap: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
   },
   todoStatus: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#333",
+    backgroundColor: theme.colors.fill.tertiary,
     marginTop: 6,
   },
   todoCompleted: {
-    backgroundColor: "#22c55e",
+    backgroundColor: theme.colors.status.success,
   },
   todoInProgress: {
-    backgroundColor: "#eab308",
+    backgroundColor: theme.colors.status.warning,
   },
   todoText: {
-    color: "#ccc",
-    fontSize: 14,
+    ...theme.typography.body,
+    color: theme.colors.text.primary,
     flex: 1,
     lineHeight: 20,
   },
   footer: {
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: "#1a1a1a",
-  },
-  primaryButton: {
-    backgroundColor: "#7c3aed",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  secondaryButton: {
-    backgroundColor: "#333",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  primaryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  secondaryButtonText: {
-    color: "#ccc",
-    fontSize: 16,
-    fontWeight: "600",
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.lg,
+    paddingBottom: theme.spacing.xl,
   },
   promptInputContainer: {
-    gap: 12,
+    gap: theme.spacing.md,
   },
   bottomPromptInput: {
-    backgroundColor: "#1a1a1a",
-    borderWidth: 1,
-    borderColor: "#333",
-    borderRadius: 12,
-    padding: 12,
-    color: "#fff",
-    fontSize: 14,
     minHeight: 80,
   },
-  buttonRow: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  flexButton: {
-    flex: 1,
-  },
   errorBox: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.3)",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 16,
+    backgroundColor: `${theme.colors.status.error}1A`, // 10% opacity
+    borderWidth: theme.spacing.borderWidth.thin,
+    borderColor: `${theme.colors.status.error}4D`, // 30% opacity
+    borderRadius: theme.spacing.radius.md,
+    padding: theme.spacing.md,
+    marginHorizontal: theme.spacing.md,
+    marginTop: theme.spacing.md,
   },
   errorText: {
-    color: "#fca5a5",
-    fontSize: 14,
+    ...theme.typography.callout,
+    color: theme.colors.status.error,
   },
   centerContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
+    padding: theme.spacing.lg,
   },
   loadingText: {
-    color: "#666",
-    marginTop: 16,
-    fontSize: 16,
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+    marginTop: theme.spacing.md,
   },
   errorTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#fff",
-    marginBottom: 8,
+    ...theme.typography.title2,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.sm,
   },
   retryButton: {
-    backgroundColor: "#7c3aed",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    marginTop: 16,
+    marginTop: theme.spacing.md,
   },
-  retryButtonText: {
+  inputAccessory: {
+    backgroundColor: theme.colors.background.secondary,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    borderTopWidth: 0.5,
+    borderTopColor: theme.colors.separator.primary,
+  },
+  accessoryButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.brand.primary,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  accessoryButtonDisabled: {
+    opacity: 0.3,
+  },
+  accessoryButtonText: {
     color: "#fff",
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: "600",
   },
 });

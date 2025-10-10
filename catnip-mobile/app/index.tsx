@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useAuth } from '../hooks/useAuth';
+import { useEffect } from "react";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
+import { useAuth } from "../hooks/useAuth";
 
 export default function Index() {
   const router = useRouter();
@@ -10,9 +10,9 @@ export default function Index() {
   useEffect(() => {
     if (!isLoading) {
       if (isAuthenticated) {
-        router.replace('/codespace');
+        router.replace("/codespace");
       } else {
-        router.replace('/auth');
+        router.replace("/auth");
       }
     }
   }, [isAuthenticated, isLoading]);
@@ -27,8 +27,8 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#0a0a0a",
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

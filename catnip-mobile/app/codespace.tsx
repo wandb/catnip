@@ -2,24 +2,32 @@ import { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
-  Pressable,
-  TextInput,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Pressable,
+  Image,
+  Platform,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import * as SecureStore from "expo-secure-store";
+import { BlurView } from "expo-blur";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { api, CodespaceInfo } from "../lib/api";
 import { useAuth } from "../hooks/useAuth";
+import { GlassInput, IOSButton } from "../components/ui";
+import { theme } from "../theme";
 
 type Phase = "connect" | "connecting" | "setup" | "selection" | "error";
 
 export default function CodespaceScreen() {
   const router = useRouter();
   const { logout } = useAuth();
+  const headerHeight = useHeaderHeight();
   const [phase, setPhase] = useState<Phase>("connect");
   const [orgName, setOrgName] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
@@ -90,30 +98,44 @@ export default function CodespaceScreen() {
               }
             }
 
-            // Clear cleanup ref since connection succeeded
+            // Explicitly cleanup before navigation
+            if (cleanupRef.current) {
+              cleanupRef.current();
+            }
             cleanupRef.current = null;
+            // Clear connecting phase to stop loading spinner
+            setPhase("connect");
             // Navigate to workspaces after successful connection
             setTimeout(() => {
               console.log("🎯 Navigating to workspaces...");
-              router.replace("/workspaces");
+              router.push("/workspaces");
             }, 1000);
           } else if (event.type === "error") {
             console.log("🎯 Error event:", event.message);
             setError(event.message);
             setPhase("error");
-            // Clear cleanup ref since connection failed
+            // Cleanup connection on error
+            if (cleanupRef.current) {
+              cleanupRef.current();
+            }
             cleanupRef.current = null;
           } else if (event.type === "setup") {
             console.log("🎯 Setup event:", event.message);
             setPhase("setup");
             setError(event.message);
-            // Clear cleanup ref since we're in setup phase
+            // Cleanup connection since we're in setup phase
+            if (cleanupRef.current) {
+              cleanupRef.current();
+            }
             cleanupRef.current = null;
           } else if (event.type === "multiple") {
             console.log("🎯 Multiple codespaces found:", event.codespaces);
             setCodespaces(event.codespaces);
             setPhase("selection");
-            // Clear cleanup ref since we're in selection phase
+            // Cleanup connection since we're in selection phase
+            if (cleanupRef.current) {
+              cleanupRef.current();
+            }
             cleanupRef.current = null;
           }
         },
@@ -128,7 +150,10 @@ export default function CodespaceScreen() {
       console.error("🎯 Error in handleConnect:", err);
       setError(err.message || "Connection failed");
       setPhase("error");
-      // Clear cleanup ref on error
+      // Cleanup connection on error
+      if (cleanupRef.current) {
+        cleanupRef.current();
+      }
       cleanupRef.current = null;
     }
   };
@@ -140,9 +165,14 @@ export default function CodespaceScreen() {
 
   if (phase === "setup") {
     return (
-      <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.card}>
+      <View style={styles.container}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            Platform.OS === "ios" && { paddingTop: headerHeight },
+          ]}
+        >
+          <BlurView intensity={100} tint="prominent" style={styles.card}>
             <Text style={styles.cardTitle}>⚠️ Setup Required</Text>
             <Text style={styles.description}>
               No Catnip codespaces found. To use Catnip:
@@ -161,23 +191,27 @@ export default function CodespaceScreen() {
               <Text style={styles.stepText}>2. Create a new codespace</Text>
               <Text style={styles.stepText}>3. Return here to connect</Text>
             </View>
-            <Pressable
+            <IOSButton
+              title="Back"
               onPress={() => setPhase("connect")}
-              style={styles.secondaryButton}
-            >
-              <Text style={styles.secondaryButtonText}>Back</Text>
-            </Pressable>
-          </View>
+              variant="secondary"
+            />
+          </BlurView>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (phase === "selection") {
     return (
-      <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.card}>
+      <View style={styles.container}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            Platform.OS === "ios" && { paddingTop: headerHeight },
+          ]}
+        >
+          <BlurView intensity={100} tint="prominent" style={styles.card}>
             <Text style={styles.cardTitle}>Select Codespace</Text>
             <Text style={styles.description}>Multiple codespaces found:</Text>
             {codespaces.map((cs, index) => (
@@ -197,23 +231,33 @@ export default function CodespaceScreen() {
                 </Text>
               </Pressable>
             ))}
-            <Pressable
+            <IOSButton
+              title="Back"
               onPress={() => setPhase("connect")}
-              style={styles.secondaryButton}
-            >
-              <Text style={styles.secondaryButtonText}>Back</Text>
-            </Pressable>
-          </View>
+              variant="secondary"
+            />
+          </BlurView>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <View style={styles.card}>
-          <Text style={styles.logo}>🐱</Text>
+    <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          Platform.OS === "ios" && { paddingTop: headerHeight },
+        ]}
+      >
+        <BlurView intensity={100} tint="prominent" style={styles.card}>
+          <View style={styles.logoContainer}>
+            <Image
+              source={require("../assets/logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
           <Text style={styles.title}>Catnip</Text>
           <Text style={styles.subtitle}>
             {orgName
@@ -221,29 +265,17 @@ export default function CodespaceScreen() {
               : "Access your GitHub Codespaces"}
           </Text>
 
-          <Pressable
+          <IOSButton
+            title={
+              phase === "connecting" ? "Connecting..." : "Access My Codespace"
+            }
             onPress={() => handleConnect(undefined, orgName || undefined)}
             disabled={phase === "connecting"}
-          >
-            <LinearGradient
-              colors={["#7c3aed", "#3b82f6"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[
-                styles.button,
-                phase === "connecting" && styles.buttonDisabled,
-              ]}
-            >
-              {phase === "connecting" ? (
-                <View style={styles.buttonContent}>
-                  <ActivityIndicator color="#fff" size="small" />
-                  <Text style={styles.buttonText}>Connecting...</Text>
-                </View>
-              ) : (
-                <Text style={styles.buttonText}>Access My Codespace</Text>
-              )}
-            </LinearGradient>
-          </Pressable>
+            loading={phase === "connecting"}
+            variant="primary"
+            size="large"
+            style={styles.primaryButton}
+          />
 
           {statusMessage ? (
             <View style={styles.statusBox}>
@@ -261,221 +293,184 @@ export default function CodespaceScreen() {
 
           <Text style={styles.orText}>Or access a specific organization:</Text>
           <View style={styles.inputContainer}>
-            <TextInput
-              style={styles.input}
+            <GlassInput
               placeholder="Organization name (e.g., wandb)"
-              placeholderTextColor="#666"
               value={orgName}
               onChangeText={setOrgName}
               editable={phase !== "connecting"}
+              containerStyle={styles.input}
             />
-            <Pressable
-              style={[
-                styles.goButton,
-                (!orgName || phase === "connecting") && styles.buttonDisabled,
-              ]}
+            <IOSButton
+              title="Go"
               onPress={() => handleConnect(undefined, orgName)}
               disabled={!orgName || phase === "connecting"}
-            >
-              <Text style={styles.goButtonText}>Go</Text>
-            </Pressable>
+              variant="secondary"
+              size="medium"
+              style={styles.goButton}
+            />
           </View>
 
-          <Pressable onPress={handleLogout} style={styles.logoutButton}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </Pressable>
-        </View>
+          <IOSButton
+            title="Logout"
+            onPress={handleLogout}
+            variant="tertiary"
+            size="small"
+            style={styles.logoutButton}
+          />
+        </BlurView>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: theme.colors.background.grouped,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: "center",
-    padding: 24,
+    padding: theme.spacing.lg,
+    paddingBottom: theme.spacing.xl,
   },
   card: {
-    backgroundColor: "#1a1a1a",
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "#333",
+    borderRadius: theme.spacing.radius.xl,
+    padding: theme.spacing.component.cardPadding,
+    overflow: "hidden",
+    ...theme.shadows.lg,
+  },
+  logoContainer: {
+    alignItems: "center",
+    marginBottom: theme.spacing.md,
   },
   logo: {
-    fontSize: 48,
-    textAlign: "center",
-    marginBottom: 16,
+    width: 80,
+    height: 80,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#fff",
+    ...theme.typography.largeTitle,
+    color: theme.colors.text.primary,
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: theme.spacing.sm,
   },
   subtitle: {
-    fontSize: 14,
-    color: "#999",
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: theme.spacing.lg,
   },
-  button: {
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
+  primaryButton: {
+    marginBottom: theme.spacing.md,
   },
   statusBox: {
-    backgroundColor: "rgba(59, 130, 246, 0.1)",
+    backgroundColor: "rgba(0, 122, 255, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(59, 130, 246, 0.3)",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
+    borderColor: "rgba(0, 122, 255, 0.25)",
+    borderRadius: theme.spacing.radius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
   },
   statusText: {
-    color: "#93bbfc",
+    color: "#007AFF",
     fontSize: 14,
     textAlign: "center",
+    fontWeight: "600",
   },
   errorBox: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    backgroundColor: "rgba(255, 59, 48, 0.12)",
     borderWidth: 1,
-    borderColor: "rgba(239, 68, 68, 0.3)",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
+    borderColor: "rgba(255, 59, 48, 0.25)",
+    borderRadius: theme.spacing.radius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
   },
   errorText: {
-    color: "#fca5a5",
+    color: "#FF3B30",
     fontSize: 14,
     textAlign: "center",
+    fontWeight: "600",
   },
   divider: {
-    height: 1,
-    backgroundColor: "#333",
-    marginVertical: 24,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.separator.primary,
+    marginVertical: theme.spacing.lg,
+    opacity: 0.5,
   },
   orText: {
-    color: "#999",
-    fontSize: 14,
-    marginBottom: 16,
+    ...theme.typography.subheadline,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.md,
   },
   inputContainer: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 24,
+    gap: theme.spacing.sm,
+    marginBottom: theme.spacing.lg,
   },
   input: {
     flex: 1,
-    backgroundColor: "#0a0a0a",
-    borderWidth: 1,
-    borderColor: "#333",
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    color: "#fff",
-    fontSize: 14,
+    minWidth: 0,
   },
   goButton: {
-    backgroundColor: "#4b5563",
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    justifyContent: "center",
-  },
-  goButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
+    minWidth: 80,
+    flexShrink: 0,
   },
   logoutButton: {
     alignItems: "center",
-  },
-  logoutText: {
-    color: "#ef4444",
-    fontSize: 14,
+    marginTop: theme.spacing.md,
   },
   cardTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 8,
+    ...theme.typography.title2,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.sm,
   },
   description: {
-    fontSize: 14,
-    color: "#999",
-    marginBottom: 24,
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+    marginBottom: theme.spacing.lg,
   },
   setupSteps: {
-    marginBottom: 24,
+    marginBottom: theme.spacing.lg,
   },
   stepText: {
-    color: "#ccc",
-    fontSize: 14,
-    marginBottom: 12,
+    ...theme.typography.callout,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.md,
   },
   codeBlock: {
-    backgroundColor: "#0a0a0a",
-    borderRadius: 8,
-    padding: 12,
-    marginVertical: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.2)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.05)",
+    borderRadius: theme.spacing.radius.md,
+    padding: theme.spacing.md,
+    marginVertical: theme.spacing.sm,
   },
   codeText: {
-    color: "#4ade80",
-    fontFamily: "monospace",
-    fontSize: 12,
+    ...theme.typography.codeRegular,
+    color: theme.colors.status.success,
   },
-  secondaryButton: {
-    backgroundColor: "#333",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  secondaryButtonText: {
-    color: "#ccc",
-    fontSize: 16,
-    fontWeight: "600",
+  backButton: {
+    marginTop: theme.spacing.md,
   },
   codespaceItem: {
-    backgroundColor: "#0a0a0a",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
     borderWidth: 1,
-    borderColor: "#333",
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: theme.spacing.radius.md,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.md,
   },
   codespaceTitle: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 4,
+    ...theme.typography.headline,
+    color: theme.colors.text.primary,
+    marginBottom: theme.spacing.xs,
   },
   codespaceRepo: {
-    color: "#3b82f6",
-    fontSize: 14,
-    marginBottom: 4,
+    ...theme.typography.callout,
+    color: theme.colors.brand.accent,
+    marginBottom: theme.spacing.xs,
   },
   codespaceDate: {
-    color: "#666",
-    fontSize: 12,
+    ...theme.typography.caption1,
+    color: theme.colors.text.tertiary,
   },
 });
