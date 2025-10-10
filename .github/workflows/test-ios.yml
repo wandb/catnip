@@ -1,0 +1,66 @@
+name: Test iOS
+
+on:
+  push:
+    paths:
+      - "xcode/**"
+      - ".github/workflows/test-ios.yml"
+
+jobs:
+  unit-tests:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Build and run unit tests
+        run: |
+          xcodebuild test \
+            -project xcode/catnip.xcodeproj \
+            -scheme catnip \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.5' \
+            -only-testing:catnipTests \
+            -enableCodeCoverage YES \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult
+
+  ui-tests:
+    runs-on: macos-14
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Build and run UI tests
+        run: |
+          xcodebuild test \
+            -project xcode/catnip.xcodeproj \
+            -scheme catnip \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.5' \
+            -only-testing:catnipUITests \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: |
+            ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult
