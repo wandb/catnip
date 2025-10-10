@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -121,6 +124,19 @@ func NewGitHandler(gitService *services.GitService, gitHTTPService *services.Git
 	}
 }
 
+// generateWorktreesETag generates an ETag hash from worktrees data
+func generateWorktreesETag(worktrees []*EnhancedWorktree) (string, error) {
+	// Marshal the worktrees to JSON for consistent hashing
+	data, err := json.Marshal(worktrees)
+	if err != nil {
+		return "", err
+	}
+
+	// Generate SHA-256 hash
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:]), nil
+}
+
 // CheckoutRepository handles repository checkout requests
 // @Summary Checkout a GitHub repository
 // @Description Clones a GitHub repository as a bare repo and creates initial worktree
@@ -181,10 +197,12 @@ type WorktreeCacheStatus struct {
 
 // ListWorktrees returns all worktrees with cache-enhanced responses
 // @Summary List all worktrees
-// @Description Returns a list of all worktrees for the current repository with fast cache-enhanced responses
+// @Description Returns a list of all worktrees for the current repository with fast cache-enhanced responses. Supports conditional requests via If-None-Match header for efficient polling.
 // @Tags git
 // @Produce json
+// @Param If-None-Match header string false "ETag from previous request"
 // @Success 200 {array} EnhancedWorktree
+// @Success 304 "Not Modified - content unchanged"
 // @Router /v1/git/worktrees [get]
 func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 	worktrees := h.gitService.ListWorktrees()
@@ -241,6 +259,26 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 		enhancedWorktrees = append(enhancedWorktrees, enhanced)
 	}
 
+	// Generate ETag from the enhanced worktrees
+	etag, err := generateWorktreesETag(enhancedWorktrees)
+	if err != nil {
+		logger.Errorf("❌ Failed to generate ETag: %v", err)
+		// Continue without ETag support on error
+		return c.JSON(enhancedWorktrees)
+	}
+
+	// Check If-None-Match header for conditional request
+	clientETag := c.Get("If-None-Match")
+	if clientETag != "" && clientETag == etag {
+		// Content hasn't changed, return 304 Not Modified
+		c.Set("ETag", etag)
+		c.Set("Cache-Control", "no-cache") // Must revalidate, but cacheable
+		return c.SendStatus(fiber.StatusNotModified)
+	}
+
+	// Content has changed or no ETag provided, return full response with ETag
+	c.Set("ETag", etag)
+	c.Set("Cache-Control", "no-cache") // Must revalidate, but cacheable
 	return c.JSON(enhancedWorktrees)
 }
 
