@@ -38,3 +38,14 @@ analyze:
 # List available simulators
 list-simulators:
     xcrun simctl list devices available
+
+# Run unit tests
+test:
+    xcodebuild test \
+        -project catnip.xcodeproj \
+        -scheme catnip \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -only-testing:catnipTests \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        2>&1 | tee /tmp/xcode-test.log

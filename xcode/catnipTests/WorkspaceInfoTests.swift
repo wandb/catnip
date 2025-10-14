@@ -28,7 +28,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.displayName == "feature-branch")
@@ -49,7 +50,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.displayName == "Unnamed workspace")
@@ -72,7 +74,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.cleanBranch == "feature-123")
@@ -93,7 +96,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.cleanBranch == "feature-abc")
@@ -114,7 +118,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.cleanBranch == "feature/new-feature")
@@ -135,7 +140,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.cleanBranch == "main")
@@ -156,7 +162,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.cleanBranch == "test")
@@ -179,7 +186,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.statusText == "Active now")
@@ -200,7 +208,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.statusText == "Running")
@@ -221,7 +230,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.statusText == "Inactive")
@@ -242,7 +252,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.statusText == "Inactive")
@@ -272,7 +283,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         // Should display time of day
@@ -301,7 +313,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.timeDisplay == "Yesterday")
@@ -322,7 +335,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.timeDisplay.isEmpty)
@@ -345,7 +359,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: "Implementing new feature",
             latestUserPrompt: "Write some code",
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.activityDescription == "Implementing new feature")
@@ -366,7 +381,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: "Fix the bug",
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.activityDescription == "Fix the bug")
@@ -387,7 +403,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: "",
             latestUserPrompt: "Do something",
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.activityDescription == "Do something")
@@ -408,7 +425,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
-            path: "/path/to/workspace"
+            path: "/path/to/workspace",
+            cacheStatus: nil
         )
 
         #expect(workspace.activityDescription == nil)
