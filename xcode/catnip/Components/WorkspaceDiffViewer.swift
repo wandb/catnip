@@ -57,9 +57,9 @@ struct WorkspaceDiffViewer: View {
         .task {
             await loadDiff()
         }
-        .onChange(of: selectedFile) { oldValue, newValue in
+        .onChange(of: selectedFile) {
             // Scroll to selected file when it changes
-            if let file = newValue {
+            if let file = selectedFile {
                 scrollToFile(file)
             }
         }
@@ -112,7 +112,7 @@ struct WorkspaceDiffViewer: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color(uiColor: .secondarySystemBackground).opacity(0.95))
+        .background(Color(uiColor: .systemBackground).opacity(0.95))
         .overlay(
             Rectangle()
                 .fill(Color(uiColor: .separator))
@@ -195,8 +195,8 @@ struct WorkspaceDiffViewer: View {
                 }
                 .padding(.vertical, 8)
             }
-            .onChange(of: selectedFile) { oldValue, newValue in
-                if let file = newValue {
+            .onChange(of: selectedFile) {
+                if let file = selectedFile {
                     withAnimation {
                         proxy.scrollTo(file, anchor: .top)
                     }
@@ -292,7 +292,7 @@ private struct WorkspaceDiffViewerPreview: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color(uiColor: .secondarySystemBackground).opacity(0.95))
+            .background(Color(uiColor: .systemBackground).opacity(0.95))
             .overlay(
                 Rectangle()
                     .fill(Color(uiColor: .separator))

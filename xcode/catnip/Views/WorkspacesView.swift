@@ -72,8 +72,8 @@ struct WorkspacesView: View {
                 onCreate: { Task { await createWorkspace() } }
             )
         }
-        .onChange(of: showCreateSheet) { isShowing in
-            if isShowing {
+        .onChange(of: showCreateSheet) {
+            if showCreateSheet {
                 // Pre-select most recently used repository
                 if let mostRecent = workspaces.first {
                     selectedRepository = mostRecent.repoId
@@ -93,7 +93,7 @@ struct WorkspacesView: View {
                 createSheetError = nil
             }
         }
-        .onChange(of: selectedRepository) { _ in
+        .onChange(of: selectedRepository) {
             // When repository changes, fetch its branches
             if showCreateSheet && !selectedRepository.isEmpty {
                 selectedBranch = nil // Reset branch selection
@@ -109,9 +109,9 @@ struct WorkspacesView: View {
                 pendingPrompt: pendingPromptForNavigation
             )
         }
-        .onChange(of: navigationWorkspace) { oldValue, newValue in
+        .onChange(of: navigationWorkspace) {
             // Clear pending prompt after navigation completes
-            if newValue == nil && pendingPromptForNavigation != nil {
+            if navigationWorkspace == nil && pendingPromptForNavigation != nil {
                 pendingPromptForNavigation = nil
                 NSLog("🐱 [WorkspacesView] Cleared pendingPromptForNavigation after navigation")
             }

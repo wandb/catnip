@@ -63,9 +63,9 @@ struct CodespaceView: View {
         .navigationDestination(isPresented: $navigateToWorkspaces) {
             WorkspacesView()
         }
-        .onChange(of: navigateToWorkspaces) { isNavigating in
+        .onChange(of: navigateToWorkspaces) {
             // Reset state when returning from workspaces view
-            if !isNavigating {
+            if !navigateToWorkspaces {
                 phase = .connect
                 statusMessage = ""
                 errorMessage = ""
