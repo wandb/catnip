@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		34502CF42E99B32C00575EEA /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 34502CF32E99B32C00575EEA /* SwiftTerm */; };
+		34502CF92E9DD77B00575EEA /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 34502CF82E9DD77B00575EEA /* MarkdownUI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		346BB07E2E931366000F5DA0 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -65,6 +70,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				34502CF42E99B32C00575EEA /* SwiftTerm in Frameworks */,
+				34502CF92E9DD77B00575EEA /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -125,6 +132,8 @@
 			);
 			name = catnip;
 			packageProductDependencies = (
+				34502CF32E99B32C00575EEA /* SwiftTerm */,
+				34502CF82E9DD77B00575EEA /* MarkdownUI */,
 			);
 			productName = catnip;
 			productReference = 346BB06C2E931364000F5DA0 /* catnip.app */;
@@ -208,6 +217,10 @@
 			);
 			mainGroup = 346BB0632E931364000F5DA0;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				34502CF22E99B32C00575EEA /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				34502CF72E9DD77B00575EEA /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 346BB06D2E931364000F5DA0 /* Products */;
 			projectDirPath = "";
@@ -589,6 +602,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		34502CF22E99B32C00575EEA /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.0;
+			};
+		};
+		34502CF72E9DD77B00575EEA /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		34502CF32E99B32C00575EEA /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 34502CF22E99B32C00575EEA /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+		34502CF82E9DD77B00575EEA /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 34502CF72E9DD77B00575EEA /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 346BB0642E931364000F5DA0 /* Project object */;
 }
