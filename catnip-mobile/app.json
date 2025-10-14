@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Catnip",
+    "slug": "catnip-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "scheme": "catnip",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#000000",
+      "image": "./assets/splash.png"
+    },
+    "icon": "./assets/catnip.icon/Assets/logo@2x.png",
+    "ios": {
+      "icon": "./assets/catnip.icon",
+      "supportsTablet": true,
+      "bundleIdentifier": "run.catnip.mobile",
+      "requireFullScreen": false,
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "This app uses Face ID for secure authentication.",
+        "UILaunchStoryboardName": "SplashScreen",
+        "UIStatusBarStyle": "UIStatusBarStyleDefault",
+        "UIViewControllerBasedStatusBarAppearance": true,
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "run.catnip.mobile"
+    },
+    "web": {
+      "output": "static"
+    },
+    "plugins": ["expo-router", "expo-secure-store", "expo-font"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "assetBundlePatterns": ["assets/**/*"],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "394bda23-68d1-4862-92e0-7a60c14645f7"
+      }
+    }
+  }
+}

@@ -1,2 +1,5 @@
+packages:
+  - 'catnip-mobile'
+
 onlyBuiltDependencies:
   - '@tailwindcss/oxide'

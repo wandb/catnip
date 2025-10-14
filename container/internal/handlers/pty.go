@@ -497,6 +497,7 @@ func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
 	prompt := c.Query("prompt", "")
 
 	// Debug logging
+	logger.Infof("🐱 [HandleSSEConnection] Received SSE request - session: %s, agent: %s, has_prompt: %v", sessionID, agent, prompt != "")
 	if agent != "" {
 		logger.Debugf("📡 New SSE connection for session: %s with agent: %s", sessionID, agent)
 	} else {
@@ -508,6 +509,7 @@ func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
 	if agent != "" {
 		compositeSessionID = fmt.Sprintf("%s:%s", sessionID, agent)
 	}
+	logger.Infof("🐱 [HandleSSEConnection] Composite session ID: %s", compositeSessionID)
 
 	// Set SSE headers
 	c.Set("Content-Type", "text/event-stream")
@@ -552,7 +554,10 @@ func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
 
 	// Handle prompt injection if provided via query parameter using SessionStart hook
 	if prompt != "" {
+		logger.Infof("🐱 [HandleSSEConnection] Prompt provided, starting injection handler for: %q", prompt)
 		go h.handleSSEPromptInjection(session, prompt)
+	} else {
+		logger.Infof("🐱 [HandleSSEConnection] No prompt provided in query parameters")
 	}
 
 	// Wait for context cancellation (connection close)
@@ -1051,6 +1056,9 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	if idx := strings.LastIndex(sessionID, ":"); idx != -1 {
 		baseSessionID = sessionID[:idx]
 	}
+
+	logger.Infof("🐱 [getOrCreateSession] sessionID: %s, baseSessionID: %s", sessionID, baseSessionID)
+	logger.Infof("🐱 [getOrCreateSession] WorkspaceDir: %s", config.Runtime.WorkspaceDir)
 
 	// Validate session ID and get workspace directory
 	// Support both "default" symlink and state-based worktree lookups
@@ -2495,12 +2503,26 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn PTYConnection, foc
 
 // handleSSEPromptInjection waits for SessionStart hook then injects prompt robustly
 func (h *PTYHandler) handleSSEPromptInjection(session *Session, prompt string) {
+	logger.Infof("🐱 [handleSSEPromptInjection] Started for session: %s, prompt: %q", session.ID, prompt)
+
 	if h.claudeMonitor == nil {
-		logger.Errorf("❌ ClaudeMonitor service not available for SSE prompt injection")
+		logger.Errorf("🐱 [handleSSEPromptInjection] ❌ ClaudeMonitor service not available for SSE prompt injection")
 		return
 	}
 
-	logger.Infof("⏳ Waiting for SessionStart hook before injecting SSE prompt: %q", prompt)
+	// Check if Claude is already active/running - if so, inject immediately without waiting for SessionStart
+	claudeActivityState := h.sessionService.GetClaudeActivityState(session.WorkDir)
+	logger.Infof("🐱 [handleSSEPromptInjection] Current Claude activity state: %v", claudeActivityState)
+
+	if claudeActivityState == models.ClaudeActive || claudeActivityState == models.ClaudeRunning {
+		logger.Infof("🚀 Claude is already active/running, injecting prompt immediately without waiting for SessionStart")
+		// Brief delay to ensure PTY is ready
+		time.Sleep(100 * time.Millisecond)
+		h.injectPromptWithEchoConfirmation(session, prompt)
+		return
+	}
+
+	logger.Infof("🐱 [handleSSEPromptInjection] ⏳ Waiting for SessionStart hook before injecting SSE prompt: %q", prompt)
 
 	// Record the current time so we only accept SessionStart events after now
 	startTime := time.Now()

@@ -1,0 +1,51 @@
+# Justfile for catnip iOS project
+
+# Build the iOS project and show all warnings including deprecations
+build:
+    xcodebuild \
+        -project catnip.xcodeproj \
+        -scheme catnip \
+        -configuration Debug \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        clean build \
+        SWIFT_SUPPRESS_WARNINGS=NO \
+        GCC_WARN_INHIBIT_ALL_WARNINGS=NO \
+        SWIFT_TREAT_WARNINGS_AS_ERRORS=NO \
+        RUN_CLANG_STATIC_ANALYZER=NO \
+        2>&1 | tee /tmp/xcode-build.log
+
+# Build without cleaning first (faster)
+build-quick:
+    xcodebuild \
+        -project catnip.xcodeproj \
+        -scheme catnip \
+        -configuration Debug \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        build \
+        2>&1 | tee /tmp/xcode-build-quick.log
+
+# Run static analyzer
+analyze:
+    xcodebuild \
+        -project catnip.xcodeproj \
+        -scheme catnip \
+        -configuration Debug \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        analyze \
+        RUN_CLANG_STATIC_ANALYZER=YES \
+        2>&1 | tee /tmp/xcode-analyze.log
+
+# List available simulators
+list-simulators:
+    xcrun simctl list devices available
+
+# Run unit tests
+test:
+    xcodebuild test \
+        -project catnip.xcodeproj \
+        -scheme catnip \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -only-testing:catnipTests \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        2>&1 | tee /tmp/xcode-test.log

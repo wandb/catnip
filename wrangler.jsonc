@@ -34,20 +34,22 @@
   "observability": {
     "enabled": true,
   },
-  "containers": [
-    {
-      "class_name": "CatnipContainer",
-      "max_instances": 40,
-      "name": "catnip-container",
-      "image": "./Dockerfile",
-    },
-  ],
+  // TEMPORARY: Container support disabled to avoid building/uploading container
+  // "containers": [
+  //   {
+  //     "class_name": "CatnipContainer",
+  //     "max_instances": 40,
+  //     "name": "catnip-container",
+  //     "image": "./Dockerfile",
+  //   },
+  // ],
   "durable_objects": {
     "bindings": [
-      {
-        "class_name": "CatnipContainer",
-        "name": "CATNIP_CONTAINER",
-      },
+      // TEMPORARY: Container binding disabled
+      // {
+      //   "class_name": "CatnipContainer",
+      //   "name": "CATNIP_CONTAINER",
+      // },
       {
         "class_name": "SessionStore",
         "name": "SESSIONS",
@@ -102,10 +104,11 @@
       "routes": [{ "pattern": "qa.catnip.run/*", "zone_name": "catnip.run" }],
       "durable_objects": {
         "bindings": [
-          {
-            "class_name": "CatnipContainer",
-            "name": "CATNIP_CONTAINER",
-          },
+          // TEMPORARY: Container binding disabled
+          // {
+          //   "class_name": "CatnipContainer",
+          //   "name": "CATNIP_CONTAINER",
+          // },
           {
             "class_name": "SessionStore",
             "name": "SESSIONS",
@@ -116,14 +119,15 @@
           },
         ],
       },
-      "containers": [
-        {
-          "class_name": "CatnipContainer",
-          "max_instances": 40,
-          "name": "catnip-container",
-          "image": "./Dockerfile",
-        },
-      ],
+      // TEMPORARY: Container support disabled
+      // "containers": [
+      //   {
+      //     "class_name": "CatnipContainer",
+      //     "max_instances": 40,
+      //     "name": "catnip-container",
+      //     "image": "./Dockerfile",
+      //   },
+      // ],
       "migrations": [
         {
           "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
@@ -154,10 +158,11 @@
       ],
       "durable_objects": {
         "bindings": [
-          {
-            "class_name": "CatnipContainer",
-            "name": "CATNIP_CONTAINER",
-          },
+          // TEMPORARY: Container binding disabled
+          // {
+          //   "class_name": "CatnipContainer",
+          //   "name": "CATNIP_CONTAINER",
+          // },
           {
             "class_name": "SessionStore",
             "name": "SESSIONS",
@@ -168,15 +173,16 @@
           },
         ],
       },
-      "containers": [
-        {
-          "class_name": "CatnipContainer",
-          "max_instances": 10,
-          "name": "catnip-container",
-          "image": "./Dockerfile",
-          "instance_type": "standard",
-        },
-      ],
+      // TEMPORARY: Container support disabled
+      // "containers": [
+      //   {
+      //     "class_name": "CatnipContainer",
+      //     "max_instances": 10,
+      //     "name": "catnip-container",
+      //     "image": "./Dockerfile",
+      //     "instance_type": "standard",
+      //   },
+      // ],
       "observability": {
         "enabled": true,
       },
