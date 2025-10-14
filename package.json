@@ -115,6 +115,23 @@
     "typescript-eslint": "^8.38.0",
     "vite": "^7.0.6",
     "vitest": "^3.2.4",
-    "wrangler": "^4.27.0"
-  }
+    "wrangler": "^4.27.0",
+    "ws": "^8.18.3"
+  },
+  "description": "<div align=\"center\">   <img src=\"public/logo@2x.webp\" alt=\"Catnip Logo\" width=\"200\"/>",
+  "main": "eslint.config.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wandb/catnip.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/wandb/catnip/issues"
+  },
+  "homepage": "https://github.com/wandb/catnip#readme"
 }

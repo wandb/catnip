@@ -76,16 +76,21 @@ const CONTAINER_ROUTES = [
 ];
 
 function shouldRouteToContainer(pathname: string): boolean {
-  return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
+  // TEMPORARY: Container support disabled to avoid building/uploading container
+  return false;
+
+  // Original logic (re-enable when needed):
+  // return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
 }
 
 // Check if codespace health endpoint is responding
 async function checkCodespaceHealth(
   codespaceUrl: string,
   githubToken: string,
-  options: { hasFreshCredentials?: boolean } = {},
+  options: { hasFreshCredentials?: boolean; isAlreadyRunning?: boolean } = {},
 ): Promise<{ healthy: boolean; lastStatus?: number; lastError?: string }> {
-  const maxAttempts = 8; // Check for up to 40 seconds (8 * 5s)
+  // Reduce attempts if codespace is already running - should succeed quickly
+  const maxAttempts = options.isAlreadyRunning ? 4 : 8; // 20s vs 40s max
   const delayMs = 5000; // 5 second intervals
   let lastStatus: number | undefined;
   let lastError: string | undefined;
@@ -1034,6 +1039,7 @@ export function createApp(env: Env) {
           updated_at: string;
           last_used_at: string;
         } | null = null;
+        let codespaceWasAlreadyRunning = false;
 
         // If we have a selected codespace, try to get its current status directly
         if (selectedCodespace) {
@@ -1056,6 +1062,8 @@ export function createApp(env: Env) {
             if (codespaceStatusResponse.ok) {
               targetCodespace = await codespaceStatusResponse.json();
               if (targetCodespace) {
+                codespaceWasAlreadyRunning =
+                  targetCodespace.state === "Available";
                 console.log(
                   `Selected codespace found and accessible: ${targetCodespace.name}, state: ${targetCodespace.state}`,
                 );
@@ -1121,17 +1129,30 @@ export function createApp(env: Env) {
           );
 
           if (!startResponse.ok) {
-            console.error(
-              "Failed to start codespace:",
-              startResponse.status,
-              await startResponse.text(),
-            );
-            sendEvent("error", {
-              message:
-                "Failed to start codespace. Please ensure you have codespace permissions.",
-            });
-            void writer.close();
-            return;
+            const errorText = await startResponse.text();
+
+            // 409 "already running" is fine - the codespace is starting/running
+            // This can happen during state transitions (e.g., ShuttingDown -> Starting)
+            if (startResponse.status === 409) {
+              console.log(
+                "Codespace already running or starting (409), continuing with health check:",
+                errorText,
+              );
+              // Continue to health check - don't return
+            } else {
+              // Other errors are real failures
+              console.error(
+                "Failed to start codespace:",
+                startResponse.status,
+                errorText,
+              );
+              sendEvent("error", {
+                message:
+                  "Failed to start codespace. Please ensure you have codespace permissions.",
+              });
+              void writer.close();
+              return;
+            }
           }
 
           // Give the codespace time to start and send fresh credentials
@@ -1139,7 +1160,7 @@ export function createApp(env: Env) {
             message: "Setting up codespace environment",
             step: "setup",
           });
-          await new Promise((resolve) => setTimeout(resolve, 10000)); // Wait longer for startup
+          await new Promise((resolve) => setTimeout(resolve, 8000)); // Wait for startup
         }
 
         // Check if codespace is healthy before redirecting
@@ -1235,12 +1256,16 @@ export function createApp(env: Env) {
 
           if (credentialsRefreshed) {
             console.log("Using refreshed credentials for health check");
-            // Give extra time for fresh credentials to propagate
+            // Give time for fresh credentials to propagate
             sendEvent("status", {
               message: "Waiting for fresh credentials to propagate",
               step: "initializing",
             });
-            await new Promise((resolve) => setTimeout(resolve, 8000));
+            // Reduced wait: 3s if already running, 5s if just started
+            const propagationWait = codespaceWasAlreadyRunning ? 3000 : 5000;
+            await new Promise((resolve) =>
+              setTimeout(resolve, propagationWait),
+            );
           } else {
             console.log("Using original stored credentials for health check");
             // Give catnip a moment to be ready for health check
@@ -1248,8 +1273,9 @@ export function createApp(env: Env) {
               message: "Waiting for catnip to be ready",
               step: "initializing",
             });
-            // Shorter wait since we already waited during credential refresh attempts
-            await new Promise((resolve) => setTimeout(resolve, 3000));
+            // Minimal wait if already running, short wait if just started
+            const readyWait = codespaceWasAlreadyRunning ? 500 : 2000;
+            await new Promise((resolve) => setTimeout(resolve, readyWait));
           }
 
           sendEvent("status", {
@@ -1277,7 +1303,10 @@ export function createApp(env: Env) {
           const healthResult = await checkCodespaceHealth(
             healthCheckUrl,
             healthCheckToken,
-            { hasFreshCredentials: credentialsRefreshed },
+            {
+              hasFreshCredentials: credentialsRefreshed,
+              isAlreadyRunning: codespaceWasAlreadyRunning,
+            },
           );
 
           if (healthResult.healthy) {
@@ -1530,12 +1559,17 @@ export function createApp(env: Env) {
 
     // Check for mobile app requests with codespace name header
     const codespaceName = c.req.header("X-Codespace-Name");
+    // Mobile requests should check route patterns directly, not shouldRouteToContainer
+    // (which is disabled for web to avoid building/uploading containers)
+    const matchesContainerRoute = CONTAINER_ROUTES.some((pattern) =>
+      pattern.test(url.pathname),
+    );
     const isMobileCodespaceRequest =
-      isMainDomain && codespaceName && shouldRouteToContainer(url.pathname);
+      isMainDomain && codespaceName && matchesContainerRoute;
 
     if (isMobileCodespaceRequest) {
       console.log(
-        `Mobile codespace request for ${codespaceName}: ${url.pathname}`,
+        `🐱 [Mobile] Proxying request for ${codespaceName}: ${url.pathname}`,
       );
 
       try {
@@ -1546,9 +1580,13 @@ export function createApp(env: Env) {
 
         const username = c.get("username");
         if (!username) {
-          console.error("No username found for mobile codespace request");
+          console.error(
+            "🐱 [Mobile] ❌ No username found for mobile codespace request",
+          );
           return c.text("Authentication required", 401);
         }
+
+        console.log(`🐱 [Mobile] Authenticated user: ${username}`);
 
         // Get specific codespace credentials by username and codespace name
         const credentialsResponse = await codespaceStore.fetch(
@@ -1557,7 +1595,7 @@ export function createApp(env: Env) {
 
         if (!credentialsResponse.ok) {
           console.error(
-            `No credentials found for user: ${username}, codespace: ${codespaceName}`,
+            `🐱 [Mobile] ❌ No credentials found for user: ${username}, codespace: ${codespaceName}`,
           );
           return c.text("Codespace credentials not found", 404);
         }
@@ -1567,12 +1605,14 @@ export function createApp(env: Env) {
           githubToken: string;
         };
 
-        console.log(`Found credentials for ${username}/${codespaceName}`);
+        console.log(
+          `🐱 [Mobile] ✅ Found credentials for ${username}/${codespaceName}`,
+        );
 
         // Check if we have a valid token
         if (!credentials.githubToken || credentials.githubToken === "") {
           console.error(
-            `No valid GitHub token for ${username}/${codespaceName}`,
+            `🐱 [Mobile] ❌ No valid GitHub token for ${username}/${codespaceName}`,
           );
           return c.text(
             "Codespace credentials expired - please reconnect",
@@ -1580,12 +1620,185 @@ export function createApp(env: Env) {
           );
         }
 
-        // Proxy to codespace
+        console.log(
+          `🐱 [Mobile] Token preview: ${credentials.githubToken.substring(0, 7)}...`,
+        );
+
+        // Proxy to codespace - check if this is a WebSocket upgrade
+        const isWebSocket =
+          c.req.header("Upgrade")?.toLowerCase() === "websocket";
+
+        // Always use https:// - WebSocket upgrade is handled by the Upgrade headers
         const codespaceUrl = `https://${codespaceName}-6369.app.github.dev`;
         const proxyUrl = `${codespaceUrl}${url.pathname}${url.search}`;
 
-        console.log(`Proxying mobile request to: ${proxyUrl}`);
+        console.log(
+          `🐱 [Mobile] Proxying to: ${proxyUrl}${isWebSocket ? " (WebSocket)" : ""}`,
+        );
 
+        // For WebSocket upgrades, create a WebSocketPair to tunnel the connection
+        if (isWebSocket) {
+          console.log("🐱 [Mobile] Setting up WebSocket tunnel");
+
+          // Create a WebSocketPair - one end for the client, one for our backend connection
+          const pair = new WebSocketPair();
+          const [client, server] = Object.values(pair);
+
+          // Accept the client side of the pair
+          server.accept();
+
+          // Build clean headers for backend - only include WebSocket upgrade headers
+          const backendHeaders = new Headers();
+
+          // Copy WebSocket upgrade headers from original request
+          const upgradeHeaders = [
+            "Upgrade",
+            "Connection",
+            "Sec-WebSocket-Key",
+            "Sec-WebSocket-Version",
+            "Sec-WebSocket-Extensions",
+            "Sec-WebSocket-Protocol",
+          ];
+          for (const header of upgradeHeaders) {
+            const value = c.req.header(header);
+            if (value) {
+              backendHeaders.set(header, value);
+            }
+          }
+
+          // Add GitHub authentication header (backend expects this, not Authorization)
+          backendHeaders.set("X-Github-Token", credentials.githubToken);
+          backendHeaders.set("User-Agent", "Catnip-Mobile/1.0");
+
+          console.log(
+            "🐱 [Mobile] Backend headers:",
+            Array.from(backendHeaders.entries())
+              .map(
+                ([k, v]) =>
+                  `${k}: ${k === "X-Github-Token" ? v.substring(0, 7) + "..." : v}`,
+              )
+              .join(", "),
+          );
+
+          const backendResponse = await fetch(proxyUrl, {
+            headers: backendHeaders,
+          });
+
+          console.log(
+            `🐱 [Mobile] Backend fetch response status: ${backendResponse.status}`,
+          );
+
+          if (backendResponse.status !== 101) {
+            console.error(
+              `🐱 [Mobile] ❌ Backend WebSocket upgrade failed: ${backendResponse.status}`,
+            );
+            server.close(1011, "Backend connection failed");
+            return c.text("Failed to connect to backend", 502);
+          }
+
+          const backendWebSocket = backendResponse.webSocket;
+          if (!backendWebSocket) {
+            console.error(
+              "🐱 [Mobile] ❌ Backend upgrade succeeded but no webSocket property",
+            );
+            server.close(1011, "Backend connection failed");
+            return c.text("Backend WebSocket unavailable", 502);
+          }
+
+          console.log("🐱 [Mobile] Got backend WebSocket");
+
+          // IMPORTANT: WebSockets from fetch() also need accept() in Cloudflare Workers
+          backendWebSocket.accept();
+          console.log("🐱 [Mobile] Accepted backend WebSocket");
+
+          // Pipe messages from client (via server) to backend
+          // Use coupleWebSocket to automatically forward messages bidirectionally
+          server.addEventListener("message", (event: MessageEvent) => {
+            try {
+              if (
+                backendWebSocket.readyState === WebSocket.OPEN ||
+                backendWebSocket.readyState === WebSocket.CONNECTING
+              ) {
+                backendWebSocket.send(event.data);
+              }
+            } catch (error) {
+              console.error(
+                "🐱 [Mobile] ❌ Error forwarding to backend:",
+                error,
+              );
+            }
+          });
+
+          // Pipe messages from backend to client (via server)
+          backendWebSocket.addEventListener(
+            "message",
+            (event: MessageEvent) => {
+              try {
+                if (
+                  server.readyState === WebSocket.OPEN ||
+                  server.readyState === WebSocket.CONNECTING
+                ) {
+                  server.send(event.data);
+                }
+              } catch (error) {
+                console.error(
+                  "🐱 [Mobile] ❌ Error forwarding to client:",
+                  error,
+                );
+              }
+            },
+          );
+
+          // Handle close events
+          server.addEventListener("close", (event: CloseEvent) => {
+            console.log(
+              `🐱 [Mobile] Client WebSocket closed: code=${event.code}, reason=${event.reason}`,
+            );
+            try {
+              backendWebSocket.close();
+            } catch (error) {
+              console.error(
+                "🐱 [Mobile] Error closing backend WebSocket:",
+                error,
+              );
+            }
+          });
+
+          backendWebSocket.addEventListener("close", (event: CloseEvent) => {
+            console.log(
+              `🐱 [Mobile] Backend WebSocket closed: code=${event.code}, reason=${event.reason || "(no reason)"}`,
+            );
+            try {
+              server.close();
+            } catch (error) {
+              console.error(
+                "🐱 [Mobile] Error closing server WebSocket:",
+                error,
+              );
+            }
+          });
+
+          // Handle errors
+          server.addEventListener("error", (event: ErrorEvent) => {
+            console.error("🐱 [Mobile] Client WebSocket error:", event.error);
+            backendWebSocket.close();
+          });
+
+          backendWebSocket.addEventListener("error", (event: ErrorEvent) => {
+            console.error("🐱 [Mobile] Backend WebSocket error:", event.error);
+            server.close();
+          });
+
+          console.log("🐱 [Mobile] ✅ WebSocket tunnel established");
+
+          // Return the client side of the pair
+          return new Response(null, {
+            status: 101,
+            webSocket: client,
+          });
+        }
+
+        // For regular HTTP requests, proxy normally
         const proxyHeaders = new Headers(c.req.raw.headers);
         proxyHeaders.set("X-Github-Token", credentials.githubToken);
         proxyHeaders.set("User-Agent", "Catnip-Mobile/1.0");
@@ -1600,13 +1813,12 @@ export function createApp(env: Env) {
               : undefined,
         });
 
-        return new Response(proxyResponse.body, {
-          status: proxyResponse.status,
-          statusText: proxyResponse.statusText,
-          headers: proxyResponse.headers,
-        });
+        console.log(
+          `🐱 [Mobile] ✅ Proxy response status: ${proxyResponse.status}`,
+        );
+        return proxyResponse;
       } catch (error) {
-        console.error("Error proxying to codespace:", error);
+        console.error("🐱 [Mobile] ❌ Error proxying to codespace:", error);
         return c.text("Failed to connect to codespace", 500);
       }
     }

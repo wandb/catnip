@@ -270,6 +270,9 @@ importers:
       wrangler:
         specifier: ^4.27.0
         version: 4.27.0(@cloudflare/workers-types@4.20250801.0)
+      ws:
+        specifier: ^8.18.3
+        version: 8.18.3
 
   catnip-mobile:
     dependencies:
