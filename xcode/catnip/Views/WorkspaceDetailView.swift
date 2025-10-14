@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import MarkdownUI
 
 enum WorkspacePhase {
     case loading
@@ -28,6 +29,14 @@ struct WorkspaceDetailView: View {
     @State private var latestMessage: String?
     @State private var cachedDiff: WorktreeDiffResponse?
     @State private var pendingUserPrompt: String? // Store prompt we just sent before backend updates
+    @State private var showPRSheet = false
+    @State private var isCreatingPR = false
+
+    // Terminal / Orientation tracking
+    @State private var isLandscape = false
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @Environment(\.verticalSizeClass) var verticalSizeClass
+    @EnvironmentObject var authManager: AuthManager
 
     init(workspaceId: String, initialWorkspace: WorkspaceInfo? = nil, pendingPrompt: String? = nil) {
         self.workspaceId = workspaceId
@@ -62,19 +71,37 @@ struct WorkspaceDetailView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: .systemGroupedBackground)
+            Color(uiColor: .systemBackground)
                 .ignoresSafeArea()
 
-            if phase == .loading {
-                loadingView
-            } else if phase == .error || workspace == nil {
-                errorView
+            // Show terminal in landscape, normal UI in portrait
+            if isLandscape {
+                terminalView
             } else {
-                contentView
+                if phase == .loading {
+                    loadingView
+                } else if phase == .error || workspace == nil {
+                    errorView
+                } else {
+                    contentView
+                }
             }
         }
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Show terminal/fullscreen button when in portrait mode
+            if !isLandscape {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        rotateToLandscape()
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.body)
+                    }
+                }
+            }
+        }
         .task {
             await loadWorkspace()
             poller.start()
@@ -82,16 +109,25 @@ struct WorkspaceDetailView: View {
         .onDisappear {
             poller.stop()
         }
-        .onChange(of: poller.workspace) { oldWorkspace, newWorkspace in
-            if let newWorkspace = newWorkspace {
+        .onChange(of: horizontalSizeClass) {
+            updateOrientation()
+        }
+        .onChange(of: verticalSizeClass) {
+            updateOrientation()
+        }
+        .onAppear {
+            updateOrientation()
+        }
+        .onChange(of: poller.workspace) {
+            if let newWorkspace = poller.workspace {
                 NSLog("🔄 Workspace updated - activity: \(newWorkspace.claudeActivityState?.rawValue ?? "nil"), title: \(newWorkspace.latestSessionTitle?.prefix(30) ?? "nil")")
                 determinePhase(for: newWorkspace)
             } else {
                 NSLog("⚠️ Workspace updated to nil")
             }
         }
-        .onChange(of: poller.error) { _, newError in
-            if let newError = newError {
+        .onChange(of: poller.error) {
+            if let newError = poller.error {
                 error = newError
             }
         }
@@ -131,6 +167,15 @@ struct WorkspaceDetailView: View {
                         }
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $showPRSheet) {
+            if let workspace = workspace {
+                PRCreationSheet(
+                    isPresented: $showPRSheet,
+                    workspace: workspace,
+                    isCreating: $isCreatingPR
+                )
             }
         }
         .onAppear {
@@ -300,6 +345,7 @@ struct WorkspaceDetailView: View {
                     }
                 )
                 .frame(height: 400)
+                .padding(.top, 16)
             }
         }
     }
@@ -389,6 +435,7 @@ struct WorkspaceDetailView: View {
                     }
                 )
                 .frame(height: 400)
+                .padding(.top, 16)
             }
         }
     }
@@ -410,12 +457,31 @@ struct WorkspaceDetailView: View {
     private var footerView: some View {
         Group {
             if phase == .completed {
-                Button {
-                    showPromptSheet = true
-                } label: {
-                    Text("Ask for changes")
+                HStack(spacing: 12) {
+                    Button {
+                        showPromptSheet = true
+                    } label: {
+                        Text("Ask for changes")
+                    }
+                    .buttonStyle(ProminentButtonStyle())
+
+                    Button {
+                        handlePRAction()
+                    } label: {
+                        HStack(spacing: 6) {
+                            if workspace?.pullRequestUrl != nil {
+                                Image(systemName: "arrow.up.right.square")
+                                Text("View PR")
+                            } else {
+                                Image(systemName: "arrow.triangle.merge")
+                                Text("Create PR")
+                            }
+                        }
+                    }
+                    .buttonStyle(ProminentButtonStyle())
+                    .disabled((workspace?.commitCount ?? 0) == 0)
+                    .opacity((workspace?.commitCount ?? 0) == 0 ? 0.5 : 1.0)
                 }
-                .buttonStyle(ProminentButtonStyle())
                 .padding(16)
                 .background(.ultraThinMaterial)
             }
@@ -481,6 +547,21 @@ struct WorkspaceDetailView: View {
 
         let previousPhase = phase
 
+        // Clear pendingUserPrompt if backend has started processing or completed
+        // This prevents getting stuck in "working" phase
+        if pendingUserPrompt != nil {
+            // Backend received and started processing our prompt
+            if workspace.claudeActivityState == .active {
+                NSLog("📊 Backend started processing - clearing pending prompt")
+                pendingUserPrompt = nil
+            }
+            // Backend completed the session
+            else if workspace.latestSessionTitle != nil {
+                NSLog("📊 Session created - clearing pending prompt")
+                pendingUserPrompt = nil
+            }
+        }
+
         // Show "working" phase when:
         // 1. Claude is ACTIVE (actively working), OR
         // 2. We have a pending prompt (just sent a prompt but backend hasn't updated yet)
@@ -494,12 +575,6 @@ struct WorkspaceDetailView: View {
         } else if workspace.latestSessionTitle != nil || workspace.todos?.isEmpty == false {
             // Has a session title or todos - definitely completed
             phase = .completed
-
-            // Clear pending prompt when transitioning to completed
-            if previousPhase == .working {
-                pendingUserPrompt = nil
-                NSLog("📊 Cleared pending prompt on transition to completed")
-            }
 
             // Fetch the latest message for completed sessions
             Task {
@@ -582,16 +657,17 @@ struct WorkspaceDetailView: View {
     }
 
     private func fetchDiffIfNeeded(for workspace: WorkspaceInfo) async {
-        // Only fetch if workspace has changes and we don't already have a diff
+        // Only fetch if workspace has changes
         guard (workspace.isDirty == true || (workspace.commitCount ?? 0) > 0) else {
             NSLog("📊 No changes to fetch diff for")
             return
         }
 
-        // Skip if we already have a cached diff, UNLESS Claude is actively working
-        // (we want to keep refetching to show live updates)
-        if cachedDiff != nil && workspace.claudeActivityState != .active {
-            NSLog("📊 Diff already cached and workspace inactive, skipping fetch")
+        // Skip if we already have a cached diff and Claude is still actively working
+        // We want to refetch periodically during active work, but avoid spamming requests
+        // When work completes, we'll refetch one final time from the completed phase
+        if cachedDiff != nil && workspace.claudeActivityState == .active {
+            NSLog("📊 Diff already cached and workspace still active, skipping fetch to avoid spam")
             return
         }
 
@@ -608,6 +684,75 @@ struct WorkspaceDetailView: View {
             }
         } catch {
             NSLog("❌ Failed to fetch diff: %@", error.localizedDescription)
+        }
+    }
+
+    private func handlePRAction() {
+        guard let workspace = workspace else { return }
+
+        if let prUrl = workspace.pullRequestUrl, let url = URL(string: prUrl) {
+            // Open existing PR in Safari
+            NSLog("🔗 Opening existing PR: \(prUrl)")
+            UIApplication.shared.open(url)
+        } else if (workspace.commitCount ?? 0) > 0 {
+            // Show PR creation sheet
+            NSLog("📝 Showing PR creation sheet")
+            showPRSheet = true
+        }
+    }
+
+    // MARK: - Terminal View
+
+    private var terminalView: some View {
+        let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "nil"
+        let token = authManager.sessionToken ?? "nil"
+        let worktreeName = workspace?.name ?? "unknown"
+
+        // 🔐 DEBUG: WebSocket connection info for testing
+        NSLog("🔐🔐🔐 WEBSOCKET_DEBUG 🔐🔐🔐")
+        NSLog("🔐 Codespace: \(codespaceName)")
+        NSLog("🔐 Session Token: \(token)")
+        NSLog("🔐 WebSocket Base URL: \(websocketBaseURL)")
+        NSLog("🔐 Workspace ID (UUID): \(workspaceId)")
+        NSLog("🔐 Worktree Name (session): \(worktreeName)")
+        NSLog("🔐🔐🔐 END WEBSOCKET_DEBUG 🔐🔐🔐")
+
+        // Terminal view with navigation bar
+        // Use worktree name (not UUID) as the session parameter
+        // Only connect when in landscape mode to prevent premature connections
+        // Let keyboard naturally push content up by not ignoring safe area
+        return TerminalView(
+            workspaceId: worktreeName,
+            baseURL: websocketBaseURL,
+            codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
+            authToken: authManager.sessionToken,
+            shouldConnect: isLandscape
+        )
+    }
+
+    private var websocketBaseURL: String {
+        // Convert https://catnip.run to wss://catnip.run
+        return "wss://catnip.run"
+    }
+
+    private func updateOrientation() {
+        // Detect landscape: compact height OR regular width + compact height
+        // This works for both iPhone landscape and iPad landscape
+        let newIsLandscape = verticalSizeClass == .compact ||
+            (horizontalSizeClass == .regular && verticalSizeClass == .compact)
+
+        if newIsLandscape != isLandscape {
+            isLandscape = newIsLandscape
+            NSLog("📱 Orientation changed - isLandscape: \(isLandscape)")
+        }
+    }
+
+    private func rotateToLandscape() {
+        // Request landscape orientation
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { error in
+                NSLog("⚠️ Failed to rotate to landscape: \(error.localizedDescription)")
+            }
         }
     }
 }
@@ -906,27 +1051,12 @@ struct MarkdownText: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Split by double newlines to handle paragraphs
-            let paragraphs = markdown.components(separatedBy: "\n\n").filter { !$0.isEmpty }
-
-            ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                if let attributedString = try? AttributedString(markdown: paragraph, options: .init(interpretedSyntax: .full)) {
-                    Text(attributedString)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    // Fallback to plain text if markdown parsing fails
-                    Text(paragraph)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        Markdown(markdown)
+            .markdownTextStyle(\.text) {
+                FontSize(15)
             }
-        }
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -962,7 +1092,7 @@ private struct WorkspaceDiffViewerPreviewContent: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color(uiColor: .secondarySystemBackground).opacity(0.95))
+            .background(Color(uiColor: .systemBackground).opacity(0.95))
             .overlay(
                 Rectangle()
                     .fill(Color(uiColor: .separator))
