@@ -25,7 +25,7 @@ jobs:
           xcodebuild test \
             -project xcode/catnip.xcodeproj \
             -scheme catnip \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.1' \
             -only-testing:catnipTests \
             -enableCodeCoverage YES \
             CODE_SIGN_IDENTITY="" \
@@ -58,7 +58,7 @@ jobs:
           xcodebuild test \
             -project xcode/catnip.xcodeproj \
             -scheme catnip \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.1' \
             -only-testing:catnipUITests \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
