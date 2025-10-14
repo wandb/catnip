@@ -19,7 +19,7 @@ struct PTYControlMessage: Sendable {
 }
 
 // Separate Codable conformance to avoid MainActor isolation warnings
-nonisolated extension PTYControlMessage: Codable {}
+extension PTYControlMessage: Codable {}
 
 // Manager for WebSocket PTY connections
 class PTYWebSocketManager: NSObject, ObservableObject {
