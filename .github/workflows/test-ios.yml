@@ -15,14 +15,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode version
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app
 
       - name: Build and run unit tests
         run: |
           xcodebuild test \
             -project xcode/catnip.xcodeproj \
             -scheme catnip \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.5' \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=18.1' \
             -only-testing:catnipTests \
             -enableCodeCoverage YES \
             CODE_SIGN_IDENTITY="" \
@@ -45,14 +45,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Select Xcode version
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        run: sudo xcode-select -s /Applications/Xcode_16.1.app
 
       - name: Build and run UI tests
         run: |
           xcodebuild test \
             -project xcode/catnip.xcodeproj \
             -scheme catnip \
-            -destination 'platform=iOS Simulator,name=iPhone 15,OS=17.5' \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=18.1' \
             -only-testing:catnipUITests \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
