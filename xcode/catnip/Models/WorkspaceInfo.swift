@@ -160,3 +160,8 @@ struct CacheStatus: Codable, Hashable {
         case lastUpdated = "last_updated"
     }
 }
+
+struct PRSummary: Codable {
+    let title: String
+    let description: String
+}

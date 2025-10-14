@@ -80,6 +80,7 @@ class CatnipAPI: ObservableObject {
     /// Fetch workspaces with optional ETag support for efficient polling
     /// Returns nil if server returns 304 Not Modified (content unchanged)
     func getWorkspaces(ifNoneMatch: String? = nil) async throws -> (workspaces: [WorkspaceInfo], etag: String?)? {
+        NSLog("🐱 [getWorkspaces] Fetching workspaces...")
         var headers = try await getHeaders(includeCodespace: true)
 
         // Add If-None-Match header for conditional request
@@ -87,7 +88,15 @@ class CatnipAPI: ObservableObject {
             headers["If-None-Match"] = etag
         }
 
+        // Log the codespace name being used
+        if let codespaceName = getCodespaceName() {
+            NSLog("🐱 [getWorkspaces] Using codespace: \(codespaceName)")
+        } else {
+            NSLog("🐱 [getWorkspaces] No codespace name set")
+        }
+
         guard let url = URL(string: "\(baseURL)/v1/git/worktrees") else {
+            NSLog("🐱 [getWorkspaces] ❌ Invalid URL")
             throw APIError.invalidURL
         }
 
@@ -95,39 +104,56 @@ class CatnipAPI: ObservableObject {
         request.allHTTPHeaderFields = headers
 
         do {
+            NSLog("🐱 [getWorkspaces] Making request to \(url)")
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                NSLog("🐱 [getWorkspaces] ❌ Invalid response type")
                 throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
             }
 
+            NSLog("🐱 [getWorkspaces] Got response with status: \(httpResponse.statusCode)")
+
             // Handle 304 Not Modified - content unchanged
             if httpResponse.statusCode == 304 {
-                NSLog("🐱 Workspaces not modified (304)")
+                NSLog("🐱 [getWorkspaces] Workspaces not modified (304)")
                 return nil
             }
 
             if httpResponse.statusCode != 200 {
                 let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                NSLog("🐱 [getWorkspaces] ❌ Server error \(httpResponse.statusCode): \(errorMessage)")
                 throw APIError.serverError(httpResponse.statusCode, errorMessage)
             }
 
             if data.isEmpty {
+                NSLog("🐱 [getWorkspaces] Empty response data")
                 let etag = httpResponse.value(forHTTPHeaderField: "ETag")
                 return (workspaces: [], etag: etag)
             }
 
+            NSLog("🐱 [getWorkspaces] Received \(data.count) bytes of data")
+
+            // Log first 200 bytes of response for debugging
+            if let preview = String(data: data.prefix(200), encoding: .utf8) {
+                NSLog("🐱 [getWorkspaces] Response preview: \(preview)")
+            }
+
             let workspaces = try decoder.decode([WorkspaceInfo].self, from: data)
+            NSLog("🐱 [getWorkspaces] ✅ Successfully decoded \(workspaces.count) workspaces")
 
             // Extract ETag from response headers
             let etag = httpResponse.value(forHTTPHeaderField: "ETag")
 
             return (workspaces: workspaces, etag: etag)
         } catch let error as DecodingError {
+            NSLog("🐱 [getWorkspaces] ❌ Decoding error: \(error)")
             throw APIError.decodingError(error)
         } catch let error as APIError {
+            NSLog("🐱 [getWorkspaces] ❌ API error: \(error)")
             throw error
         } catch {
+            NSLog("🐱 [getWorkspaces] ❌ Network error: \(error)")
             throw APIError.networkError(error)
         }
     }
@@ -439,6 +465,159 @@ class CatnipAPI: ObservableObject {
         } catch {
             return (false, nil)
         }
+    }
+
+    // MARK: - Pull Request API
+
+    func generatePRSummary(workspacePath: String, branch: String) async throws -> PRSummary {
+        NSLog("🐱 [generatePRSummary] Generating PR summary for workspace: \(workspacePath)")
+        let headers = try await getHeaders(includeCodespace: true)
+
+        guard let url = URL(string: "\(baseURL)/v1/claude/messages") else {
+            throw APIError.invalidURL
+        }
+
+        let prompt = """
+I need you to generate a pull request title and description for the branch "\(branch)" based on all the changes we've made in this session.
+
+Please respond with JSON in the following format:
+```json
+{
+  "title": "Brief, descriptive title of the changes",
+  "description": "Focused description of what was changed and why, formatted in markdown"
+}
+```
+
+Make the title concise but descriptive. Keep the description focused but informative - use 1-3 paragraphs explaining:
+- What was changed
+- Why it was changed
+- Any key implementation notes
+
+Avoid overly lengthy explanations or step-by-step implementation details.
+"""
+
+        let requestBody: [String: Any] = [
+            "prompt": prompt,
+            "working_directory": workspacePath,
+            "resume": true,
+            "max_turns": 1,
+            "suppress_events": true
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+        request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            NSLog("🐱 [generatePRSummary] ❌ Network error: \(error)")
+            throw APIError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            NSLog("🐱 [generatePRSummary] ❌ Server error \(httpResponse.statusCode): \(errorMessage.prefix(500))")
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+
+        do {
+            // Parse Claude's response
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let responseText = json["response"] as? String ?? json["message"] as? String {
+
+                NSLog("🐱 [generatePRSummary] Got response from Claude: \(responseText.prefix(200))")
+
+                // Extract JSON from code fence
+                if let jsonMatch = responseText.range(of: "```json\\s*([\\s\\S]*?)\\s*```", options: .regularExpression) {
+                    let jsonText = String(responseText[jsonMatch])
+                        .replacingOccurrences(of: "```json", with: "")
+                        .replacingOccurrences(of: "```", with: "")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if let jsonData = jsonText.data(using: .utf8) {
+                        let summary = try decoder.decode(PRSummary.self, from: jsonData)
+                        NSLog("🐱 [generatePRSummary] ✅ Successfully generated PR summary")
+                        return summary
+                    }
+                }
+
+                // Try parsing the whole response as JSON
+                if let jsonData = responseText.data(using: .utf8),
+                   let summary = try? decoder.decode(PRSummary.self, from: jsonData) {
+                    NSLog("🐱 [generatePRSummary] ✅ Successfully generated PR summary")
+                    return summary
+                }
+
+                // Fallback: use the response as description
+                NSLog("🐱 [generatePRSummary] Using fallback format")
+                return PRSummary(
+                    title: "PR: \(branch)",
+                    description: responseText
+                )
+            }
+
+            throw APIError.decodingError(NSError(domain: "Failed to parse Claude response", code: -1))
+        } catch let error as DecodingError {
+            NSLog("🐱 [generatePRSummary] ❌ Decoding error: \(error)")
+            if let rawText = String(data: data, encoding: .utf8) {
+                NSLog("🐱 [generatePRSummary] Raw response: \(rawText.prefix(500))")
+            }
+            throw APIError.decodingError(error)
+        }
+    }
+
+    func createPullRequest(workspaceId: String, title: String, description: String) async throws -> String {
+        NSLog("🐱 [createPullRequest] Creating PR for workspace: \(workspaceId)")
+        let headers = try await getHeaders(includeCodespace: true)
+
+        guard let url = URL(string: "\(baseURL)/v1/git/worktrees/\(workspaceId)/pr") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        let body = [
+            "title": title,
+            "body": description
+        ]
+
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            NSLog("🐱 [createPullRequest] ❌ Network error: \(error)")
+            throw APIError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            NSLog("🐱 [createPullRequest] ❌ Server error \(httpResponse.statusCode): \(errorMessage)")
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+
+        // Parse the response to get the PR URL
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let prUrl = json["url"] as? String {
+            NSLog("🐱 [createPullRequest] ✅ Successfully created PR: \(prUrl)")
+            return prUrl
+        }
+
+        throw APIError.decodingError(NSError(domain: "Failed to parse PR URL from response", code: -1))
     }
 }
 
