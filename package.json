@@ -113,7 +113,7 @@
     "tw-animate-css": "^1.3.6",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.38.0",
-    "vite": "^7.0.6",
+    "vite": "^7.0.7",
     "vitest": "^3.2.4",
     "wrangler": "^4.27.0",
     "ws": "^8.18.3"
