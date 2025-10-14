@@ -112,8 +112,8 @@ class AuthManager: NSObject, ObservableObject {
                     }
 
                     // Store credentials
-                    try? await KeychainHelper.save(key: "session_token", value: token)
-                    try? await KeychainHelper.save(key: "username", value: username)
+                    _ = try? await KeychainHelper.save(key: "session_token", value: token)
+                    _ = try? await KeychainHelper.save(key: "username", value: username)
 
                     self.sessionToken = token
                     self.username = username
@@ -138,7 +138,7 @@ class AuthManager: NSObject, ObservableObject {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-            try? await URLSession.shared.data(for: request)
+            _ = try? await URLSession.shared.data(for: request)
         }
 
         await clearSession()
@@ -163,10 +163,23 @@ class AuthManager: NSObject, ObservableObject {
 // MARK: - ASWebAuthenticationPresentationContextProviding
 
 extension AuthManager: ASWebAuthenticationPresentationContextProviding {
-    nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+    @MainActor
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         // Get the first window scene
         let scenes = UIApplication.shared.connectedScenes
-        let windowScene = scenes.first as? UIWindowScene
-        return windowScene?.windows.first ?? ASPresentationAnchor()
+        if let windowScene = scenes.first as? UIWindowScene {
+            if let window = windowScene.windows.first {
+                return window
+            }
+            // If no window exists, create one for the window scene
+            return ASPresentationAnchor(windowScene: windowScene)
+        }
+        // Fallback: This should rarely happen, but we need to handle it
+        // Create a window for the first available scene
+        if let firstScene = scenes.first as? UIWindowScene {
+            return ASPresentationAnchor(windowScene: firstScene)
+        }
+        // Last resort fallback - should never happen in practice
+        fatalError("No window scene available for authentication presentation")
     }
 }

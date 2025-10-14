@@ -132,7 +132,7 @@ class WorkspacePoller: ObservableObject {
             await self?.pollWorkspace()
 
             // Schedule next poll
-            await self?.scheduleNextPoll()
+            self?.scheduleNextPoll()
         }
     }
 
@@ -206,9 +206,11 @@ class WorkspacePoller: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            NSLog("📊 App entered background - switching to background polling")
-            self?.pollingTask?.cancel()
-            self?.scheduleNextPoll()
+            Task { @MainActor in
+                NSLog("📊 App entered background - switching to background polling")
+                self?.pollingTask?.cancel()
+                self?.scheduleNextPoll()
+            }
         }
 
         // Observe app entering foreground
@@ -217,8 +219,10 @@ class WorkspacePoller: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            NSLog("📊 App entered foreground - resuming active polling")
-            self?.refresh() // Immediate refresh on foreground
+            Task { @MainActor in
+                NSLog("📊 App entered foreground - resuming active polling")
+                self?.refresh() // Immediate refresh on foreground
+            }
         }
     }
 
