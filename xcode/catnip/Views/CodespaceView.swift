@@ -221,6 +221,29 @@ struct CodespaceView: View {
 
                 Spacer(minLength: 12)
 
+                // Add to new repository button
+                Button {
+                    phase = .repositorySelection
+                    Task {
+                        do {
+                            try await installer.fetchRepositories()
+                        } catch {
+                            errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                            phase = .connect
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.rectangle.on.folder")
+                        Text("Setup Catnip in Another Repository")
+                    }
+                    .font(.subheadline)
+                }
+                .buttonStyle(SecondaryButtonStyle(isDisabled: false))
+                .padding(.horizontal, 20)
+
+                Spacer(minLength: 12)
+
                 // Fun fact section
                 VStack(spacing: 6) {
                     HStack(spacing: 4) {
@@ -497,7 +520,7 @@ struct CodespaceView: View {
 
             Section {
                 Button("Back") {
-                    phase = .setup
+                    phase = .connect
                     installer.reset()
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
