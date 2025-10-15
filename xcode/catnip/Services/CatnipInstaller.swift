@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftUI
+import Combine
 
 // MARK: - Models
 
@@ -201,10 +202,10 @@ class CatnipInstaller: ObservableObject {
                 throw APIError.serverError(httpResponse.statusCode, errorMessage)
             }
 
-            let response = try decoder.decode(RepositoriesResponse.self, from: data)
+            let repositoriesResponse = try decoder.decode(RepositoriesResponse.self, from: data)
 
             await MainActor.run {
-                self.repositories = response.repositories
+                self.repositories = repositoriesResponse.repositories
             }
         } catch {
             await MainActor.run {
