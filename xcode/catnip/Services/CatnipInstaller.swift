@@ -258,19 +258,31 @@ class CatnipInstaller: ObservableObject {
         }
 
         do {
+            NSLog("🐱 [CatnipInstaller] Starting installation request for \(repository)")
             let (data, response) = try await URLSession.shared.data(for: request)
+            NSLog("🐱 [CatnipInstaller] Got response, data size: \(data.count) bytes")
 
             // Cancel the step animation
             stepTask.cancel()
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                NSLog("🐱 [CatnipInstaller] ❌ Invalid response type")
                 throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+            }
+
+            NSLog("🐱 [CatnipInstaller] HTTP status: \(httpResponse.statusCode)")
+
+            // Log response for debugging
+            if let responseString = String(data: data, encoding: .utf8) {
+                NSLog("🐱 [CatnipInstaller] Response body: \(responseString)")
             }
 
             // Parse response even for errors to get details
             let result = try decoder.decode(InstallationResult.self, from: data)
+            NSLog("🐱 [CatnipInstaller] Successfully decoded response")
 
             if httpResponse.statusCode != 200 {
+                NSLog("🐱 [CatnipInstaller] ❌ Non-200 status code: \(httpResponse.statusCode)")
                 await MainActor.run {
                     self.error = result.error ?? "Installation failed"
                     currentStep = .idle
@@ -278,18 +290,23 @@ class CatnipInstaller: ObservableObject {
                 throw APIError.serverError(httpResponse.statusCode, result.error ?? "Unknown error")
             }
 
+            NSLog("🐱 [CatnipInstaller] Installation successful, PR URL: \(result.prUrl ?? "none")")
+
             // If we're starting a codespace, show that step
             if startCodespace && result.codespace != nil {
+                NSLog("🐱 [CatnipInstaller] Starting codespace...")
                 await MainActor.run { currentStep = .startingCodespace }
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
             }
 
+            NSLog("🐱 [CatnipInstaller] Setting step to complete")
             await MainActor.run {
                 currentStep = .complete
             }
 
             return result
         } catch {
+            NSLog("🐱 [CatnipInstaller] ❌ Error during installation: \(error)")
             stepTask.cancel()
             await MainActor.run {
                 self.error = error.localizedDescription
