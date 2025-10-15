@@ -31,6 +31,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Debug secret availability
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "SECRET IS EMPTY OR NOT SET"
+          else
+            echo "SECRET EXISTS (length: ${#TOKEN})"
+          fi
+        env:
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
