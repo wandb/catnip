@@ -21,6 +21,7 @@ export default tseslint.config([
       "public/**",
       "scripts/**",
       "worker/scripts/**",
+      "catnip-mobile/**",
     ],
   },
   {
