@@ -12,11 +12,14 @@ enum CodespacePhase {
     case connecting
     case setup
     case selection
+    case repositorySelection
+    case installing
     case error
 }
 
 struct CodespaceView: View {
     @EnvironmentObject var authManager: AuthManager
+    @StateObject private var installer = CatnipInstaller.shared
     @State private var phase: CodespacePhase = .connect
     @State private var orgName: String = ""
     @State private var statusMessage: String = ""
@@ -25,6 +28,7 @@ struct CodespaceView: View {
     @State private var sseService: SSEService?
     @State private var navigateToWorkspaces = false
     @State private var currentCatFact: String = ""
+    @State private var installationResult: InstallationResult?
 
     private let catFacts = [
         "Cats can rotate their ears 180 degrees.",
@@ -45,6 +49,10 @@ struct CodespaceView: View {
                 setupView
             } else if phase == .selection {
                 selectionView
+            } else if phase == .repositorySelection {
+                repositorySelectionView
+            } else if phase == .installing {
+                installingView
             } else {
                 connectView
             }
@@ -243,7 +251,31 @@ struct CodespaceView: View {
                     .font(.headline)
             }
 
-            Section("Enable Catnip in your Codespace") {
+            Section("Automatic Setup") {
+                Text("Let Catnip automatically add the feature to one of your repositories.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    phase = .repositorySelection
+                    Task {
+                        do {
+                            try await installer.fetchRepositories()
+                        } catch {
+                            errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                            phase = .setup
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "wand.and.stars")
+                        Text("Automatic Setup")
+                    }
+                }
+                .buttonStyle(ProminentButtonStyle(isDisabled: false))
+            }
+
+            Section("Manual Setup") {
                 Text("Add the feature to **.devcontainer/devcontainer.json**:")
                 Text(#"""
                 "features": {
@@ -402,6 +434,163 @@ struct CodespaceView: View {
             sseService?.disconnect()
             sseService = nil
         }
+    }
+
+    // MARK: - Repository Selection View
+
+    private var repositorySelectionView: some View {
+        List {
+            Section {
+                if installer.isLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                    .padding()
+                } else if installer.repositories.isEmpty {
+                    Text("No repositories found")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding()
+                } else {
+                    ForEach(installer.repositories) { repo in
+                        Button {
+                            handleInstallCatnip(repository: repo)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: repo.statusIcon)
+                                    .foregroundStyle(repo.statusColor)
+                                    .frame(width: 24)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(repo.displayName)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+
+                                    Text(repo.statusText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                if repo.hasCatnipFeature {
+                                    Text("Installed")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .disabled(repo.hasCatnipFeature)
+                    }
+                }
+            } header: {
+                Text("Select a Repository")
+            } footer: {
+                if !installer.repositories.isEmpty {
+                    Text("Choose a repository to add the Catnip feature. A pull request will be created for your review.")
+                        .font(.footnote)
+                }
+            }
+
+            Section {
+                Button("Back") {
+                    phase = .setup
+                    installer.reset()
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private func handleInstallCatnip(repository: Repository) {
+        phase = .installing
+        Task {
+            do {
+                let result = try await installer.installCatnip(
+                    repository: repository.fullName,
+                    startCodespace: false
+                )
+                await MainActor.run {
+                    installationResult = result
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = "Installation failed: \(error.localizedDescription)"
+                    phase = .repositorySelection
+                }
+            }
+        }
+    }
+
+    // MARK: - Installing View
+
+    private var installingView: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            // Progress animation
+            if installer.currentStep != .complete {
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: .accentColor))
+                    .scaleEffect(1.5)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 60))
+                    .foregroundStyle(.green)
+            }
+
+            VStack(spacing: 8) {
+                Text(installer.currentStep.description)
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+
+                if let error = installer.error {
+                    Text(error)
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+            }
+
+            Spacer()
+
+            // Show actions when complete
+            if installer.currentStep == .complete, let result = installationResult {
+                VStack(spacing: 12) {
+                    if let prUrl = result.prUrl {
+                        Button {
+                            if let url = URL(string: prUrl) {
+                                UIApplication.shared.open(url)
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.up.doc")
+                                Text("View Pull Request")
+                            }
+                        }
+                        .buttonStyle(ProminentButtonStyle(isDisabled: false))
+                    }
+
+                    Button("Done") {
+                        phase = .connect
+                        installer.reset()
+                        installationResult = nil
+                    }
+                    .buttonStyle(SecondaryButtonStyle(isDisabled: false))
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 
