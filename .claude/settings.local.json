@@ -11,7 +11,9 @@
       "Read(//home/vscode/.claude/projects/-worktrees-catnip-bean/**)",
       "Bash(for file in /home/vscode/.claude/projects/-worktrees-catnip-bean/*.jsonl)",
       "Bash(head:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(for file in *.jsonl)",
+      "Bash(do echo \"=== $file ===\")"
     ],
     "deny": [],
     "ask": []
