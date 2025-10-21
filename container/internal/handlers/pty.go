@@ -1885,7 +1885,7 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	}
 
 	// Create new command using the same agent (use --resume for Claude recreations to preserve history)
-	resumeSessionID := ""
+	resumeSessionID = ""
 	useContinue := false
 	if session.Agent == "claude" {
 		// Try to find existing session with valid content (not Warmup sessions)
