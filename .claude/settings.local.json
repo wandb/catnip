@@ -4,7 +4,8 @@
       "Read(//opt/catnip/**)",
       "Bash(sudo journalctl:*)",
       "Read(//home/vscode/.claude/projects/-worktrees-catnip-mystic/**)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(find /home/vscode/.claude/projects/-worktrees-catnip-mystic -name \"*.jsonl\" -exec sh -c 'echo \"\"=== {} ===\"\"; cat {} | jq -r \"\"select(.type == \\\"\"user\\\"\") | .message.content\"\" | head -3' ;)"
     ],
     "deny": [],
     "ask": []
