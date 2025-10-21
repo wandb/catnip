@@ -106,6 +106,36 @@ struct CodespaceCreationInfo: Codable {
     let url: String
 }
 
+struct CodespaceCreationResult: Codable {
+    let success: Bool
+    let codespace: CodespaceInfo?
+    let error: String?
+
+    struct CodespaceInfo: Codable {
+        let id: Int
+        let name: String
+        let state: String
+        let url: String
+        let createdAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case state
+            case url
+            case createdAt = "created_at"
+        }
+    }
+}
+
+struct UserStatus: Codable {
+    let hasAnyCodespaces: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case hasAnyCodespaces = "has_any_codespaces"
+    }
+}
+
 enum InstallationStep {
     case idle
     case fetchingRepoInfo
@@ -114,6 +144,8 @@ enum InstallationStep {
     case committingChanges
     case creatingPR
     case startingCodespace
+    case creatingCodespace
+    case waitingForCodespace
     case complete
 
     var description: String {
@@ -125,7 +157,9 @@ enum InstallationStep {
         case .committingChanges: return "Committing changes..."
         case .creatingPR: return "Creating pull request..."
         case .startingCodespace: return "Starting codespace..."
-        case .complete: return "Installation complete!"
+        case .creatingCodespace: return "Creating codespace..."
+        case .waitingForCodespace: return "Waiting for codespace to be ready..."
+        case .complete: return "Complete!"
         }
     }
 
@@ -138,6 +172,8 @@ enum InstallationStep {
         case .committingChanges: return "checkmark.circle"
         case .creatingPR: return "arrow.up.doc"
         case .startingCodespace: return "terminal"
+        case .creatingCodespace: return "terminal.fill"
+        case .waitingForCodespace: return "hourglass"
         case .complete: return "checkmark.circle.fill"
         }
     }
@@ -152,11 +188,105 @@ class CatnipInstaller: ObservableObject {
     @Published var isLoading = false
     @Published var currentStep: InstallationStep = .idle
     @Published var error: String?
+    @Published var userStatus: UserStatus?
 
     private let baseURL = "https://catnip.run"
     private let decoder = JSONDecoder()
+    private let encoder = JSONEncoder()
 
-    private init() {}
+    // Cache settings
+    private let cacheValidityDuration: TimeInterval = 30 * 60 // 30 minutes
+    private let repositoriesCacheKey = "cached_repositories"
+    private let lastFetchTimestampKey = "repositories_last_fetch"
+
+    private init() {
+        // Load cached repositories on initialization
+        loadCachedRepositories()
+    }
+
+    // MARK: - Computed Properties
+
+    /// Check if user has any repositories with Catnip installed (from cached data)
+    var hasRepositoriesWithCatnip: Bool {
+        repositories.contains { $0.hasCatnipFeature }
+    }
+
+    // MARK: - Cache Management
+
+    private func loadCachedRepositories() {
+        guard let data = UserDefaults.standard.data(forKey: repositoriesCacheKey),
+              let cached = try? decoder.decode([Repository].self, from: data) else {
+            return
+        }
+        repositories = cached
+        NSLog("🐱 [CatnipInstaller] Loaded \(cached.count) repositories from cache")
+    }
+
+    private func saveRepositoriesToCache(_ repos: [Repository]) {
+        guard let data = try? encoder.encode(repos) else {
+            NSLog("🐱 [CatnipInstaller] Failed to encode repositories for cache")
+            return
+        }
+        UserDefaults.standard.set(data, forKey: repositoriesCacheKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastFetchTimestampKey)
+        NSLog("🐱 [CatnipInstaller] Saved \(repos.count) repositories to cache")
+    }
+
+    private func isCacheValid() -> Bool {
+        // Cache is only valid if we have data AND the timestamp is recent
+        guard !repositories.isEmpty else {
+            NSLog("🐱 [CatnipInstaller] Cache invalid: no repositories loaded")
+            return false
+        }
+
+        let lastFetch = UserDefaults.standard.double(forKey: lastFetchTimestampKey)
+        guard lastFetch > 0 else {
+            NSLog("🐱 [CatnipInstaller] Cache invalid: no timestamp")
+            return false
+        }
+
+        let elapsed = Date().timeIntervalSince1970 - lastFetch
+        let isValid = elapsed < cacheValidityDuration
+        NSLog("🐱 [CatnipInstaller] Cache age: \(Int(elapsed))s, has \(repositories.count) repos, valid: \(isValid)")
+        return isValid
+    }
+
+    func clearCache() {
+        UserDefaults.standard.removeObject(forKey: repositoriesCacheKey)
+        UserDefaults.standard.removeObject(forKey: lastFetchTimestampKey)
+        repositories = []
+        NSLog("🐱 [CatnipInstaller] Cache cleared")
+    }
+
+    /// Mark a repository as having Catnip installed (optimistic update after installation)
+    func markRepositoryAsHavingCatnip(_ repositoryFullName: String) {
+        guard let index = repositories.firstIndex(where: { $0.fullName == repositoryFullName }) else {
+            NSLog("🐱 [CatnipInstaller] Repository \(repositoryFullName) not found in cache for update")
+            return
+        }
+
+        let repo = repositories[index]
+
+        // Create updated repository with Catnip feature enabled
+        let updatedRepo = Repository(
+            id: repo.id,
+            name: repo.name,
+            fullName: repo.fullName,
+            defaultBranch: repo.defaultBranch,
+            isPrivate: repo.isPrivate,
+            isFork: repo.isFork,
+            hasDevcontainer: true,  // Installing Catnip means we have a devcontainer now
+            hasCatnipFeature: true
+        )
+
+        // Update in array
+        repositories[index] = updatedRepo
+
+        // Save updated cache
+        saveRepositoriesToCache(repositories)
+
+        NSLog("🐱 [CatnipInstaller] Optimistically marked \(repositoryFullName) as having Catnip")
+    }
 
     // MARK: - Helper Methods
 
@@ -178,12 +308,25 @@ class CatnipInstaller: ObservableObject {
     // MARK: - Public API
 
     /// Fetch user's repositories with devcontainer status
-    func fetchRepositories(page: Int = 1, perPage: Int = 30) async throws {
+    func fetchRepositories(page: Int = 1, perPage: Int = 30, org: String? = nil, forceRefresh: Bool = false) async throws {
+        // Check cache first if not forcing refresh
+        if !forceRefresh && isCacheValid() {
+            NSLog("🐱 [CatnipInstaller] Using cached repositories (valid for \(Int(cacheValidityDuration - (Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: lastFetchTimestampKey))))s more)")
+            await MainActor.run { isLoading = false }
+            return
+        }
+
         await MainActor.run { isLoading = true }
         defer { Task { await MainActor.run { isLoading = false } } }
 
+        NSLog("🐱 [CatnipInstaller] Fetching repositories from API (forceRefresh: \(forceRefresh), org: \(org ?? "none"))")
+
         let headers = try await getHeaders()
-        guard let url = URL(string: "\(baseURL)/v1/repositories?page=\(page)&per_page=\(perPage)") else {
+        var urlString = "\(baseURL)/v1/repositories?page=\(page)&per_page=\(perPage)"
+        if let org = org {
+            urlString += "&org=\(org)"
+        }
+        guard let url = URL(string: urlString) else {
             throw APIError.invalidURL
         }
 
@@ -206,6 +349,8 @@ class CatnipInstaller: ObservableObject {
 
             await MainActor.run {
                 self.repositories = repositoriesResponse.repositories
+                // Save to cache after successful fetch
+                self.saveRepositoriesToCache(repositoriesResponse.repositories)
             }
         } catch {
             await MainActor.run {
@@ -252,7 +397,9 @@ class CatnipInstaller: ObservableObject {
         // Start a task to cycle through steps while we wait for response
         let stepTask = Task {
             for step in steps {
+                if Task.isCancelled { break }
                 await MainActor.run { currentStep = step }
+                if Task.isCancelled { break }
                 try? await Task.sleep(nanoseconds: 800_000_000) // 0.8 seconds per step
             }
         }
@@ -322,5 +469,195 @@ class CatnipInstaller: ObservableObject {
         error = nil
         currentStep = .idle
         isLoading = false
+    }
+
+    /// Create a new codespace for a repository
+    func createCodespace(
+        repository: String,
+        branch: String? = nil
+    ) async throws -> CodespaceCreationResult.CodespaceInfo {
+        await MainActor.run {
+            error = nil
+            currentStep = .creatingCodespace
+        }
+
+        let headers = try await getHeaders()
+        guard let url = URL(string: "\(baseURL)/v1/codespace/create") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        var body: [String: Any] = ["repository": repository]
+        if let branch = branch {
+            body["ref"] = branch
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        do {
+            NSLog("🐱 [CatnipInstaller] Creating codespace for \(repository)\(branch.map { " on branch \($0)" } ?? "")")
+
+            await MainActor.run { currentStep = .creatingCodespace }
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                NSLog("🐱 [CatnipInstaller] ❌ Invalid response type")
+                throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+            }
+
+            NSLog("🐱 [CatnipInstaller] HTTP status: \(httpResponse.statusCode)")
+
+            // Log response for debugging
+            if let responseString = String(data: data, encoding: .utf8) {
+                NSLog("🐱 [CatnipInstaller] Response body: \(responseString)")
+            }
+
+            // Parse response
+            let result = try decoder.decode(CodespaceCreationResult.self, from: data)
+
+            if httpResponse.statusCode != 200 {
+                NSLog("🐱 [CatnipInstaller] ❌ Non-200 status code: \(httpResponse.statusCode)")
+                await MainActor.run {
+                    self.error = result.error ?? "Failed to create codespace"
+                    currentStep = .idle
+                }
+                throw APIError.serverError(httpResponse.statusCode, result.error ?? "Unknown error")
+            }
+
+            guard let codespace = result.codespace else {
+                NSLog("🐱 [CatnipInstaller] ❌ No codespace in response")
+                await MainActor.run {
+                    self.error = "No codespace information in response"
+                    currentStep = .idle
+                }
+                throw APIError.serverError(httpResponse.statusCode, "No codespace in response")
+            }
+
+            NSLog("🐱 [CatnipInstaller] Codespace created: \(codespace.name), initial state: \(codespace.state)")
+
+            // Poll for up to 5 minutes waiting for codespace to be built
+            // Initial builds can take a long time, so we wait here before triggering SSE flow
+            if codespace.state != "Available" {
+                NSLog("🐱 [CatnipInstaller] Codespace not yet available, polling status...")
+                try await pollCodespaceStatus(codespaceName: codespace.name)
+            } else {
+                NSLog("🐱 [CatnipInstaller] Codespace already available")
+            }
+
+            await MainActor.run { currentStep = .complete }
+
+            return codespace
+        } catch {
+            NSLog("🐱 [CatnipInstaller] ❌ Error during codespace creation: \(error)")
+            await MainActor.run {
+                self.error = error.localizedDescription
+                currentStep = .idle
+            }
+            throw error
+        }
+    }
+
+    /// Poll codespace status until it's available (up to 5 minutes)
+    private func pollCodespaceStatus(codespaceName: String) async throws {
+        await MainActor.run { currentStep = .waitingForCodespace }
+
+        let maxAttempts = 30 // 30 attempts × 10 seconds = 5 minutes
+        let pollInterval: UInt64 = 10_000_000_000 // 10 seconds in nanoseconds
+
+        for attempt in 1...maxAttempts {
+            NSLog("🐱 [CatnipInstaller] Polling codespace status (attempt \(attempt)/\(maxAttempts))...")
+
+            // Get fresh token for each request
+            let token = try await getSessionToken()
+            let headers = [
+                "Authorization": "Bearer \(token)",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28"
+            ]
+
+            guard let url = URL(string: "https://api.github.com/user/codespaces/\(codespaceName)") else {
+                throw APIError.invalidURL
+            }
+
+            var request = URLRequest(url: url)
+            request.allHTTPHeaderFields = headers
+
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+                }
+
+                if httpResponse.statusCode == 200 {
+                    // Parse the codespace status
+                    if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let state = json["state"] as? String {
+                        NSLog("🐱 [CatnipInstaller] Codespace state: \(state)")
+
+                        if state == "Available" {
+                            NSLog("🐱 [CatnipInstaller] ✅ Codespace is now available!")
+                            return
+                        }
+                    }
+                } else {
+                    NSLog("🐱 [CatnipInstaller] ⚠️ Status check failed with code \(httpResponse.statusCode)")
+                }
+
+                // Wait before next attempt (except on last attempt)
+                if attempt < maxAttempts {
+                    try await Task.sleep(nanoseconds: pollInterval)
+                }
+            } catch {
+                NSLog("🐱 [CatnipInstaller] ⚠️ Error checking codespace status: \(error)")
+                // Continue polling despite errors
+                if attempt < maxAttempts {
+                    try await Task.sleep(nanoseconds: pollInterval)
+                }
+            }
+        }
+
+        // Timeout - codespace didn't become available in time
+        NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be available")
+        throw APIError.serverError(408, "Codespace did not become available within 5 minutes")
+    }
+
+    /// Fetch user status (codespaces and repositories with Catnip)
+    func fetchUserStatus() async throws {
+        let headers = try await getHeaders()
+        guard let url = URL(string: "\(baseURL)/v1/user/status") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.allHTTPHeaderFields = headers
+
+        do {
+            NSLog("🐱 [CatnipInstaller] Fetching user status")
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+            }
+
+            if httpResponse.statusCode != 200 {
+                let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                NSLog("🐱 [CatnipInstaller] ❌ Failed to fetch user status: \(httpResponse.statusCode)")
+                throw APIError.serverError(httpResponse.statusCode, errorMessage)
+            }
+
+            let status = try decoder.decode(UserStatus.self, from: data)
+            NSLog("🐱 [CatnipInstaller] User status: hasCodespaces=\(status.hasAnyCodespaces)")
+
+            await MainActor.run {
+                self.userStatus = status
+            }
+        } catch {
+            NSLog("🐱 [CatnipInstaller] ❌ Error fetching user status: \(error)")
+            throw error
+        }
     }
 }
