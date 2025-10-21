@@ -1,19 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tsc:*)",
-      "Bash(vite build)",
-      "Bash(pnpm build:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "WebFetch(domain:expo.dev)",
-      "WebSearch",
-      "Read(//home/vscode/.claude/projects/-worktrees-catnip-bean/**)",
-      "Bash(for file in /home/vscode/.claude/projects/-worktrees-catnip-bean/*.jsonl)",
-      "Bash(head:*)",
-      "Bash(done)",
-      "Bash(for file in *.jsonl)",
-      "Bash(do echo \"=== $file ===\")"
+      "Read(//opt/catnip/**)"
     ],
     "deny": [],
     "ask": []
