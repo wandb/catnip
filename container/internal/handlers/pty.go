@@ -2820,3 +2820,21 @@ func (h *PTYHandler) broadcastToConnectionsSelective(session *Session, messageTy
 		session.connMutex.RLock()
 	}
 }
+
+// FindExistingClaudeSession finds any existing Claude PTY session
+// Returns the PTY file, command, and working directory if found
+func (h *PTYHandler) FindExistingClaudeSession() (*os.File, *exec.Cmd, string) {
+	h.sessionMutex.RLock()
+	defer h.sessionMutex.RUnlock()
+
+	for _, session := range h.sessions {
+		// Check if this is a Claude session
+		if session.Agent == "claude" && session.PTY != nil && session.Cmd != nil {
+			logger.Debugf("🔍 Found existing Claude session: %s in %s", session.ID, session.WorkDir)
+			return session.PTY, session.Cmd, session.WorkDir
+		}
+	}
+
+	logger.Debugf("🔍 No existing Claude sessions found")
+	return nil, nil, ""
+}

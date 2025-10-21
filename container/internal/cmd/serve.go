@@ -152,6 +152,7 @@ func startServer(cmd *cobra.Command) {
 	// Initialize services
 	claudeService := services.NewClaudeService()
 	sessionService := services.NewSessionService()
+	claudeOnboardingService := services.NewClaudeOnboardingService()
 
 	// Initialize and start Claude monitor service
 	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
@@ -197,7 +198,7 @@ func startServer(cmd *cobra.Command) {
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService, claudeMonitor)
 	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
-	claudeHandler := handlers.NewClaudeHandler(claudeService, gitService).WithEvents(eventsHandler)
+	claudeHandler := handlers.NewClaudeHandler(claudeService, gitService).WithEvents(eventsHandler).WithOnboardingService(claudeOnboardingService).WithPTYHandler(ptyHandler)
 	defer eventsHandler.Stop()
 	portsHandler := handlers.NewPortsHandler(portMonitor).WithEvents(eventsHandler)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
@@ -264,6 +265,12 @@ func startServer(cmd *cobra.Command) {
 	v1.Get("/claude/settings", claudeHandler.GetClaudeSettings)
 	v1.Put("/claude/settings", claudeHandler.UpdateClaudeSettings)
 	v1.Post("/claude/hooks", claudeHandler.HandleClaudeHook)
+
+	// Claude onboarding routes
+	v1.Post("/claude/onboarding/start", claudeHandler.StartOnboarding)
+	v1.Get("/claude/onboarding/status", claudeHandler.GetOnboardingStatus)
+	v1.Post("/claude/onboarding/submit-code", claudeHandler.SubmitOnboardingCode)
+	v1.Post("/claude/onboarding/cancel", claudeHandler.CancelOnboarding)
 
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)
