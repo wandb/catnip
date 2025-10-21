@@ -3,7 +3,8 @@
     "allow": [
       "Read(//opt/catnip/**)",
       "Bash(sudo journalctl:*)",
-      "Read(//home/vscode/.claude/projects/-worktrees-catnip-mystic/**)"
+      "Read(//home/vscode/.claude/projects/-worktrees-catnip-mystic/**)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
