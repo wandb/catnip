@@ -6,7 +6,10 @@
       "Read(//home/vscode/.claude/projects/-worktrees-catnip-mystic/**)",
       "Bash(cat:*)",
       "Bash(find /home/vscode/.claude/projects/-worktrees-catnip-mystic -name \"*.jsonl\" -exec sh -c 'echo \"\"=== {} ===\"\"; cat {} | jq -r \"\"select(.type == \\\"\"user\\\"\") | .message.content\"\" | head -3' ;)",
-      "Read(//home/vscode/.claude/projects/**)"
+      "Read(//home/vscode/.claude/projects/**)",
+      "Bash(go build:*)",
+      "Bash(CGO_ENABLED=0 go build:*)",
+      "Bash(just build:*)"
     ],
     "deny": [],
     "ask": []
