@@ -1140,11 +1140,17 @@ func (h *PTYHandler) getOrCreateSession(sessionID, agent string, reset bool) *Se
 	var resumeSessionID string
 	var useContinue bool
 	if agent == "claude" && !reset {
-		// Only use --continue if there's existing session data
+		// Try to find existing session with valid content (not Warmup sessions)
 		if existingState, err := h.sessionService.FindSessionByDirectory(workDir); err == nil && existingState != nil {
-			// For existing sessions, use --continue instead of --resume
-			useContinue = true
-			logger.Infof("🔄 Found existing Claude session in %s, will use --continue", workDir)
+			// Use --resume with specific session ID to preserve conversation history
+			if existingState.ClaudeSessionID != "" {
+				resumeSessionID = existingState.ClaudeSessionID
+				logger.Infof("🔄 Found existing Claude session %s in %s, will use --resume", resumeSessionID, workDir)
+			} else {
+				// Fallback to --continue if we don't have a session ID (shouldn't happen with new logic)
+				useContinue = true
+				logger.Warnf("⚠️  Found session state but no ClaudeSessionID, falling back to --continue")
+			}
 		} else {
 			logger.Infof("🔄 No existing Claude session found in %s, starting fresh", workDir)
 		}
@@ -1878,13 +1884,21 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		}
 	}
 
-	// Create new command using the same agent (use --continue for Claude recreations only if session data exists)
+	// Create new command using the same agent (use --resume for Claude recreations to preserve history)
+	resumeSessionID = ""
 	useContinue := false
 	if session.Agent == "claude" {
-		// Only use --continue if there's existing session data
+		// Try to find existing session with valid content (not Warmup sessions)
 		if existingState, err := h.sessionService.FindSessionByDirectory(session.WorkDir); err == nil && existingState != nil {
-			useContinue = true
-			logger.Infof("🔄 Found existing Claude session in %s during recreation, will use --continue", session.WorkDir)
+			// Use --resume with specific session ID to preserve conversation history
+			if existingState.ClaudeSessionID != "" {
+				resumeSessionID = existingState.ClaudeSessionID
+				logger.Infof("🔄 Found existing Claude session %s in %s during recreation, will use --resume", resumeSessionID, session.WorkDir)
+			} else {
+				// Fallback to --continue if we don't have a session ID (shouldn't happen with new logic)
+				useContinue = true
+				logger.Warnf("⚠️  Found session state but no ClaudeSessionID during recreation, falling back to --continue")
+			}
 		} else {
 			logger.Infof("🔄 No existing Claude session found in %s during recreation, starting fresh", session.WorkDir)
 		}
