@@ -158,9 +158,11 @@ function RootComponent() {
     <AuthProvider>
       <WebSocketProvider>
         <GitHubAuthProvider>
-          <NotificationProvider>
-            <RootLayout />
-          </NotificationProvider>
+          <ClaudeAuthProvider>
+            <NotificationProvider>
+              <RootLayout />
+            </NotificationProvider>
+          </ClaudeAuthProvider>
         </GitHubAuthProvider>
       </WebSocketProvider>
     </AuthProvider>
