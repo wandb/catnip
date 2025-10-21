@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Read(//opt/catnip/**)"
+      "Read(//opt/catnip/**)",
+      "Bash(sudo journalctl:*)"
     ],
     "deny": [],
     "ask": []
