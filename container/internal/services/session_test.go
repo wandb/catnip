@@ -294,11 +294,16 @@ func TestSessionServiceDirectory(t *testing.T) {
 		file3 := filepath.Join(claudeDir, "invalid-filename.jsonl")
 
 		// Create files with different modification times
-		require.NoError(t, os.WriteFile(file1, []byte("{}"), 0644))
+		// Files must be >10KB to avoid being filtered out as "small" files
+		largeContent := make([]byte, 11000)
+		for i := range largeContent {
+			largeContent[i] = byte('x')
+		}
+		require.NoError(t, os.WriteFile(file1, largeContent, 0644))
 		time.Sleep(10 * time.Millisecond)
-		require.NoError(t, os.WriteFile(file2, []byte("{}"), 0644))
+		require.NoError(t, os.WriteFile(file2, largeContent, 0644))
 		time.Sleep(10 * time.Millisecond)
-		require.NoError(t, os.WriteFile(file3, []byte("{}"), 0644))
+		require.NoError(t, os.WriteFile(file3, largeContent, 0644))
 
 		// Should return the newest valid UUID file
 		newest = service.findNewestClaudeSessionFile(claudeDir)

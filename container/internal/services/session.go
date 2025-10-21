@@ -372,7 +372,8 @@ func (s *SessionService) isProcessAlive(pid string) bool {
 	return true
 }
 
-// findNewestClaudeSessionFile finds the newest JSONL file in .claude/projects directory
+// findNewestClaudeSessionFile finds the best JSONL file in .claude/projects directory
+// It filters out "Warmup" sessions and prefers larger, more active sessions
 func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) string {
 	// Check if .claude/projects directory exists
 	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
@@ -384,8 +385,13 @@ func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) s
 		return ""
 	}
 
-	var newestFile string
-	var newestTime time.Time
+	type sessionCandidate struct {
+		sessionID string
+		size      int64
+		modTime   time.Time
+	}
+
+	var candidates []sessionCandidate
 
 	for _, file := range files {
 		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
@@ -400,21 +406,51 @@ func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) s
 			continue
 		}
 
-		// Get file modification time
 		filePath := filepath.Join(claudeProjectsDir, file.Name())
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
 			continue
 		}
 
-		// Track the newest file
-		if fileInfo.ModTime().After(newestTime) {
-			newestTime = fileInfo.ModTime()
-			newestFile = sessionID
+		// Skip very small files (likely empty or warmup sessions)
+		// Real sessions with actual conversation are typically >10KB
+		if fileInfo.Size() < 10000 {
+			logger.Debugf("Skipping small session file %s (%d bytes)", sessionID, fileInfo.Size())
+			continue
+		}
+
+		// Note: We used to filter out "Warmup" sessions here, but that was too aggressive
+		// If a session started with "Warmup" but has grown to >10KB, it clearly has real content
+		// The size check above is sufficient to filter out truly empty warmup sessions
+
+		// This is a valid session candidate
+		candidates = append(candidates, sessionCandidate{
+			sessionID: sessionID,
+			size:      fileInfo.Size(),
+			modTime:   fileInfo.ModTime(),
+		})
+	}
+
+	// No valid sessions found
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	// Pick the largest session (most conversation history)
+	// Tie-breaker: newest modification time
+	bestSession := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if candidate.size > bestSession.size {
+			bestSession = candidate
+		} else if candidate.size == bestSession.size && candidate.modTime.After(bestSession.modTime) {
+			bestSession = candidate
 		}
 	}
 
-	return newestFile
+	logger.Infof("Selected best Claude session: %s (size: %d bytes, age: %v)",
+		bestSession.sessionID, bestSession.size, time.Since(bestSession.modTime).Round(time.Second))
+
+	return bestSession.sessionID
 }
 
 // DeleteSessionState removes session state from disk
