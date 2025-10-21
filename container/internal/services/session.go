@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
