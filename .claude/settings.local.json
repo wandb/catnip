@@ -12,7 +12,8 @@
       "Bash(just build:*)",
       "Bash(GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build:*)",
       "Bash(go vet:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(git show-ref:*)"
     ],
     "deny": [],
     "ask": []
