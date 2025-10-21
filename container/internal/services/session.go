@@ -420,11 +420,9 @@ func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) s
 			continue
 		}
 
-		// Check first user message to filter out "Warmup" sessions
-		if s.isWarmupSession(filePath) {
-			logger.Debugf("Skipping Warmup session: %s", sessionID)
-			continue
-		}
+		// Note: We used to filter out "Warmup" sessions here, but that was too aggressive
+		// If a session started with "Warmup" but has grown to >10KB, it clearly has real content
+		// The size check above is sufficient to filter out truly empty warmup sessions
 
 		// This is a valid session candidate
 		candidates = append(candidates, sessionCandidate{
@@ -454,35 +452,6 @@ func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) s
 		bestSession.sessionID, bestSession.size, time.Since(bestSession.modTime).Round(time.Second))
 
 	return bestSession.sessionID
-}
-
-// isWarmupSession checks if a session file starts with a "Warmup" prompt
-func (s *SessionService) isWarmupSession(filePath string) bool {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return false // If we can't read it, don't filter it out
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	// Read only the first line
-	if !scanner.Scan() {
-		return false
-	}
-
-	var entry struct {
-		Type    string `json:"type"`
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	}
-
-	if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-		return false
-	}
-
-	// Check if first user message is "Warmup"
-	return entry.Type == "user" && strings.TrimSpace(entry.Message.Content) == "Warmup"
 }
 
 // DeleteSessionState removes session state from disk
