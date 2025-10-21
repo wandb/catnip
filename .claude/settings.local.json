@@ -9,7 +9,9 @@
       "Read(//home/vscode/.claude/projects/**)",
       "Bash(go build:*)",
       "Bash(CGO_ENABLED=0 go build:*)",
-      "Bash(just build:*)"
+      "Bash(just build:*)",
+      "Bash(GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build:*)",
+      "Bash(go vet:*)"
     ],
     "deny": [],
     "ask": []
