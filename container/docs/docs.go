@@ -662,7 +662,7 @@ const docTemplate = `{
         },
         "/v1/git/worktrees": {
             "get": {
-                "description": "Returns a list of all worktrees for the current repository with fast cache-enhanced responses",
+                "description": "Returns a list of all worktrees for the current repository with fast cache-enhanced responses. Supports conditional requests via If-None-Match header for efficient polling.",
                 "produces": [
                     "application/json"
                 ],
@@ -670,6 +670,14 @@ const docTemplate = `{
                     "git"
                 ],
                 "summary": "List all worktrees",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ETag from previous request",
+                        "name": "If-None-Match",
+                        "in": "header"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -679,6 +687,9 @@ const docTemplate = `{
                                 "$ref": "#/definitions/internal_handlers.EnhancedWorktree"
                             }
                         }
+                    },
+                    "304": {
+                        "description": "Not Modified - content unchanged"
                     }
                 }
             }

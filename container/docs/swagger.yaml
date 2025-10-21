@@ -1537,7 +1537,13 @@ paths:
   /v1/git/worktrees:
     get:
       description: Returns a list of all worktrees for the current repository with
-        fast cache-enhanced responses
+        fast cache-enhanced responses. Supports conditional requests via If-None-Match
+        header for efficient polling.
+      parameters:
+      - description: ETag from previous request
+        in: header
+        name: If-None-Match
+        type: string
       produces:
       - application/json
       responses:
@@ -1547,6 +1553,8 @@ paths:
             items:
               $ref: '#/definitions/internal_handlers.EnhancedWorktree'
             type: array
+        "304":
+          description: Not Modified - content unchanged
       summary: List all worktrees
       tags:
       - git
