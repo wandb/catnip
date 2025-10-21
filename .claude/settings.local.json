@@ -7,7 +7,11 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "WebFetch(domain:expo.dev)",
-      "WebSearch"
+      "WebSearch",
+      "Read(//home/vscode/.claude/projects/-worktrees-catnip-bean/**)",
+      "Bash(for file in /home/vscode/.claude/projects/-worktrees-catnip-bean/*.jsonl)",
+      "Bash(head:*)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []
