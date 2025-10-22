@@ -91,6 +91,7 @@ func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
 	// Wait for AUTH_WAITING state
 	t.Logf("⏳ Waiting for AUTH_WAITING state...")
 	if err := waitForState(service, StateAuthWaiting, 30*time.Second); err != nil {
+		dumpServiceOutput(t, service, "AUTH_WAITING state timeout")
 		t.Fatalf("Never reached AUTH_WAITING state: %v", err)
 	}
 
@@ -111,8 +112,7 @@ func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
 	// Wait for AUTH_CONFIRM state (successful login)
 	t.Logf("⏳ Waiting for AUTH_CONFIRM state...")
 	if err := waitForState(service, StateAuthConfirm, 10*time.Second); err != nil {
-		status := service.GetStatus()
-		t.Logf("Current state: %s, error: %s", status.State, status.ErrorMessage)
+		dumpServiceOutput(t, service, "AUTH_CONFIRM state timeout")
 		t.Fatalf("Never reached AUTH_CONFIRM state: %v", err)
 	}
 	t.Logf("✅ Reached AUTH_CONFIRM state")
@@ -120,8 +120,7 @@ func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
 	// Wait for BYPASS_PERMISSIONS state
 	t.Logf("⏳ Waiting for BYPASS_PERMISSIONS state...")
 	if err := waitForState(service, StateBypassPermissions, 10*time.Second); err != nil {
-		status := service.GetStatus()
-		t.Logf("Current state: %s", status.State)
+		dumpServiceOutput(t, service, "BYPASS_PERMISSIONS state timeout")
 		t.Fatalf("Never reached BYPASS_PERMISSIONS state: %v", err)
 	}
 	t.Logf("✅ Reached BYPASS_PERMISSIONS state")
@@ -154,7 +153,7 @@ func testFailedCodeSubmission(t *testing.T, proxy *TestProxy, proxyAddr string) 
 	// Wait for AUTH_WAITING state
 	t.Logf("⏳ Waiting for AUTH_WAITING state...")
 	if err := waitForState(service, StateAuthWaiting, 30*time.Second); err != nil {
-		pty.DumpOutput()
+		dumpServiceOutput(t, service, "AUTH_WAITING state timeout")
 		t.Fatalf("Never reached AUTH_WAITING state: %v", err)
 	}
 
@@ -173,12 +172,12 @@ func testFailedCodeSubmission(t *testing.T, proxy *TestProxy, proxyAddr string) 
 	t.Logf("State after failed code: %s", status.State)
 
 	if status.State != StateAuthWaiting {
-		pty.DumpOutput()
+		dumpServiceOutput(t, service, "Unexpected state after failed code")
 		t.Errorf("Expected to stay in AUTH_WAITING after failed code, got %s", status.State)
 	}
 
 	if status.ErrorMessage == "" {
-		pty.DumpOutput()
+		dumpServiceOutput(t, service, "Missing error message")
 		t.Error("Expected error message after invalid code")
 	} else {
 		t.Logf("✅ Got expected error: %s", status.ErrorMessage)
@@ -188,7 +187,7 @@ func testFailedCodeSubmission(t *testing.T, proxy *TestProxy, proxyAddr string) 
 	// We can't directly check this, but submitting again should work
 	t.Logf("📝 Submitting code again to test retry...")
 	if err := service.SubmitCode("retry-code"); err != nil {
-		pty.DumpOutput()
+		dumpServiceOutput(t, service, "Retry code submission failed")
 		t.Errorf("Failed to submit code on retry: %v", err)
 	}
 }
@@ -310,6 +309,39 @@ func waitForState(service *ClaudeOnboardingService, targetState OnboardingState,
 		time.Sleep(100 * time.Millisecond) // Fast polling for responsive tests
 	}
 	return fmt.Errorf("timeout waiting for state %s", targetState)
+}
+
+// dumpServiceOutput logs the full PTY output captured by the service
+func dumpServiceOutput(t *testing.T, service *ClaudeOnboardingService, reason string) {
+	t.Helper()
+	status := service.GetStatus()
+	cleanOutput := stripANSI(status.Output)
+
+	separator := strings.Repeat("=", 80)
+	dashLine := strings.Repeat("-", 80)
+
+	t.Logf("\n%s", separator)
+	t.Logf("🔍 FAILURE DEBUG OUTPUT: %s", reason)
+	t.Logf("%s", separator)
+	t.Logf("Current State: %s", status.State)
+	t.Logf("OAuth URL: %s", status.OAuthURL)
+	t.Logf("Error Message: %s", status.ErrorMessage)
+	t.Logf("%s", dashLine)
+	t.Logf("📺 Last PTY Screen (%d bytes):", len(cleanOutput))
+	t.Logf("%s", dashLine)
+
+	// Show last 2000 characters (roughly last screen)
+	screenSize := 2000
+	if len(cleanOutput) < screenSize {
+		screenSize = len(cleanOutput)
+	}
+	if screenSize > 0 {
+		lastScreen := cleanOutput[len(cleanOutput)-screenSize:]
+		t.Logf("%s", lastScreen)
+	} else {
+		t.Logf("(no output captured)")
+	}
+	t.Logf("%s\n", separator)
 }
 
 // TestStripANSI tests ANSI escape code stripping

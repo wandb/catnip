@@ -364,17 +364,33 @@ func (p *TestProxy) handleMITM(w http.ResponseWriter, r *http.Request) {
 
 		p.logFunc("🔍 MITM request #%d: %s %s (Host: %s)", requestNum, req.Method, req.URL.Path, r.Host)
 
+		// Create a response writer that writes to the TLS connection
+		resp := &mitmResponseWriter{
+			conn:   tlsClientConn,
+			header: make(http.Header),
+		}
+
+		// Mock CHANGELOG.md to avoid external GitHub dependency
+		if strings.Contains(req.URL.Path, "/CHANGELOG.md") {
+			p.logFunc("🎯 Mocking CHANGELOG.md request")
+			resp.Header().Set("Content-Type", "text/plain")
+			resp.WriteHeader(http.StatusOK)
+			_, _ = resp.Write([]byte("# Changelog\n\n## v2.0.25\n- Test version\n"))
+			return
+		}
+
+		// Mock health check endpoints
+		if strings.Contains(req.URL.Path, "/api/hello") || strings.Contains(req.URL.Path, "/v1/oauth/hello") {
+			p.logFunc("🎯 Mocking health check: %s", req.URL.Path)
+			resp.Header().Set("Content-Type", "application/json")
+			resp.WriteHeader(http.StatusOK)
+			_, _ = resp.Write([]byte(`{"status":"ok"}`))
+			return
+		}
+
 		// Check if this is an OAuth token exchange
 		if strings.Contains(req.URL.Path, "/oauth/token") || strings.Contains(req.URL.Path, "/api/auth/token") {
 			p.logFunc("🎯 Intercepted OAuth token exchange: %s", req.URL.Path)
-
-			// Create a response writer that writes to the TLS connection
-			resp := &mitmResponseWriter{
-				conn:   tlsClientConn,
-				header: make(http.Header),
-			}
-
-			// Handle OAuth interception
 			p.interceptor.handleTokenExchange(resp, req)
 			return
 		}
@@ -382,14 +398,6 @@ func (p *TestProxy) handleMITM(w http.ResponseWriter, r *http.Request) {
 		// Check if this is an OAuth profile request
 		if strings.Contains(req.URL.Path, "/api/oauth/profile") {
 			p.logFunc("🎯 Intercepted OAuth profile request: %s", req.URL.Path)
-
-			// Create a response writer that writes to the TLS connection
-			resp := &mitmResponseWriter{
-				conn:   tlsClientConn,
-				header: make(http.Header),
-			}
-
-			// Handle profile request
 			p.interceptor.handleProfileRequest(resp, req)
 			return
 		}
@@ -397,19 +405,12 @@ func (p *TestProxy) handleMITM(w http.ResponseWriter, r *http.Request) {
 		// Check if this is a Claude CLI roles request
 		if strings.Contains(req.URL.Path, "/api/oauth/claude_cli/roles") {
 			p.logFunc("🎯 Intercepted Claude CLI roles request: %s", req.URL.Path)
-
-			// Create a response writer that writes to the TLS connection
-			resp := &mitmResponseWriter{
-				conn:   tlsClientConn,
-				header: make(http.Header),
-			}
-
-			// Handle roles request
 			p.interceptor.handleRolesRequest(resp, req)
 			return
 		}
 
-		// Forward other requests
+		// Log and forward other requests to real API
+		p.logFunc("⚠️ Forwarding unhandled request to real API: %s %s", req.Method, req.URL.Path)
 		p.forwardMITMRequest(tlsClientConn, req)
 	}
 }
