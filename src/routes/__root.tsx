@@ -12,6 +12,9 @@ import { LoginModal } from "@/components/LoginModal";
 import { GitHubAuthProvider } from "@/lib/github-auth-context";
 import { useGitHubAuth } from "@/lib/hooks";
 import { GitHubAuthModal } from "@/components/GitHubAuthModal";
+import { ClaudeAuthProvider } from "@/lib/claude-auth-context";
+import { useClaudeAuth } from "@/lib/hooks";
+import { ClaudeAuthModal } from "@/components/ClaudeAuthModal";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { NotificationProvider } from "@/components/NotificationProvider";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -36,6 +39,10 @@ function RootLayout() {
   const location = useLocation();
   const { isAuthenticated, isLoading, authRequired } = useAuth();
   const { showAuthModal, setShowAuthModal } = useGitHubAuth();
+  const {
+    showAuthModal: showClaudeAuthModal,
+    setShowAuthModal: setShowClaudeAuthModal,
+  } = useClaudeAuth();
   const isMobile = useIsMobile();
 
   // For now, assume connection is always true for simplicity
@@ -122,6 +129,12 @@ function RootLayout() {
       {/* GitHub Auth Modal */}
       <GitHubAuthModal open={showAuthModal} onOpenChange={setShowAuthModal} />
 
+      {/* Claude Auth Modal */}
+      <ClaudeAuthModal
+        open={showClaudeAuthModal}
+        onOpenChange={setShowClaudeAuthModal}
+      />
+
       {/* Router Devtools - Only show on desktop */}
       {!isMobile && <TanStackRouterDevtools position="bottom-right" />}
     </>
@@ -145,9 +158,11 @@ function RootComponent() {
     <AuthProvider>
       <WebSocketProvider>
         <GitHubAuthProvider>
-          <NotificationProvider>
-            <RootLayout />
-          </NotificationProvider>
+          <ClaudeAuthProvider>
+            <NotificationProvider>
+              <RootLayout />
+            </NotificationProvider>
+          </ClaudeAuthProvider>
         </GitHubAuthProvider>
       </WebSocketProvider>
     </AuthProvider>

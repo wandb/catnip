@@ -152,13 +152,15 @@ func startServer(cmd *cobra.Command) {
 	// Initialize services
 	claudeService := services.NewClaudeService()
 	sessionService := services.NewSessionService()
-	claudeOnboardingService := services.NewClaudeOnboardingService()
 
 	// Initialize and start Claude monitor service
 	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
 
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService, portMonitor)
+
+	// Initialize Claude onboarding service (after ptyHandler so it can restart sessions after auth)
+	claudeOnboardingService := services.NewClaudeOnboardingService(ptyHandler)
 
 	// Wire up the setup executor to enable setup.sh execution in new worktrees
 	logger.Debugf("🔧 Setting up setupExecutor for gitService")

@@ -187,6 +187,117 @@
                 }
             }
         },
+        "/v1/claude/onboarding/cancel": {
+            "post": {
+                "description": "Cancels the onboarding process and cleans up",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Cancel onboarding",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/claude/onboarding/start": {
+            "post": {
+                "description": "Starts the automated Claude Code login/onboarding flow",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Start onboarding",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/claude/onboarding/status": {
+            "get": {
+                "description": "Returns the current state of the onboarding process",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Get onboarding status",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Include full PTY output buffer",
+                        "name": "include_output",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeOnboardingStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/claude/onboarding/submit-code": {
+            "post": {
+                "description": "Submits the OAuth code when in auth_waiting state",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "claude"
+                ],
+                "summary": "Submit OAuth code",
+                "parameters": [
+                    {
+                        "description": "OAuth code",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeOnboardingSubmitCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/v1/claude/session": {
             "get": {
                 "description": "Returns Claude Code session metadata for a specific worktree",
@@ -1698,6 +1809,62 @@
                     "description": "Working directory where the event occurred",
                     "type": "string",
                     "example": "/workspace/my-project"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.ClaudeOnboardingStatus": {
+            "description": "Status of the automated Claude Code onboarding/login flow",
+            "type": "object",
+            "properties": {
+                "error_message": {
+                    "description": "Error message if state is 'error'",
+                    "type": "string",
+                    "example": "Timeout in state auth_waiting after 3m0s"
+                },
+                "message": {
+                    "description": "Human-readable message about the current state",
+                    "type": "string",
+                    "example": "Please visit the OAuth URL and paste the code"
+                },
+                "oauth_url": {
+                    "description": "OAuth URL for authentication (only present in auth_url and auth_waiting states)",
+                    "type": "string",
+                    "example": "https://claude.ai/oauth/authorize?..."
+                },
+                "output": {
+                    "description": "Full PTY output buffer for debugging (only included if requested)",
+                    "type": "string"
+                },
+                "state": {
+                    "description": "Current state in the onboarding flow",
+                    "type": "string",
+                    "enum": [
+                        "idle",
+                        "theme_select",
+                        "auth_method",
+                        "auth_url",
+                        "auth_waiting",
+                        "auth_confirm",
+                        "security_notes",
+                        "terminal_setup",
+                        "complete",
+                        "error"
+                    ],
+                    "example": "auth_waiting"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.ClaudeOnboardingSubmitCodeRequest": {
+            "description": "Request to submit OAuth code during onboarding",
+            "type": "object",
+            "required": [
+                "code"
+            ],
+            "properties": {
+                "code": {
+                    "description": "OAuth code obtained from the authentication flow",
+                    "type": "string",
+                    "example": "abc123def456"
                 }
             }
         },

@@ -1339,11 +1339,11 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 		}
 	}
 
-	// Check authentication status based on userID
-	if userID, exists := config["userID"]; exists {
-		if userIDStr, ok := userID.(string); ok && userIDStr != "" {
-			settings.IsAuthenticated = true
-		}
+	// Check authentication status based on credentials file existence
+	// Don't rely on userID in config - check if credentials actually exist
+	credentialsPath := filepath.Join(os.Getenv("HOME"), ".claude", ".credentials.json")
+	if _, err := os.Stat(credentialsPath); err == nil {
+		settings.IsAuthenticated = true
 	}
 
 	// Extract version from lastReleaseNotesSeen

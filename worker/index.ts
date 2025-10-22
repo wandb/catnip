@@ -75,12 +75,12 @@ const CONTAINER_ROUTES = [
   /^\/\d+\//, // Port forwarding (e.g., /3000/)
 ];
 
-function shouldRouteToContainer(pathname: string): boolean {
+function shouldRouteToContainer(_pathname: string): boolean {
   // TEMPORARY: Container support disabled to avoid building/uploading container
   return false;
 
   // Original logic (re-enable when needed):
-  // return CONTAINER_ROUTES.some((pattern) => pattern.test(pathname));
+  // return CONTAINER_ROUTES.some((pattern) => pattern.test(_pathname));
 }
 
 // Check if codespace health endpoint is responding
