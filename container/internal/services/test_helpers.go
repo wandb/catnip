@@ -144,6 +144,7 @@ func NewPTYTestHelperForCapture(proxyAddr string) (*PTYTestHelper, error) {
 		"DISPLAY=",         // Disable X11 to prevent browser
 		"TERM=" + os.Getenv("TERM"),
 		"NODE_TLS_REJECT_UNAUTHORIZED=0", // Disable TLS validation to allow MITM proxy
+		"DISABLE_TELEMETRY=1",            // Disable telemetry in tests
 		// XDG directories for credential storage
 		"XDG_CONFIG_HOME=" + homeDir + "/.config",
 		"XDG_DATA_HOME=" + homeDir + "/.local/share",

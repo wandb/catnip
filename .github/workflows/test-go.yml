@@ -28,7 +28,10 @@ jobs:
       - name: Download dependencies
         run: go mod download
         working-directory: container
-        
+
+      - name: Install Claude CLI for integration tests
+        run: curl -fsSL https://claude.ai/install.sh | bash
+
       - name: Install gotestfmt for better test output (optional)
         run: go install github.com/gotesttools/gotestfmt/v2/cmd/gotestfmt@latest
         continue-on-error: true

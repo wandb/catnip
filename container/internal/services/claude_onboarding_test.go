@@ -59,14 +59,6 @@ func TestOnboardingStateMachine(t *testing.T) {
 	}
 	defer proxy.Close()
 
-	t.Run("SuccessfulOAuthFlow", func(t *testing.T) {
-		testSuccessfulOAuthFlow(t, proxy.Addr())
-	})
-
-	t.Run("InvalidOAuthCode", func(t *testing.T) {
-		testInvalidOAuthCode(t, proxy.Addr())
-	})
-
 	t.Run("StateTransitions", func(t *testing.T) {
 		testStateTransitions(t, proxy.Addr())
 	})
@@ -76,120 +68,8 @@ func TestOnboardingStateMachine(t *testing.T) {
 	})
 
 	t.Run("FailedCodeSubmission", func(t *testing.T) {
-		testFailedCodeSubmission(t, proxy.Addr())
+		testFailedCodeSubmission(t, proxy, proxy.Addr())
 	})
-}
-
-func testSuccessfulOAuthFlow(t *testing.T, proxyAddr string) {
-	// Create PTY helper
-	pty, err := NewPTYTestHelper(t, proxyAddr)
-	if err != nil {
-		t.Fatalf("Failed to create PTY helper: %v", err)
-	}
-	defer pty.Close()
-
-	// Create onboarding service using existing PTY
-	service := NewClaudeOnboardingService()
-	err = service.StartWithPTY(pty.ptyFile, pty.cmd, pty.homeDir)
-	if err != nil {
-		t.Fatalf("Failed to start onboarding: %v", err)
-	}
-	defer func() { _ = service.Stop() }()
-
-	// Wait for OAuth URL state
-	if err := waitForState(service, StateAuthWaiting, 30*time.Second); err != nil {
-		pty.DumpOutput()
-		t.Fatalf("Never reached AUTH_WAITING state: %v", err)
-	}
-
-	// Get OAuth URL
-	status := service.GetStatus()
-	if status.OAuthURL == "" {
-		t.Fatal("OAuth URL not extracted")
-	}
-	t.Logf("✅ OAuth URL: %s", status.OAuthURL)
-
-	// Submit a realistic OAuth code format (matches real OAuth code structure)
-	testCode := "imtk2bf4AvgDkKxvRFhDfanHNiVk3R51Lzl8kzHs8POSPVGO#E_F8URzH7vNLrK9ke6YTw4UAq27ePoZmaSm0Yk8DDgQ"
-	if err := service.SubmitCode(testCode); err != nil {
-		t.Fatalf("Failed to submit code: %v", err)
-	}
-
-	// Wait for completion (or at least progress past auth)
-	time.Sleep(5 * time.Second)
-
-	finalStatus := service.GetStatus()
-	t.Logf("Final state: %s", finalStatus.State)
-
-	// Verify we progressed past auth waiting
-	if finalStatus.State == StateAuthWaiting {
-		t.Error("Still in AUTH_WAITING state after submitting code")
-		pty.DumpOutput()
-	}
-
-	if finalStatus.ErrorMessage != "" {
-		t.Logf("⚠️ Error message: %s", finalStatus.ErrorMessage)
-	}
-}
-
-func testInvalidOAuthCode(t *testing.T, proxyAddr string) {
-	// Create PTY helper
-	pty, err := NewPTYTestHelper(t, proxyAddr)
-	if err != nil {
-		t.Fatalf("Failed to create PTY helper: %v", err)
-	}
-	defer pty.Close()
-
-	// Create test proxy and configure it to fail
-	proxy, err := NewTestProxy(t)
-	if err != nil {
-		t.Fatalf("Failed to create proxy: %v", err)
-	}
-	defer proxy.Close()
-	proxy.SetShouldFailExchange(true)
-
-	// Create onboarding service
-	service := NewClaudeOnboardingService()
-
-	// Update PTY to use failing proxy
-	pty.cmd.Env = append(os.Environ(),
-		"HOME="+pty.homeDir,
-		"HTTPS_PROXY=http://"+proxy.Addr(),
-		"HTTP_PROXY=http://"+proxy.Addr(),
-	)
-
-	err = service.StartWithPTY(pty.ptyFile, pty.cmd, pty.homeDir)
-	if err != nil {
-		t.Fatalf("Failed to start onboarding: %v", err)
-	}
-	defer func() { _ = service.Stop() }()
-
-	// Wait for OAuth URL state
-	if err := waitForState(service, StateAuthWaiting, 30*time.Second); err != nil {
-		t.Fatalf("Never reached AUTH_WAITING state: %v", err)
-	}
-
-	// Submit an invalid OAuth code
-	invalidCode := "invalid-code"
-	if err := service.SubmitCode(invalidCode); err != nil {
-		t.Fatalf("Failed to submit code: %v", err)
-	}
-
-	// Wait a bit for error detection
-	time.Sleep(5 * time.Second)
-
-	status := service.GetStatus()
-
-	// Should still be in AUTH_WAITING or show error
-	if status.State != StateAuthWaiting && status.State != StateError {
-		t.Errorf("Expected AUTH_WAITING or ERROR state after invalid code, got %s", status.State)
-	}
-
-	if status.ErrorMessage == "" {
-		t.Error("Expected error message after invalid code")
-	} else {
-		t.Logf("✅ Got expected error: %s", status.ErrorMessage)
-	}
 }
 
 func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
@@ -251,19 +131,13 @@ func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
 	t.Logf("✅ Final state: %s", finalStatus.State)
 }
 
-func testFailedCodeSubmission(t *testing.T, proxyAddr string) {
-	// Create a separate proxy for this test that fails OAuth
-	failProxy, err := NewTestProxy(t)
-	if err != nil {
-		t.Fatalf("Failed to create fail proxy: %v", err)
-	}
-	defer failProxy.Close()
+func testFailedCodeSubmission(t *testing.T, proxy *TestProxy, proxyAddr string) {
+	// Configure proxy to fail token exchange for this test
+	proxy.SetShouldFailExchange(true)
+	defer proxy.SetShouldFailExchange(false) // Reset for other tests
 
-	// Configure proxy to fail token exchange
-	failProxy.SetShouldFailExchange(true)
-
-	// Create PTY helper with failing proxy
-	pty, err := NewPTYTestHelper(t, failProxy.Addr())
+	// Create PTY helper
+	pty, err := NewPTYTestHelper(t, proxyAddr)
 	if err != nil {
 		t.Fatalf("Failed to create PTY helper: %v", err)
 	}
@@ -280,6 +154,7 @@ func testFailedCodeSubmission(t *testing.T, proxyAddr string) {
 	// Wait for AUTH_WAITING state
 	t.Logf("⏳ Waiting for AUTH_WAITING state...")
 	if err := waitForState(service, StateAuthWaiting, 30*time.Second); err != nil {
+		pty.DumpOutput()
 		t.Fatalf("Never reached AUTH_WAITING state: %v", err)
 	}
 
@@ -290,18 +165,20 @@ func testFailedCodeSubmission(t *testing.T, proxyAddr string) {
 		t.Fatalf("Failed to submit code: %v", err)
 	}
 
-	// Wait a bit for error detection
-	time.Sleep(5 * time.Second)
+	// Wait for error detection (reduced from 5s to 2s)
+	time.Sleep(2 * time.Second)
 
 	// Should still be in AUTH_WAITING with error message
 	status := service.GetStatus()
 	t.Logf("State after failed code: %s", status.State)
 
 	if status.State != StateAuthWaiting {
+		pty.DumpOutput()
 		t.Errorf("Expected to stay in AUTH_WAITING after failed code, got %s", status.State)
 	}
 
 	if status.ErrorMessage == "" {
+		pty.DumpOutput()
 		t.Error("Expected error message after invalid code")
 	} else {
 		t.Logf("✅ Got expected error: %s", status.ErrorMessage)
@@ -311,6 +188,7 @@ func testFailedCodeSubmission(t *testing.T, proxyAddr string) {
 	// We can't directly check this, but submitting again should work
 	t.Logf("📝 Submitting code again to test retry...")
 	if err := service.SubmitCode("retry-code"); err != nil {
+		pty.DumpOutput()
 		t.Errorf("Failed to submit code on retry: %v", err)
 	}
 }
@@ -412,6 +290,8 @@ func testStateTransitions(t *testing.T, proxyAddr string) {
 	// Only require that we saw the actual screens in the output, not necessarily the state detection
 	// This helps us debug state detection issues
 	if !strings.Contains(cleanOutput, "Paste code here") {
+		t.Logf("\n📋 PTY Buffer at failure:")
+		t.Logf("%s", pty.DumpOutput())
 		t.Error("Never saw 'Paste code here' prompt in output")
 	}
 }
@@ -427,7 +307,7 @@ func waitForState(service *ClaudeOnboardingService, targetState OnboardingState,
 		if status.State == StateError {
 			return fmt.Errorf("reached error state: %s", status.ErrorMessage)
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Fast polling for responsive tests
 	}
 	return fmt.Errorf("timeout waiting for state %s", targetState)
 }
