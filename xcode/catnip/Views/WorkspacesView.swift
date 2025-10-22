@@ -24,6 +24,10 @@ struct WorkspacesView: View {
     @State private var navigationWorkspace: WorkspaceInfo? // Workspace to navigate to
     @State private var pendingPromptForNavigation: String? // Prompt to pass to detail view
 
+    // Claude authentication
+    @State private var showClaudeAuthSheet = false
+    @State private var hasCheckedClaudeAuth = false
+
     private var availableRepositories: [String] {
         Array(Set(workspaces.map { $0.repoId })).sorted()
     }
@@ -54,6 +58,11 @@ struct WorkspacesView: View {
         }
         .task {
             await loadWorkspaces()
+
+            // Check Claude authentication status
+            if !hasCheckedClaudeAuth {
+                await checkClaudeAuth()
+            }
         }
         .refreshable {
             await loadWorkspaces()
@@ -114,6 +123,12 @@ struct WorkspacesView: View {
             if navigationWorkspace == nil && pendingPromptForNavigation != nil {
                 pendingPromptForNavigation = nil
                 NSLog("🐱 [WorkspacesView] Cleared pendingPromptForNavigation after navigation")
+            }
+        }
+        .sheet(isPresented: $showClaudeAuthSheet) {
+            ClaudeAuthSheet(isPresented: $showClaudeAuthSheet) {
+                NSLog("🐱 [WorkspacesView] Claude authentication completed")
+                // Optionally refresh workspaces or perform other actions
             }
         }
     }
