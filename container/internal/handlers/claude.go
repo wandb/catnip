@@ -563,22 +563,16 @@ func (h *ClaudeHandler) StartOnboarding(c *fiber.Ctx) error {
 		})
 	}
 
-	var err error
-
-	// Try to find an existing Claude PTY session
-	if h.ptyHandler != nil {
-		ptyFile, cmd, workDir := h.ptyHandler.FindExistingClaudeSession()
-		if ptyFile != nil && cmd != nil {
-			logger.Infof("🔄 Using existing Claude PTY session for onboarding")
-			err = h.claudeOnboardingService.StartWithPTY(ptyFile, cmd, workDir)
-		} else {
-			logger.Infof("🆕 No existing Claude session found, creating new one")
-			err = h.claudeOnboardingService.Start()
-		}
-	} else {
-		// No PTYHandler available, just start normally
-		err = h.claudeOnboardingService.Start()
-	}
+	// IMPORTANT: Always create a dedicated PTY for onboarding
+	// DO NOT reuse existing PTY sessions because:
+	// 1. PTYHandler's readPTYContinuously is already reading from existing PTYs
+	// 2. Having two readers (PTYHandler + OnboardingService) compete for same PTY
+	//    causes both to get incomplete data (each gets random chunks)
+	// 3. This breaks both the websocket view AND the onboarding state machine
+	//
+	// Onboarding needs exclusive PTY access to reliably detect OAuth states
+	logger.Infof("🆕 Creating dedicated PTY for onboarding (not reusing existing sessions)")
+	err := h.claudeOnboardingService.Start()
 
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{

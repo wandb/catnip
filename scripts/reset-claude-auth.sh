@@ -41,7 +41,7 @@ echo -e "${GREEN}Using CATNIP_VOLUME_DIR:${NC} $CATNIP_VOLUME_DIR\n"
 # Reset CATNIP_VOLUME_DIR credentials
 echo -e "${GREEN}📁 Resetting CATNIP_VOLUME_DIR credentials...${NC}"
 move_if_exists "$CATNIP_VOLUME_DIR/.claude/claude.json" "$CATNIP_VOLUME_DIR/.claude/claude.json.off"
-move_if_exists "$CATNIP_VOLUME_DIR/.claude/.credentials.json" "$CATNIP_VOLUME_DIR/.claude/.credentials.json.off"
+move_if_exists "$CATNIP_VOLUME_DIR/.claude/.claude/.credentials.json" "$CATNIP_VOLUME_DIR/.claude/.credentials.json.off"
 
 echo ""
 

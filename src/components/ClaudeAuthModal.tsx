@@ -83,6 +83,35 @@ export function ClaudeAuthModal({ open, onOpenChange }: ClaudeAuthModalProps) {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+
+        // If already in progress, check status and resume polling
+        if (
+          response.status === 400 &&
+          errorData.error?.includes("already in progress")
+        ) {
+          console.log(
+            "Onboarding already in progress, checking status and resuming...",
+          );
+
+          // Check current status
+          const statusResponse = await fetch("/v1/claude/onboarding/status");
+          if (statusResponse.ok) {
+            const currentStatus: OnboardingStatus = await statusResponse.json();
+            setStatus(currentStatus);
+
+            // If it's actually running and not in a terminal state, resume polling
+            if (
+              currentStatus.state !== "idle" &&
+              currentStatus.state !== "complete" &&
+              currentStatus.state !== "error"
+            ) {
+              setPolling(true);
+              setLoading(false);
+              return;
+            }
+          }
+        }
+
         throw new Error(
           errorData.error ||
             `HTTP ${response.status}: Failed to start onboarding`,
@@ -115,9 +144,11 @@ export function ClaudeAuthModal({ open, onOpenChange }: ClaudeAuthModalProps) {
 
   const submitCode = async () => {
     if (!code.trim()) {
+      console.log("Submit code: code is empty");
       return;
     }
 
+    console.log("Submitting code:", code.trim());
     setSubmittingCode(true);
 
     try {
@@ -129,6 +160,8 @@ export function ClaudeAuthModal({ open, onOpenChange }: ClaudeAuthModalProps) {
         body: JSON.stringify({ code: code.trim() }),
       });
 
+      console.log("Submit code response:", response.status);
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(
@@ -139,6 +172,7 @@ export function ClaudeAuthModal({ open, onOpenChange }: ClaudeAuthModalProps) {
       // Resume polling to wait for completion
       setPolling(true);
     } catch (error) {
+      console.error("Submit code error:", error);
       let errorMessage = "Failed to submit authentication code";
 
       if (error instanceof Error) {
@@ -214,6 +248,14 @@ export function ClaudeAuthModal({ open, onOpenChange }: ClaudeAuthModalProps) {
 
           {isWaitingForAuth && status.oauth_url && (
             <div className="space-y-4">
+              {status.error_message && (
+                <Alert className="border-yellow-600 bg-yellow-50 dark:bg-yellow-950">
+                  <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                    {status.error_message}
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="rounded-lg border bg-muted p-4">
                 <p className="mb-3 text-sm text-muted-foreground">
                   Click the button below to open the Claude authentication page
@@ -285,6 +327,24 @@ export function ClaudeAuthModal({ open, onOpenChange }: ClaudeAuthModalProps) {
                   {status.error_message || "Authentication failed"}
                 </AlertDescription>
               </Alert>
+
+              {status.error_message?.includes("run 'claude' directly") && (
+                <div className="rounded-lg border bg-muted p-4 space-y-2">
+                  <p className="text-sm font-medium">Manual Authentication:</p>
+                  <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                    <li>Open a terminal in your project directory</li>
+                    <li>
+                      Run:{" "}
+                      <code className="bg-background px-1 py-0.5 rounded">
+                        claude
+                      </code>
+                    </li>
+                    <li>Follow the authentication prompts</li>
+                    <li>Reload this page once authenticated</li>
+                  </ol>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   onClick={startOnboarding}

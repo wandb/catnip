@@ -37,6 +37,51 @@ definitions:
         example: /workspace/my-project
         type: string
     type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeOnboardingStatus:
+    description: Status of the automated Claude Code onboarding/login flow
+    properties:
+      error_message:
+        description: Error message if state is 'error'
+        example: Timeout in state auth_waiting after 3m0s
+        type: string
+      message:
+        description: Human-readable message about the current state
+        example: Please visit the OAuth URL and paste the code
+        type: string
+      oauth_url:
+        description: OAuth URL for authentication (only present in auth_url and auth_waiting
+          states)
+        example: https://claude.ai/oauth/authorize?...
+        type: string
+      output:
+        description: Full PTY output buffer for debugging (only included if requested)
+        type: string
+      state:
+        description: Current state in the onboarding flow
+        enum:
+        - idle
+        - theme_select
+        - auth_method
+        - auth_url
+        - auth_waiting
+        - auth_confirm
+        - security_notes
+        - terminal_setup
+        - complete
+        - error
+        example: auth_waiting
+        type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.ClaudeOnboardingSubmitCodeRequest:
+    description: Request to submit OAuth code during onboarding
+    properties:
+      code:
+        description: OAuth code obtained from the authentication flow
+        example: abc123def456
+        type: string
+    required:
+    - code
+    type: object
   github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage:
     properties:
       cwd:
@@ -1165,6 +1210,78 @@ paths:
               type: string
             type: object
       summary: Create Claude messages using CLI
+      tags:
+      - claude
+  /v1/claude/onboarding/cancel:
+    post:
+      description: Cancels the onboarding process and cleans up
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Cancel onboarding
+      tags:
+      - claude
+  /v1/claude/onboarding/start:
+    post:
+      description: Starts the automated Claude Code login/onboarding flow
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Start onboarding
+      tags:
+      - claude
+  /v1/claude/onboarding/status:
+    get:
+      description: Returns the current state of the onboarding process
+      parameters:
+      - description: Include full PTY output buffer
+        in: query
+        name: include_output
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeOnboardingStatus'
+      summary: Get onboarding status
+      tags:
+      - claude
+  /v1/claude/onboarding/submit-code:
+    post:
+      consumes:
+      - application/json
+      description: Submits the OAuth code when in auth_waiting state
+      parameters:
+      - description: OAuth code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeOnboardingSubmitCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Submit OAuth code
       tags:
       - claude
   /v1/claude/session:

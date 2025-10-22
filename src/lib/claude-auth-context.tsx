@@ -61,15 +61,19 @@ export function ClaudeAuthProvider({ children }: { children: ReactNode }) {
     void checkAuthStatus();
   }, []);
 
-  // Auto-show modal logic
+  // Auto-show modal logic - show if not authenticated OR onboarding not complete
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      const dismissed = localStorage.getItem("claude-auth-dismissed");
-      if (!dismissed) {
-        setShowAuthModal(true);
+    if (!isLoading) {
+      const needsOnboarding =
+        !isAuthenticated || !settings?.hasCompletedOnboarding;
+      if (needsOnboarding) {
+        const dismissed = localStorage.getItem("claude-auth-dismissed");
+        if (!dismissed) {
+          setShowAuthModal(true);
+        }
       }
     }
-  }, [isLoading, isAuthenticated]);
+  }, [isLoading, isAuthenticated, settings]);
 
   return (
     <ClaudeAuthContext
