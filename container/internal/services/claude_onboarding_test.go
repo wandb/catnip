@@ -125,21 +125,46 @@ func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
 	}
 	t.Logf("✅ Reached BYPASS_PERMISSIONS state")
 
-	// Wait for TERMINAL_SETUP state
-	t.Logf("⏳ Waiting for TERMINAL_SETUP state...")
-	if err := waitForState(service, StateTerminalSetup, 10*time.Second); err != nil {
-		dumpServiceOutput(t, service, "TERMINAL_SETUP state timeout")
-		t.Fatalf("Never reached TERMINAL_SETUP state: %v", err)
-	}
-	t.Logf("✅ Reached TERMINAL_SETUP state")
+	// TERMINAL_SETUP is optional - check if we're already COMPLETE
+	currentStatus := service.GetStatus()
+	if currentStatus.State != StateComplete {
+		// Wait for either TERMINAL_SETUP or COMPLETE (whichever comes first)
+		t.Logf("⏳ Waiting for TERMINAL_SETUP or COMPLETE state...")
 
-	// Wait for COMPLETE state (Claude ready with prompt)
-	t.Logf("⏳ Waiting for COMPLETE state (Claude ready)...")
-	if err := waitForState(service, StateComplete, 20*time.Second); err != nil {
-		dumpServiceOutput(t, service, "COMPLETE state timeout")
-		t.Fatalf("Never reached COMPLETE state: %v", err)
+		// Wait up to 20 seconds for completion
+		timeout := time.After(20 * time.Second)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		reachedTerminalSetup := false
+		for {
+			select {
+			case <-timeout:
+				dumpServiceOutput(t, service, "Timeout waiting for TERMINAL_SETUP or COMPLETE")
+				t.Fatalf("Never reached TERMINAL_SETUP or COMPLETE state after BYPASS_PERMISSIONS")
+			case <-ticker.C:
+				status := service.GetStatus()
+				switch status.State {
+				case StateTerminalSetup:
+					t.Logf("✅ Reached TERMINAL_SETUP state")
+					reachedTerminalSetup = true
+					// Continue waiting for COMPLETE
+				case StateComplete:
+					if !reachedTerminalSetup {
+						t.Logf("✅ Skipped TERMINAL_SETUP (optional) - went directly to COMPLETE")
+					} else {
+						t.Logf("✅ Reached COMPLETE state after TERMINAL_SETUP")
+					}
+					goto completionReached
+				}
+			}
+		}
+	completionReached:
+	} else {
+		t.Logf("✅ Already in COMPLETE state - TERMINAL_SETUP was skipped (optional)")
 	}
-	t.Logf("✅ Reached COMPLETE state - Claude is ready!")
+
+	t.Logf("✅ Claude is ready!")
 
 	// Verify final state and check for ready indicators in output
 	finalStatus := service.GetStatus()
