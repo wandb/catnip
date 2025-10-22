@@ -373,40 +373,44 @@ func (p *TestProxy) handleMITM(w http.ResponseWriter, r *http.Request) {
 		// Mock CHANGELOG.md to avoid external GitHub dependency
 		if strings.Contains(req.URL.Path, "/CHANGELOG.md") {
 			p.logFunc("🎯 Mocking CHANGELOG.md request")
+			body := []byte("# Changelog\n\n## v2.0.25\n- Test version\n")
 			resp.Header().Set("Content-Type", "text/plain")
+			resp.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
 			resp.WriteHeader(http.StatusOK)
-			_, _ = resp.Write([]byte("# Changelog\n\n## v2.0.25\n- Test version\n"))
-			return
+			_, _ = resp.Write(body)
+			continue // Keep connection alive for next request
 		}
 
 		// Mock health check endpoints
 		if strings.Contains(req.URL.Path, "/api/hello") || strings.Contains(req.URL.Path, "/v1/oauth/hello") {
 			p.logFunc("🎯 Mocking health check: %s", req.URL.Path)
+			body := []byte(`{"status":"ok"}`)
 			resp.Header().Set("Content-Type", "application/json")
+			resp.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
 			resp.WriteHeader(http.StatusOK)
-			_, _ = resp.Write([]byte(`{"status":"ok"}`))
-			return
+			_, _ = resp.Write(body)
+			continue // Keep connection alive for next request
 		}
 
 		// Check if this is an OAuth token exchange
 		if strings.Contains(req.URL.Path, "/oauth/token") || strings.Contains(req.URL.Path, "/api/auth/token") {
 			p.logFunc("🎯 Intercepted OAuth token exchange: %s", req.URL.Path)
 			p.interceptor.handleTokenExchange(resp, req)
-			return
+			continue // Keep connection alive for next request
 		}
 
 		// Check if this is an OAuth profile request
 		if strings.Contains(req.URL.Path, "/api/oauth/profile") {
 			p.logFunc("🎯 Intercepted OAuth profile request: %s", req.URL.Path)
 			p.interceptor.handleProfileRequest(resp, req)
-			return
+			continue // Keep connection alive for next request
 		}
 
 		// Check if this is a Claude CLI roles request
 		if strings.Contains(req.URL.Path, "/api/oauth/claude_cli/roles") {
 			p.logFunc("🎯 Intercepted Claude CLI roles request: %s", req.URL.Path)
 			p.interceptor.handleRolesRequest(resp, req)
-			return
+			continue // Keep connection alive for next request
 		}
 
 		// Log and forward other requests to real API
@@ -510,17 +514,17 @@ func (i *OAuthInterceptor) handleTokenExchange(w http.ResponseWriter, r *http.Re
 
 	if shouldFail {
 		i.logFunc("❌ Returning OAuth error (configured to fail)")
+		body := []byte(`{"error": "invalid_grant", "error_description": "Invalid authentication code"}`)
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = fmt.Fprintf(w, `{"error": "invalid_grant", "error_description": "Invalid authentication code"}`)
+		_, _ = w.Write(body)
 		return
 	}
 
 	// Return mock success response (matching real API structure)
 	i.logFunc("✅ Returning mock OAuth token")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, `{
+	respBody := []byte(`{
 		"token_type": "Bearer",
 		"access_token": "sk-ant-oat01-nNWB7BsoGHX5njIHyRqwPDeHJ85Y4IHPUi3a5BWRG3Wex7yYEl_-8wPnbmxcUx0031s3YZYvU_t3Kp3BpTYEMw-TestMockAA",
 		"expires_in": 28800,
@@ -535,6 +539,10 @@ func (i *OAuthInterceptor) handleTokenExchange(w http.ResponseWriter, r *http.Re
 			"email_address": "test@example.com"
 		}
 	}`)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(respBody)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(respBody)
 }
 
 // handleProfileRequest intercepts and handles OAuth profile requests
@@ -566,9 +574,7 @@ func (i *OAuthInterceptor) handleProfileRequest(w http.ResponseWriter, r *http.R
 
 	// Return mock profile response (matching real API structure)
 	i.logFunc("✅ Returning mock OAuth profile")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, `{
+	respBody := []byte(`{
 		"account": {
 			"uuid": "00000000-0000-0000-0000-000000000002",
 			"full_name": "Test User",
@@ -585,6 +591,10 @@ func (i *OAuthInterceptor) handleProfileRequest(w http.ResponseWriter, r *http.R
 			"rate_limit_tier": "default_claude_max_5x"
 		}
 	}`)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(respBody)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(respBody)
 }
 
 // decompressBody decompresses a response body based on Content-Encoding
@@ -637,12 +647,14 @@ func (i *OAuthInterceptor) handleRolesRequest(w http.ResponseWriter, r *http.Req
 
 	// Return mock roles response - grant all permissions for testing
 	i.logFunc("✅ Returning mock Claude CLI roles")
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, `{
+	respBody := []byte(`{
 		"roles": ["user"],
 		"permissions": ["claude_code:use", "claude_code:full_access"]
 	}`)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(respBody)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(respBody)
 }
 
 // forwardToRealAPI forwards the OAuth request to the real API and logs the response
