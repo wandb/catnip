@@ -80,8 +80,8 @@ func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
 	}
 	defer pty.Close()
 
-	// Create onboarding service
-	service := NewClaudeOnboardingService()
+	// Create onboarding service (no PTY restarter needed for tests)
+	service := NewClaudeOnboardingService(nil)
 	err = service.StartWithPTY(pty.ptyFile, pty.cmd, pty.homeDir)
 	if err != nil {
 		t.Fatalf("Failed to start onboarding: %v", err)
@@ -125,8 +125,37 @@ func testSuccessfulCodeSubmission(t *testing.T, proxyAddr string) {
 	}
 	t.Logf("✅ Reached BYPASS_PERMISSIONS state")
 
-	// Verify final state
+	// Wait for TERMINAL_SETUP state
+	t.Logf("⏳ Waiting for TERMINAL_SETUP state...")
+	if err := waitForState(service, StateTerminalSetup, 10*time.Second); err != nil {
+		dumpServiceOutput(t, service, "TERMINAL_SETUP state timeout")
+		t.Fatalf("Never reached TERMINAL_SETUP state: %v", err)
+	}
+	t.Logf("✅ Reached TERMINAL_SETUP state")
+
+	// Wait for COMPLETE state (Claude ready with prompt)
+	t.Logf("⏳ Waiting for COMPLETE state (Claude ready)...")
+	if err := waitForState(service, StateComplete, 20*time.Second); err != nil {
+		dumpServiceOutput(t, service, "COMPLETE state timeout")
+		t.Fatalf("Never reached COMPLETE state: %v", err)
+	}
+	t.Logf("✅ Reached COMPLETE state - Claude is ready!")
+
+	// Verify final state and check for ready indicators in output
 	finalStatus := service.GetStatus()
+	cleanOutput := stripANSI(finalStatus.Output)
+
+	// Check for either "bypass permissions on" or "0 tokens" depending on mode
+	hasReadyIndicator := strings.Contains(cleanOutput, "bypass permissions on") ||
+		strings.Contains(cleanOutput, "0 tokens")
+
+	if !hasReadyIndicator {
+		dumpServiceOutput(t, service, "Missing ready indicator in final output")
+		t.Errorf("Expected to see 'bypass permissions on' or '0 tokens' in Claude ready prompt")
+	} else {
+		t.Logf("✅ Verified ready indicator present - Claude is fully ready")
+	}
+
 	t.Logf("✅ Final state: %s", finalStatus.State)
 }
 
@@ -142,8 +171,8 @@ func testFailedCodeSubmission(t *testing.T, proxy *TestProxy, proxyAddr string) 
 	}
 	defer pty.Close()
 
-	// Create onboarding service
-	service := NewClaudeOnboardingService()
+	// Create onboarding service (no PTY restarter needed for tests)
+	service := NewClaudeOnboardingService(nil)
 	err = service.StartWithPTY(pty.ptyFile, pty.cmd, pty.homeDir)
 	if err != nil {
 		t.Fatalf("Failed to start onboarding: %v", err)
@@ -200,8 +229,8 @@ func testStateTransitions(t *testing.T, proxyAddr string) {
 	}
 	defer pty.Close()
 
-	// Create onboarding service (will monitor PTY itself)
-	service := NewClaudeOnboardingService()
+	// Create onboarding service (will monitor PTY itself, no PTY restarter needed for tests)
+	service := NewClaudeOnboardingService(nil)
 	err = service.StartWithPTY(pty.ptyFile, pty.cmd, pty.homeDir)
 	if err != nil {
 		t.Fatalf("Failed to start onboarding: %v", err)
@@ -212,8 +241,10 @@ func testStateTransitions(t *testing.T, proxyAddr string) {
 	seenStates := make(map[OnboardingState]bool)
 	stateTimestamps := make(map[OnboardingState]time.Time)
 
-	// Poll rapidly to catch all states (faster than auto-advance delay)
+	// Phase 1: Poll until AUTH_WAITING and submit code
 	deadline := time.Now().Add(30 * time.Second)
+	submittedCode := false
+
 	for time.Now().Before(deadline) {
 		status := service.GetStatus()
 
@@ -236,9 +267,19 @@ func testStateTransitions(t *testing.T, proxyAddr string) {
 			}
 		}
 
-		// Stop when we reach AUTH_WAITING
-		if status.State == StateAuthWaiting {
-			t.Logf("✅ Reached AUTH_WAITING state")
+		// Submit code when we reach AUTH_WAITING
+		if status.State == StateAuthWaiting && !submittedCode {
+			t.Logf("✅ Reached AUTH_WAITING state, submitting OAuth code...")
+			testCode := "imtk2bf4AvgDkKxvRFhDfanHNiVk3R51Lzl8kzHs8POSPVGO#E_F8URzH7vNLrK9ke6YTw4UAq27ePoZmaSm0Yk8DDgQ"
+			if err := service.SubmitCode(testCode); err != nil {
+				t.Fatalf("Failed to submit code: %v", err)
+			}
+			submittedCode = true
+		}
+
+		// Continue polling until completion
+		if status.State == StateComplete {
+			t.Logf("✅ Reached COMPLETE state - Claude is ready!")
 			break
 		}
 
@@ -254,7 +295,17 @@ func testStateTransitions(t *testing.T, proxyAddr string) {
 
 	// Log which states we saw
 	t.Logf("\n📊 States observed (in order of first appearance):")
-	allStates := []OnboardingState{StateIdle, StateThemeSelect, StateAuthMethod, StateAuthWaiting}
+	allStates := []OnboardingState{
+		StateIdle,
+		StateThemeSelect,
+		StateAuthMethod,
+		StateAuthWaiting,
+		StateAuthConfirm,
+		StateSecurityNotes,
+		StateBypassPermissions,
+		StateTerminalSetup,
+		StateComplete,
+	}
 	for _, state := range allStates {
 		if timestamp, seen := stateTimestamps[state]; seen {
 			t.Logf("  ✓ %s (at %v)", state, timestamp.Format("15:04:05.000"))
@@ -280,6 +331,24 @@ func testStateTransitions(t *testing.T, proxyAddr string) {
 		} else {
 			t.Logf("  ✗ %s: NOT found '%s'", name, pattern)
 		}
+	}
+
+	// Check for ready indicators (bypass permissions or tokens)
+	hasReadyIndicator := strings.Contains(cleanOutput, "bypass permissions on") ||
+		strings.Contains(cleanOutput, "0 tokens")
+	if hasReadyIndicator {
+		t.Logf("  ✓ claude_ready: found ready indicator")
+	} else {
+		t.Logf("  ✗ claude_ready: NOT found 'bypass permissions on' or '0 tokens'")
+	}
+
+	// Verify we reached completion and see the ready indicator
+	if finalStatus.State != StateComplete {
+		t.Errorf("Expected final state to be 'complete', got: %s", finalStatus.State)
+	}
+
+	if !hasReadyIndicator {
+		t.Errorf("Expected to see 'bypass permissions on' or '0 tokens' in Claude ready prompt")
 	}
 
 	// Dump final output for inspection

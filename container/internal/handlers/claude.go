@@ -558,9 +558,22 @@ func (h *ClaudeHandler) StartOnboarding(c *fiber.Ctx) error {
 	}
 
 	if h.claudeOnboardingService.IsRunning() {
-		return c.Status(400).JSON(fiber.Map{
-			"error": "Onboarding already in progress",
-		})
+		// Check current status to see if we should reset or resume
+		status := h.claudeOnboardingService.GetStatus()
+
+		// If in a terminal state (complete, error, idle), reset and start fresh
+		if status.State == services.StateComplete || status.State == services.StateError || status.State == services.StateIdle {
+			logger.Infof("🔄 Onboarding in terminal state (%s), resetting and starting fresh", status.State)
+			_ = h.claudeOnboardingService.Stop()
+		} else {
+			// Active state - return current status for resumption
+			logger.Infof("🔄 Onboarding already active in state %s, client should resume polling", status.State)
+			return c.JSON(fiber.Map{
+				"status":  "resumed",
+				"message": "Onboarding already in progress, resume polling for status",
+				"state":   status.State,
+			})
+		}
 	}
 
 	// IMPORTANT: Always create a dedicated PTY for onboarding

@@ -43,8 +43,8 @@ func TestCaptureRealOAuthResponse(t *testing.T) {
 	}
 	defer pty.Close()
 
-	// Create onboarding service
-	service := NewClaudeOnboardingService()
+	// Create onboarding service (no PTY restarter needed for tests)
+	service := NewClaudeOnboardingService(nil)
 	err = service.StartWithPTY(pty.ptyFile, pty.cmd, pty.homeDir)
 	if err != nil {
 		t.Fatalf("Failed to start onboarding: %v", err)

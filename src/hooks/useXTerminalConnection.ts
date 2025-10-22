@@ -65,6 +65,7 @@ export function useXTerminalConnection({
   // Advanced buffering state (for Claude terminal)
   const isFirstConnection = useRef(true);
   const lastWebSocketClose = useRef<number | null>(null);
+  const isSessionRestarting = useRef(false);
 
   const [dims, setDims] = useState<{ cols: number; rows: number } | null>(null);
   const [error, setError] = useState<{ title: string; message: string } | null>(
@@ -265,7 +266,12 @@ export function useXTerminalConnection({
 
     ws.onopen = () => {
       // Reset terminal state on reconnection to prevent duplicate content
-      if (reconnectAttempts.current > 0) {
+      // If session was restarting, do a full reset and clear
+      if (isSessionRestarting.current) {
+        instance?.reset();
+        instance?.clear();
+        isSessionRestarting.current = false;
+      } else if (reconnectAttempts.current > 0) {
         instance?.reset();
       }
 
@@ -484,6 +490,14 @@ export function useXTerminalConnection({
           } else if (msg.type === "read-only") {
             setIsReadOnly(msg.data === true);
             return;
+          } else if (msg.type === "session-restarting") {
+            // Backend is restarting the session - prepare for full reset
+            isSessionRestarting.current = true;
+            instance?.clear();
+            // Close the WebSocket from our side to trigger reconnection
+            // This is more reliable than waiting for backend to close it
+            ws.close();
+            return;
           } else {
             // Any other JSON message - don't display in terminal
             return;
@@ -583,6 +597,7 @@ export function useXTerminalConnection({
     readySignalSent.current = false;
     reconnectAttempts.current = 0;
     hasEverConnected.current = false;
+    isSessionRestarting.current = false;
 
     if (enableAdvancedBuffering) {
       isFirstConnection.current = true;

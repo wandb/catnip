@@ -15,6 +15,12 @@ import (
 	"github.com/vanpelt/catnip/internal/logger"
 )
 
+// PTYSessionRestarter defines the interface for restarting Claude PTY sessions
+// This interface avoids circular dependencies between services and handlers packages
+type PTYSessionRestarter interface {
+	RestartClaudeSessions()
+}
+
 // OnboardingState represents the current state in the Claude onboarding flow
 type OnboardingState string
 
@@ -57,15 +63,18 @@ type ClaudeOnboardingService struct {
 	isRunning        bool
 	codeSubmitted    bool
 	pendingCodeInput string
-	ownsPTY          bool // true if we created the PTY, false if reusing existing
+	ownsPTY          bool                // true if we created the PTY, false if reusing existing
+	ptyRestarter     PTYSessionRestarter // optional restarter to refresh existing PTY sessions after auth
 }
 
 // NewClaudeOnboardingService creates a new onboarding service instance
-func NewClaudeOnboardingService() *ClaudeOnboardingService {
+// The ptyRestarter parameter is optional and can be nil for tests or standalone usage
+func NewClaudeOnboardingService(ptyRestarter PTYSessionRestarter) *ClaudeOnboardingService {
 	return &ClaudeOnboardingService{
 		currentState: StateIdle,
 		outputBuffer: &bytes.Buffer{},
 		stopChan:     make(chan struct{}),
+		ptyRestarter: ptyRestarter,
 	}
 }
 
@@ -129,6 +138,9 @@ func (s *ClaudeOnboardingService) StartWithPTY(ptyFile *os.File, cmd *exec.Cmd, 
 	s.outputBuffer.Reset()
 	s.codeSubmitted = false
 	s.pendingCodeInput = ""
+	// Clear any previous error or OAuth state
+	s.errorMessage = ""
+	s.oauthURL = ""
 
 	// If reusing an existing PTY, force a screen redraw by resizing
 	// This makes the CLI app redraw its current state so we can detect it
@@ -383,6 +395,15 @@ func (s *ClaudeOnboardingService) detectAndAdvanceState(output string) {
 		s.previousState = previousState
 		s.stateEnteredAt = time.Now()
 
+		// If onboarding completed successfully, restart any existing Claude PTY sessions
+		// so they reflect the new authenticated state
+		if newState == StateComplete && s.ptyRestarter != nil {
+			go func() {
+				logger.Infof("🔄 Onboarding complete - triggering Claude session restarts")
+				s.ptyRestarter.RestartClaudeSessions()
+			}()
+		}
+
 		// Don't auto-advance for AUTH_WAITING (need user input) or COMPLETE/ERROR states
 		if newState != StateAuthWaiting && newState != StateComplete && newState != StateError {
 			// Schedule advancement after a delay in a goroutine to avoid blocking the lock
@@ -429,10 +450,16 @@ func (s *ClaudeOnboardingService) detectState(output string) OnboardingState {
 		s.extractOAuthURL(output) // Use original output for URL extraction
 	}
 
-	// Check for completion first (shell prompt detection)
-	// Look for common shell patterns that indicate we're done
-	if containsPattern(cleanOutput, []string{"/worktrees/", "claude-onboarding"}) &&
-		strings.Contains(cleanOutput, ">") {
+	// Check for completion first - Claude is ready for user input
+	// After onboarding completes, Claude shows its ready prompt with status indicators
+
+	// Primary indicator: bypass permissions status (appears when Claude is ready)
+	if strings.Contains(cleanOutput, "bypass permissions on") {
+		return StateComplete
+	}
+
+	// Secondary indicator: token counter (for subscription mode without bypass)
+	if strings.Contains(cleanOutput, "0 tokens") {
 		return StateComplete
 	}
 
@@ -539,7 +566,21 @@ func (s *ClaudeOnboardingService) advanceState() {
 		input = "\r" // Enter - confirm successful auth
 
 	case StateBypassPermissions:
-		input = "2\r" // Send "2" to select "Yes, I accept" option
+		// Special handling: send "2" then "\r" with a delay
+		// The CLI needs time to process the menu selection before pressing Enter
+		logger.Infof("📤 Sending '2' to select 'Yes, I accept' option")
+		if _, err := s.ptyFile.Write([]byte("2")); err != nil {
+			logger.Errorf("❌ Failed to write '2' to PTY: %v", err)
+			s.errorMessage = fmt.Sprintf("Failed to send input: %v", err)
+			s.currentState = StateError
+			return
+		}
+
+		// Wait for CLI to process the selection
+		time.Sleep(200 * time.Millisecond)
+
+		logger.Infof("📤 Sending Enter to confirm selection")
+		input = "\r"
 
 	case StateSecurityNotes:
 		input = "\r" // Enter - acknowledge security notes
@@ -588,6 +629,13 @@ func (s *ClaudeOnboardingService) checkTimeouts() {
 					if attempts < 2 {
 						recoveryAttempts[s.currentState] = attempts + 1
 						logger.Warnf("⏱️ Timeout in state %s after %v (attempt %d/2) - trying recovery", s.currentState, elapsed, attempts+1)
+
+						// Log current PTY output for debugging
+						currentOutput := s.outputBuffer.String()
+						if len(currentOutput) > 500 {
+							currentOutput = currentOutput[len(currentOutput)-500:]
+						}
+						logger.Infof("📺 Current PTY screen output (last 500 chars):\n%s", currentOutput)
 
 						// Try to recover by sending Enter to advance
 						if s.ptyFile != nil {
