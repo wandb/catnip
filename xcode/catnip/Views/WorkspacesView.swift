@@ -454,6 +454,41 @@ struct WorkspacesView: View {
             }
         }
     }
+
+    private func checkClaudeAuth() async {
+        await MainActor.run {
+            hasCheckedClaudeAuth = true
+        }
+
+        // Skip during UI testing
+        if UITestingHelper.isUITesting {
+            return
+        }
+
+        // Check if user has dismissed the auth prompt before
+        let dismissed = UserDefaults.standard.bool(forKey: "claude-auth-dismissed")
+        if dismissed {
+            NSLog("🐱 [WorkspacesView] Claude auth was previously dismissed, skipping check")
+            return
+        }
+
+        do {
+            let settings = try await CatnipAPI.shared.getClaudeSettings()
+
+            // Show auth sheet if Claude is not authenticated
+            if !settings.authenticated {
+                NSLog("🐱 [WorkspacesView] Claude not authenticated, showing auth sheet")
+                await MainActor.run {
+                    showClaudeAuthSheet = true
+                }
+            } else {
+                NSLog("🐱 [WorkspacesView] Claude is already authenticated")
+            }
+        } catch {
+            NSLog("🐱 [WorkspacesView] Failed to check Claude auth status: \(error)")
+            // Don't show error to user - auth check is optional
+        }
+    }
 }
 
 struct WorkspaceCard: View {
