@@ -1855,10 +1855,37 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	}
 
 	// Close all WebSocket connections to force frontend reconnection and terminal clear
+	// First, collect connections while holding lock, then send messages without lock
 	session.connMutex.Lock()
 	connectionCount := len(session.connections)
+	var connectionsToNotify []PTYConnection
 	if connectionCount > 0 {
 		logger.Infof("🔌 Closing %d WebSocket connections to force frontend reconnection", connectionCount)
+		// Collect connections to notify
+		for conn := range session.connections {
+			connectionsToNotify = append(connectionsToNotify, conn)
+		}
+	}
+	session.connMutex.Unlock()
+
+	// Send restart messages WITHOUT holding connMutex to avoid deadlock
+	if len(connectionsToNotify) > 0 {
+		restartMsg := struct {
+			Type string `json:"type"`
+		}{
+			Type: "session-restarting",
+		}
+		if data, err := json.Marshal(restartMsg); err == nil {
+			for _, conn := range connectionsToNotify {
+				_ = session.writeJSONToConnection(conn, data)
+			}
+		}
+
+		// Small delay to ensure message is sent before closing
+		time.Sleep(200 * time.Millisecond)
+
+		// Now close the connections and clear map
+		session.connMutex.Lock()
 		for conn := range session.connections {
 			if err := conn.Close(); err != nil {
 				logger.Warnf("❌ Error closing WebSocket connection during recreation: %v", err)
@@ -1866,8 +1893,8 @@ func (h *PTYHandler) recreateSession(session *Session) {
 		}
 		// Clear the connections map
 		session.connections = make(map[PTYConnection]*ConnectionInfo)
+		session.connMutex.Unlock()
 	}
-	session.connMutex.Unlock()
 
 	// For Claude recreations, use --continue which handles session resumption automatically
 	var resumeSessionID string
@@ -1953,6 +1980,48 @@ func (h *PTYHandler) recreateSession(session *Session) {
 	go h.readPTYContinuously(session)
 
 	logger.Infof("✅ PTY recreated successfully for session: %s", session.ID)
+}
+
+// RestartClaudeSessions restarts all active Claude PTY sessions
+// This is typically called after Claude authentication completes to ensure
+// all existing sessions reflect the new authenticated state
+func (h *PTYHandler) RestartClaudeSessions() {
+	h.sessionMutex.RLock()
+	// Collect Claude sessions to restart (while holding read lock)
+	var sessionsToRestart []*Session
+	for _, session := range h.sessions {
+		if session.Agent == "claude" {
+			sessionsToRestart = append(sessionsToRestart, session)
+		}
+	}
+	h.sessionMutex.RUnlock()
+
+	if len(sessionsToRestart) == 0 {
+		logger.Infof("🔄 No Claude sessions to restart after authentication")
+		return
+	}
+
+	logger.Infof("🔄 Restarting %d Claude session(s) after authentication completion", len(sessionsToRestart))
+
+	// Restart each Claude session
+	for _, session := range sessionsToRestart {
+		// Check if recreation is already in progress
+		session.recreationMutex.Lock()
+		if session.recreationInProgress {
+			logger.Infof("⏭️  Skipping session %s - recreation already in progress", session.ID)
+			session.recreationMutex.Unlock()
+			continue
+		}
+		// Set flag to prevent concurrent recreation
+		session.recreationInProgress = true
+		session.recreationMutex.Unlock()
+
+		// Restart the session
+		logger.Infof("🔄 Restarting Claude session: %s", session.ID)
+		h.recreateSession(session)
+	}
+
+	logger.Infof("✅ Finished restarting Claude sessions after authentication")
 }
 
 func (h *PTYHandler) cleanupSession(session *Session) {
@@ -2833,4 +2902,22 @@ func (h *PTYHandler) broadcastToConnectionsSelective(session *Session, messageTy
 		session.connMutex.Unlock()
 		session.connMutex.RLock()
 	}
+}
+
+// FindExistingClaudeSession finds any existing Claude PTY session
+// Returns the PTY file, command, and working directory if found
+func (h *PTYHandler) FindExistingClaudeSession() (*os.File, *exec.Cmd, string) {
+	h.sessionMutex.RLock()
+	defer h.sessionMutex.RUnlock()
+
+	for _, session := range h.sessions {
+		// Check if this is a Claude session
+		if session.Agent == "claude" && session.PTY != nil && session.Cmd != nil {
+			logger.Debugf("🔍 Found existing Claude session: %s in %s", session.ID, session.WorkDir)
+			return session.PTY, session.Cmd, session.WorkDir
+		}
+	}
+
+	logger.Debugf("🔍 No existing Claude sessions found")
+	return nil, nil, ""
 }

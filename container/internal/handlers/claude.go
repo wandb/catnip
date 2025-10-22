@@ -13,9 +13,11 @@ import (
 
 // ClaudeHandler handles Claude Code session-related API endpoints
 type ClaudeHandler struct {
-	claudeService *services.ClaudeService
-	gitService    *services.GitService
-	eventsHandler *EventsHandler
+	claudeService           *services.ClaudeService
+	gitService              *services.GitService
+	eventsHandler           *EventsHandler
+	claudeOnboardingService *services.ClaudeOnboardingService
+	ptyHandler              *PTYHandler
 }
 
 // NewClaudeHandler creates a new Claude handler
@@ -29,6 +31,18 @@ func NewClaudeHandler(claudeService *services.ClaudeService, gitService *service
 // WithEvents adds events handler for broadcasting events
 func (h *ClaudeHandler) WithEvents(eventsHandler *EventsHandler) *ClaudeHandler {
 	h.eventsHandler = eventsHandler
+	return h
+}
+
+// WithOnboardingService adds the onboarding service
+func (h *ClaudeHandler) WithOnboardingService(onboardingService *services.ClaudeOnboardingService) *ClaudeHandler {
+	h.claudeOnboardingService = onboardingService
+	return h
+}
+
+// WithPTYHandler adds the PTY handler for finding existing Claude sessions
+func (h *ClaudeHandler) WithPTYHandler(ptyHandler *PTYHandler) *ClaudeHandler {
+	h.ptyHandler = ptyHandler
 	return h
 }
 
@@ -526,5 +540,166 @@ func (h *ClaudeHandler) HandleClaudeHook(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"status":  "success",
 		"message": "Hook event processed successfully",
+	})
+}
+
+// StartOnboarding starts the automated Claude Code onboarding process
+// @Summary Start onboarding
+// @Description Starts the automated Claude Code login/onboarding flow
+// @Tags claude
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /v1/claude/onboarding/start [post]
+func (h *ClaudeHandler) StartOnboarding(c *fiber.Ctx) error {
+	if h.claudeOnboardingService == nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Onboarding service not initialized",
+		})
+	}
+
+	if h.claudeOnboardingService.IsRunning() {
+		// Check current status to see if we should reset or resume
+		status := h.claudeOnboardingService.GetStatus()
+
+		// If in a terminal state (complete, error, idle), reset and start fresh
+		if status.State == services.StateComplete || status.State == services.StateError || status.State == services.StateIdle {
+			logger.Infof("🔄 Onboarding in terminal state (%s), resetting and starting fresh", status.State)
+			_ = h.claudeOnboardingService.Stop()
+		} else {
+			// Active state - return current status for resumption
+			logger.Infof("🔄 Onboarding already active in state %s, client should resume polling", status.State)
+			return c.JSON(fiber.Map{
+				"status":  "resumed",
+				"message": "Onboarding already in progress, resume polling for status",
+				"state":   status.State,
+			})
+		}
+	}
+
+	// IMPORTANT: Always create a dedicated PTY for onboarding
+	// DO NOT reuse existing PTY sessions because:
+	// 1. PTYHandler's readPTYContinuously is already reading from existing PTYs
+	// 2. Having two readers (PTYHandler + OnboardingService) compete for same PTY
+	//    causes both to get incomplete data (each gets random chunks)
+	// 3. This breaks both the websocket view AND the onboarding state machine
+	//
+	// Onboarding needs exclusive PTY access to reliably detect OAuth states
+	logger.Infof("🆕 Creating dedicated PTY for onboarding (not reusing existing sessions)")
+	err := h.claudeOnboardingService.Start()
+
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error":   "Failed to start onboarding",
+			"details": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "started",
+		"message": "Onboarding process started",
+	})
+}
+
+// GetOnboardingStatus returns the current onboarding status
+// @Summary Get onboarding status
+// @Description Returns the current state of the onboarding process
+// @Tags claude
+// @Produce json
+// @Param include_output query bool false "Include full PTY output buffer"
+// @Success 200 {object} models.ClaudeOnboardingStatus
+// @Router /v1/claude/onboarding/status [get]
+func (h *ClaudeHandler) GetOnboardingStatus(c *fiber.Ctx) error {
+	if h.claudeOnboardingService == nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Onboarding service not initialized",
+		})
+	}
+
+	status := h.claudeOnboardingService.GetStatus()
+
+	// Convert to API model
+	apiStatus := models.ClaudeOnboardingStatus{
+		State:        string(status.State),
+		OAuthURL:     status.OAuthURL,
+		Message:      status.Message,
+		ErrorMessage: status.ErrorMessage,
+	}
+
+	// Only include output if requested
+	if c.Query("include_output") == "true" {
+		apiStatus.Output = status.Output
+	}
+
+	return c.JSON(apiStatus)
+}
+
+// SubmitOnboardingCode submits the OAuth code during onboarding
+// @Summary Submit OAuth code
+// @Description Submits the OAuth code when in auth_waiting state
+// @Tags claude
+// @Accept json
+// @Produce json
+// @Param request body models.ClaudeOnboardingSubmitCodeRequest true "OAuth code"
+// @Success 200 {object} map[string]string
+// @Router /v1/claude/onboarding/submit-code [post]
+func (h *ClaudeHandler) SubmitOnboardingCode(c *fiber.Ctx) error {
+	if h.claudeOnboardingService == nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Onboarding service not initialized",
+		})
+	}
+
+	var req models.ClaudeOnboardingSubmitCodeRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if req.Code == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Code is required",
+		})
+	}
+
+	err := h.claudeOnboardingService.SubmitCode(req.Code)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error":   "Failed to submit code",
+			"details": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "code_submitted",
+		"message": "OAuth code submitted successfully",
+	})
+}
+
+// CancelOnboarding cancels the onboarding process
+// @Summary Cancel onboarding
+// @Description Cancels the onboarding process and cleans up
+// @Tags claude
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /v1/claude/onboarding/cancel [post]
+func (h *ClaudeHandler) CancelOnboarding(c *fiber.Ctx) error {
+	if h.claudeOnboardingService == nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Onboarding service not initialized",
+		})
+	}
+
+	err := h.claudeOnboardingService.Stop()
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error":   "Failed to cancel onboarding",
+			"details": err.Error(),
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"status":  "cancelled",
+		"message": "Onboarding process cancelled",
 	})
 }

@@ -58,3 +58,4 @@ container/internal/assets/dist/*
 
 # Xcode user-specific files
 **/xcuserdata/
+xcode/build/

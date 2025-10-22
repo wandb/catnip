@@ -207,3 +207,25 @@ type ClaudeHookEvent struct {
 	// Additional event-specific data
 	Data map[string]interface{} `json:"data,omitempty"`
 }
+
+// ClaudeOnboardingStatus represents the current status of the onboarding process
+// @Description Status of the automated Claude Code onboarding/login flow
+type ClaudeOnboardingStatus struct {
+	// Current state in the onboarding flow
+	State string `json:"state" example:"auth_waiting" enums:"idle,theme_select,auth_method,auth_url,auth_waiting,auth_confirm,security_notes,terminal_setup,complete,error"`
+	// OAuth URL for authentication (only present in auth_url and auth_waiting states)
+	OAuthURL string `json:"oauth_url,omitempty" example:"https://claude.ai/oauth/authorize?..."`
+	// Human-readable message about the current state
+	Message string `json:"message,omitempty" example:"Please visit the OAuth URL and paste the code"`
+	// Error message if state is 'error'
+	ErrorMessage string `json:"error_message,omitempty" example:"Timeout in state auth_waiting after 3m0s"`
+	// Full PTY output buffer for debugging (only included if requested)
+	Output string `json:"output,omitempty"`
+}
+
+// ClaudeOnboardingSubmitCodeRequest represents a request to submit an OAuth code
+// @Description Request to submit OAuth code during onboarding
+type ClaudeOnboardingSubmitCodeRequest struct {
+	// OAuth code obtained from the authentication flow
+	Code string `json:"code" example:"abc123def456" binding:"required"`
+}
