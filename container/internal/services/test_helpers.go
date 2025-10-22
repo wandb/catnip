@@ -346,11 +346,11 @@ func (p *TestProxy) handleMITM(w http.ResponseWriter, r *http.Request) {
 	p.logFunc("✅ TLS handshake successful, now intercepting requests")
 
 	// Read and handle HTTP requests from the decrypted connection
-	reader := io.Reader(tlsClientConn)
+	reader := bufio.NewReader(tlsClientConn)
 	requestNum := 0
 	for {
 		requestNum++
-		req, err := http.ReadRequest(bufio.NewReader(reader))
+		req, err := http.ReadRequest(reader)
 		if err != nil {
 			if err != io.EOF {
 				p.logFunc("⚠️ Error reading request: %v", err)
