@@ -560,11 +560,11 @@ class CatnipInstaller: ObservableObject {
         }
     }
 
-    /// Poll codespace status until it's available (up to 5 minutes)
+    /// Poll codespace status until it's available (up to 10 minutes)
     private func pollCodespaceStatus(codespaceName: String) async throws {
         await MainActor.run { currentStep = .waitingForCodespace }
 
-        let maxAttempts = 30 // 30 attempts × 10 seconds = 5 minutes
+        let maxAttempts = 60 // 60 attempts × 10 seconds = 10 minutes
         let pollInterval: UInt64 = 10_000_000_000 // 10 seconds in nanoseconds
 
         for attempt in 1...maxAttempts {
@@ -600,6 +600,12 @@ class CatnipInstaller: ObservableObject {
 
                         if state == "Available" {
                             NSLog("🐱 [CatnipInstaller] ✅ Codespace is now available!")
+
+                            // Notify tracker that creation is complete
+                            await MainActor.run {
+                                CodespaceCreationTracker.shared.completeCreation(codespaceName: codespaceName)
+                            }
+
                             return
                         }
                     }
@@ -622,7 +628,15 @@ class CatnipInstaller: ObservableObject {
 
         // Timeout - codespace didn't become available in time
         NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be available")
-        throw APIError.serverError(408, "Codespace did not become available within 5 minutes")
+
+        // Notify tracker of timeout failure
+        await MainActor.run {
+            CodespaceCreationTracker.shared.failCreation(
+                error: "Codespace did not become available within 10 minutes"
+            )
+        }
+
+        throw APIError.serverError(408, "Codespace did not become available within 10 minutes")
     }
 
     /// Fetch user status (codespaces and repositories with Catnip)

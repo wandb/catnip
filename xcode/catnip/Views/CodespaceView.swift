@@ -27,6 +27,7 @@ enum RepositoryListMode {
 struct CodespaceView: View {
     @EnvironmentObject var authManager: AuthManager
     @StateObject private var installer = CatnipInstaller.shared
+    @StateObject private var tracker = CodespaceCreationTracker.shared
     @State private var phase: CodespacePhase = .connect
     @State private var orgName: String = ""
     @State private var statusMessage: String = ""
@@ -38,6 +39,7 @@ struct CodespaceView: View {
     @State private var installationResult: InstallationResult?
     @State private var createdCodespace: CodespaceCreationResult.CodespaceInfo?
     @State private var repositoryListMode: RepositoryListMode = .installation
+    @State private var pendingRepository: String?
 
     private let catFacts = [
         "Cats can rotate their ears 180 degrees.",
@@ -788,8 +790,23 @@ struct CodespaceView: View {
 
     private func handleLaunchCodespace(repository: Repository) {
         phase = .creatingCodespace
+        pendingRepository = repository.fullName
+
         Task {
+            // Request notification permission before creating
+            let permissionGranted = await NotificationManager.shared.requestPermission()
+            if permissionGranted {
+                NSLog("🔔 Notification permission granted for codespace creation")
+            } else {
+                NSLog("🔔 ⚠️ Notification permission denied, but continuing with creation")
+            }
+
             do {
+                // Start tracking BEFORE creation begins
+                await MainActor.run {
+                    tracker.startCreation(repositoryName: repository.fullName, codespaceName: nil)
+                }
+
                 let codespace = try await installer.createCodespace(
                     repository: repository.fullName,
                     branch: nil  // Use default branch
@@ -798,6 +815,9 @@ struct CodespaceView: View {
                     createdCodespace = codespace
                     // Store the codespace name for future connections
                     UserDefaults.standard.set(codespace.name, forKey: "codespace_name")
+
+                    // Update tracker with codespace name
+                    tracker.updateCodespaceName(codespace.name)
 
                     NSLog("🐱 [CodespaceView] Codespace created: \(codespace.name), triggering SSE connection flow")
 
@@ -809,6 +829,11 @@ struct CodespaceView: View {
                 // Error is already set in installer.error by createCodespace
                 // Stay on .creatingCodespace phase to show error screen with back button
                 NSLog("🐱 [CodespaceView] Failed to launch codespace: \(error)")
+
+                // Notify tracker of failure
+                await MainActor.run {
+                    tracker.failCreation(error: error.localizedDescription)
+                }
             }
         }
     }
@@ -898,8 +923,23 @@ struct CodespaceView: View {
 
     private func handleStartCodespace(repository: String, branch: String) {
         phase = .creatingCodespace
+        pendingRepository = repository
+
         Task {
+            // Request notification permission before creating
+            let permissionGranted = await NotificationManager.shared.requestPermission()
+            if permissionGranted {
+                NSLog("🔔 Notification permission granted for codespace creation")
+            } else {
+                NSLog("🔔 ⚠️ Notification permission denied, but continuing with creation")
+            }
+
             do {
+                // Start tracking BEFORE creation begins
+                await MainActor.run {
+                    tracker.startCreation(repositoryName: repository, codespaceName: nil)
+                }
+
                 let codespace = try await installer.createCodespace(
                     repository: repository,
                     branch: branch
@@ -908,6 +948,9 @@ struct CodespaceView: View {
                     createdCodespace = codespace
                     // Store the codespace name for future connections
                     UserDefaults.standard.set(codespace.name, forKey: "codespace_name")
+
+                    // Update tracker with codespace name
+                    tracker.updateCodespaceName(codespace.name)
 
                     NSLog("🐱 [CodespaceView] Codespace created: \(codespace.name), triggering SSE connection flow")
 
@@ -919,6 +962,11 @@ struct CodespaceView: View {
                 // Error is already set in installer.error by createCodespace
                 // Stay on .creatingCodespace phase to show error screen with back button
                 NSLog("🐱 [CodespaceView] Failed to start codespace after install: \(error)")
+
+                // Notify tracker of failure
+                await MainActor.run {
+                    tracker.failCreation(error: error.localizedDescription)
+                }
             }
         }
     }
@@ -957,44 +1005,112 @@ struct CodespaceView: View {
                         .padding(.horizontal)
                         .padding(.top, 4)
                 } else if installer.currentStep == .creatingCodespace {
-                    Text("Creating your codespace...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    VStack(spacing: 8) {
+                        if let repo = pendingRepository {
+                            Text("Creating codespace in \(repo)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            Text("Creating your codespace...")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+
+                        // Show progress from tracker if available
+                        if tracker.isCreating && tracker.progress > 0 {
+                            VStack(spacing: 4) {
+                                ProgressView(value: tracker.progress)
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .padding(.horizontal, 40)
+
+                                Text("\(Int(tracker.progress * 100))% complete")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 } else if installer.currentStep == .waitingForCodespace {
                     VStack(spacing: 4) {
                         Text("Building and starting your codespace")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
-                        Text("This can take up to 5 minutes on first launch")
+                        Text("This may take up to 10 minutes on first launch")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
+
+                        // Show progress from tracker if available
+                        if tracker.isCreating && tracker.progress > 0 {
+                            VStack(spacing: 4) {
+                                ProgressView(value: tracker.progress)
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .padding(.horizontal, 40)
+                                    .padding(.top, 8)
+
+                                Text("\(Int(tracker.progress * 100))% complete")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
             }
 
+            // Notification info (show when creating, not on error or complete)
+            if installer.error == nil && installer.currentStep != .complete {
+                VStack(spacing: 8) {
+                    Image(systemName: "bell.badge.fill")
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+
+                    Text("We'll notify you when it's ready")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+
+                    Text("Feel free to navigate away and explore the app")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 20)
+            }
+
             Spacer()
 
-            // Show back button when there's an error
-            if let error = installer.error {
-                VStack(spacing: 12) {
-                    Button("Back to Connect") {
-                        phase = .connect
-                        installer.reset()
-                        errorMessage = ""
+            // Show back button (always visible, not just on error)
+            VStack(spacing: 12) {
+                Button(installer.error != nil ? "Back to Connect" : "Go Back") {
+                    // If creating, keep it running in background
+                    if tracker.isCreating {
+                        NSLog("🎯 User navigating away while creation continues")
                     }
-                    .buttonStyle(ProminentButtonStyle(isDisabled: false))
-                    .padding(.horizontal, 20)
 
+                    phase = .connect
+                    errorMessage = ""
+
+                    // Only reset installer on error
+                    if installer.error != nil {
+                        installer.reset()
+                    }
+                }
+                .buttonStyle(ProminentButtonStyle(isDisabled: false))
+                .padding(.horizontal, 20)
+
+                if installer.error != nil {
                     Text("You can try connecting again after a few minutes")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, 20)
             }
+            .padding(.horizontal, 20)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
