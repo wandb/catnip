@@ -126,7 +126,8 @@ struct WorkspacesView: View {
             }
         }
         .sheet(isPresented: $showClaudeAuthSheet) {
-            ClaudeAuthSheet(isPresented: $showClaudeAuthSheet) {
+            let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "unknown"
+            ClaudeAuthSheet(isPresented: $showClaudeAuthSheet, codespaceName: codespaceName) {
                 NSLog("🐱 [WorkspacesView] Claude authentication completed")
                 // Optionally refresh workspaces or perform other actions
             }
@@ -465,10 +466,13 @@ struct WorkspacesView: View {
             return
         }
 
-        // Check if user has dismissed the auth prompt before
-        let dismissed = UserDefaults.standard.bool(forKey: "claude-auth-dismissed")
+        // Get the codespace name to scope the dismissal check
+        let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "unknown"
+
+        // Check if user has dismissed the auth prompt for this codespace in this session
+        let dismissed: Bool = SessionStorage.shared.get(forKey: "claude-auth-dismissed", scope: codespaceName) ?? false
         if dismissed {
-            NSLog("🐱 [WorkspacesView] Claude auth was previously dismissed, skipping check")
+            NSLog("🐱 [WorkspacesView] Claude auth was previously dismissed for codespace '\(codespaceName)', skipping check")
             return
         }
 

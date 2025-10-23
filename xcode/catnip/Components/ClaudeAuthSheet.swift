@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ClaudeAuthSheet: View {
     @Binding var isPresented: Bool
+    let codespaceName: String
     let onAuthComplete: () -> Void
 
     @State private var status: ClaudeOnboardingStatus?
@@ -385,7 +386,9 @@ struct ClaudeAuthSheet: View {
 
     private func handleClose(dismissed: Bool) {
         if dismissed {
-            UserDefaults.standard.set(true, forKey: "claude-auth-dismissed")
+            // Store dismissal state in session storage, scoped to this codespace
+            SessionStorage.shared.set(true, forKey: "claude-auth-dismissed", scope: codespaceName)
+            NSLog("🐱 [ClaudeAuth] Stored dismissal for codespace: \(codespaceName)")
 
             // Reset backend state
             Task {
@@ -476,7 +479,7 @@ struct ClaudeAuthSheet: View {
 #Preview {
     @Previewable @State var isPresented = true
 
-    ClaudeAuthSheet(isPresented: $isPresented) {
+    ClaudeAuthSheet(isPresented: $isPresented, codespaceName: "preview-codespace") {
         print("Auth completed")
     }
 }

@@ -308,7 +308,7 @@ class CatnipInstaller: ObservableObject {
     // MARK: - Public API
 
     /// Fetch user's repositories with devcontainer status
-    func fetchRepositories(page: Int = 1, perPage: Int = 30, org: String? = nil, forceRefresh: Bool = false) async throws {
+    func fetchRepositories(page: Int = 1, perPage: Int = 50, org: String? = nil, forceRefresh: Bool = false) async throws {
         // Check cache first if not forcing refresh
         if !forceRefresh && isCacheValid() {
             NSLog("🐱 [CatnipInstaller] Using cached repositories (valid for \(Int(cacheValidityDuration - (Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: lastFetchTimestampKey))))s more)")
