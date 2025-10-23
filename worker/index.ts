@@ -151,6 +151,83 @@ async function checkCodespaceHealth(
   return { healthy: false, lastStatus, lastError };
 }
 
+// Verify codespaces still exist and clean up deleted ones
+// Returns only codespaces that still exist in GitHub
+async function verifyAndCleanCodespaces(
+  codespaces: CodespaceCredentials[],
+  accessToken: string,
+  username: string,
+  codespaceStore: DurableObjectStub,
+): Promise<CodespaceCredentials[]> {
+  if (codespaces.length === 0) return [];
+
+  console.log(
+    `🔍 Verifying ${codespaces.length} codespace(s) for user ${username}`,
+  );
+
+  // Check all codespaces in parallel for performance
+  const verificationPromises = codespaces.map(async (cs) => {
+    try {
+      const response = await fetch(
+        `https://api.github.com/user/codespaces/${cs.codespaceName}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        },
+      );
+
+      if (response.status === 404) {
+        // Codespace deleted - remove from store
+        console.log(
+          `🗑️ Codespace ${cs.codespaceName} no longer exists, removing from store`,
+        );
+        try {
+          await codespaceStore.fetch(
+            `https://internal/codespace/${username}/${cs.codespaceName}`,
+            { method: "DELETE" },
+          );
+        } catch (deleteError) {
+          console.warn(
+            `Failed to delete ${cs.codespaceName} from store:`,
+            deleteError,
+          );
+        }
+        return null; // Mark for removal from list
+      }
+
+      if (response.ok) {
+        console.log(`✅ Codespace ${cs.codespaceName} still exists`);
+        return cs; // Still exists
+      }
+
+      // Other error (401, 403, 500, etc.) - keep codespace in list
+      // We don't want to remove due to temporary issues
+      console.warn(
+        `⚠️ Could not verify ${cs.codespaceName}: ${response.status}, keeping in list`,
+      );
+      return cs;
+    } catch (error) {
+      console.warn(`⚠️ Failed to verify codespace ${cs.codespaceName}:`, error);
+      // Keep on error (don't remove due to network issues)
+      return cs;
+    }
+  });
+
+  const results = await Promise.all(verificationPromises);
+  const validCodespaces = results.filter(
+    (cs) => cs !== null,
+  ) as CodespaceCredentials[];
+
+  console.log(
+    `✅ Verification complete: ${validCodespaces.length}/${codespaces.length} codespace(s) still exist`,
+  );
+
+  return validCodespaces;
+}
+
 // Factory function to create app with environment bindings
 export function createApp(env: Env) {
   const app = new Hono<HonoEnv>();
@@ -620,6 +697,705 @@ export function createApp(env: Env) {
     }
   });
 
+  // List user repositories with devcontainer status
+  app.get("/v1/repositories", requireAuth, async (c) => {
+    const accessToken = c.get("accessToken");
+    const page = parseInt(c.req.query("page") || "1");
+    const perPage = parseInt(c.req.query("per_page") || "30");
+    const org = c.req.query("org");
+
+    try {
+      // Fetch repositories - either from specific org or user's repos
+      let reposUrl: string;
+      if (org) {
+        // Fetch organization repositories
+        reposUrl = `https://api.github.com/orgs/${org}/repos?page=${page}&per_page=${perPage}&sort=updated`;
+        console.log(`Fetching repositories for organization: ${org}`);
+      } else {
+        // Fetch user repositories
+        reposUrl = `https://api.github.com/user/repos?page=${page}&per_page=${perPage}&sort=updated&affiliation=owner,collaborator`;
+        console.log("Fetching user repositories");
+      }
+
+      const reposResponse = await fetch(reposUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Catnip-Worker/1.0",
+        },
+      });
+
+      if (!reposResponse.ok) {
+        console.error(
+          "Failed to fetch repositories:",
+          reposResponse.status,
+          await reposResponse.text(),
+        );
+        return c.json({ error: "Failed to fetch repositories" }, 500);
+      }
+
+      const repos = (await reposResponse.json()) as Array<{
+        id: number;
+        name: string;
+        full_name: string;
+        default_branch: string;
+        permissions?: { admin: boolean; push: boolean };
+        private: boolean;
+        fork: boolean;
+        archived: boolean;
+      }>;
+
+      // Check each repo for devcontainer and filter by permissions
+      const reposWithStatus = await Promise.all(
+        repos
+          .filter((repo) => !repo.archived && repo.permissions?.push)
+          .map(async (repo) => {
+            try {
+              const devcontainerResponse = await fetch(
+                `https://api.github.com/repos/${repo.full_name}/contents/.devcontainer/devcontainer.json`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    Accept: "application/vnd.github.v3+json",
+                    "User-Agent": "Catnip-Worker/1.0",
+                  },
+                },
+              );
+
+              const hasDevcontainer = devcontainerResponse.ok;
+              let hasCatnipFeature = false;
+
+              // If devcontainer exists, check if it has catnip feature
+              if (hasDevcontainer) {
+                try {
+                  const contentData = (await devcontainerResponse.json()) as {
+                    content?: string;
+                  };
+                  if (contentData.content) {
+                    const content = atob(contentData.content);
+                    hasCatnipFeature = content.includes(
+                      "ghcr.io/wandb/catnip/feature",
+                    );
+                  }
+                } catch (e) {
+                  console.warn(
+                    `Failed to parse devcontainer for ${repo.full_name}:`,
+                    e,
+                  );
+                }
+              } else {
+                // Consume response body to prevent stalled HTTP responses
+                // This is required in Cloudflare Workers to avoid hitting connection limits
+                devcontainerResponse.body?.cancel();
+              }
+
+              return {
+                id: repo.id,
+                name: repo.name,
+                full_name: repo.full_name,
+                default_branch: repo.default_branch,
+                private: repo.private,
+                fork: repo.fork,
+                has_devcontainer: hasDevcontainer,
+                has_catnip_feature: hasCatnipFeature,
+              };
+            } catch (error) {
+              console.warn(
+                `Failed to check devcontainer for ${repo.full_name}:`,
+                error,
+              );
+              return {
+                id: repo.id,
+                name: repo.name,
+                full_name: repo.full_name,
+                default_branch: repo.default_branch,
+                private: repo.private,
+                fork: repo.fork,
+                has_devcontainer: false,
+                has_catnip_feature: false,
+              };
+            }
+          }),
+      );
+
+      return c.json({
+        repositories: reposWithStatus,
+        page,
+        per_page: perPage,
+      });
+    } catch (error) {
+      console.error("Repository listing error:", error);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  });
+
+  // Get user status (codespaces only - repositories are checked client-side)
+  app.get("/v1/user/status", requireAuth, async (c) => {
+    const username = c.get("username");
+
+    try {
+      // Check if user has any codespaces (cheap - already stored in Durable Object)
+      let hasAnyCodespaces = false;
+      try {
+        const codespaceStore = c.env.CODESPACE_STORE.get(
+          c.env.CODESPACE_STORE.idFromName("global"),
+        );
+        const allResponse = await codespaceStore.fetch(
+          `https://internal/codespace/${username}?all=true`,
+        );
+        if (allResponse.ok) {
+          const storedCodespaces =
+            (await allResponse.json()) as CodespaceCredentials[];
+          hasAnyCodespaces = storedCodespaces.length > 0;
+        }
+      } catch (error) {
+        console.warn("Failed to check codespaces:", error);
+        // Continue with hasAnyCodespaces = false
+      }
+
+      return c.json({
+        has_any_codespaces: hasAnyCodespaces,
+      });
+    } catch (error) {
+      console.error("User status error:", error);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  });
+
+  // Install Catnip feature in a repository
+  app.post("/v1/codespace/install", requireAuth, async (c) => {
+    const accessToken = c.get("accessToken");
+    const username = c.get("username");
+
+    try {
+      const body = await c.req.json();
+      const { repository, baseBranch, startCodespace = false } = body;
+
+      if (!repository) {
+        return c.json({ error: "Repository is required" }, 400);
+      }
+
+      console.log(
+        `Installing Catnip feature in ${repository} for user ${username}`,
+      );
+
+      // 1. Get repository info
+      const repoResponse = await fetch(
+        `https://api.github.com/repos/${repository}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        },
+      );
+
+      if (!repoResponse.ok) {
+        const errorText = await repoResponse.text();
+        console.error(
+          "Failed to fetch repository:",
+          repoResponse.status,
+          errorText,
+        );
+        return c.json(
+          { error: "Repository not found or access denied" },
+          repoResponse.status === 404 ? 404 : 500,
+        );
+      }
+
+      const repoData = (await repoResponse.json()) as {
+        default_branch: string;
+        name: string;
+      };
+      const targetBaseBranch = baseBranch || repoData.default_branch;
+
+      // 2. Check for existing devcontainer.json
+      const devcontainerPath = ".devcontainer/devcontainer.json";
+      const devcontainerResponse = await fetch(
+        `https://api.github.com/repos/${repository}/contents/${devcontainerPath}?ref=${targetBaseBranch}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        },
+      );
+
+      let existingContent: string | null = null;
+      let existingSha: string | null = null;
+      let devcontainerJson: any;
+
+      if (devcontainerResponse.ok) {
+        const contentData = (await devcontainerResponse.json()) as {
+          content: string;
+          sha: string;
+        };
+        existingContent = atob(contentData.content);
+        existingSha = contentData.sha;
+
+        // Check if catnip is already installed
+        if (existingContent.includes("ghcr.io/wandb/catnip/feature")) {
+          return c.json(
+            {
+              error: "Catnip feature is already installed in this repository",
+              already_installed: true,
+            },
+            400,
+          );
+        }
+
+        // Parse existing devcontainer
+        try {
+          devcontainerJson = JSON.parse(existingContent);
+        } catch (e) {
+          console.error("Failed to parse existing devcontainer.json:", e);
+          return c.json(
+            { error: "Existing devcontainer.json is not valid JSON" },
+            400,
+          );
+        }
+      } else {
+        // Create new devcontainer config
+        // Use base Ubuntu image to avoid disk space issues (universal:2 is 30-40GB)
+        devcontainerJson = {
+          name: "Development Container",
+          image: "mcr.microsoft.com/devcontainers/base:ubuntu",
+          features: {},
+        };
+      }
+
+      // Add catnip feature
+      if (!devcontainerJson.features) {
+        devcontainerJson.features = {};
+      }
+      devcontainerJson.features["ghcr.io/wandb/catnip/feature:1"] = {};
+
+      // Add port forwarding for Catnip server (port 6369)
+      if (!devcontainerJson.forwardPorts) {
+        devcontainerJson.forwardPorts = [];
+      }
+      // Only add port 6369 if it's not already in the list
+      if (!devcontainerJson.forwardPorts.includes(6369)) {
+        devcontainerJson.forwardPorts.push(6369);
+      }
+
+      const newContent = JSON.stringify(devcontainerJson, null, 2) + "\n";
+
+      // 3. Create new branch
+      const timestamp = Date.now();
+      const branchName = `install-catnip-${timestamp}`;
+
+      // Get base branch SHA
+      const baseBranchResponse = await fetch(
+        `https://api.github.com/repos/${repository}/git/ref/heads/${targetBaseBranch}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        },
+      );
+
+      if (!baseBranchResponse.ok) {
+        console.error(
+          "Failed to get base branch:",
+          baseBranchResponse.status,
+          await baseBranchResponse.text(),
+        );
+        return c.json({ error: "Failed to get base branch" }, 500);
+      }
+
+      const baseBranchData = (await baseBranchResponse.json()) as {
+        object: { sha: string };
+      };
+      const baseSha = baseBranchData.object.sha;
+
+      // Create new branch
+      const createBranchResponse = await fetch(
+        `https://api.github.com/repos/${repository}/git/refs`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ref: `refs/heads/${branchName}`,
+            sha: baseSha,
+          }),
+        },
+      );
+
+      if (!createBranchResponse.ok) {
+        console.error(
+          "Failed to create branch:",
+          createBranchResponse.status,
+          await createBranchResponse.text(),
+        );
+        return c.json({ error: "Failed to create branch" }, 500);
+      }
+
+      // 4. Create or update devcontainer.json
+      const commitMessage = existingContent
+        ? "Add Catnip feature to devcontainer"
+        : "Create devcontainer with Catnip feature";
+
+      const updateFileResponse = await fetch(
+        `https://api.github.com/repos/${repository}/contents/${devcontainerPath}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: commitMessage,
+            content: btoa(newContent),
+            branch: branchName,
+            ...(existingSha && { sha: existingSha }),
+          }),
+        },
+      );
+
+      if (!updateFileResponse.ok) {
+        console.error(
+          "Failed to update file:",
+          updateFileResponse.status,
+          await updateFileResponse.text(),
+        );
+        return c.json({ error: "Failed to commit changes" }, 500);
+      }
+
+      // 5. Create pull request
+      const prTitle = "Add Catnip Feature";
+      const prBody = `# Add Catnip Feature
+
+This PR adds the [Catnip](https://github.com/wandb/catnip) feature to your devcontainer configuration.
+
+Catnip enables agentic coding made fun and productive, accessible from your mobile device.
+
+## Changes
+- ${existingContent ? "Updated" : "Created"} \`.devcontainer/devcontainer.json\` to include the Catnip feature
+${!existingContent ? "- Using minimal Ubuntu base image to avoid disk space issues (you can customize the image if needed)" : ""}
+
+## Next Steps
+1. Review and merge this PR
+2. Create a new codespace from this branch or restart your existing codespace
+3. Open the Catnip mobile app to connect
+
+${!existingContent ? "## Customization\nIf you need specific development tools, you can change the base image in \`.devcontainer/devcontainer.json\` to:\n- \`mcr.microsoft.com/devcontainers/python:3.12\` for Python development\n- \`mcr.microsoft.com/devcontainers/javascript-node:20\` for Node.js development\n- Or any other [devcontainer image](https://mcr.microsoft.com/catalog?search=devcontainers)\n\n" : ""}---
+🤖 This PR was created automatically by Catnip`;
+
+      const createPrResponse = await fetch(
+        `https://api.github.com/repos/${repository}/pulls`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title: prTitle,
+            body: prBody,
+            head: branchName,
+            base: targetBaseBranch,
+          }),
+        },
+      );
+
+      if (!createPrResponse.ok) {
+        const errorText = await createPrResponse.text();
+        console.error(
+          "Failed to create PR:",
+          createPrResponse.status,
+          errorText,
+        );
+        return c.json(
+          {
+            error: "Failed to create pull request",
+            details: errorText,
+            branch: branchName,
+          },
+          500,
+        );
+      }
+
+      const prData = (await createPrResponse.json()) as {
+        html_url: string;
+        number: number;
+      };
+
+      console.log(
+        `Successfully created PR #${prData.number} for ${repository}`,
+      );
+
+      // 6. Optionally start a codespace
+      let codespaceInfo = null;
+      if (startCodespace) {
+        try {
+          const createCodespaceResponse = await fetch(
+            `https://api.github.com/repos/${repository}/codespaces`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/vnd.github.v3+json",
+                "User-Agent": "Catnip-Worker/1.0",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                ref: branchName,
+                location: "WestUs2",
+              }),
+            },
+          );
+
+          if (createCodespaceResponse.ok) {
+            const codespaceData = (await createCodespaceResponse.json()) as {
+              name: string;
+              web_url: string;
+            };
+            codespaceInfo = {
+              name: codespaceData.name,
+              url: codespaceData.web_url,
+            };
+            console.log(
+              `Started codespace ${codespaceData.name} for ${repository}`,
+            );
+          } else {
+            console.warn(
+              "Failed to start codespace:",
+              createCodespaceResponse.status,
+              await createCodespaceResponse.text(),
+            );
+          }
+        } catch (error) {
+          console.warn("Error starting codespace:", error);
+        }
+      }
+
+      return c.json({
+        success: true,
+        pr_url: prData.html_url,
+        pr_number: prData.number,
+        branch: branchName,
+        repository,
+        codespace: codespaceInfo,
+      });
+    } catch (error) {
+      console.error("Catnip installation error:", error);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  });
+
+  // Create a new codespace for a repository
+  app.post("/v1/codespace/create", requireAuth, async (c) => {
+    const accessToken = c.get("accessToken");
+    const username = c.get("username");
+
+    try {
+      const body = await c.req.json();
+      const { repository, ref } = body;
+
+      if (!repository) {
+        return c.json({ error: "Repository is required" }, 400);
+      }
+
+      console.log(
+        `Creating codespace for ${repository}${ref ? ` on branch ${ref}` : ""} for user ${username}`,
+      );
+
+      // 1. Get repository info to determine default branch if ref not specified
+      const repoResponse = await fetch(
+        `https://api.github.com/repos/${repository}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        },
+      );
+
+      if (!repoResponse.ok) {
+        const errorText = await repoResponse.text();
+        console.error(
+          "Failed to fetch repository:",
+          repoResponse.status,
+          errorText,
+        );
+        return c.json(
+          { error: "Repository not found or access denied" },
+          repoResponse.status === 404 ? 404 : 500,
+        );
+      }
+
+      const repoData = (await repoResponse.json()) as {
+        default_branch: string;
+        name: string;
+      };
+      const targetRef = ref || repoData.default_branch;
+
+      console.log(`Creating codespace from ref: ${targetRef}`);
+
+      // 2. Create the codespace
+      const createCodespaceResponse = await fetch(
+        `https://api.github.com/repos/${repository}/codespaces`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ref: targetRef,
+            location: "WestUs2",
+          }),
+        },
+      );
+
+      if (!createCodespaceResponse.ok) {
+        const errorText = await createCodespaceResponse.text();
+        console.error(
+          "Failed to create codespace:",
+          createCodespaceResponse.status,
+          errorText,
+        );
+
+        // Parse error for better user messaging
+        let errorMessage = "Failed to create codespace";
+        try {
+          const errorData = JSON.parse(errorText);
+          if (
+            errorData.message &&
+            errorData.message.includes("codespace limit")
+          ) {
+            errorMessage =
+              "You've reached your codespace limit. Delete unused codespaces in GitHub.";
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (e) {
+          // Use default error message
+        }
+
+        // Map status code to known HTTP status codes for type safety
+        const statusCode =
+          createCodespaceResponse.status === 403
+            ? 403
+            : createCodespaceResponse.status === 404
+              ? 404
+              : createCodespaceResponse.status === 422
+                ? 422
+                : 500;
+
+        return c.json({ error: errorMessage }, statusCode);
+      }
+
+      const codespaceData = (await createCodespaceResponse.json()) as {
+        id: number;
+        name: string;
+        state: string;
+        web_url: string;
+        created_at: string;
+      };
+
+      console.log(
+        `Created codespace ${codespaceData.name} with state: ${codespaceData.state}`,
+      );
+
+      // Return immediately - client will poll for status
+      // This avoids Cloudflare Worker 60-second timeout
+      return c.json({
+        success: true,
+        codespace: {
+          id: codespaceData.id,
+          name: codespaceData.name,
+          state: codespaceData.state,
+          url: codespaceData.web_url,
+          created_at: codespaceData.created_at,
+        },
+      });
+    } catch (error) {
+      console.error("Codespace creation error:", error);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  });
+
+  // Get codespace status endpoint (for polling)
+  app.get("/v1/codespace/status/:name", requireAuth, async (c) => {
+    const accessToken = c.get("accessToken");
+    const codespaceName = c.req.param("name");
+
+    if (!codespaceName) {
+      return c.json({ error: "Codespace name is required" }, 400);
+    }
+
+    try {
+      console.log(`Checking status for codespace: ${codespaceName}`);
+
+      const statusResponse = await fetch(
+        `https://api.github.com/user/codespaces/${codespaceName}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        },
+      );
+
+      if (!statusResponse.ok) {
+        const errorText = await statusResponse.text();
+        console.error(
+          `Failed to get codespace status: ${statusResponse.status}`,
+          errorText,
+        );
+
+        if (statusResponse.status === 404) {
+          return c.json({ error: "Codespace not found" }, 404);
+        }
+
+        return c.json({ error: "Failed to retrieve codespace status" }, 500);
+      }
+
+      const codespaceData = (await statusResponse.json()) as {
+        id: number;
+        name: string;
+        state: string;
+        web_url: string;
+        created_at: string;
+      };
+
+      console.log(`Codespace ${codespaceName} status: ${codespaceData.state}`);
+
+      return c.json({
+        success: true,
+        codespace: {
+          id: codespaceData.id,
+          name: codespaceData.name,
+          state: codespaceData.state,
+          url: codespaceData.web_url,
+          created_at: codespaceData.created_at,
+        },
+      });
+    } catch (error) {
+      console.error("Codespace status check error:", error);
+      return c.json({ error: "Internal server error" }, 500);
+    }
+  });
+
   // Settings endpoint - bypasses auth to expose configuration
   app.get("/v1/settings", (c) => {
     return c.json({
@@ -662,6 +1438,45 @@ export function createApp(env: Env) {
 
       // Log webhook event
       console.log(`Received GitHub webhook: ${eventName}`, event.action);
+
+      // Handle codespace deletion events
+      if (eventName === "codespace" && event.action === "deleted") {
+        try {
+          const codespaceName = event.codespace?.name;
+          const username = event.codespace?.owner?.login;
+
+          if (codespaceName && username) {
+            console.log(
+              `🗑️ Webhook: Codespace ${codespaceName} deleted for user ${username}`,
+            );
+
+            // Remove from our store
+            const codespaceStore = c.env.CODESPACE_STORE.get(
+              c.env.CODESPACE_STORE.idFromName("global"),
+            );
+
+            const deleteResponse = await codespaceStore.fetch(
+              `https://internal/codespace/${username}/${codespaceName}`,
+              { method: "DELETE" },
+            );
+
+            if (deleteResponse.ok) {
+              console.log(
+                `✅ Successfully removed deleted codespace ${codespaceName} from store`,
+              );
+            } else {
+              console.warn(
+                `⚠️ Failed to remove codespace ${codespaceName}: ${deleteResponse.status}`,
+              );
+            }
+          } else {
+            console.warn("⚠️ Codespace deletion webhook missing name or owner");
+          }
+        } catch (error) {
+          console.error("Error handling codespace deletion webhook:", error);
+          // Don't fail the webhook - return success anyway
+        }
+      }
 
       // Release events are now handled by GitHub Actions uploading to R2
 
@@ -946,8 +1761,16 @@ export function createApp(env: Env) {
             );
 
             if (allResponse.ok) {
-              storedCodespaces =
+              const rawCodespaces =
                 (await allResponse.json()) as CodespaceCredentials[];
+
+              // Verify codespaces still exist and clean up deleted ones
+              storedCodespaces = await verifyAndCleanCodespaces(
+                rawCodespaces,
+                accessToken,
+                username,
+                codespaceStore,
+              );
 
               // If a specific codespace was requested, try to find it in the list
               if (requestedCodespace) {
@@ -1412,6 +2235,7 @@ export function createApp(env: Env) {
         "issue_comment",
         "pull_request_review",
         "pull_request_review_comment",
+        "codespace",
       ],
     });
   });
