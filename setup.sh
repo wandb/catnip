@@ -275,10 +275,11 @@ else
     echo -e "${GREEN}✅ No Go files changed, skipping Go formatting and lint checks${NC}"
 fi
 
-# If files were formatted, add only those specific files to staging
+# If files were formatted, auto-stage them
 if [ -n "$formatted_files_list" ]; then
-    echo -e "${YELLOW}📝 Files were formatted. ${formatted_files_list}${NC}"
-    exit 1
+    echo -e "${YELLOW}📝 Auto-staging formatted files:${formatted_files_list}${NC}"
+    git add $formatted_files_list
+    echo -e "${GREEN}✅ Formatted files staged automatically${NC}"
 else
     echo -e "${GREEN}✅ All files already formatted${NC}"
 fi

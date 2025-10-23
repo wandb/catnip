@@ -24,6 +24,10 @@ struct WorkspacesView: View {
     @State private var navigationWorkspace: WorkspaceInfo? // Workspace to navigate to
     @State private var pendingPromptForNavigation: String? // Prompt to pass to detail view
 
+    // Claude authentication
+    @State private var showClaudeAuthSheet = false
+    @State private var hasCheckedClaudeAuth = false
+
     private var availableRepositories: [String] {
         Array(Set(workspaces.map { $0.repoId })).sorted()
     }
@@ -54,6 +58,11 @@ struct WorkspacesView: View {
         }
         .task {
             await loadWorkspaces()
+
+            // Check Claude authentication status
+            if !hasCheckedClaudeAuth {
+                await checkClaudeAuth()
+            }
         }
         .refreshable {
             await loadWorkspaces()
@@ -114,6 +123,12 @@ struct WorkspacesView: View {
             if navigationWorkspace == nil && pendingPromptForNavigation != nil {
                 pendingPromptForNavigation = nil
                 NSLog("🐱 [WorkspacesView] Cleared pendingPromptForNavigation after navigation")
+            }
+        }
+        .sheet(isPresented: $showClaudeAuthSheet) {
+            ClaudeAuthSheet(isPresented: $showClaudeAuthSheet) {
+                NSLog("🐱 [WorkspacesView] Claude authentication completed")
+                // Optionally refresh workspaces or perform other actions
             }
         }
     }
@@ -437,6 +452,41 @@ struct WorkspacesView: View {
                 }
                 deleteConfirmation = nil
             }
+        }
+    }
+
+    private func checkClaudeAuth() async {
+        await MainActor.run {
+            hasCheckedClaudeAuth = true
+        }
+
+        // Skip during UI testing
+        if UITestingHelper.isUITesting {
+            return
+        }
+
+        // Check if user has dismissed the auth prompt before
+        let dismissed = UserDefaults.standard.bool(forKey: "claude-auth-dismissed")
+        if dismissed {
+            NSLog("🐱 [WorkspacesView] Claude auth was previously dismissed, skipping check")
+            return
+        }
+
+        do {
+            let settings = try await CatnipAPI.shared.getClaudeSettings()
+
+            // Show auth sheet if Claude is not authenticated
+            if !settings.authenticated {
+                NSLog("🐱 [WorkspacesView] Claude not authenticated, showing auth sheet")
+                await MainActor.run {
+                    showClaudeAuthSheet = true
+                }
+            } else {
+                NSLog("🐱 [WorkspacesView] Claude is already authenticated")
+            }
+        } catch {
+            NSLog("🐱 [WorkspacesView] Failed to check Claude auth status: \(error)")
+            // Don't show error to user - auth check is optional
         }
     }
 }

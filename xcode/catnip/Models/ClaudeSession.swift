@@ -43,3 +43,51 @@ struct CheckoutResponse: Codable {
         case worktree = "worktree"
     }
 }
+
+// MARK: - Claude Settings
+
+struct ClaudeSettings: Codable {
+    let theme: String?
+    let notificationsEnabled: Bool
+    let authenticated: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case theme
+        case notificationsEnabled = "notifications_enabled"
+        case authenticated
+    }
+}
+
+// MARK: - Claude Onboarding
+
+enum ClaudeOnboardingState: String, Codable {
+    case idle = "idle"
+    case starting = "starting"
+    case authUrl = "auth_url"
+    case authWaiting = "auth_waiting"
+    case codeSubmitted = "code_submitted"
+    case complete = "complete"
+    case error = "error"
+}
+
+struct ClaudeOnboardingStatus: Codable {
+    let state: String
+    let oauthUrl: String?
+    let message: String?
+    let errorMessage: String?
+
+    enum CodingKeys: String, CodingKey {
+        case state
+        case oauthUrl = "oauth_url"
+        case message
+        case errorMessage = "error_message"
+    }
+
+    var parsedState: ClaudeOnboardingState {
+        ClaudeOnboardingState(rawValue: state) ?? .idle
+    }
+}
+
+struct ClaudeOnboardingSubmitCodeRequest: Codable {
+    let code: String
+}

@@ -467,6 +467,133 @@ class CatnipAPI: ObservableObject {
         }
     }
 
+    // MARK: - Claude Onboarding API
+
+    func getClaudeSettings() async throws -> ClaudeSettings {
+        let headers = try await getHeaders(includeCodespace: true)
+        guard let url = URL(string: "\(baseURL)/v1/claude/settings") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.allHTTPHeaderFields = headers
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+
+        let settings = try decoder.decode(ClaudeSettings.self, from: data)
+        return settings
+    }
+
+    func startClaudeOnboarding() async throws -> (status: String, state: String?) {
+        let headers = try await getHeaders(includeCodespace: true)
+        guard let url = URL(string: "\(baseURL)/v1/claude/onboarding/start") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let status = json["status"] as? String {
+            let state = json["state"] as? String
+            return (status: status, state: state)
+        }
+
+        throw APIError.decodingError(NSError(domain: "Failed to parse onboarding start response", code: -1))
+    }
+
+    func getClaudeOnboardingStatus() async throws -> ClaudeOnboardingStatus {
+        let headers = try await getHeaders(includeCodespace: true)
+        guard let url = URL(string: "\(baseURL)/v1/claude/onboarding/status") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.allHTTPHeaderFields = headers
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+
+        let status = try decoder.decode(ClaudeOnboardingStatus.self, from: data)
+        return status
+    }
+
+    func submitClaudeOnboardingCode(_ code: String) async throws {
+        let headers = try await getHeaders(includeCodespace: true)
+        guard let url = URL(string: "\(baseURL)/v1/claude/onboarding/submit-code") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        let body = ClaudeOnboardingSubmitCodeRequest(code: code)
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+    }
+
+    func cancelClaudeOnboarding() async throws {
+        let headers = try await getHeaders(includeCodespace: true)
+        guard let url = URL(string: "\(baseURL)/v1/claude/onboarding/cancel") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+    }
+
     // MARK: - Pull Request API
 
     func generatePRSummary(workspacePath: String, branch: String) async throws -> PRSummary {
