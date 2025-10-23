@@ -59,7 +59,7 @@ class CodespacePage: BasePage {
     }
 
     var accessButton: XCUIElement {
-        app.buttons["Access My Codespace"]
+        app.buttons["primaryActionButton"]
     }
 
     var orgTextField: XCUIElement {

@@ -18,6 +18,7 @@ struct TerminalView: View {
     let shouldConnect: Bool  // Only connect when explicitly told to
 
     @StateObject private var terminalController: TerminalController
+    @State private var showLoadingBar = true  // Delayed hide for better UX
 
     init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true) {
         self.workspaceId = workspaceId
@@ -33,34 +34,83 @@ struct TerminalView: View {
         ))
     }
 
+    // Contextual loading message based on connection state
+    private var loadingMessage: String {
+        if let error = terminalController.error {
+            return error
+        } else if !terminalController.isConnected {
+            return "Connecting to Claude..."
+        } else if !terminalController.hasReceivedData {
+            return "Connecting to Claude..."
+        } else if showLoadingBar {
+            return "Rendering..."
+        } else {
+            return ""
+        }
+    }
+
     var body: some View {
         ZStack {
             // Black background that extends to edges
             Color.black
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Connection status bar (only when not connected)
-                if !terminalController.isConnected {
-                    HStack {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                        Text(terminalController.error ?? "Connecting to terminal...")
-                            .font(.caption)
-                            .foregroundColor(.white)
-                    }
-                    .padding(8)
-                    .frame(maxWidth: .infinity)
-                    .background(Color.orange.opacity(0.8))
-                }
+            // Terminal view - fixed frame, never changes layout
+            TerminalViewRepresentable(controller: terminalController)
+                .ignoresSafeArea(.container, edges: .bottom)
 
-                // Terminal view - respects keyboard to push content up
-                // SwiftTerm has built-in accessory view with esc, tab, arrows, etc.
-                TerminalViewRepresentable(controller: terminalController)
+            // Connection/loading status bar - overlaid at bottom
+            // Show when: not connected OR showLoadingBar (delayed hide)
+            // This is an overlay so it doesn't affect terminal layout/frame
+            VStack(spacing: 0) {
+                Spacer()
+
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .tint(.primary)
+                    Text(loadingMessage)
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                }
+                .padding(.vertical, 11)
+                .padding(.horizontal, 16)
+                .frame(maxWidth: .infinity)
+                .background(.ultraThinMaterial)
+                .overlay(
+                    // Drop shadow above the bar
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.black.opacity(0.3),
+                            Color.black.opacity(0)
+                        ]),
+                        startPoint: .bottom,
+                        endPoint: .top
+                    )
+                    .frame(height: 8)
+                    .offset(y: -8),
+                    alignment: .top
+                )
+                .opacity((!terminalController.isConnected || showLoadingBar) ? 1 : 0)
+                .offset(y: (!terminalController.isConnected || showLoadingBar) ? 0 : 100)
             }
+            .allowsHitTesting(!terminalController.isConnected || showLoadingBar)
         }
+        .animation(.easeInOut(duration: 0.3), value: terminalController.isConnected)
+        .animation(.easeInOut(duration: 0.3), value: showLoadingBar)
         .ignoresSafeArea(.container, edges: .top)
         .preferredColorScheme(.dark)
+        .onChange(of: terminalController.bufferReplayComplete) { oldValue, newValue in
+            if newValue {
+                // Delay hiding the loading bar for better UX
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    showLoadingBar = false
+                }
+            } else {
+                // If buffer replay resets (reconnect), show immediately
+                showLoadingBar = true
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -315,12 +365,19 @@ class CustomTerminalAccessory: UIInputView {
 // Controller managing SwiftTerm terminal and WebSocket connection
 class TerminalController: NSObject, ObservableObject {
     @Published var isConnected = false
+    @Published var hasReceivedData = false
+    @Published var bufferReplayComplete = false
     @Published var error: String?
 
     let terminalView: SwiftTerm.TerminalView
     private let webSocketManager: PTYWebSocketManager
 
     private var hasSentReady = false
+
+    // Buffer batching for performance during large buffer replays
+    private var pendingDataBuffer: [UInt8] = []
+    private var feedTimer: Timer?
+    private let feedQueue = DispatchQueue(label: "com.catnip.terminal.feed", qos: .userInteractive)
 
     init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil) {
         // Create terminal view
@@ -359,14 +416,30 @@ class TerminalController: NSObject, ObservableObject {
         webSocketManager.onData = { [weak self] data in
             guard let self = self else { return }
 
-            // Feed data to terminal
-            let bytes = ArraySlice([UInt8](data))
-            self.terminalView.feed(byteArray: bytes)
+            // Mark that we've received data (for loading indicator)
+            if !self.hasReceivedData {
+                DispatchQueue.main.async {
+                    self.hasReceivedData = true
+                }
+            }
+
+            // During buffer replay, batch data for better performance
+            // After buffer replay, feed immediately for responsive live interaction
+            if self.bufferReplayComplete {
+                // Live mode - feed immediately on main thread
+                DispatchQueue.main.async {
+                    let bytes = ArraySlice([UInt8](data))
+                    self.terminalView.feed(byteArray: bytes)
+                }
+            } else {
+                // Buffer replay mode - batch for performance
+                self.batchData(data)
+            }
         }
 
         // Handle JSON control messages
         webSocketManager.onJSONMessage = { [weak self] message in
-            guard self != nil else { return }
+            guard let self = self else { return }
 
             switch message.type {
             case "read-only":
@@ -374,8 +447,12 @@ class TerminalController: NSObject, ObservableObject {
                 NSLog("🔒 Terminal read-only status: %@", message.data ?? "unknown")
 
             case "buffer-complete":
-                // Buffer replay complete
+                // Buffer replay complete - flush any pending data and mark complete
                 NSLog("📋 Buffer replay complete")
+                self.flushPendingData()
+                DispatchQueue.main.async {
+                    self.bufferReplayComplete = true
+                }
 
             case "buffer-size":
                 // Backend telling us what size the buffer was captured at
@@ -398,6 +475,53 @@ class TerminalController: NSObject, ObservableObject {
             .assign(to: &$error)
     }
 
+    // MARK: - Batching for Performance
+
+    private func batchData(_ data: Data) {
+        feedQueue.async { [weak self] in
+            guard let self = self else { return }
+
+            // Append to pending buffer
+            self.pendingDataBuffer.append(contentsOf: data)
+
+            // Cancel existing timer on main thread
+            DispatchQueue.main.async {
+                self.feedTimer?.invalidate()
+
+                // Schedule flush after a short delay (allows batching multiple packets)
+                // Use shorter delay during buffer replay for better perceived performance
+                let delay: TimeInterval = 0.016 // ~60fps
+                self.feedTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                    self?.flushPendingData()
+                }
+            }
+
+            // Also flush if buffer gets large (prevents unbounded memory growth)
+            if self.pendingDataBuffer.count > 32768 { // 32KB threshold
+                DispatchQueue.main.async {
+                    self.feedTimer?.invalidate()
+                }
+                self.flushPendingData()
+            }
+        }
+    }
+
+    private func flushPendingData() {
+        feedQueue.async { [weak self] in
+            guard let self = self else { return }
+            guard !self.pendingDataBuffer.isEmpty else { return }
+
+            let dataToFeed = self.pendingDataBuffer
+            self.pendingDataBuffer.removeAll(keepingCapacity: true)
+
+            // Feed on main thread (SwiftTerm requires it)
+            DispatchQueue.main.async {
+                let bytes = ArraySlice(dataToFeed)
+                self.terminalView.feed(byteArray: bytes)
+            }
+        }
+    }
+
     func connect() {
         webSocketManager.connect()
 
@@ -411,6 +535,18 @@ class TerminalController: NSObject, ObservableObject {
 
     func disconnect() {
         webSocketManager.disconnect()
+
+        // Clean up batching resources
+        feedTimer?.invalidate()
+        feedTimer = nil
+        feedQueue.async { [weak self] in
+            self?.pendingDataBuffer.removeAll()
+        }
+
+        // Reset state for next connection
+        hasReceivedData = false
+        bufferReplayComplete = false
+        hasSentReady = false
     }
 
     private func sendReadySignal() {
