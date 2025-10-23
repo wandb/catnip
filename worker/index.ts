@@ -180,15 +180,34 @@ async function verifyAndCleanCodespaces(
       );
 
       if (response.status === 404) {
+        // Cancel the response body since we don't need it
+        await response.body?.cancel();
         // Codespace deleted - remove from store
         console.log(
           `🗑️ Codespace ${cs.codespaceName} no longer exists, removing from store`,
         );
         try {
-          await codespaceStore.fetch(
+          const deleteResponse = await codespaceStore.fetch(
             `https://internal/codespace/${username}/${cs.codespaceName}`,
             { method: "DELETE" },
           );
+
+          // Cancel the response body since we don't need it
+          await deleteResponse.body?.cancel();
+
+          if (deleteResponse.status === 404) {
+            console.log(
+              `ℹ️  Codespace ${cs.codespaceName} was already removed from store`,
+            );
+          } else if (deleteResponse.ok) {
+            console.log(
+              `✅ Successfully deleted ${cs.codespaceName} from store`,
+            );
+          } else {
+            console.warn(
+              `⚠️  Unexpected response deleting ${cs.codespaceName} from store: ${deleteResponse.status}`,
+            );
+          }
         } catch (deleteError) {
           console.warn(
             `Failed to delete ${cs.codespaceName} from store:`,
@@ -199,12 +218,16 @@ async function verifyAndCleanCodespaces(
       }
 
       if (response.ok) {
+        // Cancel the response body since we don't need it
+        await response.body?.cancel();
         console.log(`✅ Codespace ${cs.codespaceName} still exists`);
         return cs; // Still exists
       }
 
       // Other error (401, 403, 500, etc.) - keep codespace in list
       // We don't want to remove due to temporary issues
+      // Cancel the response body since we don't need it
+      await response.body?.cancel();
       console.warn(
         `⚠️ Could not verify ${cs.codespaceName}: ${response.status}, keeping in list`,
       );

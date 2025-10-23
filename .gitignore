@@ -35,8 +35,9 @@ coverage.out
 # wrangler files
 .wrangler
 .dev.vars*
-# worker is generating js?
-worker/*.js
+# worker is generating js from ts files - ignore compiled output
+worker/**/*.js
+worker/**/*.js.map
 
 # crush
 .crush/

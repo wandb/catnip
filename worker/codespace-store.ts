@@ -4,6 +4,7 @@ interface CodespaceCredentials {
   githubToken: string;
   githubUser: string;
   codespaceName: string;
+  githubRepository?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -43,6 +44,17 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       CREATE INDEX IF NOT EXISTS idx_created_at ON codespace_credentials(created_at);
       CREATE INDEX IF NOT EXISTS idx_updated_at ON codespace_credentials(updated_at);
     `);
+
+    // Migration: Add github_repository column if it doesn't exist
+    try {
+      // Try to add the column - will fail silently if it already exists
+      this.sql.exec(`
+        ALTER TABLE codespace_credentials ADD COLUMN github_repository TEXT;
+      `);
+    } catch (error) {
+      // Column already exists or other error - safe to ignore
+      // SQLite will throw if column already exists
+    }
   }
 
   private async initKeys() {
@@ -198,6 +210,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             githubToken: "", // Empty token - will need to be refreshed
             githubUser: githubUser,
             codespaceName: row.codespace_name as string,
+            githubRepository: row.github_repository as string | undefined,
             createdAt: result.createdAt,
             updatedAt: result.updatedAt,
           };
@@ -221,6 +234,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               githubToken: "", // Empty token - will need to be refreshed
               githubUser: githubUser,
               codespaceName: credentials.codespaceName,
+              githubRepository: credentials.githubRepository,
               createdAt: credentials.createdAt,
               updatedAt: credentials.updatedAt,
             };
@@ -235,11 +249,32 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             githubToken: "", // Empty token - will need to be refreshed
             githubUser: githubUser,
             codespaceName: row.codespace_name as string,
+            githubRepository: row.github_repository as string | undefined,
             createdAt: result.createdAt,
             updatedAt: result.updatedAt,
           };
           return Response.json(basicCodespace);
         }
+      }
+    }
+
+    // Handle specific codespace deletion: /internal/codespace/{username}/{codespaceName}
+    if (pathParts.length >= 4 && request.method === "DELETE") {
+      const codespaceName = pathParts.pop();
+      const githubUser = pathParts.pop();
+
+      if (githubUser && codespaceName) {
+        const result = this.sql.exec(
+          "DELETE FROM codespace_credentials WHERE codespace_name = ? AND github_user = ?",
+          codespaceName,
+          githubUser,
+        );
+
+        if (result.rowsWritten !== 1) {
+          return new Response("Codespace not found in store", { status: 404 });
+        }
+
+        return new Response("OK");
       }
     }
 
@@ -372,6 +407,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             githubToken: "", // Empty token - will need to be refreshed
             githubUser: githubUser,
             codespaceName: row.codespace_name as string,
+            githubRepository: row.github_repository as string | undefined,
             createdAt: result.createdAt,
             updatedAt: result.updatedAt,
           };
@@ -395,6 +431,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               githubToken: "", // Empty token - will need to be refreshed
               githubUser: githubUser,
               codespaceName: credentials.codespaceName,
+              githubRepository: credentials.githubRepository,
               createdAt: credentials.createdAt,
               updatedAt: credentials.updatedAt,
             };
@@ -409,6 +446,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             githubToken: "", // Empty token - will need to be refreshed
             githubUser: githubUser,
             codespaceName: row.codespace_name as string,
+            githubRepository: row.github_repository as string | undefined,
             createdAt: result.createdAt,
             updatedAt: result.updatedAt,
           };
@@ -439,11 +477,12 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
 
       // Insert or replace credentials for this specific codespace
       this.sql.exec(
-        `INSERT OR REPLACE INTO codespace_credentials 
-          (codespace_name, github_user, key_id, salt, iv, encrypted_data, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO codespace_credentials
+          (codespace_name, github_user, github_repository, key_id, salt, iv, encrypted_data, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         credentials.codespaceName,
         credentials.githubUser,
+        credentials.githubRepository || null,
         this.currentKeyId,
         salt,
         iv,
@@ -462,19 +501,6 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
         githubUser,
       );
       return new Response("OK");
-    }
-
-    if (request.method === "DELETE" && pathParts.length > 1) {
-      // Delete specific codespace credentials
-      const codespaceName = pathParts[pathParts.length - 2];
-      if (codespaceName && githubUser) {
-        this.sql.exec(
-          "DELETE FROM codespace_credentials WHERE codespace_name = ? AND github_user = ?",
-          codespaceName,
-          githubUser,
-        );
-        return new Response("OK");
-      }
     }
 
     // Cleanup old credentials (older than 24 hours) - null out encrypted data but keep records
