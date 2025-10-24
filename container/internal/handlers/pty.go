@@ -2593,16 +2593,32 @@ func (h *PTYHandler) handleSSEPromptInjection(session *Session, prompt string) {
 		return
 	}
 
-	// Check if Claude is already active/running - if so, inject immediately without waiting for SessionStart
+	// Check if Claude is already active/running AND at the ready prompt
+	// We need to verify the PTY output shows "bypass permissions on" which indicates
+	// Claude is truly ready to accept input, not just that the process is running.
 	claudeActivityState := h.sessionService.GetClaudeActivityState(session.WorkDir)
 	logger.Infof("🐱 [handleSSEPromptInjection] Current Claude activity state: %v", claudeActivityState)
 
 	if claudeActivityState == models.ClaudeActive || claudeActivityState == models.ClaudeRunning {
-		logger.Infof("🚀 Claude is already active/running, injecting prompt immediately without waiting for SessionStart")
-		// Brief delay to ensure PTY is ready
-		time.Sleep(100 * time.Millisecond)
-		h.injectPromptWithEchoConfirmation(session, prompt)
-		return
+		// Check PTY output buffer to confirm Claude is at the ready prompt
+		session.bufferMutex.RLock()
+		outputBuffer := string(session.outputBuffer)
+		session.bufferMutex.RUnlock()
+
+		// Strip ANSI codes for reliable pattern matching (same approach as claude_onboarding.go)
+		ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[><]|\x1b\][^\x1b]*\x1b\\`)
+		cleanOutput := ansiRegex.ReplaceAllString(outputBuffer, "")
+
+		// Look for "bypass permissions on" which appears in Claude's ready prompt
+		if strings.Contains(cleanOutput, "bypass permissions on") {
+			logger.Infof("🚀 Claude is at ready prompt (detected 'bypass permissions on'), injecting immediately")
+			// Brief delay to ensure PTY is ready
+			time.Sleep(100 * time.Millisecond)
+			h.injectPromptWithEchoConfirmation(session, prompt)
+			return
+		}
+
+		logger.Infof("⏳ Claude is running but not at ready prompt yet, will wait for SessionStart")
 	}
 
 	logger.Infof("🐱 [handleSSEPromptInjection] ⏳ Waiting for SessionStart hook before injecting SSE prompt: %q", prompt)
