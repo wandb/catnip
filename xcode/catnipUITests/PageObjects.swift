@@ -62,16 +62,8 @@ class CodespacePage: BasePage {
         app.buttons["primaryActionButton"]
     }
 
-    var orgTextField: XCUIElement {
-        app.textFields["organizationTextField"]
-    }
-
-    var goButton: XCUIElement {
-        app.buttons["goButton"]
-    }
-
-    var logoutButton: XCUIElement {
-        app.buttons["logoutButton"]
+    var moreOptionsButton: XCUIElement {
+        app.buttons["moreOptionsButton"]
     }
 
     var statusMessage: XCUIElement {
@@ -86,17 +78,14 @@ class CodespacePage: BasePage {
         accessButton.tap()
     }
 
-    func enterOrganization(_ org: String) {
-        orgTextField.tap()
-        orgTextField.typeText(org)
-    }
-
-    func tapGo() {
-        goButton.tap()
-    }
-
     func tapLogout() {
-        logoutButton.tap()
+        // Tap the more options menu button
+        moreOptionsButton.tap()
+
+        // Wait for menu to appear and tap Logout
+        let logoutMenuItem = app.buttons["Logout"]
+        _ = logoutMenuItem.waitForExistence(timeout: 2)
+        logoutMenuItem.tap()
     }
 
     func waitForConnection(timeout: TimeInterval = 10) -> Bool {

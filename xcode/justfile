@@ -49,3 +49,24 @@ test:
         CODE_SIGN_IDENTITY="" \
         CODE_SIGNING_REQUIRED=NO \
         2>&1 | tee /tmp/xcode-test.log
+
+# Run UI tests
+test-ui:
+    xcodebuild test \
+        -project catnip.xcodeproj \
+        -scheme catnip \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -only-testing:catnipUITests \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        2>&1 | tee /tmp/xcode-uitest.log
+
+# Run all tests (unit and UI)
+test-all:
+    xcodebuild test \
+        -project catnip.xcodeproj \
+        -scheme catnip \
+        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        CODE_SIGN_IDENTITY="" \
+        CODE_SIGNING_REQUIRED=NO \
+        2>&1 | tee /tmp/xcode-test-all.log

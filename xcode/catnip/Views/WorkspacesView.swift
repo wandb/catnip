@@ -409,8 +409,8 @@ struct WorkspacesView: View {
                 NSLog("🐱 [WorkspacesView] Workspace name (session ID): \(workspaceName)")
                 Task.detached {
                     do {
-                        NSLog("🐱 [WorkspacesView] About to call sendPrompt API...")
-                        try await CatnipAPI.shared.sendPrompt(
+                        NSLog("🐱 [WorkspacesView] About to call sendPromptToPTY API...")
+                        try await CatnipAPI.shared.sendPromptToPTY(
                             workspacePath: workspaceName,
                             prompt: promptToSend
                         )

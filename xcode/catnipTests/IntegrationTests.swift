@@ -317,7 +317,7 @@ struct IntegrationTests {
             .networkError(NSError(domain: "test", code: 1)),
             .decodingError(NSError(domain: "test", code: 2)),
             .serverError(404, "Not Found"),
-            .sseConnectionFailed("timeout")
+            .timeout
         ]
 
         for error in errors {

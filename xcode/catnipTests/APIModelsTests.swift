@@ -199,9 +199,9 @@ struct APIModelsTests {
         #expect(error.errorDescription?.contains("Invalid JSON") == true)
     }
 
-    @Test func testAPIErrorSSEConnectionFailed() {
-        let error = APIError.sseConnectionFailed("Timeout")
-        #expect(error.errorDescription == "SSE connection failed: Timeout")
+    @Test func testAPIErrorTimeout() {
+        let error = APIError.timeout
+        #expect(error.errorDescription == "PTY not ready yet")
     }
 
     // MARK: - Todo Model Tests
