@@ -28,6 +28,7 @@ type ClaudeService struct {
 	volumeProjectsDir string
 	settingsPath      string // Path to volume settings.json
 	subprocessWrapper ClaudeSubprocessInterface
+	sessionService    *SessionService // For best session file selection
 	// Process registry for persistent streaming processes
 	processRegistry *ClaudeProcessRegistry
 	// Activity tracking for PTY sessions
@@ -136,6 +137,11 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 		lastSessionStart:     make(map[string]time.Time),
 		suppressEventsUntil:  make(map[string]time.Time),
 	}
+}
+
+// SetSessionService sets the session service for best session file selection
+func (s *ClaudeService) SetSessionService(sessionService *SessionService) {
+	s.sessionService = sessionService
 }
 
 // findProjectDirectory returns the path to the project directory if it exists in either location
@@ -294,8 +300,20 @@ func (s *ClaudeService) getSessionTiming(worktreePath string) (*SessionTimingWit
 	}, nil
 }
 
-// findLatestSessionFile finds the most recent session file with content
+// findLatestSessionFile finds the best session file with content
+// Uses SessionService's size-based logic to avoid warmup/small sessions
 func (s *ClaudeService) findLatestSessionFile(projectDir string) (string, error) {
+	// Use SessionService's proven logic that filters by size (>10KB) and prefers largest sessions
+	if s.sessionService != nil {
+		sessionFile := s.sessionService.FindBestSessionFile(projectDir)
+		if sessionFile != "" {
+			return sessionFile, nil
+		}
+	}
+
+	// Fallback to old logic if SessionService not available (shouldn't happen in production)
+	logger.Warn("⚠️ SessionService not set in ClaudeService, using fallback session selection")
+
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -322,54 +340,8 @@ func (s *ClaudeService) findLatestSessionFile(projectDir string) (string, error)
 		return infoI.ModTime().After(infoJ.ModTime())
 	})
 
-	// Files are already sorted by modification time (newest first)
-	// Find the first (newest) file that has timestamps
-	for _, entry := range sessionFiles {
-		filePath := filepath.Join(projectDir, entry.Name())
-		if s.fileHasTimestamps(filePath) {
-			return filePath, nil
-		}
-	}
-
-	// If no files have timestamps, return the most recent one anyway
+	// Return the most recent file
 	return filepath.Join(projectDir, sessionFiles[0].Name()), nil
-}
-
-// fileHasTimestamps checks if a session file contains at least one valid timestamp
-func (s *ClaudeService) fileHasTimestamps(filePath string) bool {
-	hasTimestamp := false
-
-	// Use a closure to capture the result and exit early
-	err := readJSONLines(filePath, func(line []byte) error {
-		var lineData map[string]interface{}
-		if err := json.Unmarshal(line, &lineData); err != nil {
-			return nil // Skip invalid JSON lines
-		}
-
-		timestampValue, exists := lineData["timestamp"]
-		if !exists {
-			return nil
-		}
-
-		timestampStr, ok := timestampValue.(string)
-		if !ok || timestampStr == "" {
-			return nil
-		}
-
-		if _, err := time.Parse(time.RFC3339, timestampStr); err == nil {
-			hasTimestamp = true
-			return fmt.Errorf("found timestamp") // Use error to exit early
-		}
-
-		return nil
-	})
-
-	// If we got an error because we found a timestamp, return true
-	if err != nil && err.Error() == "found timestamp" {
-		return true
-	}
-
-	return hasTimestamp
 }
 
 // findLatestSessionFileWithContent finds the most recent session file that contains assistant messages
@@ -1068,6 +1040,17 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 	// so they'll use the default of true. External API calls can explicitly set it to false
 	// if they want notifications.
 
+	// Get the best session ID if resuming
+	var sessionID string
+	if req.Resume && s.sessionService != nil {
+		if existingState, err := s.sessionService.FindSessionByDirectory(workingDir); err == nil && existingState != nil {
+			sessionID = existingState.ClaudeSessionID
+			if sessionID != "" {
+				logger.Infof("🔄 Found best session %s for resume in %s", sessionID, workingDir)
+			}
+		}
+	}
+
 	// Set up subprocess options
 	opts := &ClaudeSubprocessOptions{
 		Prompt:           req.Prompt,
@@ -1076,6 +1059,7 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
+		SessionID:        sessionID,
 		SuppressEvents:   suppressEvents,
 	}
 
@@ -1087,7 +1071,7 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		}()
 	}
 
-	// Resume logic is handled by claude CLI's --continue flag
+	// Resume logic is handled by claude CLI's --resume/--continue flags
 
 	// Call the subprocess wrapper
 	result, err := s.subprocessWrapper.CreateCompletion(ctx, opts)
@@ -1154,6 +1138,17 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 	// For internal calls, this should be true to prevent duplicate notifications
 	suppressEvents := req.SuppressEvents
 
+	// Get the best session ID if resuming
+	var sessionID string
+	if req.Resume && s.sessionService != nil {
+		if existingState, err := s.sessionService.FindSessionByDirectory(workingDir); err == nil && existingState != nil {
+			sessionID = existingState.ClaudeSessionID
+			if sessionID != "" {
+				logger.Infof("🔄 Found best session %s for streaming resume in %s", sessionID, workingDir)
+			}
+		}
+	}
+
 	// Set up subprocess options for streaming
 	opts := &ClaudeSubprocessOptions{
 		Prompt:           req.Prompt,
@@ -1162,6 +1157,7 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
+		SessionID:        sessionID,
 		SuppressEvents:   suppressEvents,
 	}
 
@@ -1900,8 +1896,23 @@ func (m *ClaudePTYManager) createPTY() error {
 	args := []string{"--dangerously-skip-permissions"}
 
 	if m.resume {
-		args = append(args, "--continue")
-		logger.Infof("🔄 Starting Claude Code with --continue for PTY streaming")
+		// Try to find the best session ID using SessionService
+		var resumeSessionID string
+		if m.claudeService.sessionService != nil {
+			if existingState, err := m.claudeService.sessionService.FindSessionByDirectory(m.workingDir); err == nil && existingState != nil {
+				resumeSessionID = existingState.ClaudeSessionID
+			}
+		}
+
+		if resumeSessionID != "" {
+			// Use --resume with specific session ID for precise session selection
+			args = append(args, "--resume", resumeSessionID)
+			logger.Infof("🔄 Starting Claude Code with --resume %s for PTY streaming", resumeSessionID)
+		} else {
+			// Fallback to --continue which auto-detects session
+			args = append(args, "--continue")
+			logger.Infof("🔄 Starting Claude Code with --continue for PTY streaming (no session ID found)")
+		}
 	} else {
 		logger.Debugf("🤖 Starting new Claude Code session for PTY streaming")
 	}

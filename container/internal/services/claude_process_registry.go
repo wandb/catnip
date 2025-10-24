@@ -167,8 +167,17 @@ func (r *ClaudeProcessRegistry) startClaudeProcess(ctx context.Context, opts *Cl
 	if opts.MaxTurns > 0 {
 		args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxTurns))
 	}
+	// Add resume/continue flags
 	if opts.Resume {
-		args = append(args, "--continue")
+		if opts.SessionID != "" {
+			// Use --resume with specific session ID for precise session selection
+			args = append(args, "--resume", opts.SessionID)
+			logger.Debugf("🔄 Using --resume with session ID: %s", opts.SessionID)
+		} else {
+			// Fallback to --continue which auto-detects session
+			args = append(args, "--continue")
+			logger.Debug("🔄 Using --continue for auto-resume")
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, wrapper.claudePath, args...)

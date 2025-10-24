@@ -153,6 +153,9 @@ func startServer(cmd *cobra.Command) {
 	claudeService := services.NewClaudeService()
 	sessionService := services.NewSessionService()
 
+	// Wire up SessionService to ClaudeService for best session file selection
+	claudeService.SetSessionService(sessionService)
+
 	// Initialize and start Claude monitor service
 	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
 
