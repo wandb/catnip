@@ -180,15 +180,34 @@ async function verifyAndCleanCodespaces(
       );
 
       if (response.status === 404) {
+        // Cancel the response body since we don't need it
+        await response.body?.cancel();
         // Codespace deleted - remove from store
         console.log(
           `🗑️ Codespace ${cs.codespaceName} no longer exists, removing from store`,
         );
         try {
-          await codespaceStore.fetch(
+          const deleteResponse = await codespaceStore.fetch(
             `https://internal/codespace/${username}/${cs.codespaceName}`,
             { method: "DELETE" },
           );
+
+          // Cancel the response body since we don't need it
+          await deleteResponse.body?.cancel();
+
+          if (deleteResponse.status === 404) {
+            console.log(
+              `ℹ️  Codespace ${cs.codespaceName} was already removed from store`,
+            );
+          } else if (deleteResponse.ok) {
+            console.log(
+              `✅ Successfully deleted ${cs.codespaceName} from store`,
+            );
+          } else {
+            console.warn(
+              `⚠️  Unexpected response deleting ${cs.codespaceName} from store: ${deleteResponse.status}`,
+            );
+          }
         } catch (deleteError) {
           console.warn(
             `Failed to delete ${cs.codespaceName} from store:`,
@@ -199,12 +218,16 @@ async function verifyAndCleanCodespaces(
       }
 
       if (response.ok) {
+        // Cancel the response body since we don't need it
+        await response.body?.cancel();
         console.log(`✅ Codespace ${cs.codespaceName} still exists`);
         return cs; // Still exists
       }
 
       // Other error (401, 403, 500, etc.) - keep codespace in list
       // We don't want to remove due to temporary issues
+      // Cancel the response body since we don't need it
+      await response.body?.cancel();
       console.warn(
         `⚠️ Could not verify ${cs.codespaceName}: ${response.status}, keeping in list`,
       );
@@ -705,36 +728,7 @@ export function createApp(env: Env) {
     const org = c.req.query("org");
 
     try {
-      // Fetch repositories - either from specific org or user's repos
-      let reposUrl: string;
-      if (org) {
-        // Fetch organization repositories
-        reposUrl = `https://api.github.com/orgs/${org}/repos?page=${page}&per_page=${perPage}&sort=updated`;
-        console.log(`Fetching repositories for organization: ${org}`);
-      } else {
-        // Fetch user repositories
-        reposUrl = `https://api.github.com/user/repos?page=${page}&per_page=${perPage}&sort=updated&affiliation=owner,collaborator`;
-        console.log("Fetching user repositories");
-      }
-
-      const reposResponse = await fetch(reposUrl, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: "application/vnd.github.v3+json",
-          "User-Agent": "Catnip-Worker/1.0",
-        },
-      });
-
-      if (!reposResponse.ok) {
-        console.error(
-          "Failed to fetch repositories:",
-          reposResponse.status,
-          await reposResponse.text(),
-        );
-        return c.json({ error: "Failed to fetch repositories" }, 500);
-      }
-
-      const repos = (await reposResponse.json()) as Array<{
+      let allRepos: Array<{
         id: number;
         name: string;
         full_name: string;
@@ -743,7 +737,100 @@ export function createApp(env: Env) {
         private: boolean;
         fork: boolean;
         archived: boolean;
-      }>;
+        pushed_at: string;
+      }> = [];
+
+      if (org) {
+        // Fetch repositories from a specific organization
+        console.log(`Fetching repositories for organization: ${org}`);
+        const reposUrl = `https://api.github.com/orgs/${org}/repos?page=${page}&per_page=${perPage}&sort=pushed`;
+        const reposResponse = await fetch(reposUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        });
+
+        if (!reposResponse.ok) {
+          console.error(
+            "Failed to fetch org repositories:",
+            reposResponse.status,
+            await reposResponse.text(),
+          );
+          return c.json({ error: "Failed to fetch repositories" }, 500);
+        }
+
+        allRepos = await reposResponse.json();
+      } else {
+        // Fetch user's personal repositories
+        console.log("Fetching user repositories");
+        const userReposUrl = `https://api.github.com/user/repos?page=${page}&per_page=${perPage}&sort=pushed&affiliation=owner,collaborator`;
+        const userReposResponse = await fetch(userReposUrl, {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        });
+
+        if (!userReposResponse.ok) {
+          console.error(
+            "Failed to fetch user repositories:",
+            userReposResponse.status,
+            await userReposResponse.text(),
+          );
+          return c.json({ error: "Failed to fetch repositories" }, 500);
+        }
+
+        allRepos = await userReposResponse.json();
+
+        // Fetch user's organizations (up to 3)
+        console.log("Fetching user organizations");
+        const orgsResponse = await fetch("https://api.github.com/user/orgs", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": "Catnip-Worker/1.0",
+          },
+        });
+
+        if (orgsResponse.ok) {
+          const orgs = (await orgsResponse.json()) as Array<{ login: string }>;
+          const orgReposPromises = orgs.slice(0, 3).map(async (org) => {
+            console.log(`Fetching repositories for org: ${org.login}`);
+            const orgReposUrl = `https://api.github.com/orgs/${org.login}/repos?per_page=${perPage}&sort=pushed`;
+            const orgReposResponse = await fetch(orgReposUrl, {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                Accept: "application/vnd.github.v3+json",
+                "User-Agent": "Catnip-Worker/1.0",
+              },
+            });
+
+            if (orgReposResponse.ok) {
+              return (await orgReposResponse.json()) as typeof allRepos;
+            }
+            return [];
+          });
+
+          const orgReposResults = await Promise.all(orgReposPromises);
+          // Flatten and deduplicate by id
+          const orgRepos = orgReposResults.flat();
+          const repoIds = new Set(allRepos.map((r) => r.id));
+          const uniqueOrgRepos = orgRepos.filter((r) => !repoIds.has(r.id));
+          allRepos = [...allRepos, ...uniqueOrgRepos];
+          console.log(
+            `Total repositories after merging orgs: ${allRepos.length}`,
+          );
+        }
+      }
+
+      // Sort all repos by pushed_at DESC to ensure consistent ordering
+      const repos = allRepos.sort(
+        (a, b) =>
+          new Date(b.pushed_at).getTime() - new Date(a.pushed_at).getTime(),
+      );
 
       // Check each repo for devcontainer and filter by permissions
       const reposWithStatus = await Promise.all(
@@ -773,9 +860,10 @@ export function createApp(env: Env) {
                   };
                   if (contentData.content) {
                     const content = atob(contentData.content);
-                    hasCatnipFeature = content.includes(
-                      "ghcr.io/wandb/catnip/feature",
-                    );
+                    // Check for both official feature and local development path
+                    hasCatnipFeature =
+                      content.includes("ghcr.io/wandb/catnip/feature") ||
+                      content.includes("./features/feature");
                   }
                 } catch (e) {
                   console.warn(
@@ -1336,6 +1424,7 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
   // Get codespace status endpoint (for polling)
   app.get("/v1/codespace/status/:name", requireAuth, async (c) => {
     const accessToken = c.get("accessToken");
+    const username = c.get("username");
     const codespaceName = c.req.param("name");
 
     if (!codespaceName) {
@@ -1380,6 +1469,31 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
 
       console.log(`Codespace ${codespaceName} status: ${codespaceData.state}`);
 
+      // Check if we have credentials stored for this codespace
+      let hasCredentials = false;
+      try {
+        const codespaceStore = c.env.CODESPACE_STORE.get(
+          c.env.CODESPACE_STORE.idFromName("global"),
+        );
+        const credentialsResponse = await codespaceStore.fetch(
+          `https://internal/codespace/${username}/${codespaceName}`,
+        );
+        if (credentialsResponse.ok) {
+          const credentials =
+            (await credentialsResponse.json()) as CodespaceCredentials;
+          hasCredentials = !!credentials.githubToken;
+          console.log(
+            `Credentials check for ${codespaceName}: ${hasCredentials ? "found" : "not found"}`,
+          );
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to check credentials for ${codespaceName}:`,
+          error,
+        );
+        // Continue without credentials info - don't fail the whole request
+      }
+
       return c.json({
         success: true,
         codespace: {
@@ -1389,6 +1503,7 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
           url: codespaceData.web_url,
           created_at: codespaceData.created_at,
         },
+        has_credentials: hasCredentials,
       });
     } catch (error) {
       console.error("Codespace status check error:", error);

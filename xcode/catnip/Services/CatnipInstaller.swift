@@ -308,7 +308,7 @@ class CatnipInstaller: ObservableObject {
     // MARK: - Public API
 
     /// Fetch user's repositories with devcontainer status
-    func fetchRepositories(page: Int = 1, perPage: Int = 30, org: String? = nil, forceRefresh: Bool = false) async throws {
+    func fetchRepositories(page: Int = 1, perPage: Int = 50, org: String? = nil, forceRefresh: Bool = false) async throws {
         // Check cache first if not forcing refresh
         if !forceRefresh && isCacheValid() {
             NSLog("🐱 [CatnipInstaller] Using cached repositories (valid for \(Int(cacheValidityDuration - (Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: lastFetchTimestampKey))))s more)")
@@ -560,25 +560,18 @@ class CatnipInstaller: ObservableObject {
         }
     }
 
-    /// Poll codespace status until it's available (up to 5 minutes)
+    /// Poll codespace status until it's available AND has credentials (up to 10 minutes)
     private func pollCodespaceStatus(codespaceName: String) async throws {
         await MainActor.run { currentStep = .waitingForCodespace }
 
-        let maxAttempts = 30 // 30 attempts × 10 seconds = 5 minutes
+        let maxAttempts = 60 // 60 attempts × 10 seconds = 10 minutes
         let pollInterval: UInt64 = 10_000_000_000 // 10 seconds in nanoseconds
 
         for attempt in 1...maxAttempts {
             NSLog("🐱 [CatnipInstaller] Polling codespace status (attempt \(attempt)/\(maxAttempts))...")
 
-            // Get fresh token for each request
-            let token = try await getSessionToken()
-            let headers = [
-                "Authorization": "Bearer \(token)",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28"
-            ]
-
-            guard let url = URL(string: "https://api.github.com/user/codespaces/\(codespaceName)") else {
+            let headers = try await getHeaders()
+            guard let url = URL(string: "\(baseURL)/v1/codespace/status/\(codespaceName)") else {
                 throw APIError.invalidURL
             }
 
@@ -593,13 +586,23 @@ class CatnipInstaller: ObservableObject {
                 }
 
                 if httpResponse.statusCode == 200 {
-                    // Parse the codespace status
+                    // Parse the response from our Cloudflare worker
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let state = json["state"] as? String {
-                        NSLog("🐱 [CatnipInstaller] Codespace state: \(state)")
+                       let codespaceData = json["codespace"] as? [String: Any],
+                       let state = codespaceData["state"] as? String,
+                       let hasCredentials = json["has_credentials"] as? Bool {
 
-                        if state == "Available" {
-                            NSLog("🐱 [CatnipInstaller] ✅ Codespace is now available!")
+                        NSLog("🐱 [CatnipInstaller] Codespace state: \(state), has_credentials: \(hasCredentials)")
+
+                        // Complete when EITHER codespace is Available OR we have credentials
+                        if state == "Available" || hasCredentials {
+                            NSLog("🐱 [CatnipInstaller] ✅ Codespace ready! (state=\(state), credentials=\(hasCredentials))")
+
+                            // Notify tracker that creation is complete
+                            await MainActor.run {
+                                CodespaceCreationTracker.shared.completeCreation(codespaceName: codespaceName)
+                            }
+
                             return
                         }
                     }
@@ -621,8 +624,16 @@ class CatnipInstaller: ObservableObject {
         }
 
         // Timeout - codespace didn't become available in time
-        NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be available")
-        throw APIError.serverError(408, "Codespace did not become available within 5 minutes")
+        NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be ready")
+
+        // Notify tracker of timeout failure
+        await MainActor.run {
+            CodespaceCreationTracker.shared.failCreation(
+                error: "Codespace did not become ready within 10 minutes"
+            )
+        }
+
+        throw APIError.serverError(408, "Codespace did not become ready within 10 minutes")
     }
 
     /// Fetch user status (codespaces and repositories with Catnip)

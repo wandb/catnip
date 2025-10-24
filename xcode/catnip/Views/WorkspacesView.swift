@@ -126,7 +126,8 @@ struct WorkspacesView: View {
             }
         }
         .sheet(isPresented: $showClaudeAuthSheet) {
-            ClaudeAuthSheet(isPresented: $showClaudeAuthSheet) {
+            let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "unknown"
+            ClaudeAuthSheet(isPresented: $showClaudeAuthSheet, codespaceName: codespaceName) {
                 NSLog("🐱 [WorkspacesView] Claude authentication completed")
                 // Optionally refresh workspaces or perform other actions
             }
@@ -465,24 +466,28 @@ struct WorkspacesView: View {
             return
         }
 
-        // Check if user has dismissed the auth prompt before
-        let dismissed = UserDefaults.standard.bool(forKey: "claude-auth-dismissed")
+        // Get the codespace name to scope the dismissal check
+        let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "unknown"
+
+        // Check if user has dismissed the auth prompt for this codespace in this session
+        let dismissed: Bool = SessionStorage.shared.get(forKey: "claude-auth-dismissed", scope: codespaceName) ?? false
         if dismissed {
-            NSLog("🐱 [WorkspacesView] Claude auth was previously dismissed, skipping check")
+            NSLog("🐱 [WorkspacesView] Claude auth was previously dismissed for codespace '\(codespaceName)', skipping check")
             return
         }
 
         do {
             let settings = try await CatnipAPI.shared.getClaudeSettings()
 
-            // Show auth sheet if Claude is not authenticated
-            if !settings.authenticated {
-                NSLog("🐱 [WorkspacesView] Claude not authenticated, showing auth sheet")
+            // Show auth sheet if Claude is not authenticated OR hasn't completed onboarding
+            // This mirrors the web app logic in claude-auth-context.tsx
+            if !settings.authenticated || !settings.hasCompletedOnboarding {
+                NSLog("🐱 [WorkspacesView] Claude needs onboarding (authenticated: \(settings.authenticated), completed: \(settings.hasCompletedOnboarding)), showing auth sheet")
                 await MainActor.run {
                     showClaudeAuthSheet = true
                 }
             } else {
-                NSLog("🐱 [WorkspacesView] Claude is already authenticated")
+                NSLog("🐱 [WorkspacesView] Claude is authenticated and onboarding complete")
             }
         } catch {
             NSLog("🐱 [WorkspacesView] Failed to check Claude auth status: \(error)")

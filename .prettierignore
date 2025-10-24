@@ -30,3 +30,6 @@ container/docs/docs.go
 *.log
 coverage/
 .env*
+
+# Xcode assets (should not be formatted)
+**/Assets.xcassets/**/*.json

@@ -27,8 +27,8 @@ enum RepositoryListMode {
 struct CodespaceView: View {
     @EnvironmentObject var authManager: AuthManager
     @StateObject private var installer = CatnipInstaller.shared
+    @StateObject private var tracker = CodespaceCreationTracker.shared
     @State private var phase: CodespacePhase = .connect
-    @State private var orgName: String = ""
     @State private var statusMessage: String = ""
     @State private var errorMessage: String = ""
     @State private var codespaces: [CodespaceInfo] = []
@@ -38,6 +38,7 @@ struct CodespaceView: View {
     @State private var installationResult: InstallationResult?
     @State private var createdCodespace: CodespaceCreationResult.CodespaceInfo?
     @State private var repositoryListMode: RepositoryListMode = .installation
+    @State private var pendingRepository: String?
 
     private let catFacts = [
         "Cats can rotate their ears 180 degrees.",
@@ -72,11 +73,20 @@ struct CodespaceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                if phase == .setup || phase == .selection || phase == .repositorySelection {
+                if phase == .setup || phase == .selection || phase == .repositorySelection || phase == .creatingCodespace {
                     Button {
+                        // If creating, keep it running in background
+                        if tracker.isCreating {
+                            NSLog("🎯 User navigating away while creation continues")
+                        }
+
                         phase = .connect
-                        installer.reset()
                         errorMessage = ""
+
+                        // Only reset installer if there's an error or not creating
+                        if installer.error != nil || !tracker.isCreating {
+                            installer.reset()
+                        }
                     } label: {
                         Image(systemName: "chevron.left")
                     }
@@ -84,11 +94,35 @@ struct CodespaceView: View {
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Logout") {
-                    Task { await authManager.logout() }
+                Menu {
+                    Button {
+                        repositoryListMode = .installation
+                        phase = .repositorySelection
+                        Task {
+                            do {
+                                try await installer.fetchRepositories()
+                            } catch {
+                                errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                                phase = .connect
+                            }
+                        }
+                    } label: {
+                        Label("Install Catnip", systemImage: "plus.rectangle.on.folder")
+                    }
+
+                    Button(role: .destructive) {
+                        Task { await authManager.logout() }
+                    } label: {
+                        Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .disabled(phase == .connecting)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .imageScale(.large)
+                        .fontWeight(.bold)
                 }
                 .disabled(phase == .connecting)
-                .accessibilityIdentifier("logoutButton")
+                .accessibilityIdentifier("moreOptionsButton")
             }
         }
         .navigationDestination(isPresented: $navigateToWorkspaces) {
@@ -122,6 +156,14 @@ struct CodespaceView: View {
                     } catch {
                         NSLog("🐱 [CodespaceView] Failed to refresh user status: \(error)")
                     }
+                }
+
+                // Auto-connect if we just finished creating a codespace
+                if let codespace = createdCodespace {
+                    NSLog("🐱 [CodespaceView] Auto-connecting to newly created codespace: \(codespace.name)")
+                    handleConnect(codespaceName: codespace.name)
+                    // Clear the created codespace so we don't auto-connect again
+                    createdCodespace = nil
                 }
             }
         }
@@ -226,12 +268,6 @@ struct CodespaceView: View {
                     .multilineTextAlignment(.center)
                     .padding(.bottom, 4)
 
-                if !orgName.isEmpty {
-                    Text("Organization: \(orgName)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
                 VStack(spacing: 16) {
                     Button {
                         // Determine action based on user's codespace and repository status
@@ -270,29 +306,6 @@ struct CodespaceView: View {
                     .buttonStyle(ProminentButtonStyle(isDisabled: phase == .connecting))
                     .disabled(phase == .connecting)
                     .accessibilityIdentifier("primaryActionButton")
-
-                    HStack(spacing: 10) {
-                        TextField("Organization (e.g., wandb)", text: $orgName)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                            .textFieldStyle(.plain)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1.5)
-                            )
-                            .submitLabel(.go)
-                            .onSubmit { handleBrowseOrgRepositories() }
-                            .accessibilityIdentifier("organizationTextField")
-
-                        Button("Go") {
-                            handleBrowseOrgRepositories()
-                        }
-                        .buttonStyle(SecondaryButtonStyle(isDisabled: orgName.isEmpty || phase == .connecting))
-                        .disabled(orgName.isEmpty || phase == .connecting)
-                        .accessibilityIdentifier("goButton")
-                    }
                 }
 
                 // Inline status / error
@@ -322,33 +335,6 @@ struct CodespaceView: View {
                     .padding(12)
                     .background(Color.red.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-
-                Spacer(minLength: 12)
-
-                // Only show standalone "Install Catnip" button if it's not already the primary action
-                // (i.e., show it when user has codespaces OR has repos with Catnip)
-                if installer.userStatus?.hasAnyCodespaces == true || installer.hasRepositoriesWithCatnip {
-                    Button {
-                        repositoryListMode = .installation
-                        phase = .repositorySelection
-                        Task {
-                            do {
-                                try await installer.fetchRepositories()
-                            } catch {
-                                errorMessage = "Failed to load repositories: \(error.localizedDescription)"
-                                phase = .connect
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "plus.rectangle.on.folder")
-                            Text("Install Catnip")
-                        }
-                        .font(.subheadline)
-                    }
-                    .buttonStyle(SecondaryButtonStyle(isDisabled: false))
-                    .padding(.horizontal, 20)
                 }
 
                 Spacer(minLength: 12)
@@ -441,7 +427,7 @@ struct CodespaceView: View {
             Section("Select Codespace") {
                 ForEach(codespaces) { codespace in
                     Button {
-                        handleConnect(codespaceName: codespace.name, org: orgName.isEmpty ? nil : orgName)
+                        handleConnect(codespaceName: codespace.name)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(codespace.displayName)
@@ -486,43 +472,8 @@ struct CodespaceView: View {
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
-    private func handleBrowseOrgRepositories() {
-        guard !orgName.isEmpty else { return }
-        errorMessage = ""
-        phase = .repositorySelection
-        Task {
-            do {
-                try await installer.fetchRepositories(org: orgName)
 
-                // Check if org has any repos with Catnip after filtering
-                let orgPrefix = "\(orgName)/"
-                let orgRepos = installer.repositories.filter {
-                    $0.fullName.lowercased().hasPrefix(orgPrefix.lowercased())
-                }
-
-                if orgRepos.isEmpty {
-                    // No repos in this org - show setup
-                    await MainActor.run {
-                        errorMessage = "No repositories found in '\(orgName)' organization"
-                        phase = .setup
-                    }
-                } else {
-                    // Set mode based on whether org has Catnip repos
-                    let hasAnyCatnip = orgRepos.contains { $0.hasCatnipFeature }
-                    await MainActor.run {
-                        repositoryListMode = hasAnyCatnip ? .launch : .installation
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    errorMessage = "Failed to load repositories: \(error.localizedDescription)"
-                    phase = .connect
-                }
-            }
-        }
-    }
-
-    private func handleConnect(codespaceName: String? = nil, org: String? = nil) {
+    private func handleConnect(codespaceName: String? = nil) {
         phase = .connecting
         errorMessage = ""
         statusMessage = ""
@@ -537,13 +488,9 @@ struct CodespaceView: View {
             return
         }
 
-        // Save codespace name and org immediately when selected (non-sensitive app state)
+        // Save codespace name immediately when selected (non-sensitive app state)
         if let codespaceName = codespaceName, !codespaceName.isEmpty {
             UserDefaults.standard.set(codespaceName, forKey: "codespace_name")
-        }
-
-        if let org = org, !org.isEmpty {
-            UserDefaults.standard.set(org, forKey: "org_name")
         }
 
         Task {
@@ -557,7 +504,7 @@ struct CodespaceView: View {
                 let service = SSEService()
                 sseService = service
 
-                service.connect(codespaceName: codespaceName, org: org, headers: headers) { event in
+                service.connect(codespaceName: codespaceName, org: nil, headers: headers) { event in
                     Task { @MainActor in
                         handleSSEEvent(event)
                     }
@@ -702,11 +649,8 @@ struct CodespaceView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                 } else {
-                    // Show launch button only if there are repos with Catnip (respecting org filter)
-                    let reposToCheck = orgName.isEmpty ? installer.repositories : installer.repositories.filter {
-                        $0.fullName.lowercased().hasPrefix("\(orgName)/".lowercased())
-                    }
-                    if reposToCheck.contains(where: { $0.hasCatnipFeature }) {
+                    // Show launch button only if there are repos with Catnip
+                    if installer.repositories.contains(where: { $0.hasCatnipFeature }) {
                         Button {
                             repositoryListMode = .launch
                         } label: {
@@ -726,8 +670,7 @@ struct CodespaceView: View {
         .refreshable {
             // Pull-to-refresh: force a fresh fetch
             do {
-                // Pass org if we're in org mode (orgName is set)
-                try await installer.fetchRepositories(org: orgName.isEmpty ? nil : orgName, forceRefresh: true)
+                try await installer.fetchRepositories(forceRefresh: true)
             } catch {
                 // Error is already set in installer.error
                 NSLog("🐱 [CodespaceView] Failed to refresh repositories: \(error)")
@@ -735,17 +678,9 @@ struct CodespaceView: View {
         }
     }
 
-    // Filter repositories based on mode and org
+    // Filter repositories based on mode
     private var filteredRepositories: [Repository] {
-        let total = installer.repositories.count
         var filtered = installer.repositories
-
-        // Filter by organization if specified
-        if !orgName.isEmpty {
-            let orgPrefix = "\(orgName)/"
-            filtered = filtered.filter { $0.fullName.lowercased().hasPrefix(orgPrefix.lowercased()) }
-            NSLog("🐱 [CodespaceView] Org filter '\(orgName)': \(total) total repos, \(filtered.count) in org")
-        }
 
         // Filter by Catnip feature based on mode
         switch repositoryListMode {
@@ -788,8 +723,23 @@ struct CodespaceView: View {
 
     private func handleLaunchCodespace(repository: Repository) {
         phase = .creatingCodespace
+        pendingRepository = repository.fullName
+
         Task {
+            // Request notification permission before creating
+            let permissionGranted = await NotificationManager.shared.requestPermission()
+            if permissionGranted {
+                NSLog("🔔 Notification permission granted for codespace creation")
+            } else {
+                NSLog("🔔 ⚠️ Notification permission denied, but continuing with creation")
+            }
+
             do {
+                // Start tracking BEFORE creation begins
+                await MainActor.run {
+                    tracker.startCreation(repositoryName: repository.fullName, codespaceName: nil)
+                }
+
                 let codespace = try await installer.createCodespace(
                     repository: repository.fullName,
                     branch: nil  // Use default branch
@@ -799,16 +749,26 @@ struct CodespaceView: View {
                     // Store the codespace name for future connections
                     UserDefaults.standard.set(codespace.name, forKey: "codespace_name")
 
-                    NSLog("🐱 [CodespaceView] Codespace created: \(codespace.name), triggering SSE connection flow")
+                    // Update tracker with codespace name
+                    tracker.updateCodespaceName(codespace.name)
 
-                    // Trigger SSE flow to handle startup, health check, etc.
-                    // This leverages the existing robust connection logic
-                    handleConnect(codespaceName: codespace.name)
+                    NSLog("🐱 [CodespaceView] Codespace ready (Available or has credentials): \(codespace.name)")
+                    NSLog("🐱 [CodespaceView] tracker.completeCreation() was already called by pollCodespaceStatus")
+                    NSLog("🐱 [CodespaceView] Transitioning to connect screen to show SSE connection flow...")
+
+                    // Transition to connect screen - the connect view will automatically
+                    // call handleConnect() when it appears, showing the user the SSE status updates
+                    phase = .connect
                 }
             } catch {
                 // Error is already set in installer.error by createCodespace
                 // Stay on .creatingCodespace phase to show error screen with back button
                 NSLog("🐱 [CodespaceView] Failed to launch codespace: \(error)")
+
+                // Notify tracker of failure
+                await MainActor.run {
+                    tracker.failCreation(error: error.localizedDescription)
+                }
             }
         }
     }
@@ -898,8 +858,23 @@ struct CodespaceView: View {
 
     private func handleStartCodespace(repository: String, branch: String) {
         phase = .creatingCodespace
+        pendingRepository = repository
+
         Task {
+            // Request notification permission before creating
+            let permissionGranted = await NotificationManager.shared.requestPermission()
+            if permissionGranted {
+                NSLog("🔔 Notification permission granted for codespace creation")
+            } else {
+                NSLog("🔔 ⚠️ Notification permission denied, but continuing with creation")
+            }
+
             do {
+                // Start tracking BEFORE creation begins
+                await MainActor.run {
+                    tracker.startCreation(repositoryName: repository, codespaceName: nil)
+                }
+
                 let codespace = try await installer.createCodespace(
                     repository: repository,
                     branch: branch
@@ -908,6 +883,9 @@ struct CodespaceView: View {
                     createdCodespace = codespace
                     // Store the codespace name for future connections
                     UserDefaults.standard.set(codespace.name, forKey: "codespace_name")
+
+                    // Update tracker with codespace name
+                    tracker.updateCodespaceName(codespace.name)
 
                     NSLog("🐱 [CodespaceView] Codespace created: \(codespace.name), triggering SSE connection flow")
 
@@ -919,6 +897,11 @@ struct CodespaceView: View {
                 // Error is already set in installer.error by createCodespace
                 // Stay on .creatingCodespace phase to show error screen with back button
                 NSLog("🐱 [CodespaceView] Failed to start codespace after install: \(error)")
+
+                // Notify tracker of failure
+                await MainActor.run {
+                    tracker.failCreation(error: error.localizedDescription)
+                }
             }
         }
     }
@@ -957,43 +940,92 @@ struct CodespaceView: View {
                         .padding(.horizontal)
                         .padding(.top, 4)
                 } else if installer.currentStep == .creatingCodespace {
-                    Text("Creating your codespace...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    VStack(spacing: 8) {
+                        if let repo = pendingRepository {
+                            Text("Creating codespace in \(repo)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            Text("Creating your codespace...")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+
+                        // Show progress from tracker if available
+                        if tracker.isCreating && tracker.progress > 0 {
+                            VStack(spacing: 4) {
+                                ProgressView(value: tracker.progress)
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .padding(.horizontal, 40)
+
+                                Text("\(Int(tracker.progress * 100))% complete")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 } else if installer.currentStep == .waitingForCodespace {
                     VStack(spacing: 4) {
                         Text("Building and starting your codespace")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
-                        Text("This can take up to 5 minutes on first launch")
+                        Text("This may take up to 10 minutes on first launch")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
+
+                        // Show progress from tracker if available
+                        if tracker.isCreating && tracker.progress > 0 {
+                            VStack(spacing: 4) {
+                                ProgressView(value: tracker.progress)
+                                    .progressViewStyle(LinearProgressViewStyle())
+                                    .padding(.horizontal, 40)
+                                    .padding(.top, 8)
+
+                                Text("\(Int(tracker.progress * 100))% complete")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer()
+            // Notification info (show when creating, not on error or complete)
+            if installer.error == nil && installer.currentStep != .complete {
+                VStack(spacing: 8) {
+                    Image(systemName: "bell.badge.fill")
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
 
-            // Show back button when there's an error
-            if let error = installer.error {
-                VStack(spacing: 12) {
-                    Button("Back to Connect") {
-                        phase = .connect
-                        installer.reset()
-                        errorMessage = ""
-                    }
-                    .buttonStyle(ProminentButtonStyle(isDisabled: false))
-                    .padding(.horizontal, 20)
+                    Text("We'll notify you when it's ready")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
 
-                    Text("You can try connecting again after a few minutes")
+                    Text("Feel free to navigate away and explore the app")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
+                .padding()
+                .background(Color(uiColor: .secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
                 .padding(.horizontal, 20)
+            }
+
+            Spacer()
+
+            // Show error hint if there's an error
+            if installer.error != nil {
+                Text("You can try connecting again after a few minutes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
             }
         }
         .padding()

@@ -50,11 +50,17 @@ struct ClaudeSettings: Codable {
     let theme: String?
     let notificationsEnabled: Bool
     let authenticated: Bool
+    let hasCompletedOnboarding: Bool
+    let numStartups: Int?
+    let version: String?
 
     enum CodingKeys: String, CodingKey {
         case theme
-        case notificationsEnabled = "notifications_enabled"
-        case authenticated
+        case notificationsEnabled = "notificationsEnabled"
+        case authenticated = "isAuthenticated"
+        case hasCompletedOnboarding = "hasCompletedOnboarding"
+        case numStartups = "numStartups"
+        case version
     }
 }
 
