@@ -426,7 +426,6 @@ func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) s
 		// Skip very small files (likely empty or warmup sessions)
 		// Real sessions with actual conversation are typically >10KB
 		if fileInfo.Size() < 10000 {
-			logger.Debugf("Skipping small session file %s (%d bytes)", sessionID, fileInfo.Size())
 			continue
 		}
 
@@ -457,9 +456,6 @@ func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) s
 			bestSession = candidate
 		}
 	}
-
-	logger.Infof("Selected best Claude session: %s (size: %d bytes, age: %v)",
-		bestSession.sessionID, bestSession.size, time.Since(bestSession.modTime).Round(time.Second))
 
 	return bestSession.sessionID
 }

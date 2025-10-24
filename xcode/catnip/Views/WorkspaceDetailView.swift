@@ -103,7 +103,10 @@ struct WorkspaceDetailView: View {
             }
         }
         .task {
-            // Start PTY proactively when workspace loads
+            await loadWorkspace()
+            poller.start()
+
+            // Start PTY after workspace is loaded
             if let workspace = workspace {
                 Task {
                     do {
@@ -115,9 +118,6 @@ struct WorkspaceDetailView: View {
                     }
                 }
             }
-
-            await loadWorkspace()
-            poller.start()
         }
         .onDisappear {
             poller.stop()

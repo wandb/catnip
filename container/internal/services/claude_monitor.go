@@ -849,7 +849,7 @@ Respond with ONLY the branch name, nothing else.`, cleanedTitle),
 		SystemPrompt:     "You are a helpful assistant that generates git branch names. Respond only with the branch name, no explanation or additional text.",
 		MaxTurns:         1,
 		WorkingDirectory: m.workDir,
-		Resume:           true,
+		Resume:           true, // Resume session so Claude has context about what was done
 		SuppressEvents:   true, // Suppress notifications during automated branch renaming
 	}
 

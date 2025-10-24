@@ -529,8 +529,9 @@ func (h *PTYHandler) HandlePTYPrompt(c *fiber.Ctx) error {
 		})
 	}
 
-	// Wait for PTY to be ready (up to 5 seconds)
-	timeout := 5 * time.Second
+	// Wait for PTY to be ready (up to 15 seconds)
+	// Claude can take 8-10+ seconds to initialize and display the prompt
+	timeout := 15 * time.Second
 	logger.Infof("⏳ Waiting up to %v for PTY to be ready: %s", timeout, compositeSessionID)
 
 	if !h.waitForPTYReady(session, timeout) {

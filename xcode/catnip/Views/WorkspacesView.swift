@@ -23,6 +23,7 @@ struct WorkspacesView: View {
     @State private var deleteConfirmation: WorkspaceInfo? // Workspace to delete
     @State private var navigationWorkspace: WorkspaceInfo? // Workspace to navigate to
     @State private var pendingPromptForNavigation: String? // Prompt to pass to detail view
+    @State private var createdWorkspaceForRetry: WorkspaceInfo? // Track created workspace for retry on 408 timeout
 
     // Claude authentication
     @State private var showClaudeAuthSheet = false
@@ -100,6 +101,7 @@ struct WorkspacesView: View {
                 selectedBranch = nil
                 availableBranches = []
                 createSheetError = nil
+                createdWorkspaceForRetry = nil // Clear retry state
             }
         }
         .onChange(of: selectedRepository) {
@@ -371,28 +373,69 @@ struct WorkspacesView: View {
         createSheetError = nil // Clear any previous errors
 
         do {
-            // Create the workspace
-            let workspace = try await CatnipAPI.shared.createWorkspace(
-                orgRepo: selectedRepository,
-                branch: selectedBranch
-            )
+            // Check if we're retrying with an existing workspace
+            let workspace: WorkspaceInfo
+            let isRetry = createdWorkspaceForRetry != nil
+
+            if let existingWorkspace = createdWorkspaceForRetry {
+                // Retry case: reuse the already-created workspace
+                workspace = existingWorkspace
+                NSLog("🐱 [WorkspacesView] Retrying with existing workspace: \(workspace.id)")
+            } else {
+                // First attempt: create new workspace
+                workspace = try await CatnipAPI.shared.createWorkspace(
+                    orgRepo: selectedRepository,
+                    branch: selectedBranch
+                )
+                NSLog("🐱 [WorkspacesView] Created new workspace: \(workspace.id)")
+
+                // Save for potential retry
+                await MainActor.run {
+                    createdWorkspaceForRetry = workspace
+                }
+
+                // HACKY: Wait for workspace directory to be fully created on disk
+                // TODO: Fix the backend checkout endpoint to not return 200 until directory is ready
+                NSLog("🐱 [WorkspacesView] ⏰ Waiting 2 seconds for workspace directory to be ready...")
+                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            }
 
             // Store the prompt to send
             let promptToSend = createPrompt.trimmingCharacters(in: .whitespaces)
             let workspaceName = workspace.name
 
-            // HACKY: Wait for workspace directory to be fully created on disk
-            // TODO: Fix the backend checkout endpoint to not return 200 until directory is ready
-            // See: container/internal/handlers/git.go CheckoutRepository
-            NSLog("🐱 [WorkspacesView] ⏰ Waiting 2 seconds for workspace directory to be ready...")
-            try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            // Start PTY session BEFORE sending prompt (skip if retrying - already started)
+            if !promptToSend.isEmpty && !isRetry {
+                NSLog("🐱 [WorkspacesView] Starting PTY session for workspace: \(workspace.id)")
+                do {
+                    try await CatnipAPI.shared.startPTY(workspacePath: workspaceName, agent: "claude")
+                    NSLog("🐱 [WorkspacesView] ✅ PTY session started successfully")
+                } catch {
+                    NSLog("🐱 [WorkspacesView] ❌ Failed to start PTY session: \(error)")
+                    // Show error to user and keep sheet open for retry
+                    await MainActor.run {
+                        if !workspaces.contains(where: { $0.id == workspace.id }) {
+                            workspaces.insert(workspace, at: 0)
+                        }
+                        if let apiError = error as? APIError {
+                            self.createSheetError = "Workspace created, but failed to start PTY session: \(apiError.errorDescription ?? "Unknown error"). Try submitting again or navigate to the workspace."
+                        } else {
+                            self.createSheetError = "Workspace created, but failed to start PTY session: \(error.localizedDescription). Try submitting again or navigate to the workspace."
+                        }
+                        isCreating = false
+                    }
+                    return
+                }
+
+                // Wait a bit for PTY to be ready (backend now waits up to 15s, so 2s here is reasonable)
+                NSLog("🐱 [WorkspacesView] ⏰ Waiting 2 seconds for PTY to initialize...")
+                try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+            }
 
             // Send prompt BEFORE navigating (so we can handle errors properly)
-            var promptSendSucceeded = false
             if !promptToSend.isEmpty {
                 NSLog("🐱 [WorkspacesView] Sending initial prompt to workspace: \(workspace.id)")
                 NSLog("🐱 [WorkspacesView] Prompt length: \(promptToSend.count) chars")
-                NSLog("🐱 [WorkspacesView] Workspace name (session ID): \(workspaceName)")
 
                 do {
                     NSLog("🐱 [WorkspacesView] About to call sendPromptToPTY API...")
@@ -402,38 +445,40 @@ struct WorkspacesView: View {
                         agent: "claude"
                     )
                     NSLog("🐱 [WorkspacesView] ✅ Successfully sent initial prompt")
-                    promptSendSucceeded = true
 
-                    // Only set pendingPrompt if prompt was successfully sent
+                    // Set pendingPrompt for detail view
                     await MainActor.run {
                         pendingPromptForNavigation = promptToSend
-                        NSLog("🐱 [WorkspacesView] Set pendingPromptForNavigation after successful send: \(promptToSend.prefix(50))...")
+                        NSLog("🐱 [WorkspacesView] Set pendingPromptForNavigation: \(promptToSend.prefix(50))...")
                     }
                 } catch {
                     NSLog("🐱 [WorkspacesView] ❌ Failed to send initial prompt: \(error)")
-                    // Show error to user and keep sheet open so they can see it
+                    // Show error to user and keep sheet open for retry
                     await MainActor.run {
-                        workspaces.insert(workspace, at: 0)
+                        if !workspaces.contains(where: { $0.id == workspace.id }) {
+                            workspaces.insert(workspace, at: 0)
+                        }
                         if let apiError = error as? APIError {
-                            self.createSheetError = "Workspace created, but failed to send prompt: \(apiError.errorDescription ?? "Unknown error"). Please navigate to the workspace and try again."
+                            self.createSheetError = "Workspace created, but failed to send prompt: \(apiError.errorDescription ?? "Unknown error"). Try submitting again or navigate to the workspace."
                         } else {
-                            self.createSheetError = "Workspace created, but failed to send prompt: \(error.localizedDescription). Please navigate to the workspace and try again."
+                            self.createSheetError = "Workspace created, but failed to send prompt: \(error.localizedDescription). Try submitting again or navigate to the workspace."
                         }
                         isCreating = false
                     }
-                    // Don't close the sheet or navigate - let user see the error
                     return
                 }
             } else {
                 NSLog("🐱 [WorkspacesView] No prompt to send (empty)")
             }
 
-            // Close the sheet and navigate to workspace detail (only if prompt send succeeded or was empty)
+            // Success! Close sheet and navigate
             await MainActor.run {
-                workspaces.insert(workspace, at: 0)
+                if !workspaces.contains(where: { $0.id == workspace.id }) {
+                    workspaces.insert(workspace, at: 0)
+                }
                 showCreateSheet = false
                 isCreating = false
-                // Auto-navigate to the newly created workspace
+                createdWorkspaceForRetry = nil // Clear retry state on success
                 navigationWorkspace = workspace
                 NSLog("🚀 Navigating to newly created workspace: \(workspace.id)")
             }

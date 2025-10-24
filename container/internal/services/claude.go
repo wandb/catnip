@@ -640,15 +640,42 @@ func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]mo
 
 	var messages []models.ClaudeSessionMessage
 
+	// First pass: Build a map of user messages by UUID to check for automated prompts
+	userMessages := make(map[string]string)
 	err := readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Collect user messages
+		if message.Type == "user" && message.Message != nil {
+			if content, exists := message.Message["content"]; exists {
+				if contentStr, ok := content.(string); ok {
+					userMessages[message.Uuid] = contentStr
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read user messages: %w", err)
+	}
+
+	// Second pass: Collect all non-skipped messages
+	err = readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
 			return nil // Skip invalid JSON lines, don't stop processing
 		}
-		// Skip sidechain messages (warmup prompts, etc.) from session history
-		if message.IsSidechain {
+
+		// Skip messages using centralized helper
+		if shouldSkipAssistantMessage(message, userMessages) {
 			return nil
 		}
+
 		messages = append(messages, message)
 		return nil
 	})
@@ -889,14 +916,39 @@ func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, 
 	// Look for the most recent assistant message in the session
 	var latestAssistantMessage string
 
+	// First pass: Build a map of user messages by UUID to check for automated prompts
+	userMessages := make(map[string]string)
 	err = readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
 			return nil // Skip invalid JSON lines
 		}
 
-		// Skip sidechain messages (warmup prompts, etc.)
-		if message.IsSidechain {
+		// Collect user messages
+		if message.Type == "user" && message.Message != nil {
+			if content, exists := message.Message["content"]; exists {
+				if contentStr, ok := content.(string); ok {
+					userMessages[message.Uuid] = contentStr
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to read user messages: %w", err)
+	}
+
+	// Second pass: Find the latest assistant message, skipping automated responses
+	err = readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Skip messages using centralized helper
+		if shouldSkipAssistantMessage(message, userMessages) {
 			return nil
 		}
 
@@ -934,6 +986,46 @@ func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, 
 	return latestAssistantMessage, nil
 }
 
+// isAutomatedPrompt checks if a user message is one of our known automated prompts
+// that should be filtered out from the "latest message" display
+func isAutomatedPrompt(userMessage string) bool {
+	// Known automated prompt patterns we send
+	automatedMarkers := []string{
+		"Generate a git branch name that:",                    // Branch renaming
+		"Based on this coding session title:",                 // Branch renaming alternative
+		"Generate a pull request title and description that:", // PR generation (future)
+		"Create a commit message that:",                       // Commit message generation (future)
+	}
+
+	for _, marker := range automatedMarkers {
+		if strings.Contains(userMessage, marker) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// shouldSkipAssistantMessage checks if an assistant message should be skipped when displaying
+// to users (filters both sidechain messages and responses to automated prompts)
+func shouldSkipAssistantMessage(message models.ClaudeSessionMessage, userMessages map[string]string) bool {
+	// Skip sidechain messages (warmup prompts, etc.)
+	if message.IsSidechain {
+		return true
+	}
+
+	// Skip assistant messages that are responses to automated prompts
+	if message.Type == "assistant" && message.ParentUuid != "" {
+		if parentContent, exists := userMessages[message.ParentUuid]; exists {
+			if isAutomatedPrompt(parentContent) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // GetLatestAssistantMessageOrError gets the most recent assistant message OR error from the session history
 func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (content string, isError bool, err error) {
 	projectDirName := WorktreePathToProjectDir(worktreePath)
@@ -954,6 +1046,31 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 	var latestIsError bool
 	var hasFoundContent bool
 
+	// First pass: Build a map of user messages by UUID to check for automated prompts
+	userMessages := make(map[string]string)
+	err = readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Collect user messages
+		if message.Type == "user" && message.Message != nil {
+			if content, exists := message.Message["content"]; exists {
+				if contentStr, ok := content.(string); ok {
+					userMessages[message.Uuid] = contentStr
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return "", false, fmt.Errorf("failed to read user messages: %w", err)
+	}
+
+	// Second pass: Find the latest assistant message, skipping automated responses
 	err = readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
@@ -963,6 +1080,16 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 		// Skip sidechain messages (warmup prompts, etc.)
 		if message.IsSidechain {
 			return nil
+		}
+
+		// Skip assistant messages that are responses to automated prompts
+		if message.Type == "assistant" && message.ParentUuid != "" {
+			if parentContent, exists := userMessages[message.ParentUuid]; exists {
+				// Check if parent is an automated prompt we send
+				if isAutomatedPrompt(parentContent) {
+					return nil // Skip this assistant message
+				}
+			}
 		}
 
 		// Check for error messages first (highest priority)
@@ -1261,7 +1388,31 @@ func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWrit
 
 	logger.Debugf("📜 Streaming historical events from %s", sessionFile)
 
-	// Stream the last few assistant messages from the session file
+	// First pass: Build a map of user messages by UUID to check for automated prompts
+	userMessages := make(map[string]string)
+	err = readJSONLines(sessionFile, func(line []byte) error {
+		var message models.ClaudeSessionMessage
+		if err := json.Unmarshal(line, &message); err != nil {
+			return nil // Skip invalid JSON lines
+		}
+
+		// Collect user messages
+		if message.Type == "user" && message.Message != nil {
+			if content, exists := message.Message["content"]; exists {
+				if contentStr, ok := content.(string); ok {
+					userMessages[message.Uuid] = contentStr
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to read user messages: %w", err)
+	}
+
+	// Second pass: Stream the last few assistant messages from the session file
 	var recentMessages [][]byte
 	err = readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
@@ -1269,8 +1420,8 @@ func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWrit
 			return nil // Skip invalid JSON lines
 		}
 
-		// Skip sidechain messages (warmup prompts, etc.)
-		if message.IsSidechain {
+		// Skip messages using centralized helper
+		if shouldSkipAssistantMessage(message, userMessages) {
 			return nil
 		}
 
