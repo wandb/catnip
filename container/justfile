@@ -9,10 +9,11 @@ build: swagger build-frontend build-scripts
 	set -euo pipefail
 
 	# Get the latest git tag (version) - try multiple strategies
-	if LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null); then
+	# Only consider tags starting with 'v' to avoid devcontainer feature tags
+	if LATEST_TAG=$(git describe --tags --match "v*" --abbrev=0 2>/dev/null); then
 		# Found a reachable tag
 		VERSION="${LATEST_TAG}-dev"
-	elif LATEST_TAG=$(git tag --sort=-version:refname | head -1 2>/dev/null) && [ -n "$LATEST_TAG" ]; then
+	elif LATEST_TAG=$(git tag --sort=-version:refname | grep "^v" | head -1 2>/dev/null) && [ -n "$LATEST_TAG" ]; then
 		# Use the highest version tag available, even if not reachable
 		VERSION="${LATEST_TAG}-dev-unreachable"
 	else

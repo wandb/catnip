@@ -13,6 +13,7 @@ git:
   tag_sort: -version:refname
   ignore_tags:
     - "nightly"
+    - "feature_*"  # Ignore devcontainer feature tags
 
 # Build configuration
 builds:
