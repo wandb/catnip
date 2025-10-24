@@ -200,9 +200,12 @@ struct WorkspacesView: View {
     private var listView: some View {
         List {
             ForEach(workspaces) { workspace in
-                NavigationLink(destination: WorkspaceDetailView(workspaceId: workspace.id, initialWorkspace: workspace)) {
+                Button {
+                    navigationWorkspace = workspace
+                } label: {
                     WorkspaceCard(workspace: workspace)
                 }
+                .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8))
                 .listRowSeparator(.visible)
                 .listRowBackground(Color(uiColor: .secondarySystemBackground))

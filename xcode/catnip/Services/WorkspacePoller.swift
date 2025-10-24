@@ -51,8 +51,7 @@ class WorkspacePoller: ObservableObject {
     // MARK: - Private Properties
     private let workspaceId: String
     private var pollingTask: Task<Void, Never>?
-    private var backgroundObserver: NSObjectProtocol?
-    private var foregroundObserver: NSObjectProtocol?
+    private var appStateObserver: NSObjectProtocol?
     private var lastETag: String?
     private var lastActivityStateChange: Date = Date()
     private var previousActivityState: ClaudeActivityState?
@@ -78,10 +77,7 @@ class WorkspacePoller: ObservableObject {
         pollingTask?.cancel()
 
         // Remove observers
-        if let observer = backgroundObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = foregroundObserver {
+        if let observer = appStateObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
@@ -205,7 +201,7 @@ class WorkspacePoller: ObservableObject {
 
     private func setupAppStateObservers() {
         // Observe app entering background
-        backgroundObserver = NotificationCenter.default.addObserver(
+        appStateObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification,
             object: nil,
             queue: .main
@@ -218,7 +214,7 @@ class WorkspacePoller: ObservableObject {
         }
 
         // Observe app entering foreground
-        foregroundObserver = NotificationCenter.default.addObserver(
+        NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,
             queue: .main
@@ -231,10 +227,7 @@ class WorkspacePoller: ObservableObject {
     }
 
     private func removeAppStateObservers() {
-        if let observer = backgroundObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = foregroundObserver {
+        if let observer = appStateObserver {
             NotificationCenter.default.removeObserver(observer)
         }
     }
