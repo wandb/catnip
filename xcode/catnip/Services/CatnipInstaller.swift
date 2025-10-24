@@ -309,6 +309,16 @@ class CatnipInstaller: ObservableObject {
 
     /// Fetch user's repositories with devcontainer status
     func fetchRepositories(page: Int = 1, perPage: Int = 50, org: String? = nil, forceRefresh: Bool = false) async throws {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("🐱 [CatnipInstaller] Using mock repositories")
+            await MainActor.run {
+                self.repositories = []
+                self.isLoading = false
+            }
+            return
+        }
+
         // Check cache first if not forcing refresh
         if !forceRefresh && isCacheValid() {
             NSLog("🐱 [CatnipInstaller] Using cached repositories (valid for \(Int(cacheValidityDuration - (Date().timeIntervalSince1970 - UserDefaults.standard.double(forKey: lastFetchTimestampKey))))s more)")
@@ -638,6 +648,15 @@ class CatnipInstaller: ObservableObject {
 
     /// Fetch user status (codespaces and repositories with Catnip)
     func fetchUserStatus() async throws {
+        // Skip in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("🐱 [CatnipInstaller] Using mock user status")
+            await MainActor.run {
+                self.userStatus = UserStatus(hasAnyCodespaces: false)
+            }
+            return
+        }
+
         let headers = try await getHeaders()
         guard let url = URL(string: "\(baseURL)/v1/user/status") else {
             throw APIError.invalidURL

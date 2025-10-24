@@ -44,7 +44,7 @@ final class FastUserJourneyTests: XCTestCase {
     func testQuickCodespaceAccess() throws {
         app.launch()
 
-        let accessButton = app.buttons["Access My Codespace"]
+        let accessButton = app.buttons["primaryActionButton"]
         XCTAssertTrue(accessButton.waitForExistence(timeout: 3), "Access button should appear")
 
         accessButton.tap()

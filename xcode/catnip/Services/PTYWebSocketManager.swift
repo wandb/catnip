@@ -62,6 +62,16 @@ class PTYWebSocketManager: NSObject, ObservableObject {
             return
         }
 
+        // Skip real connection in UI testing mode - just mark as connected
+        if UITestingHelper.shouldUseMockData {
+            NSLog("🔌 Mock PTY WebSocket connection (no real network call)")
+            DispatchQueue.main.async {
+                self.isConnected = true
+                self.reconnectAttempts = 0
+            }
+            return
+        }
+
         // Build WebSocket URL with query parameters
         var components = URLComponents(string: baseURL)
         components?.path = "/v1/pty"
@@ -150,6 +160,12 @@ class PTYWebSocketManager: NSObject, ObservableObject {
 
     // Private: Send control message as JSON
     private func sendControlMessage(_ message: PTYControlMessage) {
+        // Skip in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("📝 Mock control message send (no-op): \(message.type)")
+            return
+        }
+
         guard let webSocketTask = webSocketTask else {
             NSLog("❌ Cannot send message - WebSocket not connected")
             return

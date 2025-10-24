@@ -131,8 +131,8 @@ class AuthManager: NSObject, ObservableObject {
 
     @MainActor
     func logout() async {
-        // Notify server
-        if let token = sessionToken {
+        // Notify server (skip in UI testing mode)
+        if !UITestingHelper.isUITesting, let token = sessionToken {
             var request = URLRequest(url: URL(string: "\(baseURL)/v1/auth/mobile/logout")!)
             request.httpMethod = "POST"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

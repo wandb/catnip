@@ -133,6 +133,64 @@ struct UITestingHelper {
         ]
     }
 
+    static func getMockLatestMessage(worktreePath: String) -> LatestMessageResponse {
+        return LatestMessageResponse(
+            content: "Mock message for \(worktreePath)",
+            isError: false
+        )
+    }
+
+    static func getMockWorkspaceDiff(id: String) -> WorktreeDiffResponse {
+        let jsonData = """
+        {
+            "summary": "Mock diff for workspace",
+            "file_diffs": [{
+                "file_path": "src/auth.swift",
+                "change_type": "modified",
+                "old_content": null,
+                "new_content": null,
+                "diff_text": "@@ -10,6 +10,7 @@\\n func authenticate() {\\n+    // Added mock authentication\\n     return true\\n }",
+                "is_expanded": true
+            }],
+            "total_files": 1,
+            "worktree_id": "\(id)",
+            "worktree_name": "mock-workspace",
+            "source_branch": "main",
+            "fork_commit": "abc123"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        return try! decoder.decode(WorktreeDiffResponse.self, from: jsonData)
+    }
+
+    static func getMockBranches(repoId: String) -> [String] {
+        return ["main", "develop", "feature/test-branch"]
+    }
+
+    static func getMockClaudeSettings() -> ClaudeSettings {
+        let jsonData = """
+        {
+            "theme": "dark",
+            "notificationsEnabled": true,
+            "authenticated": true,
+            "hasCompletedOnboarding": true,
+            "numStartups": 5,
+            "version": "1.0.0"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        return try! decoder.decode(ClaudeSettings.self, from: jsonData)
+    }
+
+    static func getMockPRSummary(branch: String) -> PRSummary {
+        return PRSummary(
+            title: "Mock PR: \(branch)",
+            description: "This is a mock pull request description for testing purposes."
+        )
+    }
+
     static func shouldAutoNavigateToWorkspaces() -> Bool {
         isUITesting && shouldShowWorkspacesList
     }

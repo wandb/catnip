@@ -81,6 +81,14 @@ class CatnipAPI: ObservableObject {
     /// Returns nil if server returns 304 Not Modified (content unchanged)
     func getWorkspaces(ifNoneMatch: String? = nil) async throws -> (workspaces: [WorkspaceInfo], etag: String?)? {
         NSLog("🐱 [getWorkspaces] Fetching workspaces...")
+
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("🐱 [getWorkspaces] Using mock data")
+            let mockWorkspaces = UITestingHelper.getMockWorkspaces()
+            return (workspaces: mockWorkspaces, etag: "mock-etag")
+        }
+
         var headers = try await getHeaders(includeCodespace: true)
 
         // Add If-None-Match header for conditional request
@@ -175,6 +183,11 @@ class CatnipAPI: ObservableObject {
     }
 
     func getClaudeSessions() async throws -> [String: ClaudeSessionData] {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockClaudeSessions()
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
         guard let url = URL(string: "\(baseURL)/v1/claude/sessions") else {
             throw APIError.invalidURL
@@ -204,6 +217,11 @@ class CatnipAPI: ObservableObject {
     }
 
     func getLatestMessage(worktreePath: String) async throws -> LatestMessageResponse {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockLatestMessage(worktreePath: worktreePath)
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
         guard let encodedPath = worktreePath.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let url = URL(string: "\(baseURL)/v1/claude/latest-message?worktree_path=\(encodedPath)") else {
@@ -233,6 +251,12 @@ class CatnipAPI: ObservableObject {
 
     func startPTY(workspacePath: String, agent: String = "claude") async throws {
         NSLog("🚀 [CatnipAPI] startPTY called with workspacePath: \(workspacePath), agent: \(agent)")
+
+        // Skip in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("✅ [CatnipAPI] Mock PTY start (no-op)")
+            return
+        }
 
         let headers = try await getHeaders(includeCodespace: true)
 
@@ -270,6 +294,12 @@ class CatnipAPI: ObservableObject {
         NSLog("📝 [CatnipAPI] sendPromptToPTY called with workspacePath: \(workspacePath)")
         NSLog("📝 [CatnipAPI] Prompt length: \(prompt.count) chars")
 
+        // Skip in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("✅ [CatnipAPI] Mock prompt send (no-op)")
+            return
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
 
         guard var components = URLComponents(string: "\(baseURL)/v1/pty/prompt") else {
@@ -289,11 +319,13 @@ class CatnipAPI: ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.httpBody = prompt.data(using: .utf8)
-        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
         request.allHTTPHeaderFields = headers
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        // Backend expects JSON body with {"prompt": "text"}
+        let body = ["prompt": prompt]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             NSLog("❌ [CatnipAPI] Failed to get HTTP response")
@@ -306,14 +338,21 @@ class CatnipAPI: ObservableObject {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            NSLog("❌ [CatnipAPI] Failed to send prompt: \(httpResponse.statusCode)")
-            throw APIError.serverError(httpResponse.statusCode, "Failed to send prompt")
+            // Try to extract error message from response body
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Failed to send prompt"
+            NSLog("❌ [CatnipAPI] Failed to send prompt (\(httpResponse.statusCode)): \(errorMessage)")
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
         }
 
         NSLog("✅ [CatnipAPI] Prompt sent successfully to PTY")
     }
 
     func getWorkspaceDiff(id: String) async throws -> WorktreeDiffResponse {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockWorkspaceDiff(id: id)
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
         guard let url = URL(string: "\(baseURL)/v1/git/worktrees/\(id)/diff") else {
             throw APIError.invalidURL
@@ -347,6 +386,11 @@ class CatnipAPI: ObservableObject {
     }
 
     func fetchBranches(repoId: String) async throws -> [String] {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockBranches(repoId: repoId)
+        }
+
         // Need to include auth headers and codespace name (web app has these in cookies automatically)
         let headers = try await getHeaders(includeCodespace: true)
 
@@ -390,6 +434,15 @@ class CatnipAPI: ObservableObject {
     }
 
     func createWorkspace(orgRepo: String, branch: String?) async throws -> WorkspaceInfo {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            let mockWorkspaces = UITestingHelper.getMockWorkspaces()
+            // Return the first mock workspace as the newly created one
+            if let firstWorkspace = mockWorkspaces.first {
+                return firstWorkspace
+            }
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
         let components = orgRepo.split(separator: "/")
 
@@ -429,6 +482,12 @@ class CatnipAPI: ObservableObject {
     }
 
     func deleteWorkspace(id: String) async throws {
+        // Skip in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("✅ [CatnipAPI] Mock workspace delete (no-op)")
+            return
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
 
         // URL encode the workspace ID in case it contains special characters
@@ -454,6 +513,11 @@ class CatnipAPI: ObservableObject {
     }
 
     func checkAuthStatus() async -> (authenticated: Bool, user: String?) {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return (authenticated: true, user: "testuser")
+        }
+
         do {
             let headers = try await getHeaders()
             guard let url = URL(string: "\(baseURL)/v1/auth/status") else {
@@ -485,6 +549,11 @@ class CatnipAPI: ObservableObject {
     // MARK: - Claude Onboarding API
 
     func getClaudeSettings() async throws -> ClaudeSettings {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockClaudeSettings()
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
         guard let url = URL(string: "\(baseURL)/v1/claude/settings") else {
             throw APIError.invalidURL
@@ -613,6 +682,12 @@ class CatnipAPI: ObservableObject {
 
     func generatePRSummary(workspacePath: String, branch: String) async throws -> PRSummary {
         NSLog("🐱 [generatePRSummary] Generating PR summary for workspace: \(workspacePath)")
+
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockPRSummary(branch: branch)
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
 
         guard let url = URL(string: "\(baseURL)/v1/claude/messages") else {
@@ -717,6 +792,12 @@ Avoid overly lengthy explanations or step-by-step implementation details.
 
     func createPullRequest(workspaceId: String, title: String, description: String) async throws -> String {
         NSLog("🐱 [createPullRequest] Creating PR for workspace: \(workspaceId)")
+
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return "https://github.com/mock/repo/pull/123"
+        }
+
         let headers = try await getHeaders(includeCodespace: true)
 
         guard let url = URL(string: "\(baseURL)/v1/git/worktrees/\(workspaceId)/pr") else {

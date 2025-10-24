@@ -22,6 +22,19 @@ class SSEService {
     func connect(codespaceName: String? = nil, org: String? = nil, headers: [String: String], onEvent: @escaping (SSEEvent) -> Void) {
         self.eventCallback = onEvent
 
+        // Skip real connection in UI testing mode - simulate successful connection
+        if UITestingHelper.shouldUseMockData {
+            print("🐱 Mock SSE connection (no real network call)")
+            // Simulate a quick successful connection
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                onEvent(.status("Connecting to codespace..."))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                onEvent(.success("Connected successfully", nil))
+            }
+            return
+        }
+
         let baseURL = org != nil ? "https://\(org!).catnip.run" : "https://catnip.run"
         var urlString = "\(baseURL)/v1/codespace"
         if let codespace = codespaceName, let encoded = codespace.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {

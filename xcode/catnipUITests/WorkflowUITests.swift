@@ -37,8 +37,8 @@ final class WorkflowUITests: XCTestCase {
 
         // Wait for initial screen to load
         // Since we're using -SkipAuthentication, we should land on CodespaceView
-        let accessButton = app.buttons["Access My Codespace"]
-        XCTAssertTrue(accessButton.waitForExistence(timeout: 5), "Access My Codespace button should appear")
+        let accessButton = app.buttons["primaryActionButton"]
+        XCTAssertTrue(accessButton.waitForExistence(timeout: 5), "Access button should appear")
 
         // Test codespace connection (mock)
         accessButton.tap()
