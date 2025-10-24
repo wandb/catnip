@@ -560,7 +560,7 @@ class CatnipInstaller: ObservableObject {
         }
     }
 
-    /// Poll codespace status until it's available (up to 10 minutes)
+    /// Poll codespace status until it's available AND has credentials (up to 10 minutes)
     private func pollCodespaceStatus(codespaceName: String) async throws {
         await MainActor.run { currentStep = .waitingForCodespace }
 
@@ -570,15 +570,8 @@ class CatnipInstaller: ObservableObject {
         for attempt in 1...maxAttempts {
             NSLog("🐱 [CatnipInstaller] Polling codespace status (attempt \(attempt)/\(maxAttempts))...")
 
-            // Get fresh token for each request
-            let token = try await getSessionToken()
-            let headers = [
-                "Authorization": "Bearer \(token)",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28"
-            ]
-
-            guard let url = URL(string: "https://api.github.com/user/codespaces/\(codespaceName)") else {
+            let headers = try await getHeaders()
+            guard let url = URL(string: "\(baseURL)/v1/codespace/status/\(codespaceName)") else {
                 throw APIError.invalidURL
             }
 
@@ -593,13 +586,17 @@ class CatnipInstaller: ObservableObject {
                 }
 
                 if httpResponse.statusCode == 200 {
-                    // Parse the codespace status
+                    // Parse the response from our Cloudflare worker
                     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let state = json["state"] as? String {
-                        NSLog("🐱 [CatnipInstaller] Codespace state: \(state)")
+                       let codespaceData = json["codespace"] as? [String: Any],
+                       let state = codespaceData["state"] as? String,
+                       let hasCredentials = json["has_credentials"] as? Bool {
 
-                        if state == "Available" {
-                            NSLog("🐱 [CatnipInstaller] ✅ Codespace is now available!")
+                        NSLog("🐱 [CatnipInstaller] Codespace state: \(state), has_credentials: \(hasCredentials)")
+
+                        // Complete when EITHER codespace is Available OR we have credentials
+                        if state == "Available" || hasCredentials {
+                            NSLog("🐱 [CatnipInstaller] ✅ Codespace ready! (state=\(state), credentials=\(hasCredentials))")
 
                             // Notify tracker that creation is complete
                             await MainActor.run {
@@ -627,16 +624,16 @@ class CatnipInstaller: ObservableObject {
         }
 
         // Timeout - codespace didn't become available in time
-        NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be available")
+        NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be ready")
 
         // Notify tracker of timeout failure
         await MainActor.run {
             CodespaceCreationTracker.shared.failCreation(
-                error: "Codespace did not become available within 10 minutes"
+                error: "Codespace did not become ready within 10 minutes"
             )
         }
 
-        throw APIError.serverError(408, "Codespace did not become available within 10 minutes")
+        throw APIError.serverError(408, "Codespace did not become ready within 10 minutes")
     }
 
     /// Fetch user status (codespaces and repositories with Catnip)

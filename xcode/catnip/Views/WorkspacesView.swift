@@ -479,14 +479,15 @@ struct WorkspacesView: View {
         do {
             let settings = try await CatnipAPI.shared.getClaudeSettings()
 
-            // Show auth sheet if Claude is not authenticated
-            if !settings.authenticated {
-                NSLog("🐱 [WorkspacesView] Claude not authenticated, showing auth sheet")
+            // Show auth sheet if Claude is not authenticated OR hasn't completed onboarding
+            // This mirrors the web app logic in claude-auth-context.tsx
+            if !settings.authenticated || !settings.hasCompletedOnboarding {
+                NSLog("🐱 [WorkspacesView] Claude needs onboarding (authenticated: \(settings.authenticated), completed: \(settings.hasCompletedOnboarding)), showing auth sheet")
                 await MainActor.run {
                     showClaudeAuthSheet = true
                 }
             } else {
-                NSLog("🐱 [WorkspacesView] Claude is already authenticated")
+                NSLog("🐱 [WorkspacesView] Claude is authenticated and onboarding complete")
             }
         } catch {
             NSLog("🐱 [WorkspacesView] Failed to check Claude auth status: \(error)")

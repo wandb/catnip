@@ -73,11 +73,20 @@ struct CodespaceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                if phase == .setup || phase == .selection || phase == .repositorySelection {
+                if phase == .setup || phase == .selection || phase == .repositorySelection || phase == .creatingCodespace {
                     Button {
+                        // If creating, keep it running in background
+                        if tracker.isCreating {
+                            NSLog("🎯 User navigating away while creation continues")
+                        }
+
                         phase = .connect
-                        installer.reset()
                         errorMessage = ""
+
+                        // Only reset installer if there's an error or not creating
+                        if installer.error != nil || !tracker.isCreating {
+                            installer.reset()
+                        }
                     } label: {
                         Image(systemName: "chevron.left")
                     }
@@ -147,6 +156,14 @@ struct CodespaceView: View {
                     } catch {
                         NSLog("🐱 [CodespaceView] Failed to refresh user status: \(error)")
                     }
+                }
+
+                // Auto-connect if we just finished creating a codespace
+                if let codespace = createdCodespace {
+                    NSLog("🐱 [CodespaceView] Auto-connecting to newly created codespace: \(codespace.name)")
+                    handleConnect(codespaceName: codespace.name)
+                    // Clear the created codespace so we don't auto-connect again
+                    createdCodespace = nil
                 }
             }
         }
@@ -735,11 +752,13 @@ struct CodespaceView: View {
                     // Update tracker with codespace name
                     tracker.updateCodespaceName(codespace.name)
 
-                    NSLog("🐱 [CodespaceView] Codespace created: \(codespace.name), triggering SSE connection flow")
+                    NSLog("🐱 [CodespaceView] Codespace ready (Available or has credentials): \(codespace.name)")
+                    NSLog("🐱 [CodespaceView] tracker.completeCreation() was already called by pollCodespaceStatus")
+                    NSLog("🐱 [CodespaceView] Transitioning to connect screen to show SSE connection flow...")
 
-                    // Trigger SSE flow to handle startup, health check, etc.
-                    // This leverages the existing robust connection logic
-                    handleConnect(codespaceName: codespace.name)
+                    // Transition to connect screen - the connect view will automatically
+                    // call handleConnect() when it appears, showing the user the SSE status updates
+                    phase = .connect
                 }
             } catch {
                 // Error is already set in installer.error by createCodespace
@@ -1000,33 +1019,14 @@ struct CodespaceView: View {
 
             Spacer()
 
-            // Show back button (always visible, not just on error)
-            VStack(spacing: 12) {
-                Button(installer.error != nil ? "Back to Connect" : "Go Back") {
-                    // If creating, keep it running in background
-                    if tracker.isCreating {
-                        NSLog("🎯 User navigating away while creation continues")
-                    }
-
-                    phase = .connect
-                    errorMessage = ""
-
-                    // Only reset installer on error
-                    if installer.error != nil {
-                        installer.reset()
-                    }
-                }
-                .buttonStyle(ProminentButtonStyle(isDisabled: false))
-                .padding(.horizontal, 20)
-
-                if installer.error != nil {
-                    Text("You can try connecting again after a few minutes")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
+            // Show error hint if there's an error
+            if installer.error != nil {
+                Text("You can try connecting again after a few minutes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
