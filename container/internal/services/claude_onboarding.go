@@ -169,7 +169,7 @@ func (s *ClaudeOnboardingService) Stop() error {
 	defer s.mu.Unlock()
 
 	if !s.isRunning {
-		logger.Warnf("⚠️ Stop called but onboarding not running")
+		logger.Warnf("⚠️ Stop called but claude not running")
 		return nil // Don't error, just return - this is fine
 	}
 
@@ -221,7 +221,7 @@ func (s *ClaudeOnboardingService) GetStatus() OnboardingStatus {
 	// Add helpful messages based on state
 	switch s.currentState {
 	case StateIdle:
-		status.Message = "Onboarding not started"
+		status.Message = "Loading Claude..."
 	case StateThemeSelect:
 		status.Message = "Selecting theme..."
 	case StateAuthMethod:
@@ -251,7 +251,7 @@ func (s *ClaudeOnboardingService) SubmitCode(code string) error {
 	defer s.mu.Unlock()
 
 	if !s.isRunning {
-		return fmt.Errorf("onboarding not running")
+		return fmt.Errorf("claude not running")
 	}
 
 	if s.currentState != StateAuthWaiting {

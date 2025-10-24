@@ -296,6 +296,7 @@ struct ClaudeAuthSheet: View {
             code = ""
             hasSubmittedCode = false
             hasClickedOAuthLink = false
+            submittingCode = false
         }
 
         do {
@@ -364,8 +365,8 @@ struct ClaudeAuthSheet: View {
             try await CatnipAPI.shared.submitClaudeOnboardingCode(trimmedCode)
 
             await MainActor.run {
-                submittingCode = false
-                // Resume polling to wait for completion
+                // Keep submittingCode = true until polling detects state transition
+                // This prevents the button from becoming clickable while waiting for backend
                 startPolling()
             }
         } catch {
@@ -405,6 +406,7 @@ struct ClaudeAuthSheet: View {
             code = ""
             hasSubmittedCode = false
             hasClickedOAuthLink = false
+            submittingCode = false
         }
 
         isPresented = false
@@ -423,6 +425,7 @@ struct ClaudeAuthSheet: View {
             code = ""
             hasClickedOAuthLink = false
             hasSubmittedCode = false
+            submittingCode = false
         }
 
         isPresented = false
@@ -458,6 +461,7 @@ struct ClaudeAuthSheet: View {
                 // Stop polling when we reach terminal states
                 if newStatus.parsedState == .complete || newStatus.parsedState == .error {
                     stopPolling()
+                    submittingCode = false  // Reset submitting state on state transition
 
                     // Auto-dismiss after 2 seconds on success
                     if newStatus.parsedState == .complete {
