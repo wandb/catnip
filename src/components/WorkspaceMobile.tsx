@@ -8,12 +8,12 @@ import { TextContent } from "@/components/TextContent";
 import { PullRequestDialog } from "@/components/PullRequestDialog";
 import { useAppStore } from "@/stores/appStore";
 import { useClaudeApi } from "@/hooks/useClaudeApi";
-import { usePtySSEConnection } from "@/hooks/usePtySSEConnection";
 import { GitMerge, ExternalLink } from "lucide-react";
 import {
   getWorkspaceTitle,
   getStatusIndicatorClasses,
 } from "@/lib/workspace-utils";
+import { gitApi } from "@/lib/git-api";
 import type { Worktree, LocalRepository } from "@/lib/git-api";
 import type { ClaudeSessionSummary } from "@/lib/claude-api";
 
@@ -147,9 +147,7 @@ export function WorkspaceMobile({
   const [hasStartedFromInitialPrompt, setHasStartedFromInitialPrompt] =
     useState(false);
   const [sessionRestarted, setSessionRestarted] = useState(false);
-  const [promptToSend, setPromptToSend] = useState<string | undefined>(
-    undefined,
-  );
+  const [claudeErrors, setClaudeErrors] = useState<string[]>([]);
   const restartedContentRef = useRef<{
     latestMessage?: string;
     todos?: any[];
@@ -162,15 +160,7 @@ export function WorkspaceMobile({
     state.worktrees.get(worktree.id),
   );
 
-  // PTY SSE connection to kick off Claude session (data not displayed)
-  const ptyConnection = usePtySSEConnection({
-    sessionId: worktree.name,
-    agent: "claude",
-    enabled: phase === "todos" || phase === "existing" || phase === "error", // Only connect when Claude should be active
-    prompt: promptToSend,
-  });
-
-  const startSession = (promptToSendArg?: string) => {
+  const startSession = async (promptToSendArg?: string) => {
     // Use the provided prompt or fall back to the state prompt
     const actualPrompt = promptToSendArg || prompt;
     const wasFromInitialPrompt = Boolean(promptToSendArg && initialPrompt);
@@ -181,9 +171,7 @@ export function WorkspaceMobile({
     }
 
     setSessionStarting(true);
-
-    // Set the prompt to be sent via SSE connection
-    setPromptToSend(actualPrompt);
+    setClaudeErrors([]); // Clear any previous errors
 
     // Reset hasBeenActive and set phase when starting a new session from existing workspace
     // This ensures proper state transitions
@@ -219,7 +207,24 @@ export function WorkspaceMobile({
     }
 
     setPhase("todos");
-    setSessionStarting(false);
+
+    // Send prompt to PTY using new API
+    try {
+      await gitApi.sendPromptToPTY(worktree.name, actualPrompt, "claude");
+    } catch (error) {
+      console.error("Failed to send prompt to PTY:", error);
+      if (error instanceof Error && error.message === "PTY_TIMEOUT") {
+        setClaudeErrors([
+          "PTY is not ready yet. Please wait a moment and try again.",
+        ]);
+        setPhase("error");
+      } else {
+        setClaudeErrors(["Failed to send prompt to Claude. Please try again."]);
+        setPhase("error");
+      }
+    } finally {
+      setSessionStarting(false);
+    }
   };
 
   // Pre-compute content for all phases to avoid conditional hooks
@@ -257,6 +262,21 @@ export function WorkspaceMobile({
 
     return <TextContent content={content} />;
   }, [latestMessage, contentKey]);
+
+  // Start PTY proactively when component mounts
+  useEffect(() => {
+    const startPTY = async () => {
+      try {
+        await gitApi.startPTY(worktree.name, "claude");
+        console.log("✅ Started PTY for workspace:", worktree.name);
+      } catch (error) {
+        console.warn("⚠️ Failed to start PTY:", error);
+        // Non-fatal - PTY will be created on-demand if needed
+      }
+    };
+
+    void startPTY();
+  }, [worktree.name]);
 
   // Load Claude session data on mount
   useEffect(() => {
@@ -307,7 +327,7 @@ export function WorkspaceMobile({
             setPhase("todos");
             // Start session after a short delay to let the UI update
             setTimeout(() => {
-              startSession(trimmedPrompt);
+              void startSession(trimmedPrompt);
             }, 100);
           } else {
             setPhase("input");
@@ -324,7 +344,7 @@ export function WorkspaceMobile({
           setPhase("todos");
           // Start session after a short delay to let the UI update
           setTimeout(() => {
-            startSession(trimmedPrompt);
+            void startSession(trimmedPrompt);
           }, 100);
         } else {
           setPhase("input");
@@ -336,23 +356,6 @@ export function WorkspaceMobile({
 
     void loadClaudeData();
   }, [worktree.path]); // Removed initialPrompt from dependency array
-
-  // Clear the prompt after SSE connection is established
-  useEffect(() => {
-    if (ptyConnection.isConnected && promptToSend) {
-      // Clear the prompt after a short delay to ensure it was processed
-      setTimeout(() => {
-        setPromptToSend(undefined);
-      }, 1000);
-    }
-  }, [ptyConnection.isConnected, promptToSend]);
-
-  // Monitor for Claude errors from SSE connection
-  useEffect(() => {
-    if (ptyConnection.claudeErrors && ptyConnection.claudeErrors.length > 0) {
-      setPhase("error");
-    }
-  }, [ptyConnection.claudeErrors]);
 
   useEffect(() => {
     if (!currentWorktree) return;
@@ -366,8 +369,7 @@ export function WorkspaceMobile({
 
     // Handle transitions based on Claude activity state
     // Don't transition away from error phase or into completed phase if there are Claude errors
-    const hasClaudeErrors =
-      ptyConnection.claudeErrors && ptyConnection.claudeErrors.length > 0;
+    const hasClaudeErrors = claudeErrors && claudeErrors.length > 0;
 
     if (
       phase === "existing" &&
@@ -486,7 +488,7 @@ export function WorkspaceMobile({
     getWorktreeLatestMessageOrError,
     getAllWorktreeSessionSummaries,
     hasBeenActive,
-    ptyConnection.claudeErrors,
+    claudeErrors,
   ]);
 
   // Simplified auto-start logic - only for input phase without initial prompt
@@ -504,7 +506,7 @@ export function WorkspaceMobile({
       // Short delay and then start
       const timer = setTimeout(() => {
         setPhase("todos");
-        startSession(prompt); // Pass the prompt directly
+        void startSession(prompt); // Pass the prompt directly
       }, 500);
 
       return () => clearTimeout(timer);
@@ -601,18 +603,16 @@ export function WorkspaceMobile({
                 </div>
               )}
 
-              {/* Display Claude errors from SSE */}
-              {ptyConnection.claudeErrors &&
-                ptyConnection.claudeErrors.length > 0 && (
-                  <div className="mt-4">
-                    <ClaudeErrorDisplay errors={ptyConnection.claudeErrors} />
-                  </div>
-                )}
+              {/* Display Claude errors */}
+              {claudeErrors && claudeErrors.length > 0 && (
+                <div className="mt-4">
+                  <ClaudeErrorDisplay errors={claudeErrors} />
+                </div>
+              )}
 
               {/* Fallback only if we have nothing */}
               {!errorContent &&
-                (!ptyConnection.claudeErrors ||
-                  ptyConnection.claudeErrors.length === 0) && (
+                (!claudeErrors || claudeErrors.length === 0) && (
                   <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-4">
                     <div className="flex items-center gap-2 text-destructive mb-2">
                       <span className="text-sm font-medium">Error</span>
@@ -639,8 +639,8 @@ export function WorkspaceMobile({
                   <Button
                     onClick={() => {
                       // Clear errors and restart session
-                      ptyConnection.clearClaudeErrors();
-                      startSession();
+                      setClaudeErrors([]);
+                      void startSession();
                     }}
                     disabled={!prompt.trim()}
                     className="flex-1"

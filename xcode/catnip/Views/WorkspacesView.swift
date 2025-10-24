@@ -200,9 +200,12 @@ struct WorkspacesView: View {
     private var listView: some View {
         List {
             ForEach(workspaces) { workspace in
-                NavigationLink(destination: WorkspaceDetailView(workspaceId: workspace.id, initialWorkspace: workspace)) {
+                Button {
+                    navigationWorkspace = workspace
+                } label: {
                     WorkspaceCard(workspace: workspace)
                 }
+                .buttonStyle(.plain)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8))
                 .listRowSeparator(.visible)
                 .listRowBackground(Color(uiColor: .secondarySystemBackground))
@@ -406,8 +409,8 @@ struct WorkspacesView: View {
                 NSLog("🐱 [WorkspacesView] Workspace name (session ID): \(workspaceName)")
                 Task.detached {
                     do {
-                        NSLog("🐱 [WorkspacesView] About to call sendPrompt API...")
-                        try await CatnipAPI.shared.sendPrompt(
+                        NSLog("🐱 [WorkspacesView] About to call sendPromptToPTY API...")
+                        try await CatnipAPI.shared.sendPromptToPTY(
                             workspacePath: workspaceName,
                             prompt: promptToSend
                         )

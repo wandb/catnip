@@ -52,74 +52,6 @@ type ControlMessage struct {
 	Focused bool   `json:"focused,omitempty"`
 }
 
-// SSEConnection implements PTYConnection for Server-Sent Events
-type SSEConnection struct {
-	writer     io.Writer
-	ctx        context.Context
-	remoteAddr string
-	done       chan struct{}
-	closed     bool
-	closeMutex sync.Mutex
-}
-
-func NewSSEConnection(ctx context.Context, writer io.Writer, remoteAddr string) *SSEConnection {
-	return &SSEConnection{
-		writer:     writer,
-		ctx:        ctx,
-		remoteAddr: remoteAddr,
-		done:       make(chan struct{}),
-	}
-}
-
-func (s *SSEConnection) WriteMessage(data []byte) error {
-	// Format as SSE: "data: {content}\n\n"
-	formatted := fmt.Sprintf("data: %s\n\n", strings.TrimSpace(string(data)))
-	_, err := s.writer.Write([]byte(formatted))
-	return err
-}
-
-func (s *SSEConnection) WriteJSONMessage(data []byte) error {
-	// For SSE, JSON messages are sent the same way as binary data
-	return s.WriteMessage(data)
-}
-
-func (s *SSEConnection) ReadControlMessage() (*ControlMessage, error) {
-	// SSE is read-only for input, but we need to block until disconnection
-	select {
-	case <-s.ctx.Done():
-		return nil, s.ctx.Err()
-	case <-s.done:
-		return nil, io.EOF
-	}
-}
-
-func (s *SSEConnection) Close() error {
-	s.closeMutex.Lock()
-	defer s.closeMutex.Unlock()
-
-	if !s.closed {
-		close(s.done)
-		s.closed = true
-	}
-	return nil
-}
-
-func (s *SSEConnection) RemoteAddr() string {
-	return s.remoteAddr
-}
-
-func (s *SSEConnection) IsReadOnly() bool {
-	return true // SSE connections are always read-only for input
-}
-
-func (s *SSEConnection) Type() string {
-	return "sse"
-}
-
-func (s *SSEConnection) Context() context.Context {
-	return s.ctx
-}
-
 // WebSocketConnection implements PTYConnection for WebSocket connections
 type WebSocketConnection struct {
 	conn *websocket.Conn
@@ -264,6 +196,10 @@ type Session struct {
 	recreationMutex      sync.Mutex
 	// External workspace read-only protection
 	IsReadOnlyWorkspace bool
+	// PTY readiness tracking - indicates if PTY is ready to accept user input
+	IsReady    bool
+	readyAt    time.Time
+	readyMutex sync.RWMutex
 	// Terminal emulator for Claude sessions (server-side terminal state)
 }
 
@@ -477,99 +413,165 @@ func (h *PTYHandler) HandleWebSocket(c *fiber.Ctx) error {
 	return fiber.ErrUpgradeRequired
 }
 
-// HandleSSEConnection handles SSE connections for PTY streaming
-// @Summary Create PTY SSE connection
-// @Description Establishes a Server-Sent Events connection for terminal streaming
+// HandlePTYStart starts a PTY session for a workspace
+// @Summary Start PTY session
+// @Description Creates PTY session for workspace if not exists, returns immediately
 // @Tags pty
-// @Param session query string true "Session ID"
+// @Param session query string true "Session ID (workspace name)"
 // @Param agent query string false "Agent type (claude, bash, etc)"
-// @Param prompt query string false "Prompt to send to PTY session"
-// @Success 200 "Stream of terminal events"
-// @Router /v1/pty/sse [get]
-func (h *PTYHandler) HandleSSEConnection(c *fiber.Ctx) error {
-	// Extract session ID, agent, and prompt
+// @Success 200 {object} map[string]interface{} "Session started or already exists"
+// @Failure 400 {object} map[string]interface{} "Invalid parameters"
+// @Failure 500 {object} map[string]interface{} "Failed to create session"
+// @Router /v1/pty/start [post]
+func (h *PTYHandler) HandlePTYStart(c *fiber.Ctx) error {
+	// Extract session ID and agent from query parameters
 	defaultSession := os.Getenv("CATNIP_SESSION")
 	if defaultSession == "" {
 		defaultSession = "default"
 	}
 	sessionID := c.Query("session", defaultSession)
 	agent := c.Query("agent", "")
-	prompt := c.Query("prompt", "")
 
-	// Debug logging
-	logger.Infof("🐱 [HandleSSEConnection] Received SSE request - session: %s, agent: %s, has_prompt: %v", sessionID, agent, prompt != "")
-	if agent != "" {
-		logger.Debugf("📡 New SSE connection for session: %s with agent: %s", sessionID, agent)
-	} else {
-		logger.Debugf("📡 New SSE connection for session: %s", sessionID)
+	if sessionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "session parameter is required",
+		})
 	}
+
+	logger.Infof("🚀 Starting PTY session - session: %s, agent: %s", sessionID, agent)
 
 	// Create composite session key: path + agent
 	compositeSessionID := sessionID
 	if agent != "" {
 		compositeSessionID = fmt.Sprintf("%s:%s", sessionID, agent)
 	}
-	logger.Infof("🐱 [HandleSSEConnection] Composite session ID: %s", compositeSessionID)
 
-	// Set SSE headers
-	c.Set("Content-Type", "text/event-stream")
-	c.Set("Cache-Control", "no-cache")
-	c.Set("Connection", "keep-alive")
-	c.Set("Access-Control-Allow-Origin", "*")
-	c.Set("Access-Control-Allow-Headers", "Cache-Control")
-
-	// Create SSE connection
-	sseConn := NewSSEConnection(
-		c.Context(),
-		c.Response().BodyWriter(),
-		c.IP(),
-	)
-
-	// For now, create a minimal SSE connection handler that gets the session
-	// and sends the initial buffer, then streams data until disconnection
+	// Get or create session (returns immediately after starting)
 	session := h.getOrCreateSession(compositeSessionID, agent, false)
 	if session == nil {
 		logger.Errorf("❌ Failed to create session: %s", compositeSessionID)
-		return c.Status(500).SendString("Failed to create session")
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Failed to create session",
+			"session": compositeSessionID,
+		})
 	}
 
-	// Add the SSE connection to the session
-	session.connMutex.Lock()
-	connID := fmt.Sprintf("%p", sseConn)
-	session.connections[sseConn] = &ConnectionInfo{
-		ConnectedAt: time.Now(),
-		RemoteAddr:  sseConn.RemoteAddr(),
-		ConnID:      connID,
-		IsReadOnly:  true,  // SSE connections are always read-only
-		IsFocused:   false, // SSE connections don't support focus
-		ConnType:    "sse",
+	logger.Infof("✅ PTY session started successfully: %s", compositeSessionID)
+	return c.JSON(fiber.Map{
+		"status":     "started",
+		"session_id": compositeSessionID,
+	})
+}
+
+// HandlePTYPrompt sends a prompt to a PTY session
+// @Summary Send prompt to PTY
+// @Description Sends prompt to PTY session, waits for readiness
+// @Tags pty
+// @Param session query string true "Session ID (workspace name)"
+// @Param agent query string false "Agent type (claude, bash, etc)"
+// @Param prompt body string true "Prompt text to send"
+// @Success 200 {object} map[string]interface{} "Prompt sent successfully"
+// @Failure 400 {object} map[string]interface{} "Invalid parameters"
+// @Failure 404 {object} map[string]interface{} "Session not found"
+// @Failure 408 {object} map[string]interface{} "PTY not ready within timeout"
+// @Failure 500 {object} map[string]interface{} "Failed to send prompt"
+// @Router /v1/pty/prompt [post]
+func (h *PTYHandler) HandlePTYPrompt(c *fiber.Ctx) error {
+	// Extract session ID and agent from query parameters
+	defaultSession := os.Getenv("CATNIP_SESSION")
+	if defaultSession == "" {
+		defaultSession = "default"
 	}
-	session.connMutex.Unlock()
+	sessionID := c.Query("session", defaultSession)
+	agent := c.Query("agent", "")
 
-	logger.Debugf("🔗 Added SSE connection [%s] to session %s", connID, compositeSessionID)
-
-	// SSE connections don't receive raw terminal output or buffer replay
-	// They only receive structured JSON error messages via broadcastToConnectionsSelective
-	logger.Debugf("📤 SSE connection established - will only receive JSON error messages")
-
-	// Handle prompt injection if provided via query parameter using SessionStart hook
-	if prompt != "" {
-		logger.Infof("🐱 [HandleSSEConnection] Prompt provided, starting injection handler for: %q", prompt)
-		go h.handleSSEPromptInjection(session, prompt)
-	} else {
-		logger.Infof("🐱 [HandleSSEConnection] No prompt provided in query parameters")
+	if sessionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "session parameter is required",
+		})
 	}
 
-	// Wait for context cancellation (connection close)
-	<-sseConn.Context().Done()
+	// Read and parse JSON body to extract prompt
+	var requestBody struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := c.BodyParser(&requestBody); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid JSON body",
+		})
+	}
 
-	// Clean up connection
-	session.connMutex.Lock()
-	delete(session.connections, sseConn)
-	session.connMutex.Unlock()
+	prompt := requestBody.Prompt
+	if prompt == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "prompt is required in request body",
+		})
+	}
 
-	logger.Debugf("🔌 SSE connection [%s] closed for session %s", connID, compositeSessionID)
-	return nil
+	logger.Infof("📝 Sending prompt to PTY - session: %s, agent: %s, prompt length: %d", sessionID, agent, len(prompt))
+
+	// Create composite session key: path + agent
+	compositeSessionID := sessionID
+	if agent != "" {
+		compositeSessionID = fmt.Sprintf("%s:%s", sessionID, agent)
+	}
+
+	// Get session from sessions map
+	h.sessionMutex.RLock()
+	session, exists := h.sessions[compositeSessionID]
+	h.sessionMutex.RUnlock()
+
+	if !exists || session == nil {
+		logger.Errorf("❌ Session not found: %s", compositeSessionID)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error":   "Session not found",
+			"session": compositeSessionID,
+		})
+	}
+
+	// Wait for PTY to be ready (up to 5 seconds)
+	timeout := 5 * time.Second
+	logger.Infof("⏳ Waiting up to %v for PTY to be ready: %s", timeout, compositeSessionID)
+
+	if !h.waitForPTYReady(session, timeout) {
+		logger.Warnf("⏰ PTY not ready within timeout for session: %s", compositeSessionID)
+		return c.Status(fiber.StatusRequestTimeout).JSON(fiber.Map{
+			"error":           "PTY not ready",
+			"timeout_seconds": int(timeout.Seconds()),
+			"session":         compositeSessionID,
+		})
+	}
+
+	// PTY is ready, inject the prompt
+	logger.Infof("✅ PTY is ready, injecting prompt for session: %s", compositeSessionID)
+
+	// Write prompt text first
+	if _, err := session.PTY.Write([]byte(prompt)); err != nil {
+		logger.Errorf("❌ Failed to write prompt to PTY: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Failed to write prompt to PTY",
+			"session": compositeSessionID,
+		})
+	}
+
+	// Wait 100ms before sending carriage return
+	time.Sleep(100 * time.Millisecond)
+
+	// Send carriage return to submit the prompt
+	if _, err := session.PTY.Write([]byte("\r")); err != nil {
+		logger.Errorf("❌ Failed to write carriage return to PTY: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Failed to submit prompt to PTY",
+			"session": compositeSessionID,
+		})
+	}
+
+	logger.Infof("✅ Prompt sent successfully to session: %s", compositeSessionID)
+	return c.JSON(fiber.Map{
+		"status":        "sent",
+		"prompt_length": len(prompt),
+		"session":       compositeSessionID,
+	})
 }
 
 func (h *PTYHandler) handlePTYConnection(conn *websocket.Conn, sessionID, agent string, reset bool) {
@@ -1393,6 +1395,30 @@ func (h *PTYHandler) readPTYContinuously(session *Session) {
 			if title, ok := extractTitleFromEscapeSequence(buf[:n]); ok {
 				h.handleTitleUpdate(session, title)
 			}
+
+			// Detect PTY readiness for Claude sessions
+			// Check if session is not already ready to avoid redundant processing
+			session.readyMutex.RLock()
+			isAlreadyReady := session.IsReady
+			session.readyMutex.RUnlock()
+
+			if !isAlreadyReady {
+				// Strip ANSI codes for reliable pattern matching
+				ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[><]|\x1b\][^\x1b]*\x1b\\`)
+				cleanOutput := ansiRegex.ReplaceAllString(string(buf[:n]), "")
+
+				// Look for "bypass permissions on" which indicates Claude is ready for input
+				if strings.Contains(cleanOutput, "bypass permissions on") {
+					session.readyMutex.Lock()
+					// Double-check we haven't been marked ready by another goroutine
+					if !session.IsReady {
+						session.IsReady = true
+						session.readyAt = time.Now()
+						logger.Infof("✅ PTY is now ready for input (detected 'bypass permissions on') for session: %s", session.ID)
+					}
+					session.readyMutex.Unlock()
+				}
+			}
 		}
 
 		// Process terminal output based on session type
@@ -1460,6 +1486,30 @@ func (h *PTYHandler) resizePTY(ptmx *os.File, cols, rows uint16) error {
 		return errno
 	}
 	return nil
+}
+
+// waitForPTYReady waits for a PTY session to be ready for input with a timeout
+// Returns true if ready within timeout, false otherwise
+func (h *PTYHandler) waitForPTYReady(session *Session, timeout time.Duration) bool {
+	checkInterval := 100 * time.Millisecond
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		session.readyMutex.RLock()
+		isReady := session.IsReady
+		session.readyMutex.RUnlock()
+
+		if isReady {
+			logger.Debugf("✅ PTY ready check succeeded for session: %s", session.ID)
+			return true
+		}
+
+		// Sleep for check interval before retrying
+		time.Sleep(checkInterval)
+	}
+
+	logger.Warnf("⏰ PTY ready check timed out after %v for session: %s", timeout, session.ID)
+	return false
 }
 
 // hasFocusedConnection checks if any connection in the session is currently focused
@@ -2582,148 +2632,6 @@ func (h *PTYHandler) handleFocusChange(session *Session, conn PTYConnection, foc
 	} else {
 		logger.Infof("👁️ Connection [%s] lost focus in session %s", connID, session.ID)
 	}
-}
-
-// handleSSEPromptInjection waits for SessionStart hook then injects prompt robustly
-func (h *PTYHandler) handleSSEPromptInjection(session *Session, prompt string) {
-	logger.Infof("🐱 [handleSSEPromptInjection] Started for session: %s, prompt: %q", session.ID, prompt)
-
-	if h.claudeMonitor == nil {
-		logger.Errorf("🐱 [handleSSEPromptInjection] ❌ ClaudeMonitor service not available for SSE prompt injection")
-		return
-	}
-
-	// Check if Claude is already active/running AND at the ready prompt
-	// We need to verify the PTY output shows "bypass permissions on" which indicates
-	// Claude is truly ready to accept input, not just that the process is running.
-	claudeActivityState := h.sessionService.GetClaudeActivityState(session.WorkDir)
-	logger.Infof("🐱 [handleSSEPromptInjection] Current Claude activity state: %v", claudeActivityState)
-
-	if claudeActivityState == models.ClaudeActive || claudeActivityState == models.ClaudeRunning {
-		// Check PTY output buffer to confirm Claude is at the ready prompt
-		session.bufferMutex.RLock()
-		outputBuffer := string(session.outputBuffer)
-		session.bufferMutex.RUnlock()
-
-		// Strip ANSI codes for reliable pattern matching (same approach as claude_onboarding.go)
-		ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[><]|\x1b\][^\x1b]*\x1b\\`)
-		cleanOutput := ansiRegex.ReplaceAllString(outputBuffer, "")
-
-		// Look for "bypass permissions on" which appears in Claude's ready prompt
-		if strings.Contains(cleanOutput, "bypass permissions on") {
-			logger.Infof("🚀 Claude is at ready prompt (detected 'bypass permissions on'), injecting immediately")
-			// Brief delay to ensure PTY is ready
-			time.Sleep(100 * time.Millisecond)
-			h.injectPromptWithEchoConfirmation(session, prompt)
-			return
-		}
-
-		logger.Infof("⏳ Claude is running but not at ready prompt yet, will wait for SessionStart")
-	}
-
-	logger.Infof("🐱 [handleSSEPromptInjection] ⏳ Waiting for SessionStart hook before injecting SSE prompt: %q", prompt)
-
-	// Record the current time so we only accept SessionStart events after now
-	startTime := time.Now()
-
-	// Wait for SessionStart hook with timeout
-	timeout := 30 * time.Second
-	checkInterval := 100 * time.Millisecond
-
-	for elapsed := time.Duration(0); elapsed < timeout; elapsed += checkInterval {
-		time.Sleep(checkInterval)
-
-		// Check if we've received a SessionStart hook for this working directory AFTER we started waiting
-		lastSessionStart := h.claudeMonitor.GetClaudeService().GetLastSessionStart(session.WorkDir)
-		if !lastSessionStart.IsZero() && lastSessionStart.After(startTime) {
-			logger.Infof("🚀 SessionStart hook received for SSE at %v (started waiting at %v)", lastSessionStart, startTime)
-
-			// Wait a brief moment after SessionStart for safety
-			logger.Infof("⏳ Waiting 200ms after SessionStart for Claude to be fully ready...")
-			time.Sleep(200 * time.Millisecond)
-
-			// Inject prompt and wait for echo before sending carriage return
-			h.injectPromptWithEchoConfirmation(session, prompt)
-			return
-		}
-	}
-
-	logger.Errorf("❌ Timeout waiting for SessionStart hook after %v for SSE prompt injection", timeout)
-}
-
-// injectPromptWithEchoConfirmation injects a prompt and waits for echo confirmation
-func (h *PTYHandler) injectPromptWithEchoConfirmation(session *Session, prompt string) {
-	logger.Infof("📝 Injecting prompt into PTY via SSE: %q", prompt)
-
-	// Start monitoring PTY output for the prompt echo
-	promptEchoReceived := make(chan bool, 1)
-	go h.monitorForPromptEcho(session, prompt, promptEchoReceived)
-
-	// Write prompt to PTY
-	if _, err := session.PTY.Write([]byte(prompt)); err != nil {
-		logger.Warnf("❌ Failed to write prompt to PTY: %v", err)
-		return
-	}
-
-	// Wait for prompt echo with timeout
-	select {
-	case <-promptEchoReceived:
-		logger.Infof("✅ Prompt echo confirmed, sending carriage return")
-		// Brief delay to ensure prompt is fully rendered
-		time.Sleep(50 * time.Millisecond)
-		if _, err := session.PTY.Write([]byte("\r")); err != nil {
-			logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
-		} else {
-			logger.Infof("↩️ Carriage return sent to execute SSE prompt")
-		}
-	case <-time.After(5 * time.Second):
-		logger.Warnf("⏰ Timeout waiting for prompt echo, sending carriage return anyway")
-		if _, err := session.PTY.Write([]byte("\r")); err != nil {
-			logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
-		}
-	}
-}
-
-// monitorForPromptEcho monitors PTY output for prompt confirmation
-func (h *PTYHandler) monitorForPromptEcho(session *Session, expectedPrompt string, done chan bool) {
-	// Monitor for a reasonable amount of time
-	timeout := 3 * time.Second
-	startTime := time.Now()
-
-	// Create a small buffer to capture recent PTY output
-	var recentOutput []byte
-	maxBufferSize := len(expectedPrompt) + 100 // Some buffer for terminal escape sequences
-
-	for time.Since(startTime) < timeout {
-		// Wait briefly between checks
-		time.Sleep(10 * time.Millisecond)
-
-		// Check the session's output buffer for the expected prompt
-		session.bufferMutex.RLock()
-		if len(session.outputBuffer) > 0 {
-			// Get the tail of the output buffer
-			bufferStart := 0
-			if len(session.outputBuffer) > maxBufferSize {
-				bufferStart = len(session.outputBuffer) - maxBufferSize
-			}
-			recentOutput = session.outputBuffer[bufferStart:]
-		}
-		session.bufferMutex.RUnlock()
-
-		// Check if our prompt appears in the recent output
-		if len(recentOutput) > 0 && strings.Contains(string(recentOutput), expectedPrompt) {
-			select {
-			case done <- true:
-				logger.Debugf("✅ Found prompt echo in PTY output")
-			default:
-				// Channel already closed or full
-			}
-			return
-		}
-	}
-
-	// Timeout reached without finding echo
-	logger.Debugf("⏰ Prompt echo monitoring timeout after %v", timeout)
 }
 
 // detectClaudeErrorsFromJSONL checks for recent errors in Claude JSONL logs

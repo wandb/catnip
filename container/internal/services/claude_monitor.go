@@ -65,16 +65,17 @@ type WorktreeCheckpointManager struct {
 
 // WorktreeTodoMonitor monitors Todo updates for a single worktree
 type WorktreeTodoMonitor struct {
-	workDir       string
-	projectDir    string
-	claudeService *ClaudeService
-	claudeMonitor *ClaudeMonitorService
-	gitService    *GitService
-	ticker        *time.Ticker
-	stopCh        chan struct{}
-	lastModTime   time.Time
-	lastTodos     []models.Todo
-	lastTodosJSON string // JSON representation for comparison
+	workDir        string
+	projectDir     string
+	claudeService  *ClaudeService
+	claudeMonitor  *ClaudeMonitorService
+	gitService     *GitService
+	sessionService *SessionService
+	ticker         *time.Ticker
+	stopCh         chan struct{}
+	lastModTime    time.Time
+	lastTodos      []models.Todo
+	lastTodosJSON  string // JSON representation for comparison
 }
 
 // NewClaudeMonitorService creates a new Claude monitor service
@@ -1140,12 +1141,13 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 	logger.Debugf("📁 Found project directory: %s", projectDir)
 
 	monitor := &WorktreeTodoMonitor{
-		workDir:       worktreePath,
-		projectDir:    projectDir,
-		claudeService: s.claudeService,
-		claudeMonitor: s,
-		gitService:    s.gitService,
-		stopCh:        make(chan struct{}),
+		workDir:        worktreePath,
+		projectDir:     projectDir,
+		claudeService:  s.claudeService,
+		claudeMonitor:  s,
+		gitService:     s.gitService,
+		sessionService: s.sessionService,
+		stopCh:         make(chan struct{}),
 	}
 
 	s.todoMonitors[worktreePath] = monitor
@@ -1257,8 +1259,24 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	}
 }
 
-// findLatestSessionFile finds the most recently modified JSONL file in the project directory
+// findLatestSessionFile finds the best session file in the project directory
+// Uses SessionService's size-based logic to avoid warmup/small sessions
 func (m *WorktreeTodoMonitor) findLatestSessionFile() (string, time.Time, error) {
+	// Use SessionService's proven logic that filters by size (>10KB) and prefers largest sessions
+	if m.sessionService != nil {
+		sessionFile := m.sessionService.FindBestSessionFile(m.projectDir)
+		if sessionFile != "" {
+			info, err := os.Stat(sessionFile)
+			if err != nil {
+				return "", time.Time{}, err
+			}
+			return sessionFile, info.ModTime(), nil
+		}
+	}
+
+	// Fallback to old logic if SessionService not available (shouldn't happen)
+	logger.Warn("⚠️ SessionService not set in WorktreeTodoMonitor, using fallback session selection")
+
 	entries, err := os.ReadDir(m.projectDir)
 	if err != nil {
 		return "", time.Time{}, err

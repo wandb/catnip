@@ -372,6 +372,17 @@ func (s *SessionService) isProcessAlive(pid string) bool {
 	return true
 }
 
+// FindBestSessionFile finds the best JSONL session file in a project directory
+// It filters out small/warmup sessions and prefers larger files with more content
+// Returns the full file path to the best session, or empty string if none found
+func (s *SessionService) FindBestSessionFile(projectDir string) string {
+	sessionID := s.findNewestClaudeSessionFile(projectDir)
+	if sessionID == "" {
+		return ""
+	}
+	return filepath.Join(projectDir, sessionID+".jsonl")
+}
+
 // findNewestClaudeSessionFile finds the best JSONL file in .claude/projects directory
 // It filters out "Warmup" sessions and prefers larger, more active sessions
 func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) string {

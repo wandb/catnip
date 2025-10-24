@@ -111,17 +111,12 @@ final class UserJourneyTests: XCTestCase {
         let codespacePage = CodespacePage(app: app)
         XCTAssertTrue(codespacePage.isDisplayed(), "Codespace page should appear")
 
-        // Test entering organization
-        codespacePage.enterOrganization("wandb")
+        // Verify main access button exists
+        XCTAssertTrue(codespacePage.accessButton.exists, "Access button should exist")
+        XCTAssertTrue(codespacePage.accessButton.isEnabled, "Access button should be enabled")
 
-        // Wait for UI to update
-        _ = codespacePage.goButton.waitForExistence(timeout: 2)
-
-        // Verify button is enabled
-        XCTAssertTrue(codespacePage.goButton.isEnabled, "Go button should be enabled after entering organization")
-
-        // Verify logout exists
-        XCTAssertTrue(codespacePage.logoutButton.exists, "Logout button should exist")
+        // Verify more options menu exists (contains logout)
+        XCTAssertTrue(codespacePage.moreOptionsButton.exists, "More options button should exist")
     }
 
     @MainActor

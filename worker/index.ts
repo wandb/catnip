@@ -874,7 +874,7 @@ export function createApp(env: Env) {
               } else {
                 // Consume response body to prevent stalled HTTP responses
                 // This is required in Cloudflare Workers to avoid hitting connection limits
-                devcontainerResponse.body?.cancel();
+                void devcontainerResponse.body?.cancel();
               }
 
               return {
@@ -1178,7 +1178,7 @@ ${!existingContent ? "- Using minimal Ubuntu base image to avoid disk space issu
 2. Create a new codespace from this branch or restart your existing codespace
 3. Open the Catnip mobile app to connect
 
-${!existingContent ? "## Customization\nIf you need specific development tools, you can change the base image in \`.devcontainer/devcontainer.json\` to:\n- \`mcr.microsoft.com/devcontainers/python:3.12\` for Python development\n- \`mcr.microsoft.com/devcontainers/javascript-node:20\` for Node.js development\n- Or any other [devcontainer image](https://mcr.microsoft.com/catalog?search=devcontainers)\n\n" : ""}---
+${!existingContent ? "## Customization\nIf you need specific development tools, you can change the base image in `.devcontainer/devcontainer.json` to:\n- `mcr.microsoft.com/devcontainers/python:3.12` for Python development\n- `mcr.microsoft.com/devcontainers/javascript-node:20` for Node.js development\n- Or any other [devcontainer image](https://mcr.microsoft.com/catalog?search=devcontainers)\n\n" : ""}---
 🤖 This PR was created automatically by Catnip`;
 
       const createPrResponse = await fetch(
@@ -1374,7 +1374,7 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
           } else if (errorData.message) {
             errorMessage = errorData.message;
           }
-        } catch (e) {
+        } catch (_e) {
           // Use default error message
         }
 

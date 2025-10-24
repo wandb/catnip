@@ -181,6 +181,7 @@ type ClaudeSubprocessOptions struct {
 	MaxTurns         int
 	WorkingDirectory string
 	Resume           bool
+	SessionID        string // Optional: specific session ID to resume (uses --resume). If empty with Resume=true, uses --continue
 	SuppressEvents   bool
 }
 
@@ -212,9 +213,17 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 		args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxTurns))
 	}
 
-	// Add continue flag if resume is requested
+	// Add resume/continue flags
 	if opts.Resume {
-		args = append(args, "--continue")
+		if opts.SessionID != "" {
+			// Use --resume with specific session ID for precise session selection
+			args = append(args, "--resume", opts.SessionID)
+			logger.Debugf("🔄 Using --resume with session ID: %s", opts.SessionID)
+		} else {
+			// Fallback to --continue which auto-detects session
+			args = append(args, "--continue")
+			logger.Debug("🔄 Using --continue for auto-resume")
+		}
 	}
 
 	// Note: Prompt is sent via stdin, not as command argument
@@ -416,9 +425,17 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 		args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxTurns))
 	}
 
-	// Add continue flag if resume is requested
+	// Add resume/continue flags
 	if opts.Resume {
-		args = append(args, "--continue")
+		if opts.SessionID != "" {
+			// Use --resume with specific session ID for precise session selection
+			args = append(args, "--resume", opts.SessionID)
+			logger.Debugf("🔄 Using --resume with session ID: %s", opts.SessionID)
+		} else {
+			// Fallback to --continue which auto-detects session
+			args = append(args, "--continue")
+			logger.Debug("🔄 Using --continue for auto-resume")
+		}
 	}
 
 	// Note: Prompt is sent via stdin, not as command argument

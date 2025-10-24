@@ -111,10 +111,14 @@ final class WorkflowUITests: XCTestCase {
             XCTAssertTrue(codespaceScreen.waitForExistence(timeout: 2), "Should return to codespace screen")
         }
 
-        // Test logout
-        let logoutButton = app.buttons["logoutButton"]
-        XCTAssertTrue(logoutButton.exists, "Logout button should exist in toolbar")
-        logoutButton.tap()
+        // Test logout - tap more options menu, then logout
+        let moreOptionsButton = app.buttons["moreOptionsButton"]
+        XCTAssertTrue(moreOptionsButton.exists, "More options button should exist in toolbar")
+        moreOptionsButton.tap()
+
+        let logoutMenuItem = app.buttons["Logout"]
+        XCTAssertTrue(logoutMenuItem.waitForExistence(timeout: 2), "Logout menu item should appear")
+        logoutMenuItem.tap()
 
         // Should navigate back to login screen
         let signInButton = app.buttons["Sign in with GitHub"]
@@ -152,28 +156,13 @@ final class WorkflowUITests: XCTestCase {
         let titleText = app.staticTexts["Access your GitHub Codespaces"]
         XCTAssertTrue(titleText.waitForExistence(timeout: 5), "Title should appear")
 
-        let accessButton = app.buttons["Access My Codespace"]
-        XCTAssertTrue(accessButton.exists, "Access button should exist")
+        let accessButton = app.buttons["primaryActionButton"]
+        XCTAssertTrue(accessButton.waitForExistence(timeout: 2), "Access button should exist")
         XCTAssertTrue(accessButton.isEnabled, "Access button should be enabled")
 
-        // Verify org input field exists - use accessibility identifier
-        let orgTextField = app.textFields["organizationTextField"]
-        XCTAssertTrue(orgTextField.exists, "Organization text field should exist")
-
-        // Test entering org name
-        orgTextField.tap()
-        orgTextField.typeText("wandb")
-
-        // Wait for UI to update
-        let goButton = app.buttons["goButton"]
-        _ = goButton.waitForExistence(timeout: 2)
-
-        XCTAssertTrue(goButton.exists, "Go button should exist")
-        XCTAssertTrue(goButton.isEnabled, "Go button should be enabled when org is entered")
-
-        // Verify logout button - use accessibility identifier
-        let logoutButton = app.buttons["logoutButton"]
-        XCTAssertTrue(logoutButton.exists, "Logout button should exist in toolbar")
+        // Verify more options menu button exists (contains logout)
+        let moreOptionsButton = app.buttons["moreOptionsButton"]
+        XCTAssertTrue(moreOptionsButton.exists, "More options button should exist in toolbar")
     }
 
     @MainActor

@@ -101,10 +101,15 @@ final class FastUserJourneyTests: XCTestCase {
     func testQuickLogout() throws {
         app.launch()
 
-        let logoutButton = app.buttons["Logout"]
-        XCTAssertTrue(logoutButton.waitForExistence(timeout: 2))
+        // Tap more options menu
+        let moreOptionsButton = app.buttons["moreOptionsButton"]
+        XCTAssertTrue(moreOptionsButton.waitForExistence(timeout: 2))
+        moreOptionsButton.tap()
 
-        logoutButton.tap()
+        // Tap logout from menu
+        let logoutMenuItem = app.buttons["Logout"]
+        XCTAssertTrue(logoutMenuItem.waitForExistence(timeout: 2))
+        logoutMenuItem.tap()
 
         // Should return to auth
         let signInButton = app.buttons["Sign in with GitHub"]
@@ -118,11 +123,12 @@ final class FastUserJourneyTests: XCTestCase {
         // This is the fastest possible end-to-end test
         app.launch()
 
-        // 1. Verify codespace screen
-        XCTAssertTrue(app.buttons["Access My Codespace"].exists)
+        // 1. Verify codespace screen - use accessibility identifier
+        let accessButton = app.buttons["primaryActionButton"]
+        XCTAssertTrue(accessButton.waitForExistence(timeout: 3))
 
         // 2. Connect
-        app.buttons["Access My Codespace"].tap()
+        accessButton.tap()
 
         // 3. Verify workspaces
         XCTAssertTrue(app.navigationBars["Workspaces"].waitForExistence(timeout: 3))
@@ -133,10 +139,14 @@ final class FastUserJourneyTests: XCTestCase {
             backButton.tap()
         }
 
-        // 5. Logout
-        let logoutButton = app.buttons["Logout"]
-        XCTAssertTrue(logoutButton.waitForExistence(timeout: 2), "Logout button should exist")
-        logoutButton.tap()
+        // 5. Logout - tap more options menu, then logout
+        let moreOptionsButton = app.buttons["moreOptionsButton"]
+        XCTAssertTrue(moreOptionsButton.waitForExistence(timeout: 2), "More options button should exist")
+        moreOptionsButton.tap()
+
+        let logoutMenuItem = app.buttons["Logout"]
+        XCTAssertTrue(logoutMenuItem.waitForExistence(timeout: 2), "Logout menu item should appear")
+        logoutMenuItem.tap()
 
         // 6. Verify back at auth
         XCTAssertTrue(app.buttons["Sign in with GitHub"].waitForExistence(timeout: 2))

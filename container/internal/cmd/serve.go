@@ -153,6 +153,9 @@ func startServer(cmd *cobra.Command) {
 	claudeService := services.NewClaudeService()
 	sessionService := services.NewSessionService()
 
+	// Wire up SessionService to ClaudeService for best session file selection
+	claudeService.SetSessionService(sessionService)
+
 	// Initialize and start Claude monitor service
 	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
 
@@ -223,7 +226,8 @@ func startServer(cmd *cobra.Command) {
 
 	// Register routes
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
-	v1.Get("/pty/sse", ptyHandler.HandleSSEConnection)
+	v1.Post("/pty/start", ptyHandler.HandlePTYStart)
+	v1.Post("/pty/prompt", ptyHandler.HandlePTYPrompt)
 
 	// Auth routes
 	v1.Post("/auth/github/start", authHandler.StartGitHubAuth)

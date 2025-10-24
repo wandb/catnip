@@ -1542,17 +1542,17 @@
                 }
             }
         },
-        "/v1/pty/sse": {
-            "get": {
-                "description": "Establishes a Server-Sent Events connection for terminal streaming",
+        "/v1/pty/prompt": {
+            "post": {
+                "description": "Sends prompt to PTY session, waits for readiness",
                 "tags": [
                     "pty"
                 ],
-                "summary": "Create PTY SSE connection",
+                "summary": "Send prompt to PTY",
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Session ID",
+                        "description": "Session ID (workspace name)",
                         "name": "session",
                         "in": "query",
                         "required": true
@@ -1564,15 +1564,97 @@
                         "in": "query"
                     },
                     {
-                        "type": "string",
-                        "description": "Prompt to send to PTY session",
+                        "description": "Prompt text to send",
                         "name": "prompt",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Prompt sent successfully",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Session not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "408": {
+                        "description": "PTY not ready within timeout",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to send prompt",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/pty/start": {
+            "post": {
+                "description": "Creates PTY session for workspace if not exists, returns immediately",
+                "tags": [
+                    "pty"
+                ],
+                "summary": "Start PTY session",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID (workspace name)",
+                        "name": "session",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent type (claude, bash, etc)",
+                        "name": "agent",
                         "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
-                        "description": "Stream of terminal events"
+                        "description": "Session started or already exists",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to create session",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
