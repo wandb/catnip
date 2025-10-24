@@ -199,6 +199,7 @@ struct PRCreationSheet: View {
     }
 }
 
+#if DEBUG
 #Preview {
     PRCreationSheet(
         isPresented: .constant(true),
@@ -206,3 +207,4 @@ struct PRCreationSheet: View {
         isCreating: .constant(false)
     )
 }
+#endif

@@ -1044,6 +1044,7 @@ struct CodespaceView: View {
 
 // MARK: - Previews
 
+#if DEBUG
 #Preview("Connect Screen") {
     NavigationStack {
         CodespaceView()
@@ -1111,3 +1112,4 @@ private struct CodespaceSetupPreview: View {
         }
     }
 }
+#endif

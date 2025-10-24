@@ -26,6 +26,12 @@ class BackgroundProgressManager: NSObject {
     override init() {
         super.init()
 
+        // Skip URLSession creation in UI testing mode to prevent RunLoop blocking in CI
+        if UITestingHelper.isUITesting {
+            NSLog("🔄 BackgroundProgressManager initialized (UI testing mode - URLSession skipped)")
+            return
+        }
+
         // Create background URLSession configuration
         let config = URLSessionConfiguration.background(
             withIdentifier: "com.wandb.catnip.codespace-progress"
@@ -51,6 +57,12 @@ class BackgroundProgressManager: NSObject {
     /// Start background polling for a codespace
     /// - Parameter codespaceName: The codespace to poll status for
     func startPolling(codespaceName: String) {
+        // Skip in UI testing mode
+        guard session != nil else {
+            NSLog("🔄 Skipping polling in UI testing mode")
+            return
+        }
+
         guard !isPolling else {
             NSLog("🔄 Already polling, ignoring duplicate start request")
             return
@@ -76,6 +88,11 @@ class BackgroundProgressManager: NSObject {
     private func scheduleNextPoll(codespaceName: String) {
         guard isPolling else {
             NSLog("🔄 Not polling, skipping schedule")
+            return
+        }
+
+        guard let session = session else {
+            NSLog("🔄 No session available (UI testing mode)")
             return
         }
 

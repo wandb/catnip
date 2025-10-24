@@ -3,9 +3,9 @@
 
 # 🐾 Catnip
 
-**The developer environment that's like catnip for agentic programming.**
+**Run Claude Code Everywhere!**
 
-**🎯 Perfect for**: Getting the most out of coding agents. Catnip helps you stay organized, run many agents in parallel, and operate agents on the go with our mobile interface.
+Catnip helps you stay organized, run many agents in parallel, and operate agents on the go with web our native mobile interface.
 
 [![GitHub Stars](https://img.shields.io/github/stars/wandb/catnip?style=social)](https://github.com/wandb/catnip)
 [![Docker Pulls](https://img.shields.io/docker/pulls/wandb/catnip)](https://hub.docker.com/r/wandb/catnip)
@@ -34,7 +34,7 @@ Think of Catnip as a **multi-agent coding workspace** that solves the chaos of h
 **The Problem:** You want to keep Claude Code running as long as possible.
 
 - It's annoying to manage multiple git worktree's and commit changes
-- Previewing the changes across multiple worktree's and more importantly giving the agent a way to test the changes is tricky and Catnip standardizes it
+- Previewing the changes across multiple worktree's and more importantly giving the agent a way to test the changes is tricky and Catnip does everything it can to help
 - You lose track of what each AI assistant has been working on
 - You want to be able to review changes on the go / from your phone
 

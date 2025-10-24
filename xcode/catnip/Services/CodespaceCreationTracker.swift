@@ -42,6 +42,14 @@ class CodespaceCreationTracker: ObservableObject {
     private init() {
         NSLog("🎯 CodespaceCreationTracker initialized")
 
+        #if !WIDGET_EXTENSION
+        // Skip setup in UI testing mode to prevent RunLoop blocking (main app only)
+        if UITestingHelper.isUITesting {
+            NSLog("🎯 UI testing mode - skipping background manager and notification observers")
+            return
+        }
+        #endif
+
         // Verify app group is accessible
         if sharedDefaults != nil {
             NSLog("🎯 ✅ App group 'group.com.wandb.catnip' is accessible")

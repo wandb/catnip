@@ -325,7 +325,6 @@ private struct WorkspaceDiffViewerPreview: View {
         .background(Color(uiColor: .systemGroupedBackground))
     }
 }
-#endif
 
 #Preview("Diff Viewer - Multiple Files") {
     WorkspaceDiffViewerPreview(
@@ -364,3 +363,4 @@ private struct WorkspaceDiffViewerPreview: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color(uiColor: .systemGroupedBackground))
 }
+#endif

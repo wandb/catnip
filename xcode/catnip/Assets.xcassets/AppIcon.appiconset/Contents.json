@@ -1,38 +1,38 @@
 {
-  "images": [
+  "images" : [
     {
-      "filename": "AppIcon-Light-1024.png",
-      "idiom": "universal",
-      "platform": "ios",
-      "size": "1024x1024"
+      "filename" : "catnip-iOS-Default-1024x1024@1x.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
     },
     {
-      "appearances": [
+      "appearances" : [
         {
-          "appearance": "luminosity",
-          "value": "dark"
+          "appearance" : "luminosity",
+          "value" : "dark"
         }
       ],
-      "filename": "AppIcon-Dark-1024.png",
-      "idiom": "universal",
-      "platform": "ios",
-      "size": "1024x1024"
+      "filename" : "catnip-iOS-Dark-1024x1024@1x.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
     },
     {
-      "appearances": [
+      "appearances" : [
         {
-          "appearance": "luminosity",
-          "value": "tinted"
+          "appearance" : "luminosity",
+          "value" : "tinted"
         }
       ],
-      "filename": "AppIcon-Tinted-1024.png",
-      "idiom": "universal",
-      "platform": "ios",
-      "size": "1024x1024"
+      "filename" : "catnip-iOS-TintedLight-1024x1024@1x.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
     }
   ],
-  "info": {
-    "author": "xcode",
-    "version": 1
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
   }
 }

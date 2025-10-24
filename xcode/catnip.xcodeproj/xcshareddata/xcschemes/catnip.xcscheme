@@ -16,8 +16,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "346BB06B2E931364000F5DA0"
-               BuildableName = "catnip.app"
-               BlueprintName = "catnip"
+               BuildableName = "Catnip.app"
+               BlueprintName = "Catnip"
                ReferencedContainer = "container:catnip.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -69,8 +69,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "346BB06B2E931364000F5DA0"
-            BuildableName = "catnip.app"
-            BlueprintName = "catnip"
+            BuildableName = "Catnip.app"
+            BlueprintName = "Catnip"
             ReferencedContainer = "container:catnip.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -86,8 +86,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "346BB06B2E931364000F5DA0"
-            BuildableName = "catnip.app"
-            BlueprintName = "catnip"
+            BuildableName = "Catnip.app"
+            BlueprintName = "Catnip"
             ReferencedContainer = "container:catnip.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

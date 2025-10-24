@@ -836,6 +836,7 @@ struct TodoListView: View {
     }
 }
 
+#if DEBUG
 #Preview("Input Phase") {
     NavigationStack {
         WorkspaceDetailPreview(phase: .input)
@@ -1086,6 +1087,7 @@ private struct WorkspaceDetailPreview: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
+#endif
 
 // MARK: - Markdown Text Component
 

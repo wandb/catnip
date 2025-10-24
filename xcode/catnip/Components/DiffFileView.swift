@@ -272,6 +272,7 @@ private struct ScrollWidthKey: PreferenceKey {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("Expanded File") {
     ScrollView {
         DiffFileView(fileDiff: .preview1, initiallyExpanded: true)
@@ -297,3 +298,4 @@ private struct ScrollWidthKey: PreferenceKey {
     }
     .background(Color(uiColor: .systemGroupedBackground))
 }
+#endif
