@@ -128,7 +128,11 @@ struct WorkspaceDetailView: View {
         }
         .onChange(of: poller.error) {
             if let newError = poller.error {
-                error = newError
+                // Filter out "cancelled" errors (Code -999) - these are normal when requests are cancelled
+                // to make new ones and are not actionable for users
+                if !newError.lowercased().contains("cancelled") {
+                    error = newError
+                }
             }
         }
         .sheet(isPresented: $showPromptSheet) {
@@ -299,15 +303,33 @@ struct WorkspaceDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
-                if let latestSession = workspace?.latestSessionTitle, !latestSession.isEmpty {
+                // Show Claude's latest message while working
+                if let claudeMessage = latestMessage, !claudeMessage.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Session:")
+                        Text("Claude is saying:")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Color.accentColor)
 
-                        Text(latestSession)
-                            .font(.body)
-                            .foregroundStyle(.primary)
+                        MarkdownText(claudeMessage)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .tertiarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                } else if workspace?.latestSessionTitle != nil {
+                    // Show loading state while fetching message
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Claude is saying:")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Loading response...")
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -568,8 +590,9 @@ struct WorkspaceDetailView: View {
         if workspace.claudeActivityState == .active || pendingUserPrompt != nil {
             phase = .working
 
-            // Fetch diff if workspace has changes
+            // Fetch latest message and diff while working
             Task {
+                await fetchLatestMessage(for: workspace)
                 await fetchDiffIfNeeded(for: workspace)
             }
         } else if workspace.latestSessionTitle != nil || workspace.todos?.isEmpty == false {
