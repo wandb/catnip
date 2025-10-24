@@ -272,6 +272,10 @@ class CatnipAPI: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.allHTTPHeaderFields = headers
+        // Set short timeout - we only need to establish the connection and send the request.
+        // SSE connections stay open indefinitely, but we don't need to wait for the stream.
+        // The backend will handle prompt injection once the request arrives.
+        request.timeoutInterval = 1.0
 
         // Fire off the SSE request asynchronously - we don't need to process the stream
         // The backend will handle prompt injection into the PTY session
@@ -290,7 +294,8 @@ class CatnipAPI: ObservableObject {
                     }
                 }
             } catch {
-                NSLog("🐱 [CatnipAPI] ❌ Error sending prompt via SSE: \(error.localizedDescription)")
+                // Timeout is expected for SSE connections - just log at debug level
+                NSLog("🐱 [CatnipAPI] SSE connection closed: \(error.localizedDescription)")
             }
         }
 
