@@ -447,7 +447,7 @@ func (s *ClaudeOnboardingService) detectState(output string) OnboardingState {
 	// ALWAYS extract OAuth URL if present (before state detection)
 	// This is important because the OAuth screen shows both the URL and "Paste code here"
 	if s.oauthURL == "" && (containsPattern(cleanOutput, []string{"Browser didn't open?", "oauth/authorize"})) {
-		s.extractOAuthURL(output) // Use original output for URL extraction
+		s.extractOAuthURL(cleanOutput) // Use cleaned output to avoid ANSI codes corrupting the URL
 	}
 
 	// Check for completion first - Claude is ready for user input
