@@ -8,6 +8,7 @@ on:
 
 jobs:
   test:
+    timeout-minutes: 15
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest] # TODO: windows-latest fails tests for some reason, one day maybe...
@@ -123,6 +124,7 @@ jobs:
         working-directory: container
 
   lint:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -142,6 +144,7 @@ jobs:
           args: --verbose
 
   goreleaser-check:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

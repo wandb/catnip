@@ -394,6 +394,11 @@ func (s *ClaudeService) fileHasAssistantContent(filePath string) bool {
 			return nil // Skip invalid JSON lines
 		}
 
+		// Skip sidechain messages (warmup prompts, etc.)
+		if message.IsSidechain {
+			return nil
+		}
+
 		// Check if this is an assistant message with text content
 		if message.Type == "assistant" && message.Message != nil {
 			messageData := message.Message
@@ -640,6 +645,10 @@ func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]mo
 		if err := json.Unmarshal(line, &message); err != nil {
 			return nil // Skip invalid JSON lines, don't stop processing
 		}
+		// Skip sidechain messages (warmup prompts, etc.) from session history
+		if message.IsSidechain {
+			return nil
+		}
 		messages = append(messages, message)
 		return nil
 	})
@@ -793,6 +802,11 @@ func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, erro
 			return nil // Skip invalid JSON lines
 		}
 
+		// Skip sidechain messages (warmup prompts, etc.)
+		if message.IsSidechain {
+			return nil
+		}
+
 		// Check if this is an assistant message that might contain TodoWrite
 		if message.Type == "assistant" && message.Message != nil {
 			messageData := message.Message
@@ -881,6 +895,11 @@ func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, 
 			return nil // Skip invalid JSON lines
 		}
 
+		// Skip sidechain messages (warmup prompts, etc.)
+		if message.IsSidechain {
+			return nil
+		}
+
 		// Check if this is an assistant message
 		if message.Type == "assistant" && message.Message != nil {
 			messageData := message.Message
@@ -939,6 +958,11 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
 			return nil // Skip invalid JSON lines
+		}
+
+		// Skip sidechain messages (warmup prompts, etc.)
+		if message.IsSidechain {
+			return nil
 		}
 
 		// Check for error messages first (highest priority)
@@ -1243,6 +1267,11 @@ func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWrit
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
 			return nil // Skip invalid JSON lines
+		}
+
+		// Skip sidechain messages (warmup prompts, etc.)
+		if message.IsSidechain {
+			return nil
 		}
 
 		// Only stream assistant messages for historical context

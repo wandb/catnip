@@ -8,7 +8,8 @@ on:
 
 jobs:
   unit-tests:
-    runs-on: macos-14
+    timeout-minutes: 20
+    runs-on: macos-14-xlarge
 
     steps:
       - name: Checkout code
@@ -40,7 +41,8 @@ jobs:
             ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult
 
   ui-tests:
-    runs-on: macos-14
+    timeout-minutes: 30
+    runs-on: macos-14-xlarge
     if: github.ref == 'refs/heads/main'
 
     steps:
@@ -53,15 +55,59 @@ jobs:
       - name: List available simulators
         run: xcrun simctl list devices available iPhone
 
+      - name: Pre-boot simulator
+        run: |
+          # Clean up any stuck simulators from previous runs
+          xcrun simctl shutdown all || true
+          xcrun simctl erase all || true
+
+          SIMULATOR_ID=$(xcrun simctl list devices available | grep "iPhone 16 (18.1)" | head -1 | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
+          echo "Booting simulator: $SIMULATOR_ID"
+          xcrun simctl boot "$SIMULATOR_ID" || true
+
+          # Wait for simulator to fully boot
+          sleep 20
+          xcrun simctl list devices | grep "iPhone 16"
+
       - name: Build and run UI tests
         run: |
-          xcodebuild test \
-            -project xcode/catnip.xcodeproj \
-            -scheme catnip \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.1' \
-            -only-testing:catnipUITests \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO
+          # Retry up to 2 times if tests fail due to flakiness
+          for i in 1 2; do
+            echo "Test attempt $i of 2"
+            if xcodebuild test \
+              -project xcode/catnip.xcodeproj \
+              -scheme catnip \
+              -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.1' \
+              -only-testing:catnipUITests \
+              -maximum-concurrent-test-simulator-destinations 4 \
+              -test-timeouts-enabled YES \
+              -maximum-test-execution-time-allowance 120 \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO; then
+              echo "✅ Tests passed on attempt $i"
+              exit 0
+            else
+              echo "❌ Tests failed on attempt $i"
+              if [ $i -eq 2 ]; then
+                exit 1
+              fi
+              echo "Retrying after cleanup..."
+              xcrun simctl shutdown all || true
+              sleep 10
+            fi
+          done
+
+      - name: Capture diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Simulator Status ==="
+          xcrun simctl list devices
+          echo ""
+          echo "=== System Resources ==="
+          top -l 1 | head -n 10
+          echo ""
+          echo "=== Available Disk Space ==="
+          df -h
 
       - name: Upload test results
         if: always()

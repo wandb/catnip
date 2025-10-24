@@ -377,7 +377,7 @@ struct WorkspacesView: View {
                 branch: selectedBranch
             )
 
-            // Store the prompt to send after closing the sheet
+            // Store the prompt to send
             let promptToSend = createPrompt.trimmingCharacters(in: .whitespaces)
             let workspaceName = workspace.name
 
@@ -387,42 +387,55 @@ struct WorkspacesView: View {
             NSLog("🐱 [WorkspacesView] ⏰ Waiting 2 seconds for workspace directory to be ready...")
             try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
 
-            // Close the sheet and navigate to workspace detail
-            await MainActor.run {
-                workspaces.insert(workspace, at: 0)
-                showCreateSheet = false
-                isCreating = false
-                // Pass prompt to detail view for immediate display
-                if !promptToSend.isEmpty {
-                    pendingPromptForNavigation = promptToSend
-                    NSLog("🐱 [WorkspacesView] Set pendingPromptForNavigation: \(promptToSend.prefix(50))...")
-                }
-                // Auto-navigate to the newly created workspace
-                navigationWorkspace = workspace
-                NSLog("🚀 Navigating to newly created workspace: \(workspace.id)")
-            }
-
-            // Send prompt in the background (fire-and-forget)
+            // Send prompt BEFORE navigating (so we can handle errors properly)
+            var promptSendSucceeded = false
             if !promptToSend.isEmpty {
                 NSLog("🐱 [WorkspacesView] Sending initial prompt to workspace: \(workspace.id)")
                 NSLog("🐱 [WorkspacesView] Prompt length: \(promptToSend.count) chars")
                 NSLog("🐱 [WorkspacesView] Workspace name (session ID): \(workspaceName)")
-                Task.detached {
-                    do {
-                        NSLog("🐱 [WorkspacesView] About to call sendPromptToPTY API...")
-                        try await CatnipAPI.shared.sendPromptToPTY(
-                            workspacePath: workspaceName,
-                            prompt: promptToSend
-                        )
-                        NSLog("🐱 [WorkspacesView] ✅ Successfully sent initial prompt")
-                    } catch {
-                        // Log error but don't block UI
-                        NSLog("🐱 [WorkspacesView] ❌ Failed to send initial prompt: \(error)")
-                        print("Failed to send initial prompt: \(error)")
+
+                do {
+                    NSLog("🐱 [WorkspacesView] About to call sendPromptToPTY API...")
+                    try await CatnipAPI.shared.sendPromptToPTY(
+                        workspacePath: workspaceName,
+                        prompt: promptToSend,
+                        agent: "claude"
+                    )
+                    NSLog("🐱 [WorkspacesView] ✅ Successfully sent initial prompt")
+                    promptSendSucceeded = true
+
+                    // Only set pendingPrompt if prompt was successfully sent
+                    await MainActor.run {
+                        pendingPromptForNavigation = promptToSend
+                        NSLog("🐱 [WorkspacesView] Set pendingPromptForNavigation after successful send: \(promptToSend.prefix(50))...")
                     }
+                } catch {
+                    NSLog("🐱 [WorkspacesView] ❌ Failed to send initial prompt: \(error)")
+                    // Show error to user and keep sheet open so they can see it
+                    await MainActor.run {
+                        workspaces.insert(workspace, at: 0)
+                        if let apiError = error as? APIError {
+                            self.createSheetError = "Workspace created, but failed to send prompt: \(apiError.errorDescription ?? "Unknown error"). Please navigate to the workspace and try again."
+                        } else {
+                            self.createSheetError = "Workspace created, but failed to send prompt: \(error.localizedDescription). Please navigate to the workspace and try again."
+                        }
+                        isCreating = false
+                    }
+                    // Don't close the sheet or navigate - let user see the error
+                    return
                 }
             } else {
                 NSLog("🐱 [WorkspacesView] No prompt to send (empty)")
+            }
+
+            // Close the sheet and navigate to workspace detail (only if prompt send succeeded or was empty)
+            await MainActor.run {
+                workspaces.insert(workspace, at: 0)
+                showCreateSheet = false
+                isCreating = false
+                // Auto-navigate to the newly created workspace
+                navigationWorkspace = workspace
+                NSLog("🚀 Navigating to newly created workspace: \(workspace.id)")
             }
         } catch {
             await MainActor.run {

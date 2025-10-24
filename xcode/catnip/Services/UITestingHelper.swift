@@ -40,6 +40,23 @@ struct UITestingHelper {
         ProcessInfo.processInfo.arguments.contains("-EmptyWorkspaces")
     }
 
+    // MARK: - Codespace Scenario Flags
+
+    /// Scenario 1: User has no codespaces and no repos with Catnip → "Install Catnip"
+    static var hasNoCodespacesNoReposWithCatnip: Bool {
+        ProcessInfo.processInfo.arguments.contains("-NoCodespacesNoRepos")
+    }
+
+    /// Scenario 2: User has no codespaces but has repos with Catnip → "Launch New Codespace"
+    static var hasNoCodespacesButHasReposWithCatnip: Bool {
+        ProcessInfo.processInfo.arguments.contains("-NoCodespacesHasRepos")
+    }
+
+    /// Scenario 3: User has codespaces → "Access My Codespace"
+    static var hasCodespaces: Bool {
+        ProcessInfo.processInfo.arguments.contains("-HasCodespaces")
+    }
+
     // MARK: - Mock Data
 
     static func setupMockAuthenticationIfNeeded(authManager: AuthManager) async {
@@ -193,5 +210,95 @@ struct UITestingHelper {
 
     static func shouldAutoNavigateToWorkspaces() -> Bool {
         isUITesting && shouldShowWorkspacesList
+    }
+
+    // MARK: - Codespace Mock Data
+
+    static func getMockRepositories() -> [Repository] {
+        // Scenario 1: No repos with Catnip
+        if hasNoCodespacesNoReposWithCatnip {
+            return [
+                Repository(
+                    id: 1,
+                    name: "test-repo",
+                    fullName: "testuser/test-repo",
+                    defaultBranch: "main",
+                    isPrivate: false,
+                    isFork: false,
+                    hasDevcontainer: false,
+                    hasCatnipFeature: false
+                ),
+                Repository(
+                    id: 2,
+                    name: "another-repo",
+                    fullName: "testuser/another-repo",
+                    defaultBranch: "main",
+                    isPrivate: true,
+                    isFork: false,
+                    hasDevcontainer: true,
+                    hasCatnipFeature: false
+                )
+            ]
+        }
+
+        // Scenario 2: Has repos with Catnip
+        if hasNoCodespacesButHasReposWithCatnip {
+            return [
+                Repository(
+                    id: 1,
+                    name: "catnip-ready-repo",
+                    fullName: "testuser/catnip-ready-repo",
+                    defaultBranch: "main",
+                    isPrivate: false,
+                    isFork: false,
+                    hasDevcontainer: true,
+                    hasCatnipFeature: true
+                ),
+                Repository(
+                    id: 2,
+                    name: "another-catnip-repo",
+                    fullName: "testuser/another-catnip-repo",
+                    defaultBranch: "main",
+                    isPrivate: false,
+                    isFork: false,
+                    hasDevcontainer: true,
+                    hasCatnipFeature: true
+                )
+            ]
+        }
+
+        // Scenario 3: Has codespaces (repos don't matter for button text)
+        if hasCodespaces {
+            return [
+                Repository(
+                    id: 1,
+                    name: "existing-repo",
+                    fullName: "testuser/existing-repo",
+                    defaultBranch: "main",
+                    isPrivate: false,
+                    isFork: false,
+                    hasDevcontainer: true,
+                    hasCatnipFeature: true
+                )
+            ]
+        }
+
+        // Default: empty
+        return []
+    }
+
+    static func getMockUserStatus() -> UserStatus {
+        // Scenarios 1 & 2: No codespaces
+        if hasNoCodespacesNoReposWithCatnip || hasNoCodespacesButHasReposWithCatnip {
+            return UserStatus(hasAnyCodespaces: false)
+        }
+
+        // Scenario 3: Has codespaces
+        if hasCodespaces {
+            return UserStatus(hasAnyCodespaces: true)
+        }
+
+        // Default: no codespaces
+        return UserStatus(hasAnyCodespaces: false)
     }
 }

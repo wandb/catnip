@@ -179,8 +179,9 @@ struct CodespaceView: View {
                 return
             }
 
-            // Skip network calls in UI testing mode
-            if UITestingHelper.isUITesting {
+            // Skip network calls in UI testing mode (unless using mock data)
+            // When using mock data, we still need to call fetch methods to populate the installer
+            if UITestingHelper.isUITesting && !UITestingHelper.shouldUseMockData {
                 return
             }
 
@@ -277,33 +278,28 @@ struct CodespaceView: View {
 
                 VStack(spacing: 16) {
                     Button {
-                        // In UI testing mode, always connect directly (mock logic handles the rest)
-                        if UITestingHelper.isUITesting {
-                            handleConnect()
-                        } else {
-                            // Determine action based on user's codespace and repository status
-                            if installer.userStatus?.hasAnyCodespaces == false {
-                                // No codespaces - check if they have repos with Catnip
-                                if installer.hasRepositoriesWithCatnip {
-                                    // Has repos with Catnip → Launch New Codespace
-                                    repositoryListMode = .launch
-                                } else {
-                                    // No repos with Catnip → Install Catnip
-                                    repositoryListMode = .installation
-                                }
-                                phase = .repositorySelection
-                                Task {
-                                    do {
-                                        try await installer.fetchRepositories()
-                                    } catch {
-                                        errorMessage = "Failed to load repositories: \(error.localizedDescription)"
-                                        phase = .connect
-                                    }
-                                }
+                        // Determine action based on user's codespace and repository status
+                        if installer.userStatus?.hasAnyCodespaces == false {
+                            // No codespaces - check if they have repos with Catnip
+                            if installer.hasRepositoriesWithCatnip {
+                                // Has repos with Catnip → Launch New Codespace
+                                repositoryListMode = .launch
                             } else {
-                                // Has codespaces → Access My Codespace
-                                handleConnect()
+                                // No repos with Catnip → Install Catnip
+                                repositoryListMode = .installation
                             }
+                            phase = .repositorySelection
+                            Task {
+                                do {
+                                    try await installer.fetchRepositories()
+                                } catch {
+                                    errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                                    phase = .connect
+                                }
+                            }
+                        } else {
+                            // Has codespaces → Access My Codespace
+                            handleConnect()
                         }
                     } label: {
                         HStack {

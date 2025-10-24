@@ -313,7 +313,7 @@ class CatnipInstaller: ObservableObject {
         if UITestingHelper.shouldUseMockData {
             NSLog("🐱 [CatnipInstaller] Using mock repositories")
             await MainActor.run {
-                self.repositories = []
+                self.repositories = UITestingHelper.getMockRepositories()
                 self.isLoading = false
             }
             return
@@ -652,7 +652,7 @@ class CatnipInstaller: ObservableObject {
         if UITestingHelper.shouldUseMockData {
             NSLog("🐱 [CatnipInstaller] Using mock user status")
             await MainActor.run {
-                self.userStatus = UserStatus(hasAnyCodespaces: false)
+                self.userStatus = UITestingHelper.getMockUserStatus()
             }
             return
         }

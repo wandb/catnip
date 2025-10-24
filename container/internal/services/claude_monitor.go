@@ -1363,6 +1363,11 @@ func (m *WorktreeTodoMonitor) readTodosFromEnd(filePath string) ([]models.Todo, 
 				continue
 			}
 
+			// Skip sidechain messages (warmup prompts, etc.)
+			if message.IsSidechain {
+				continue
+			}
+
 			// Check if this contains TodoWrite
 			if message.Type == "assistant" && message.Message != nil {
 				if todosFound := m.extractTodosFromMessage(message.Message); todosFound != nil {
