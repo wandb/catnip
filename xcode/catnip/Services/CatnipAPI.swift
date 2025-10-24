@@ -15,7 +15,7 @@ enum APIError: LocalizedError {
     case networkError(Error)
     case decodingError(Error)
     case serverError(Int, String)
-    case sseConnectionFailed(String)
+    case timeout
 
     var errorDescription: String? {
         switch self {
@@ -29,8 +29,8 @@ enum APIError: LocalizedError {
             return "Decoding error: \(error.localizedDescription)"
         case .serverError(let code, let message):
             return "Server error \(code): \(message)"
-        case .sseConnectionFailed(let message):
-            return "SSE connection failed: \(message)"
+        case .timeout:
+            return "PTY not ready yet"
         }
     }
 }
@@ -231,76 +231,86 @@ class CatnipAPI: ObservableObject {
         }
     }
 
-    func sendPrompt(workspacePath: String, prompt: String) async throws {
-        NSLog("🐱 [CatnipAPI] sendPrompt called with workspacePath: \(workspacePath)")
-        NSLog("🐱 [CatnipAPI] Prompt length: \(prompt.count) chars")
-        NSLog("🐱 [CatnipAPI] Prompt text: '\(prompt)'")
-        NSLog("🐱 [CatnipAPI] Prompt UTF-8 bytes: \(prompt.utf8.map { String(format: "%02X", $0) }.joined(separator: " "))")
+    func startPTY(workspacePath: String, agent: String = "claude") async throws {
+        NSLog("🚀 [CatnipAPI] startPTY called with workspacePath: \(workspacePath), agent: \(agent)")
 
         let headers = try await getHeaders(includeCodespace: true)
-        NSLog("🐱 [CatnipAPI] Got headers, codespace: \(getCodespaceName() ?? "none")")
 
-        // IMPORTANT: Use workspacePath as session ID directly
-        // The workspacePath should be the workspace name (e.g., "cyrillic/peanut"), not the full path
-        // Use SSE endpoint for PTY session (gives us auto-commits and session tracking)
-
-        // Build URL with proper encoding
-        guard var components = URLComponents(string: "\(baseURL)/v1/pty/sse") else {
-            NSLog("🐱 [CatnipAPI] ❌ Failed to create URLComponents")
+        guard var components = URLComponents(string: "\(baseURL)/v1/pty/start") else {
+            NSLog("❌ [CatnipAPI] Failed to create URLComponents for /pty/start")
             throw APIError.invalidURL
         }
 
-        // URLQueryItem handles encoding automatically, but let's ensure clean strings
         components.queryItems = [
             URLQueryItem(name: "session", value: workspacePath),
-            URLQueryItem(name: "agent", value: "claude"),
-            URLQueryItem(name: "prompt", value: prompt)
+            URLQueryItem(name: "agent", value: agent)
         ]
 
-        // Verify the query items were set correctly
-        if let items = components.queryItems {
-            NSLog("🐱 [CatnipAPI] Query items: session=\(items[0].value ?? "nil"), agent=\(items[1].value ?? "nil"), prompt_length=\(items[2].value?.count ?? 0)")
-        }
-
         guard let url = components.url else {
-            NSLog("🐱 [CatnipAPI] ❌ Failed to build URL from components")
+            NSLog("❌ [CatnipAPI] Failed to build URL from components")
             throw APIError.invalidURL
         }
 
-        NSLog("🐱 [CatnipAPI] Built SSE URL: \(url.absoluteString)")
-
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = "POST"
         request.allHTTPHeaderFields = headers
-        // Set short timeout - we only need to establish the connection and send the request.
-        // SSE connections stay open indefinitely, but we don't need to wait for the stream.
-        // The backend will handle prompt injection once the request arrives.
-        request.timeoutInterval = 1.0
 
-        // Fire off the SSE request asynchronously - we don't need to process the stream
-        // The backend will handle prompt injection into the PTY session
-        NSLog("🐱 [CatnipAPI] Launching detached task to send SSE request...")
-        Task.detached {
-            do {
-                NSLog("🐱 [CatnipAPI] Making SSE request...")
-                let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await URLSession.shared.data(for: request)
 
-                if let httpResponse = response as? HTTPURLResponse {
-                    NSLog("🐱 [CatnipAPI] SSE response status: \(httpResponse.statusCode)")
-                    if httpResponse.statusCode == 200 {
-                        NSLog("🐱 [CatnipAPI] ✅ Prompt sent successfully via SSE")
-                    } else {
-                        NSLog("🐱 [CatnipAPI] ❌ Failed to send prompt via SSE: \(httpResponse.statusCode)")
-                    }
-                }
-            } catch {
-                // Timeout is expected for SSE connections - just log at debug level
-                NSLog("🐱 [CatnipAPI] SSE connection closed: \(error.localizedDescription)")
-            }
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            NSLog("❌ [CatnipAPI] Failed to start PTY: \(response)")
+            throw APIError.serverError(500, "Failed to start PTY")
         }
 
-        NSLog("🐱 [CatnipAPI] sendPrompt returning (detached task launched)")
-        // Return immediately - prompt injection happens asynchronously in the PTY session
+        NSLog("✅ [CatnipAPI] PTY started successfully")
+    }
+
+    func sendPromptToPTY(workspacePath: String, prompt: String, agent: String = "claude") async throws {
+        NSLog("📝 [CatnipAPI] sendPromptToPTY called with workspacePath: \(workspacePath)")
+        NSLog("📝 [CatnipAPI] Prompt length: \(prompt.count) chars")
+
+        let headers = try await getHeaders(includeCodespace: true)
+
+        guard var components = URLComponents(string: "\(baseURL)/v1/pty/prompt") else {
+            NSLog("❌ [CatnipAPI] Failed to create URLComponents for /pty/prompt")
+            throw APIError.invalidURL
+        }
+
+        components.queryItems = [
+            URLQueryItem(name: "session", value: workspacePath),
+            URLQueryItem(name: "agent", value: agent)
+        ]
+
+        guard let url = components.url else {
+            NSLog("❌ [CatnipAPI] Failed to build URL from components")
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = prompt.data(using: .utf8)
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        request.allHTTPHeaderFields = headers
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            NSLog("❌ [CatnipAPI] Failed to get HTTP response")
+            throw APIError.serverError(500, "No HTTP response")
+        }
+
+        if httpResponse.statusCode == 408 {
+            NSLog("⏰ [CatnipAPI] PTY not ready (timeout)")
+            throw APIError.timeout
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            NSLog("❌ [CatnipAPI] Failed to send prompt: \(httpResponse.statusCode)")
+            throw APIError.serverError(httpResponse.statusCode, "Failed to send prompt")
+        }
+
+        NSLog("✅ [CatnipAPI] Prompt sent successfully to PTY")
     }
 
     func getWorkspaceDiff(id: String) async throws -> WorktreeDiffResponse {

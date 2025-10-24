@@ -51,7 +51,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       this.sql.exec(`
         ALTER TABLE codespace_credentials ADD COLUMN github_repository TEXT;
       `);
-    } catch (error) {
+    } catch (_error) {
       // Column already exists or other error - safe to ignore
       // SQLite will throw if column already exists
     }

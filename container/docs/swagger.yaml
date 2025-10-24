@@ -2171,11 +2171,11 @@ paths:
       summary: Create PTY WebSocket connection
       tags:
       - pty
-  /v1/pty/sse:
-    get:
-      description: Establishes a Server-Sent Events connection for terminal streaming
+  /v1/pty/prompt:
+    post:
+      description: Sends prompt to PTY session, waits for readiness
       parameters:
-      - description: Session ID
+      - description: Session ID (workspace name)
         in: query
         name: session
         required: true
@@ -2184,14 +2184,71 @@ paths:
         in: query
         name: agent
         type: string
-      - description: Prompt to send to PTY session
-        in: query
+      - description: Prompt text to send
+        in: body
         name: prompt
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Prompt sent successfully
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid parameters
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Session not found
+          schema:
+            additionalProperties: true
+            type: object
+        "408":
+          description: PTY not ready within timeout
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to send prompt
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Send prompt to PTY
+      tags:
+      - pty
+  /v1/pty/start:
+    post:
+      description: Creates PTY session for workspace if not exists, returns immediately
+      parameters:
+      - description: Session ID (workspace name)
+        in: query
+        name: session
+        required: true
+        type: string
+      - description: Agent type (claude, bash, etc)
+        in: query
+        name: agent
         type: string
       responses:
         "200":
-          description: Stream of terminal events
-      summary: Create PTY SSE connection
+          description: Session started or already exists
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid parameters
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Failed to create session
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Start PTY session
       tags:
       - pty
   /v1/sessions:

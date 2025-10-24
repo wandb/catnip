@@ -297,6 +297,59 @@ export const gitApi = {
     }
   },
 
+  async startPTY(
+    workspacePath: string,
+    agent: string = "claude",
+  ): Promise<void> {
+    try {
+      const response = await fetch(
+        `/v1/pty/start?session=${encodeURIComponent(workspacePath)}&agent=${encodeURIComponent(agent)}`,
+        {
+          method: "POST",
+        },
+      );
+      if (!response.ok) {
+        throw new Error("Failed to start PTY");
+      }
+    } catch (error) {
+      console.error("Failed to start PTY:", error);
+      throw error;
+    }
+  },
+
+  async sendPromptToPTY(
+    workspacePath: string,
+    prompt: string,
+    agent: string = "claude",
+  ): Promise<void> {
+    try {
+      const response = await fetch(
+        `/v1/pty/prompt?session=${encodeURIComponent(workspacePath)}&agent=${encodeURIComponent(agent)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ prompt }),
+        },
+      );
+
+      if (response.status === 408) {
+        throw new Error("PTY_TIMEOUT");
+      }
+
+      if (!response.ok) {
+        throw new Error("Failed to send prompt to PTY");
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "PTY_TIMEOUT") {
+        throw error;
+      }
+      console.error("Failed to send prompt to PTY:", error);
+      throw error;
+    }
+  },
+
   async checkSyncConflicts(worktreeId: string): Promise<any> {
     try {
       const response = await fetch(

@@ -103,6 +103,19 @@ struct WorkspaceDetailView: View {
             }
         }
         .task {
+            // Start PTY proactively when workspace loads
+            if let workspace = workspace {
+                Task {
+                    do {
+                        try await CatnipAPI.shared.startPTY(workspacePath: workspace.name, agent: "claude")
+                        NSLog("✅ Started PTY for workspace: \(workspace.name)")
+                    } catch {
+                        NSLog("⚠️ Failed to start PTY: \(error)")
+                        // Non-fatal - PTY will be created on-demand if needed
+                    }
+                }
+            }
+
             await loadWorkspace()
             poller.start()
         }
@@ -638,8 +651,12 @@ struct WorkspaceDetailView: View {
         error = ""
 
         do {
-            NSLog("🐱 [WorkspaceDetailView] About to call sendPrompt API...")
-            try await CatnipAPI.shared.sendPrompt(workspacePath: workspace.name, prompt: promptToSend)
+            NSLog("🐱 [WorkspaceDetailView] About to call sendPromptToPTY API...")
+            try await CatnipAPI.shared.sendPromptToPTY(
+                workspacePath: workspace.name,
+                prompt: promptToSend,
+                agent: "claude"
+            )
             NSLog("🐱 [WorkspaceDetailView] ✅ Successfully sent prompt")
 
             await MainActor.run {
@@ -655,6 +672,12 @@ struct WorkspaceDetailView: View {
                 // Trigger immediate refresh after sending prompt
                 NSLog("🐱 [WorkspaceDetailView] Triggering poller refresh")
                 poller.refresh()
+            }
+        } catch APIError.timeout {
+            NSLog("🐱 [WorkspaceDetailView] ⏰ PTY not ready (timeout)")
+            await MainActor.run {
+                self.error = "Claude is still starting up. Please try again in a moment."
+                isSubmitting = false
             }
         } catch {
             NSLog("🐱 [WorkspaceDetailView] ❌ Failed to send prompt: \(error)")
