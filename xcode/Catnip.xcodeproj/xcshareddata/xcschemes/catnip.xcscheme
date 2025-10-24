@@ -36,8 +36,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "346BB07C2E931366000F5DA0"
-               BuildableName = "catnipTests.xctest"
-               BlueprintName = "catnipTests"
+               BuildableName = "CatnipTests.xctest"
+               BlueprintName = "CatnipTests"
                ReferencedContainer = "container:catnip.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -47,8 +47,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "346BB0862E931366000F5DA0"
-               BuildableName = "catnipUITests.xctest"
-               BlueprintName = "catnipUITests"
+               BuildableName = "CatnipUITests.xctest"
+               BlueprintName = "CatnipUITests"
                ReferencedContainer = "container:catnip.xcodeproj">
             </BuildableReference>
          </TestableReference>

@@ -58,8 +58,8 @@
 		34502E4B2EAA9CAC00575EEA /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		34502E642EAA9F0B00575EEA /* CatnipWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CatnipWidgetsExtension.entitlements; sourceTree = "<group>"; };
 		346BB06C2E931364000F5DA0 /* Catnip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Catnip.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		346BB07D2E931366000F5DA0 /* catnipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = catnipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		346BB0872E931366000F5DA0 /* catnipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = catnipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		346BB07D2E931366000F5DA0 /* CatnipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CatnipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		346BB0872E931366000F5DA0 /* CatnipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CatnipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -180,8 +180,8 @@
 			isa = PBXGroup;
 			children = (
 				346BB06C2E931364000F5DA0 /* Catnip.app */,
-				346BB07D2E931366000F5DA0 /* catnipTests.xctest */,
-				346BB0872E931366000F5DA0 /* catnipUITests.xctest */,
+				346BB07D2E931366000F5DA0 /* CatnipTests.xctest */,
+				346BB0872E931366000F5DA0 /* CatnipUITests.xctest */,
 				34502E472EAA9CAC00575EEA /* CatnipWidgetsExtension.appex */,
 			);
 			name = Products;
@@ -238,9 +238,9 @@
 			productReference = 346BB06C2E931364000F5DA0 /* Catnip.app */;
 			productType = "com.apple.product-type.application";
 		};
-		346BB07C2E931366000F5DA0 /* catnipTests */ = {
+		346BB07C2E931366000F5DA0 /* CatnipTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 346BB0952E931366000F5DA0 /* Build configuration list for PBXNativeTarget "catnipTests" */;
+			buildConfigurationList = 346BB0952E931366000F5DA0 /* Build configuration list for PBXNativeTarget "CatnipTests" */;
 			buildPhases = (
 				346BB0792E931366000F5DA0 /* Sources */,
 				346BB07A2E931366000F5DA0 /* Frameworks */,
@@ -254,16 +254,16 @@
 			fileSystemSynchronizedGroups = (
 				346BB0802E931366000F5DA0 /* catnipTests */,
 			);
-			name = catnipTests;
+			name = CatnipTests;
 			packageProductDependencies = (
 			);
 			productName = catnipTests;
-			productReference = 346BB07D2E931366000F5DA0 /* catnipTests.xctest */;
+			productReference = 346BB07D2E931366000F5DA0 /* CatnipTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		346BB0862E931366000F5DA0 /* catnipUITests */ = {
+		346BB0862E931366000F5DA0 /* CatnipUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 346BB0982E931366000F5DA0 /* Build configuration list for PBXNativeTarget "catnipUITests" */;
+			buildConfigurationList = 346BB0982E931366000F5DA0 /* Build configuration list for PBXNativeTarget "CatnipUITests" */;
 			buildPhases = (
 				346BB0832E931366000F5DA0 /* Sources */,
 				346BB0842E931366000F5DA0 /* Frameworks */,
@@ -277,11 +277,11 @@
 			fileSystemSynchronizedGroups = (
 				346BB08A2E931366000F5DA0 /* catnipUITests */,
 			);
-			name = catnipUITests;
+			name = CatnipUITests;
 			packageProductDependencies = (
 			);
 			productName = catnipUITests;
-			productReference = 346BB0872E931366000F5DA0 /* catnipUITests.xctest */;
+			productReference = 346BB0872E931366000F5DA0 /* CatnipUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -310,7 +310,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 346BB0672E931364000F5DA0 /* Build configuration list for PBXProject "catnip" */;
+			buildConfigurationList = 346BB0672E931364000F5DA0 /* Build configuration list for PBXProject "Catnip" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -329,8 +329,8 @@
 			projectRoot = "";
 			targets = (
 				346BB06B2E931364000F5DA0 /* Catnip */,
-				346BB07C2E931366000F5DA0 /* catnipTests */,
-				346BB0862E931366000F5DA0 /* catnipUITests */,
+				346BB07C2E931366000F5DA0 /* CatnipTests */,
+				346BB0862E931366000F5DA0 /* CatnipUITests */,
 				34502E462EAA9CAC00575EEA /* CatnipWidgetsExtension */,
 			);
 		};
@@ -689,7 +689,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/catnip.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/catnip";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Catnip.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Catnip";
 			};
 			name = Debug;
 		};
@@ -710,7 +710,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/catnip.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/catnip";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Catnip.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Catnip";
 			};
 			name = Release;
 		};
@@ -764,7 +764,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		346BB0672E931364000F5DA0 /* Build configuration list for PBXProject "catnip" */ = {
+		346BB0672E931364000F5DA0 /* Build configuration list for PBXProject "Catnip" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				346BB0932E931366000F5DA0 /* Debug */,
@@ -782,7 +782,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		346BB0952E931366000F5DA0 /* Build configuration list for PBXNativeTarget "catnipTests" */ = {
+		346BB0952E931366000F5DA0 /* Build configuration list for PBXNativeTarget "CatnipTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				346BB0962E931366000F5DA0 /* Debug */,
@@ -791,7 +791,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		346BB0982E931366000F5DA0 /* Build configuration list for PBXNativeTarget "catnipUITests" */ = {
+		346BB0982E931366000F5DA0 /* Build configuration list for PBXNativeTarget "CatnipUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				346BB0992E931366000F5DA0 /* Debug */,
