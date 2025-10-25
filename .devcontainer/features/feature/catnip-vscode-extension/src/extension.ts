@@ -1,10 +1,6 @@
 import * as vscode from "vscode";
-import { exec } from "child_process";
-import { promisify } from "util";
 import * as http from "http";
 import * as QRCode from "qrcode";
-
-const execAsync = promisify(exec);
 
 // Device detection function
 function isMobileDevice(): boolean {
@@ -493,7 +489,7 @@ export function activate(context: vscode.ExtensionContext) {
           await vscode.workspace.fs.stat(uri);
           // Directory exists locally, open it in a new window
           await vscode.commands.executeCommand("vscode.openFolder", uri, true);
-        } catch (statError) {
+        } catch (_statError) {
           // Directory doesn't exist locally - likely in a container scenario
           // Open catnip interface in browser instead
 
