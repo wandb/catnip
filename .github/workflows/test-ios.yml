@@ -8,6 +8,10 @@ on:
       - "xcode/**"
       - ".github/workflows/test-ios.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit-tests:
     timeout-minutes: 20
