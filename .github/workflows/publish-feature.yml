@@ -2,6 +2,9 @@ name: Publish Dev Container Feature
 on:
   push:
     branches: [ "main", "feature/codespaces" ]
+    paths:
+      - ".devcontainer/features/**"
+      - ".github/workflows/publish-feature.yml"
 
 jobs:
   publish:
