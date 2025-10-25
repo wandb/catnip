@@ -51,6 +51,25 @@ else
   else
     warn "Upgrade check failed (exit $EXIT_CODE), proceeding with existing version"
   fi
+
+  # If upgrade failed/timed-out, check if it left us with a backup but no binary
+  # This can happen if timeout occurs after backup creation but before install
+  log "Checking for orphaned backup files..."
+  for BACKUP_PATH in "$HOME/.local/bin/catnip.backup" "$OPT_DIR/bin/catnip.backup"; do
+    if [ -f "$BACKUP_PATH" ]; then
+      BINARY_PATH="${BACKUP_PATH%.backup}"
+      if [ ! -f "$BINARY_PATH" ]; then
+        warn "Found backup at $BACKUP_PATH but no binary at $BINARY_PATH - restoring backup"
+        mv "$BACKUP_PATH" "$BINARY_PATH"
+        chmod +x "$BINARY_PATH"
+        ok "Restored backup to $BINARY_PATH"
+      else
+        # Backup exists but so does binary - clean up backup
+        log "Removing stale backup at $BACKUP_PATH"
+        rm -f "$BACKUP_PATH"
+      fi
+    fi
+  done
 fi
 
 # 3. Start service (always runs regardless of upgrade outcome)
