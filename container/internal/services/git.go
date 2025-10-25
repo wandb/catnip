@@ -1075,7 +1075,7 @@ func (s *GitService) detectLocalRepos() {
 
 				// Fetch the default branch in the background
 				// Use FetchBranchFast for speed (shallow fetch with depth=1)
-				fetchSucceeded := false
+				// FetchBranchFast will also create the local branch ref from the remote tracking branch
 				if err := s.operations.FetchBranchFast(repo.Path, defaultBranch); err != nil {
 					logger.Warnf("⚠️  Failed to fetch default branch '%s': %v", defaultBranch, err)
 					logger.Infof("🔄 Attempting to determine and fetch the correct default branch from remote...")
@@ -1095,17 +1095,16 @@ func (s *GitService) detectLocalRepos() {
 							if err := s.stateManager.AddRepository(repo); err != nil {
 								logger.Warnf("⚠️ Failed to update repository default branch in state: %v", err)
 							}
-							fetchSucceeded = true
 						}
 					}
 				} else {
 					logger.Infof("✅ Successfully fetched default branch '%s'", defaultBranch)
-					fetchSucceeded = true
 				}
 
-				// If all fetch attempts failed, fall back to using any available local branch
-				if !fetchSucceeded && !s.branchExists(repo.Path, defaultBranch, false) {
-					logger.Warnf("⚠️  Could not fetch default branch '%s', checking for available local branches...", defaultBranch)
+				// If the local branch still doesn't exist (even after fetch), fall back to using any available local branch
+				// Note: A successful fetch might only update the remote tracking branch without creating the local branch
+				if !s.branchExists(repo.Path, defaultBranch, false) {
+					logger.Warnf("⚠️  Default branch '%s' not available locally, checking for available local branches...", defaultBranch)
 
 					// Get list of local branches
 					if localBranches, err := s.operations.GetLocalBranches(repo.Path); err == nil && len(localBranches) > 0 {

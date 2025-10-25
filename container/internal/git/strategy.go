@@ -129,6 +129,15 @@ func (f *FetchExecutor) FetchBranchFast(repoPath, branch string) error {
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		output, err := f.executor.ExecuteGitWithWorkingDir(repoPath, args...)
 		if err == nil {
+			// Fetch succeeded - now create local branch ref from remote tracking branch
+			// This mirrors the logic in FetchBranch's UpdateLocalRef
+			_, updateErr := f.executor.ExecuteGitWithWorkingDir(repoPath, "update-ref",
+				fmt.Sprintf("refs/heads/%s", branch),
+				fmt.Sprintf("refs/remotes/origin/%s", branch))
+			if updateErr != nil {
+				logger.Debugf("⚠️ Could not update local branch ref for %s: %v", branch, updateErr)
+				// Don't fail the fetch operation if ref update fails - the remote tracking branch is still updated
+			}
 			return nil // Success!
 		}
 
