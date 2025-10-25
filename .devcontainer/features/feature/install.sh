@@ -179,10 +179,12 @@ install_catnip() {
 
   # 1) User-owned runners that handle daemonization and logging
   cp $(dirname $0)/catnip-start.sh "$OPT_DIR/bin/catnip-start.sh"
+  cp $(dirname $0)/catnip-run.sh "$OPT_DIR/bin/catnip-run.sh"
   cp $(dirname $0)/catnip-stop.sh "$OPT_DIR/bin/catnip-stop.sh"
   cp $(dirname $0)/catnip-upgrade-and-start.sh "$OPT_DIR/bin/catnip-upgrade-and-start.sh"
   cp $(dirname $0)/catnip-vsix.sh "$OPT_DIR/bin/catnip-vsix.sh"
   ensure_owner "$OPT_DIR/bin/catnip-start.sh" "$USERNAME" "$USERGROUP"
+  ensure_owner "$OPT_DIR/bin/catnip-run.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-stop.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-upgrade-and-start.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-vsix.sh" "$USERNAME" "$USERGROUP"
