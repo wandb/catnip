@@ -7,6 +7,26 @@
 
 import XCTest
 
+// MARK: - Test Environment Configuration
+
+/// Centralized timeout configuration for UI tests
+/// CI environments are significantly slower, so we use longer timeouts
+struct TestEnvironment {
+    /// Detect if tests are running in CI (GitHub Actions, etc.)
+    static let isCI: Bool = {
+        ProcessInfo.processInfo.environment["CI"] != nil
+    }()
+
+    /// Timeout multiplier for CI environments
+    /// CI runners are ~3x slower than local machines
+    static let timeoutMultiplier: Double = isCI ? 3.0 : 1.0
+
+    /// Adjust timeout value based on environment
+    static func adjustedTimeout(_ baseTimeout: TimeInterval) -> TimeInterval {
+        baseTimeout * timeoutMultiplier
+    }
+}
+
 // MARK: - Base Page Object
 
 class BasePage {
@@ -17,14 +37,14 @@ class BasePage {
     }
 
     func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
-        element.waitForExistence(timeout: timeout)
+        element.waitForExistence(timeout: TestEnvironment.adjustedTimeout(timeout))
     }
 
     /// Wait for an element to exist and be hittable (fully rendered and interactive)
     func waitForElementToBeHittable(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
         let predicate = NSPredicate(format: "exists == true AND hittable == true")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
-        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        let result = XCTWaiter().wait(for: [expectation], timeout: TestEnvironment.adjustedTimeout(timeout))
         return result == .completed
     }
 
@@ -97,13 +117,13 @@ class CodespacePage: BasePage {
 
         // Wait for menu to appear and tap Logout
         let logoutMenuItem = app.buttons["Logout"]
-        _ = logoutMenuItem.waitForExistence(timeout: 2)
+        _ = logoutMenuItem.waitForExistence(timeout: TestEnvironment.adjustedTimeout(2))
         logoutMenuItem.tap()
     }
 
     func waitForConnection(timeout: TimeInterval = 10) -> Bool {
         // Wait for navigation to workspaces
-        app.navigationBars["Workspaces"].waitForExistence(timeout: timeout)
+        app.navigationBars["Workspaces"].waitForExistence(timeout: TestEnvironment.adjustedTimeout(timeout))
     }
 }
 
