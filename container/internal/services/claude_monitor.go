@@ -1272,10 +1272,11 @@ func (m *WorktreeTodoMonitor) findLatestSessionFile() (string, time.Time, error)
 			}
 			return sessionFile, info.ModTime(), nil
 		}
+		// SessionService didn't find a valid session file (likely warmup-only or too small) - fallback to manual search
+	} else {
+		// Fallback if SessionService not available (shouldn't happen in normal operation)
+		logger.Warn("⚠️ SessionService not set in WorktreeTodoMonitor, using fallback session selection")
 	}
-
-	// Fallback to old logic if SessionService not available (shouldn't happen)
-	logger.Warn("⚠️ SessionService not set in WorktreeTodoMonitor, using fallback session selection")
 
 	entries, err := os.ReadDir(m.projectDir)
 	if err != nil {

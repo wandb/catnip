@@ -206,9 +206,10 @@ struct WorkspacesView: View {
                     navigationWorkspace = workspace
                 } label: {
                     WorkspaceCard(workspace: workspace)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8))
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 .listRowSeparator(.visible)
                 .listRowBackground(Color(uiColor: .secondarySystemBackground))
                 .accessibilityIdentifier("workspace-\(workspace.id)")
@@ -573,6 +574,10 @@ struct WorkspaceCard: View {
 
                 Text(workspace.timeDisplay)
                     .font(.callout)
+                    .foregroundStyle(.tertiary)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption)
                     .foregroundStyle(.tertiary)
             }
 

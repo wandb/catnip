@@ -519,8 +519,6 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 			continue
 		}
 
-		logger.Debugf("🔍 Claude output line: %s", line)
-
 		// Parse JSON line to check if it's an assistant message
 		var jsonData map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &jsonData); err != nil {
@@ -532,8 +530,6 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 		if msgType, ok := jsonData["type"].(string); ok && msgType == "assistant" {
 			logger.Infof("✅ Found assistant message: %s", line)
 			assistantLine = line
-		} else {
-			logger.Debugf("📝 Non-assistant message type: %s", msgType)
 		}
 
 	}
@@ -587,19 +583,13 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 		}, nil
 	}
 
-	logger.Debugf("📋 Assistant data structure: %+v", assistantData)
-
 	// Extract the text content from message.content[0].text
 	var responseText string
 	if message, ok := assistantData["message"].(map[string]interface{}); ok {
-		logger.Debugf("📋 Message structure: %+v", message)
 		if content, ok := message["content"].([]interface{}); ok && len(content) > 0 {
-			logger.Debugf("📋 Content array length: %d", len(content))
 			if textBlock, ok := content[0].(map[string]interface{}); ok {
-				logger.Debugf("📋 Text block structure: %+v", textBlock)
 				if text, ok := textBlock["text"].(string); ok {
 					responseText = text
-					logger.Infof("✅ Extracted text content: %.100s...", responseText)
 				} else {
 					logger.Errorf("❌ No 'text' field found in text block")
 				}

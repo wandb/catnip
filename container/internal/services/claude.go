@@ -394,9 +394,18 @@ func (s *ClaudeService) fileHasAssistantContent(filePath string) bool {
 			return nil // Skip invalid JSON lines
 		}
 
-		// Skip sidechain messages (warmup prompts, etc.)
+		// Skip only warmup sidechain messages, not all sidechain messages (agent results count as content)
 		if message.IsSidechain {
-			return nil
+			// Skip warmup messages
+			if message.Type == "user" && message.Message != nil {
+				if content, exists := message.Message["content"]; exists {
+					if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
+						return nil
+					}
+				}
+			}
+			// For warmup assistant responses, we'll let them through but they won't have meaningful content
+			// so they won't affect the hasContent check below
 		}
 
 		// Check if this is an assistant message with text content
@@ -829,9 +838,16 @@ func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, erro
 			return nil // Skip invalid JSON lines
 		}
 
-		// Skip sidechain messages (warmup prompts, etc.)
+		// Skip only warmup sidechain messages (agent todos are valid)
 		if message.IsSidechain {
-			return nil
+			// Skip warmup messages
+			if message.Type == "user" && message.Message != nil {
+				if content, exists := message.Message["content"]; exists {
+					if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
+						return nil
+					}
+				}
+			}
 		}
 
 		// Check if this is an assistant message that might contain TodoWrite
@@ -991,6 +1007,7 @@ func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, 
 func isAutomatedPrompt(userMessage string) bool {
 	// Known automated prompt patterns we send
 	automatedMarkers := []string{
+		"Warmup",                                              // Agent warmup messages
 		"Generate a git branch name that:",                    // Branch renaming
 		"Based on this coding session title:",                 // Branch renaming alternative
 		"Generate a pull request title and description that:", // PR generation (future)
@@ -1009,9 +1026,27 @@ func isAutomatedPrompt(userMessage string) bool {
 // shouldSkipAssistantMessage checks if an assistant message should be skipped when displaying
 // to users (filters both sidechain messages and responses to automated prompts)
 func shouldSkipAssistantMessage(message models.ClaudeSessionMessage, userMessages map[string]string) bool {
-	// Skip sidechain messages (warmup prompts, etc.)
+	// Skip warmup-related sidechain messages, but keep other sidechain messages (agent results)
 	if message.IsSidechain {
-		return true
+		// For sidechain messages, check if they're warmup-related
+		if message.Type == "assistant" && message.ParentUuid != "" {
+			if parentContent, exists := userMessages[message.ParentUuid]; exists {
+				// Only skip if parent is "Warmup" prompt
+				if parentContent == "Warmup" {
+					return true
+				}
+			}
+		}
+		// For sidechain user messages, skip if it's "Warmup"
+		if message.Type == "user" && message.Message != nil {
+			if content, exists := message.Message["content"]; exists {
+				if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
+					return true
+				}
+			}
+		}
+		// Don't skip other sidechain messages (like agent results)
+		return false
 	}
 
 	// Skip assistant messages that are responses to automated prompts
@@ -1077,9 +1112,24 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 			return nil // Skip invalid JSON lines
 		}
 
-		// Skip sidechain messages (warmup prompts, etc.)
+		// Skip only warmup sidechain messages, not all sidechain messages (agent results are valid)
 		if message.IsSidechain {
-			return nil
+			// Skip warmup messages
+			if message.Type == "user" && message.Message != nil {
+				if content, exists := message.Message["content"]; exists {
+					if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
+						return nil
+					}
+				}
+			}
+			// Skip assistant responses to warmup
+			if message.Type == "assistant" && message.ParentUuid != "" {
+				if parentContent, exists := userMessages[message.ParentUuid]; exists {
+					if parentContent == "Warmup" {
+						return nil
+					}
+				}
+			}
 		}
 
 		// Skip assistant messages that are responses to automated prompts
@@ -1127,15 +1177,8 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 									if text, exists := contentMap["text"]; exists {
 										if textStr, ok := text.(string); ok {
 											textContent.WriteString(textStr)
-											// Check if the text content contains error patterns
-											lowerText := strings.ToLower(textStr)
-											hasErrorPattern := strings.Contains(lowerText, "error") ||
-												strings.Contains(lowerText, "experiencing high demand") ||
-												strings.Contains(lowerText, "unavailable") ||
-												strings.Contains(lowerText, "failed to")
-											if hasErrorPattern {
-												foundError = true
-											}
+											// Don't use text pattern matching for errors - only actual error types count
+											// Text like "I found 3 files that handle error processing" should not be flagged as an error
 										}
 									}
 								}

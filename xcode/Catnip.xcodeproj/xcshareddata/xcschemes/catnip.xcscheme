@@ -18,7 +18,7 @@
                BlueprintIdentifier = "346BB06B2E931364000F5DA0"
                BuildableName = "Catnip.app"
                BlueprintName = "Catnip"
-               ReferencedContainer = "container:catnip.xcodeproj">
+               ReferencedContainer = "container:Catnip.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -38,7 +38,7 @@
                BlueprintIdentifier = "346BB07C2E931366000F5DA0"
                BuildableName = "CatnipTests.xctest"
                BlueprintName = "CatnipTests"
-               ReferencedContainer = "container:catnip.xcodeproj">
+               ReferencedContainer = "container:Catnip.xcodeproj">
             </BuildableReference>
          </TestableReference>
          <TestableReference
@@ -49,7 +49,7 @@
                BlueprintIdentifier = "346BB0862E931366000F5DA0"
                BuildableName = "CatnipUITests.xctest"
                BlueprintName = "CatnipUITests"
-               ReferencedContainer = "container:catnip.xcodeproj">
+               ReferencedContainer = "container:Catnip.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -71,7 +71,7 @@
             BlueprintIdentifier = "346BB06B2E931364000F5DA0"
             BuildableName = "Catnip.app"
             BlueprintName = "Catnip"
-            ReferencedContainer = "container:catnip.xcodeproj">
+            ReferencedContainer = "container:Catnip.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -88,7 +88,7 @@
             BlueprintIdentifier = "346BB06B2E931364000F5DA0"
             BuildableName = "Catnip.app"
             BlueprintName = "Catnip"
-            ReferencedContainer = "container:catnip.xcodeproj">
+            ReferencedContainer = "container:Catnip.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
