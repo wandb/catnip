@@ -38,6 +38,11 @@
         "command": "catnip.showQR",
         "title": "Show QR Code",
         "icon": "📱"
+      },
+      {
+        "command": "catnip.openWorktree",
+        "title": "Open Workspace",
+        "icon": "🌿"
       }
     ],
     "viewsContainers": {
