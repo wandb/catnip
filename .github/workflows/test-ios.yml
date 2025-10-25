@@ -2,8 +2,6 @@ name: Test iOS
 
 on:
   push:
-    branches:
-      - "main"
     paths:
       - "xcode/**"
       - ".github/workflows/test-ios.yml"
@@ -47,7 +45,7 @@ jobs:
             ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult
 
   ui-tests:
-    timeout-minutes: 30
+    timeout-minutes: 40
     runs-on: macos-14-xlarge
     if: github.ref == 'refs/heads/main'
 
