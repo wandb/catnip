@@ -12,11 +12,32 @@ export PATH="$OPT_DIR/bin:$HOME/.local/bin:$PATH"
 
 # 1. Capture current environment to /etc/default/catnip
 log "Updating catnip service environment..."
-sudo tee -a /etc/default/catnip >/dev/null <<EOF
 
-# Updated with current codespace environment ($(date))
-$(printenv | sed 's/^/export /')
-EOF
+# Create a temporary file with properly quoted exports
+TEMP_ENV=$(mktemp)
+trap "rm -f $TEMP_ENV" EXIT
+
+# Use bash's declare -px to get properly quoted environment exports
+# This handles all special characters, quotes, newlines, etc. correctly
+{
+  echo ""
+  echo "# ==================== RUNTIME ENVIRONMENT ===================="
+  echo "# Updated from codespace environment at $(date)"
+  echo "# This section is regenerated on each startup"
+  echo ""
+
+  # Export all current environment variables with proper shell quoting
+  # declare -px outputs variables in a format safe for re-sourcing
+  declare -px
+
+} > "$TEMP_ENV"
+
+# Remove any previous runtime environment section and append the new one
+# This preserves the template but prevents duplicates
+sudo sed -i '/^# ==================== RUNTIME ENVIRONMENT ====================/,$d' /etc/default/catnip
+sudo cat "$TEMP_ENV" | sudo tee -a /etc/default/catnip >/dev/null
+sudo chmod 644 /etc/default/catnip
+
 ok "Environment captured"
 
 # 2. Attempt upgrade with timeout (non-blocking)
