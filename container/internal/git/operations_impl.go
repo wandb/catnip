@@ -81,6 +81,10 @@ func (o *OperationsImpl) GetDefaultBranch(repoPath string) (string, error) {
 	return o.branchOps.GetDefaultBranch(repoPath)
 }
 
+func (o *OperationsImpl) GetRemoteDefaultBranch(repoPath string) (string, error) {
+	return o.branchOps.GetRemoteDefaultBranch(repoPath)
+}
+
 func (o *OperationsImpl) GetLocalBranches(repoPath string) ([]string, error) {
 	return o.branchOps.GetLocalRepoBranches(repoPath)
 }

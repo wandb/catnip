@@ -420,11 +420,19 @@ func FindGitRoot(startDir string) (string, bool) {
 
 // GetDefaultBranch determines the actual default branch of a repository
 // It tries multiple methods in order of reliability:
-// 1. Check refs/remotes/origin/HEAD
-// 2. Query remote for HEAD branch
-// 3. Check for common default branch names (main, master)
-// 4. Fall back to current branch as last resort
+// 1. Query remote using ls-remote (most reliable, works with shallow clones)
+// 2. Check refs/remotes/origin/HEAD
+// 3. Query remote for HEAD branch
+// 4. Check for common default branch names (main, master)
+// 5. Fall back to current branch as last resort
 func GetDefaultBranch(ops Operations, repoPath string) string {
+	// Try to get the default branch from the remote using ls-remote
+	// This is the most reliable method and works even with shallow clones
+	defaultBranch, err := ops.GetRemoteDefaultBranch(repoPath)
+	if err == nil && defaultBranch != "" {
+		return defaultBranch
+	}
+
 	// Try to get the default branch from the remote HEAD reference
 	// This gives us the actual default branch of the repository
 	output, err := ops.ExecuteGit(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD")

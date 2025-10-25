@@ -86,6 +86,36 @@ func (b *BranchOperations) GetRemoteURL(repoPath string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// GetRemoteDefaultBranch queries the remote to get the actual default branch
+// This is more reliable than checking local refs, especially for shallow clones
+func (b *BranchOperations) GetRemoteDefaultBranch(repoPath string) (string, error) {
+	// Use git ls-remote --symref to get the remote's HEAD
+	// This works even with shallow clones and doesn't require the branch to be fetched
+	output, err := b.executor.ExecuteWithEnvAndTimeout("", nil, 10*time.Second, "-C", repoPath, "ls-remote", "--symref", "origin", "HEAD")
+	if err == nil {
+		// Output format:
+		// ref: refs/heads/main	HEAD
+		// <commit-hash>	HEAD
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "ref:") {
+				// Extract the branch name from "ref: refs/heads/main	HEAD"
+				parts := strings.Fields(line)
+				if len(parts) >= 2 {
+					ref := parts[1]
+					branch := strings.TrimPrefix(ref, "refs/heads/")
+					if branch != "" && branch != ref {
+						return branch, nil
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("failed to determine remote default branch: %v", err)
+}
+
 // GetDefaultBranch gets the default branch from a repository
 func (b *BranchOperations) GetDefaultBranch(repoPath string) (string, error) {
 	// Try symbolic ref first

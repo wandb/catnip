@@ -25,6 +25,7 @@ type Operations interface {
 	GetCommitCount(repoPath, fromRef, toRef string) (int, error)
 	GetRemoteURL(repoPath string) (string, error)
 	GetDefaultBranch(repoPath string) (string, error)
+	GetRemoteDefaultBranch(repoPath string) (string, error)
 	GetLocalBranches(repoPath string) ([]string, error)
 	GetRemoteBranches(repoPath string, defaultBranch string) ([]string, error)
 	GetRemoteBranchesFromURL(remoteURL string) ([]string, error)

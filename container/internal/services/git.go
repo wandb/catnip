@@ -1065,13 +1065,49 @@ func (s *GitService) detectLocalRepos() {
 		if s.shouldCreateInitialWorktree(repoID) {
 			logger.Infof("🌱 Creating initial worktree for %s", repoID)
 
+			// For shallow clones or when on a non-default branch, we need to ensure
+			// the default branch is fetched before we can create a worktree from it
+			defaultBranch := repo.DefaultBranch
+
+			// Check if the default branch exists locally
+			if !s.branchExists(repo.Path, defaultBranch, false) {
+				logger.Infof("📥 Default branch '%s' not found locally, fetching from origin...", defaultBranch)
+
+				// Fetch the default branch in the background
+				// Use FetchBranchFast for speed (shallow fetch with depth=1)
+				if err := s.operations.FetchBranchFast(repo.Path, defaultBranch); err != nil {
+					logger.Warnf("⚠️  Failed to fetch default branch '%s': %v", defaultBranch, err)
+					logger.Infof("🔄 Attempting to determine and fetch the correct default branch from remote...")
+
+					// Try to get the actual default branch from the remote
+					if remoteBranch, err := s.operations.GetRemoteDefaultBranch(repo.Path); err == nil && remoteBranch != "" {
+						defaultBranch = remoteBranch
+						logger.Infof("🔍 Remote default branch detected: %s", defaultBranch)
+
+						// Try fetching the actual default branch
+						if err := s.operations.FetchBranchFast(repo.Path, defaultBranch); err != nil {
+							logger.Warnf("⚠️  Failed to fetch remote default branch '%s': %v", defaultBranch, err)
+						} else {
+							logger.Infof("✅ Successfully fetched default branch '%s'", defaultBranch)
+							// Update the repository's default branch if it was detected differently
+							repo.DefaultBranch = defaultBranch
+							if err := s.stateManager.AddRepository(repo); err != nil {
+								logger.Warnf("⚠️ Failed to update repository default branch in state: %v", err)
+							}
+						}
+					}
+				} else {
+					logger.Infof("✅ Successfully fetched default branch '%s'", defaultBranch)
+				}
+			}
+
 			// Don't proactively prune during runtime - it can delete workspaces being restored
 			// Pruning should only happen on explicit user request or during shutdown
 			// if pruneErr := s.operations.PruneWorktrees(repo.Path); pruneErr != nil {
 			// 	logger.Warnf("⚠️  Failed to prune worktrees for %s: %v", repoID, pruneErr)
 			// }
 
-			if _, worktree, err := s.handleLocalRepoWorktree(repoID, repo.DefaultBranch); err != nil {
+			if _, worktree, err := s.handleLocalRepoWorktree(repoID, defaultBranch); err != nil {
 				logger.Warnf("❌ Failed to create initial worktree for %s: %v", repoID, err)
 			} else {
 				logger.Infof("✅ Initial worktree created: %s", worktree.Name)
