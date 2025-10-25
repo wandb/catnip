@@ -45,20 +45,29 @@ test:
         -project catnip.xcodeproj \
         -scheme catnip \
         -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-        -only-testing:catnipTests \
+        -only-testing:CatnipTests \
         CODE_SIGN_IDENTITY="" \
         CODE_SIGNING_REQUIRED=NO \
         2>&1 | tee /tmp/xcode-test.log
 
-# Run UI tests
+# Run UI tests (requires simulator cleanup first)
 test-ui:
+    #!/usr/bin/env bash
+    # Clean up simulators to avoid launch failures
+    xcrun simctl shutdown all || true
+    xcrun simctl erase all || true
+    # Boot a specific simulator
+    SIMULATOR_ID=$(xcrun simctl list devices available | grep "iPhone 16 Pro" | head -1 | grep -o '[0-9A-F-]\{36\}')
+    echo "Booting simulator: $SIMULATOR_ID"
+    xcrun simctl boot "$SIMULATOR_ID" || true
+    sleep 5
+    # Run tests
     xcodebuild test \
         -project catnip.xcodeproj \
         -scheme catnip \
-        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
-        -only-testing:catnipUITests \
-        CODE_SIGN_IDENTITY="" \
-        CODE_SIGNING_REQUIRED=NO \
+        -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+        -only-testing:CatnipUITests \
+        -maximum-concurrent-test-device-destinations 1 \
         2>&1 | tee /tmp/xcode-uitest.log
 
 # Run all tests (unit and UI)

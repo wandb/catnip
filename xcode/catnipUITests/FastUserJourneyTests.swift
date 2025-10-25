@@ -20,7 +20,8 @@ final class FastUserJourneyTests: XCTestCase {
             "-UITesting",
             "-DisableAnimations",     // Disable animations for faster tests
             "-SkipAuthentication",    // Skip OAuth flow
-            "-UseMockData"            // Use mock data, no network calls
+            "-UseMockData",           // Use mock data, no network calls
+            "-HasCodespaces"          // Mock user has codespaces (enables workspace navigation)
         ]
     }
 
@@ -133,11 +134,10 @@ final class FastUserJourneyTests: XCTestCase {
         // 3. Verify workspaces
         XCTAssertTrue(app.navigationBars["Workspaces"].waitForExistence(timeout: 3))
 
-        // 4. Navigate back to codespace
+        // 4. Navigate back to codespace - wait for back button
         let backButton = app.navigationBars.buttons.firstMatch
-        if backButton.exists {
-            backButton.tap()
-        }
+        XCTAssertTrue(backButton.waitForExistence(timeout: 5), "Back button should exist")
+        backButton.tap()
 
         // 5. Logout - tap more options menu, then logout
         let moreOptionsButton = app.buttons["moreOptionsButton"]

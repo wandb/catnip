@@ -6,7 +6,7 @@
 //
 
 import Foundation
-@testable import catnip
+@testable import Catnip
 
 // MARK: - Mock Data Factory
 

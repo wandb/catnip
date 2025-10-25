@@ -6,7 +6,7 @@
 //
 
 import Testing
-@testable import catnip
+@testable import Catnip
 
 struct CatnipSmokeTests {
 

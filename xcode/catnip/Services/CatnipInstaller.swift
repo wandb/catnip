@@ -202,6 +202,13 @@ class CatnipInstaller: ObservableObject {
     private init() {
         // Load cached repositories on initialization
         loadCachedRepositories()
+
+        // Pre-populate repositories and user status in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            self.repositories = UITestingHelper.getMockRepositories()
+            self.userStatus = UITestingHelper.getMockUserStatus()
+            NSLog("🐱 [CatnipInstaller] Pre-populated \(self.repositories.count) mock repositories and user status during init")
+        }
     }
 
     // MARK: - Computed Properties

@@ -28,7 +28,7 @@ final class UserJourneyTests: XCTestCase {
     @MainActor
     func testCompleteUserJourney() throws {
         // Configure app for testing with mock data
-        app.launchArguments = ["-UITesting", "-SkipAuthentication", "-UseMockData"]
+        app.launchArguments = ["-UITesting", "-SkipAuthentication", "-UseMockData", "-HasCodespaces"]
         app.launch()
 
         // Step 1: Verify we're on codespace screen (since we skipped auth)
@@ -70,11 +70,10 @@ final class UserJourneyTests: XCTestCase {
         detailPage.tapBack()
         XCTAssertTrue(workspacesPage.isDisplayed(), "Should navigate back to workspaces")
 
-        // Step 9: Navigate back to codespace screen
+        // Step 9: Navigate back to codespace screen - wait for back button
         let backButton = app.navigationBars.buttons.firstMatch
-        if backButton.exists {
-            backButton.tap()
-        }
+        XCTAssertTrue(backButton.waitForExistence(timeout: 5), "Back button should exist")
+        backButton.tap()
 
         XCTAssertTrue(codespacePage.isDisplayed(), "Should navigate back to codespace screen")
 
@@ -222,7 +221,7 @@ final class UserJourneyTests: XCTestCase {
 
     @MainActor
     func testNavigationHierarchy() throws {
-        app.launchArguments = ["-UITesting", "-SkipAuthentication", "-UseMockData"]
+        app.launchArguments = ["-UITesting", "-SkipAuthentication", "-UseMockData", "-HasCodespaces"]
         app.launch()
 
         // Start at codespace
@@ -245,12 +244,11 @@ final class UserJourneyTests: XCTestCase {
         detailPage.tapBack()
         XCTAssertTrue(workspacesPage.isDisplayed(), "Should be back at workspaces")
 
-        // Back to codespace
+        // Back to codespace - wait for back button
         let backToCodespace = app.navigationBars.buttons.firstMatch
-        if backToCodespace.exists {
-            backToCodespace.tap()
-            XCTAssertTrue(codespacePage.isDisplayed(), "Should be back at codespace")
-        }
+        XCTAssertTrue(backToCodespace.waitForExistence(timeout: 5), "Back button should exist")
+        backToCodespace.tap()
+        XCTAssertTrue(codespacePage.isDisplayed(), "Should be back at codespace")
     }
 }
 

@@ -20,7 +20,8 @@ final class WorkflowUITests: XCTestCase {
         app.launchArguments = [
             "-UITesting",
             "-SkipAuthentication",  // Skip OAuth flow
-            "-UseMockData"          // Use mock API responses
+            "-UseMockData",         // Use mock API responses
+            "-HasCodespaces"        // Mock user has codespaces (enables workspace navigation)
         ]
     }
 
@@ -43,86 +44,91 @@ final class WorkflowUITests: XCTestCase {
         // Test codespace connection (mock)
         accessButton.tap()
 
-        // Should navigate to workspaces view after connection
+        // Should navigate to workspaces view after connection - increased timeout
         let workspacesTitle = app.navigationBars["Workspaces"]
-        XCTAssertTrue(workspacesTitle.waitForExistence(timeout: 5), "Workspaces screen should appear")
+        XCTAssertTrue(workspacesTitle.waitForExistence(timeout: 10), "Workspaces screen should appear")
 
-        // Wait for workspaces list to load
+        // Wait for workspaces list to load - increased timeout and add animation wait
         let workspacesList = app.descendants(matching: .any)["workspacesList"]
-        XCTAssertTrue(workspacesList.waitForExistence(timeout: 5), "Workspaces list should load")
+        XCTAssertTrue(workspacesList.waitForExistence(timeout: 10), "Workspaces list should load")
+        Thread.sleep(forTimeInterval: 0.5) // Wait for list to fully render
 
         // Test creating a new workspace
         let createButton = app.buttons["plus"]
-        XCTAssertTrue(createButton.exists, "Create button should exist in toolbar")
+        XCTAssertTrue(createButton.waitForExistence(timeout: 3), "Create button should exist in toolbar")
         createButton.tap()
 
-        // Should show create workspace sheet
+        // Should show create workspace sheet - increased timeout
         let createSheetTitle = app.navigationBars["New Workspace"]
-        XCTAssertTrue(createSheetTitle.waitForExistence(timeout: 2), "Create workspace sheet should appear")
+        XCTAssertTrue(createSheetTitle.waitForExistence(timeout: 5), "Create workspace sheet should appear")
 
         // Select a repository
         let repositoryButton = app.buttons.matching(identifier: "repositoryChip").firstMatch
-        if repositoryButton.exists {
+        if repositoryButton.waitForExistence(timeout: 2) {
             repositoryButton.tap()
         }
 
         // Enter a prompt
         let promptEditor = app.textViews.firstMatch
-        if promptEditor.exists {
+        if promptEditor.waitForExistence(timeout: 2) {
             promptEditor.tap()
             promptEditor.typeText("Fix the authentication bug")
         }
 
         // Submit (though we'll cancel for this test)
         let cancelButton = app.buttons["Cancel"]
-        XCTAssertTrue(cancelButton.exists, "Cancel button should exist")
+        XCTAssertTrue(cancelButton.waitForExistence(timeout: 2), "Cancel button should exist")
         cancelButton.tap()
 
-        // Should be back on workspaces list
-        XCTAssertTrue(workspacesTitle.exists, "Should return to workspaces list")
+        // Should be back on workspaces list - wait for sheet dismissal
+        Thread.sleep(forTimeInterval: 0.5) // Wait for sheet dismissal animation
+        XCTAssertTrue(workspacesTitle.waitForExistence(timeout: 3), "Should return to workspaces list")
 
         // Test selecting an existing workspace from the list
         // Find the first workspace button
         let firstWorkspace = workspacesList.buttons.firstMatch
-        if firstWorkspace.waitForExistence(timeout: 2) {
+        if firstWorkspace.waitForExistence(timeout: 5) {
             firstWorkspace.tap()
 
-            // Should navigate to workspace detail
+            // Should navigate to workspace detail - increased timeout
             let detailView = app.navigationBars.element(boundBy: 0)
-            XCTAssertTrue(detailView.waitForExistence(timeout: 3), "Workspace detail should appear")
+            XCTAssertTrue(detailView.waitForExistence(timeout: 5), "Workspace detail should appear")
 
-            // Go back
-            let backButton = app.navigationBars.buttons.firstMatch
-            if backButton.exists {
+            // Go back - use specific back button and wait for animation
+            Thread.sleep(forTimeInterval: 0.5) // Wait for detail to fully load
+            let backButton = detailView.buttons.element(boundBy: 0)
+            if backButton.waitForExistence(timeout: 2) {
                 backButton.tap()
+                Thread.sleep(forTimeInterval: 0.5) // Wait for back navigation animation
             }
 
             // Should be back on workspaces list
-            XCTAssertTrue(workspacesTitle.waitForExistence(timeout: 2), "Should return to workspaces list")
+            XCTAssertTrue(workspacesTitle.waitForExistence(timeout: 5), "Should return to workspaces list")
         }
 
-        // Test navigation back to codespace view
-        let codespaceBackButton = app.navigationBars.buttons.firstMatch
-        if codespaceBackButton.exists {
+        // Test navigation back to codespace view - use specific back button
+        let codespaceBackButton = workspacesTitle.buttons.element(boundBy: 0)
+        if codespaceBackButton.waitForExistence(timeout: 3) {
             codespaceBackButton.tap()
+            Thread.sleep(forTimeInterval: 0.5) // Wait for navigation animation
 
             // Should be back on codespace screen
             let codespaceScreen = app.staticTexts["Access your GitHub Codespaces"]
-            XCTAssertTrue(codespaceScreen.waitForExistence(timeout: 2), "Should return to codespace screen")
+            XCTAssertTrue(codespaceScreen.waitForExistence(timeout: 5), "Should return to codespace screen")
         }
 
         // Test logout - tap more options menu, then logout
         let moreOptionsButton = app.buttons["moreOptionsButton"]
-        XCTAssertTrue(moreOptionsButton.exists, "More options button should exist in toolbar")
+        XCTAssertTrue(moreOptionsButton.waitForExistence(timeout: 3), "More options button should exist in toolbar")
         moreOptionsButton.tap()
 
         let logoutMenuItem = app.buttons["Logout"]
-        XCTAssertTrue(logoutMenuItem.waitForExistence(timeout: 2), "Logout menu item should appear")
+        XCTAssertTrue(logoutMenuItem.waitForExistence(timeout: 3), "Logout menu item should appear")
         logoutMenuItem.tap()
 
-        // Should navigate back to login screen
+        // Should navigate back to login screen - increased timeout
         let signInButton = app.buttons["Sign in with GitHub"]
-        XCTAssertTrue(signInButton.waitForExistence(timeout: 3), "Should return to login screen after logout")
+        XCTAssertTrue(signInButton.waitForExistence(timeout: 5), "Should return to login screen after logout")
     }
 
     // MARK: - Individual Screen Tests

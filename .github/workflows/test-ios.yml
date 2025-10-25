@@ -27,7 +27,7 @@ jobs:
             -project xcode/catnip.xcodeproj \
             -scheme catnip \
             -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.1' \
-            -only-testing:catnipTests \
+            -only-testing:CatnipTests \
             -enableCodeCoverage YES \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO
@@ -78,7 +78,7 @@ jobs:
               -project xcode/catnip.xcodeproj \
               -scheme catnip \
               -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.1' \
-              -only-testing:catnipUITests \
+              -only-testing:CatnipUITests \
               -maximum-concurrent-test-simulator-destinations 4 \
               -test-timeouts-enabled YES \
               -maximum-test-execution-time-allowance 120 \

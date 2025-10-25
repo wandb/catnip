@@ -19,6 +19,19 @@ class BasePage {
     func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 5) -> Bool {
         element.waitForExistence(timeout: timeout)
     }
+
+    /// Wait for an element to exist and be hittable (fully rendered and interactive)
+    func waitForElementToBeHittable(_ element: XCUIElement, timeout: TimeInterval = 10) -> Bool {
+        let predicate = NSPredicate(format: "exists == true AND hittable == true")
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        return result == .completed
+    }
+
+    /// Wait with a small delay to allow animations to settle
+    func waitForAnimations(_ duration: TimeInterval = 0.5) {
+        Thread.sleep(forTimeInterval: duration)
+    }
 }
 
 // MARK: - Auth Page

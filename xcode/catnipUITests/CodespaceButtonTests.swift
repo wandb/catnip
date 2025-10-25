@@ -135,13 +135,13 @@ final class CodespaceButtonTests: XCTestCase {
         // Should navigate to repository selection view with "Select a Repository" header
         let repoSelectionHeader = app.staticTexts["Select a Repository"]
         XCTAssertTrue(
-            repoSelectionHeader.waitForExistence(timeout: 3),
+            repoSelectionHeader.waitForExistence(timeout: 5),
             "Should navigate to repository selection view with installation mode header"
         )
 
         // Verify we see the mock repositories
         let firstRepo = app.staticTexts["testuser/test-repo"]
-        XCTAssertTrue(firstRepo.exists, "Should display mock repositories")
+        XCTAssertTrue(firstRepo.waitForExistence(timeout: 3), "Should display mock repositories")
     }
 
     /// Test that tapping "Launch New Codespace" button navigates to repository selection
@@ -165,13 +165,13 @@ final class CodespaceButtonTests: XCTestCase {
         // Should navigate to repository selection view with "Select Repository to Launch" header
         let repoSelectionHeader = app.staticTexts["Select Repository to Launch"]
         XCTAssertTrue(
-            repoSelectionHeader.waitForExistence(timeout: 3),
+            repoSelectionHeader.waitForExistence(timeout: 5),
             "Should navigate to repository selection view with launch mode header"
         )
 
         // Verify we see the mock Catnip-ready repositories
         let firstRepo = app.staticTexts["testuser/catnip-ready-repo"]
-        XCTAssertTrue(firstRepo.exists, "Should display mock Catnip-ready repositories")
+        XCTAssertTrue(firstRepo.waitForExistence(timeout: 3), "Should display mock Catnip-ready repositories")
     }
 
     /// Test that tapping "Access My Codespace" button triggers connection flow

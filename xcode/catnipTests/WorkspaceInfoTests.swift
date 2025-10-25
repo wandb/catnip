@@ -7,7 +7,7 @@
 
 import Testing
 import Foundation
-@testable import catnip
+@testable import Catnip
 
 struct WorkspaceInfoTests {
 
