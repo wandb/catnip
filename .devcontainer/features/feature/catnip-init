@@ -12,7 +12,7 @@
 PATH=/opt/catnip/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 DESC="Catnip Development Server"
 NAME=catnip
-DAEMON=/opt/catnip/bin/catnip-run.sh
+DAEMON=/opt/catnip/bin/catnip-start.sh
 PIDFILE=/opt/catnip/catnip.pid
 SCRIPTNAME=/etc/init.d/$NAME
 

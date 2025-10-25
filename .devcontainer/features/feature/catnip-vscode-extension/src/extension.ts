@@ -49,7 +49,7 @@ async function isCatnipRunning(): Promise<boolean> {
 async function startCatnip(): Promise<void> {
   try {
     console.log("🐾 Starting catnip...");
-    await execAsync("bash /opt/catnip/bin/catnip-run.sh");
+    await execAsync("bash /opt/catnip/bin/catnip-start.sh");
     console.log("✅ Catnip started successfully");
   } catch (error) {
     console.error("❌ Failed to start catnip:", error);
