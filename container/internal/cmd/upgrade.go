@@ -121,16 +121,28 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to compare versions: %w", err)
 		}
 
-		if comparison >= 0 {
-			// Current version is same or newer than latest
+		// Debug: show comparison result
+		if os.Getenv("DEBUG") == "1" {
+			fmt.Printf("🔍 Version comparison: %d (current vs latest)\n", comparison)
+		}
+
+		if comparison > 0 {
+			// Current version is newer than latest
 			if strings.Contains(currentVersion, "-") {
-				// Dev/pre-release version
-				fmt.Printf("✅ Already running version %s (dev/pre-release of %s)\n", currentVersion, latestVersion)
+				fmt.Printf("✅ Already running newer version %s (dev/pre-release, latest stable is %s)\n", currentVersion, latestVersion)
 			} else {
-				fmt.Println("✅ Already running the latest version")
+				fmt.Printf("✅ Already running newer version %s (latest is %s)\n", currentVersion, latestVersion)
 			}
 			return nil
 		}
+
+		if comparison == 0 {
+			// Current version equals latest
+			fmt.Println("✅ Already running the latest version")
+			return nil
+		}
+
+		// comparison < 0: upgrade needed, continue below
 	}
 
 	if checkOnly {
