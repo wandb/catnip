@@ -283,11 +283,13 @@ info:
     @echo "  just format-go-changed - Format only changed Go files"
     @echo ""
     @echo "Release Management:"
-    @echo "  just release           - Create minor release (local tag)"
-    @echo "  just release --patch   - Create patch release"
-    @echo "  just release --major   - Create major release"
-    @echo "  just release --dev     - Create dev release"
-    @echo "  Add --push --message=\"...\" to actually release"
+    @echo "  just release                 - Create minor release (local tag)"
+    @echo "  just release --patch         - Create patch release"
+    @echo "  just release --major         - Create major release"
+    @echo "  just release --dev           - Create dev release"
+    @echo "  just release-extension       - Create VS Code extension release"
+    @echo "  just release-extension --push - Create and publish extension"
+    @echo "  Add --push --message=\"...\" to actually release (binary)"
     @echo ""
     @echo "Cleanup:"
     @echo "  just clean-containers  - Remove container images"
@@ -298,6 +300,11 @@ info:
 release *ARGS="":
     @echo "🚀 Creating release..."
     pnpm tsx scripts/release.ts {{ARGS}}
+
+# VS Code extension release management
+release-extension *ARGS="":
+    @echo "🚀 Creating VS Code extension release..."
+    pnpm tsx scripts/release-extension.ts {{ARGS}}
 
 # Development mode - runs both frontend and backend with proper port allocation
 dev:

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { exec } from "child_process";
 import { promisify } from "util";
-import * as fs from "fs";
+import * as http from "http";
 import * as QRCode from "qrcode";
 
 const execAsync = promisify(exec);
@@ -21,50 +21,143 @@ function isMobileDevice(): boolean {
   );
 }
 
-// Catnip management functions
+// Catnip API types
+interface WorktreeInfo {
+  id: string;
+  repo_id: string;
+  name: string;
+  branch: string;
+  path: string;
+  commit_hash: string;
+  created_at: string;
+  last_accessed: string;
+  // Optional display fields
+  pull_request_title?: string;
+  latest_session_title?: string;
+  latest_user_prompt?: string;
+  // Activity state
+  claude_activity_state?: "inactive" | "running" | "active";
+}
+
+// Get workspace title using same priority as web app
+function getWorkspaceTitle(worktree: WorktreeInfo): string {
+  // Priority 1: Use PR title if available
+  if (worktree.pull_request_title) {
+    return worktree.pull_request_title;
+  }
+
+  // Priority 2: Use latest session title if available
+  if (worktree.latest_session_title) {
+    return worktree.latest_session_title;
+  }
+
+  // Priority 3: Use latest user prompt if available
+  if (worktree.latest_user_prompt) {
+    return worktree.latest_user_prompt;
+  }
+
+  // Priority 4: Use workspace name
+  const workspaceName = worktree.name.split("/")[1] || worktree.name;
+  return workspaceName;
+}
+
+// Get status indicator icon based on activity state (matching web app)
+function getStatusIcon(
+  activityState?: "inactive" | "running" | "active",
+): vscode.ThemeIcon {
+  switch (activityState) {
+    case "active":
+      // Green filled circle (active/running Claude session)
+      return new vscode.ThemeIcon(
+        "circle-filled",
+        new vscode.ThemeColor("charts.green"),
+      );
+    case "running":
+      // Gray filled circle (recent activity)
+      return new vscode.ThemeIcon(
+        "circle-filled",
+        new vscode.ThemeColor("charts.gray"),
+      );
+    case "inactive":
+    default:
+      // Empty circle with border (inactive)
+      return new vscode.ThemeIcon(
+        "circle-outline",
+        new vscode.ThemeColor("charts.gray"),
+      );
+  }
+}
+
+// Catnip health check using HTTP
 async function isCatnipRunning(): Promise<boolean> {
-  try {
-    const pidFile = "/opt/catnip/catnip.pid";
-    if (!fs.existsSync(pidFile)) {
-      return false;
-    }
-
-    const pidStr = fs.readFileSync(pidFile, "utf8").trim();
-    const pid = parseInt(pidStr);
-
-    if (isNaN(pid)) {
-      return false;
-    }
-
-    // Check if process is actually running
-    const { stdout } = await execAsync(
-      `kill -0 ${pid} 2>/dev/null && echo "running" || echo "not running"`,
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        hostname: "localhost",
+        port: 6369,
+        path: "/v1/info",
+        timeout: 1000,
+      },
+      (res) => {
+        resolve(res.statusCode === 200);
+      },
     );
-    return stdout.trim() === "running";
-  } catch (_error) {
-    return false;
-  }
+
+    req.on("error", () => {
+      resolve(false);
+    });
+
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
 }
 
-async function startCatnip(): Promise<void> {
-  try {
-    console.log("🐾 Starting catnip...");
-    await execAsync("bash /opt/catnip/bin/catnip-start.sh");
-    console.log("✅ Catnip started successfully");
-  } catch (error) {
-    console.error("❌ Failed to start catnip:", error);
-    vscode.window.showErrorMessage(`Failed to start catnip: ${error}`);
-  }
-}
+// Fetch worktrees from catnip API
+async function getWorktrees(): Promise<WorktreeInfo[]> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        hostname: "localhost",
+        port: 6369,
+        path: "/v1/git/worktrees",
+        timeout: 1000,
+      },
+      (res) => {
+        let data = "";
 
-async function ensureCatnipRunning(): Promise<void> {
-  const running = await isCatnipRunning();
-  if (!running) {
-    console.log("🐾 Catnip not running, starting...");
-    await startCatnip();
-  } else {
-    console.log("✅ Catnip already running");
-  }
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          try {
+            if (res.statusCode === 200) {
+              // API returns array directly, not wrapped
+              const worktrees: WorktreeInfo[] = JSON.parse(data);
+              resolve(Array.isArray(worktrees) ? worktrees : []);
+            } else {
+              resolve([]);
+            }
+          } catch (error) {
+            console.error("Failed to parse worktrees response:", error);
+            resolve([]);
+          }
+        });
+      },
+    );
+
+    req.on("error", (error) => {
+      console.error("Failed to fetch worktrees:", error);
+      resolve([]);
+    });
+
+    req.on("timeout", () => {
+      req.destroy();
+      resolve([]);
+    });
+  });
 }
 
 class CatnipViewProvider implements vscode.TreeDataProvider<CatnipItem> {
@@ -80,49 +173,173 @@ class CatnipViewProvider implements vscode.TreeDataProvider<CatnipItem> {
   }
 
   async getChildren(element?: CatnipItem): Promise<CatnipItem[]> {
+    // If element is a repository group, return its worktrees
+    if (element?.worktrees) {
+      return element.worktrees.map((worktree) => {
+        const title = getWorkspaceTitle(worktree);
+        const tooltip = `${worktree.path}\nBranch: ${worktree.branch}`;
+        const item = new CatnipItem(
+          title,
+          tooltip,
+          vscode.TreeItemCollapsibleState.None,
+          "catnip.openWorktree",
+          worktree.path,
+        );
+        item.iconPath = getStatusIcon(worktree.claude_activity_state);
+        return item;
+      });
+    }
+
     if (!element) {
       const running = await isCatnipRunning();
 
-      if (running) {
-        const isMobile = isMobileDevice();
+      if (!running) {
+        return [
+          new CatnipItem(
+            "❌ Catnip Not Running",
+            "Waiting for catnip to start...",
+            vscode.TreeItemCollapsibleState.None,
+            undefined,
+          ),
+        ];
+      }
 
-        if (isMobile) {
-          // Mobile view: show cat logo
-          return [
-            new CatnipItem(
-              "🐱",
-              "Open Catnip Interface",
-              vscode.TreeItemCollapsibleState.None,
-              "catnip.openInterface",
-            ),
-          ];
-        } else {
-          // Desktop view: show button + QR code
-          return [
-            new CatnipItem(
-              "💻 Open Catnip Interface",
-              "Click to open the catnip development environment",
-              vscode.TreeItemCollapsibleState.None,
-              "catnip.openInterface",
-            ),
+      const items: CatnipItem[] = [];
+      const isMobile = isMobileDevice();
+      const isCodespace = !!process.env.CODESPACE_NAME;
+
+      // Add interface controls at the top
+      if (isMobile) {
+        items.push(
+          new CatnipItem(
+            "🐱",
+            "Open Catnip Interface",
+            vscode.TreeItemCollapsibleState.None,
+            "catnip.openInterface",
+          ),
+        );
+      } else {
+        items.push(
+          new CatnipItem(
+            "💻 Open Catnip Interface",
+            "Click to open the catnip development environment",
+            vscode.TreeItemCollapsibleState.None,
+            "catnip.openInterface",
+          ),
+        );
+
+        // Only show QR code button in Codespaces
+        if (isCodespace) {
+          items.push(
             new CatnipItem(
               "📱 Open on Mobile",
               "Scan QR code to open on mobile device",
               vscode.TreeItemCollapsibleState.None,
               "catnip.showQR",
             ),
-          ];
+          );
         }
-      } else {
-        return [
-          new CatnipItem(
-            "❌ Catnip Not Running",
-            "Click to view catnip logs and troubleshoot",
-            vscode.TreeItemCollapsibleState.None,
-            "catnip.openLogs",
-          ),
-        ];
       }
+
+      // Add separator
+      items.push(
+        new CatnipItem(
+          "────────────",
+          "Workspaces",
+          vscode.TreeItemCollapsibleState.None,
+          undefined,
+        ),
+      );
+
+      // Add "home" button only when in Codespace and inside a worktree
+      const workspaceFolders = vscode.workspace.workspaceFolders;
+      let currentWorkspaceRepoName: string | undefined;
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        const currentPath = workspaceFolders[0].uri.fsPath;
+        const currentName = currentPath.split("/").pop() || currentPath;
+        // Extract repo name from path for grouping
+        currentWorkspaceRepoName = currentName;
+
+        // Only show "home" button when in Codespace and inside /worktrees directory
+        const isInWorktree = currentPath.includes("/worktrees/");
+        if (isCodespace && isInWorktree) {
+          items.push(
+            new CatnipItem(
+              "home",
+              "Return to main codespace workspace",
+              vscode.TreeItemCollapsibleState.None,
+              "catnip.openInterface",
+            ),
+          );
+        }
+      }
+
+      // Fetch and add worktrees
+      try {
+        const worktrees = await getWorktrees();
+
+        // Sort by last_accessed (most recent first)
+        const sortedWorktrees = [...worktrees].sort((a, b) => {
+          const aTime = new Date(a.last_accessed).getTime();
+          const bTime = new Date(b.last_accessed).getTime();
+          return bTime - aTime; // Descending order
+        });
+
+        // Group by repository
+        const repoMap = new Map<string, WorktreeInfo[]>();
+        for (const worktree of sortedWorktrees) {
+          const repoName = worktree.name.split("/")[0];
+          if (!repoMap.has(repoName)) {
+            repoMap.set(repoName, []);
+          }
+          repoMap.get(repoName)!.push(worktree);
+        }
+
+        // If multiple repositories, create groups
+        if (repoMap.size > 1) {
+          for (const [repoName, repoWorktrees] of repoMap) {
+            // Use current workspace name if this repo matches the current one
+            const isCurrentRepo = currentWorkspaceRepoName === repoName;
+            const displayName =
+              isCurrentRepo && currentWorkspaceRepoName
+                ? currentWorkspaceRepoName
+                : repoName;
+            // Expand the current workspace's repo group by default
+            const collapsibleState = isCurrentRepo
+              ? vscode.TreeItemCollapsibleState.Expanded
+              : vscode.TreeItemCollapsibleState.Collapsed;
+            const repoItem = new CatnipItem(
+              displayName,
+              `${repoWorktrees.length} workspace${repoWorktrees.length !== 1 ? "s" : ""}`,
+              collapsibleState,
+              undefined,
+              undefined,
+              repoWorktrees,
+            );
+            repoItem.iconPath = new vscode.ThemeIcon("folder");
+            items.push(repoItem);
+          }
+        } else {
+          // Single repository - show flat list
+          for (const worktree of sortedWorktrees) {
+            const title = getWorkspaceTitle(worktree);
+            const tooltip = `${worktree.path}\nBranch: ${worktree.branch}`;
+            const item = new CatnipItem(
+              title,
+              tooltip,
+              vscode.TreeItemCollapsibleState.None,
+              "catnip.openWorktree",
+              worktree.path,
+            );
+            item.iconPath = getStatusIcon(worktree.claude_activity_state);
+            items.push(item);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch worktrees:", error);
+      }
+
+      return items;
     }
     return [];
   }
@@ -140,6 +357,8 @@ class CatnipItem extends vscode.TreeItem {
     public readonly tooltip: string,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
     public readonly commandId?: string,
+    public readonly path?: string,
+    public readonly worktrees?: WorktreeInfo[],
   ) {
     super(label, collapsibleState);
     this.tooltip = tooltip;
@@ -148,7 +367,7 @@ class CatnipItem extends vscode.TreeItem {
       this.command = {
         command: commandId,
         title: label,
-        arguments: [],
+        arguments: path ? [path] : [],
       };
     }
   }
@@ -158,20 +377,9 @@ export function activate(context: vscode.ExtensionContext) {
   const provider = new CatnipViewProvider();
   vscode.window.registerTreeDataProvider("catnip-sidebar", provider);
 
-  // Ensure catnip is running when extension activates
-  ensureCatnipRunning().catch((error) => {
-    console.error("Failed to ensure catnip is running:", error);
-  });
-
   // Check catnip status periodically (every 30 seconds) and refresh UI
   const healthCheckInterval = setInterval(async () => {
-    try {
-      await ensureCatnipRunning();
-      provider.refresh(); // Refresh the tree view to show updated status
-    } catch (error) {
-      console.error("Health check failed:", error);
-      provider.refresh(); // Still refresh to show the error state
-    }
+    provider.refresh(); // Refresh the tree view to show updated status
   }, 30000);
 
   // Clean up interval when extension deactivates
@@ -182,9 +390,6 @@ export function activate(context: vscode.ExtensionContext) {
   const openInterfaceCommand = vscode.commands.registerCommand(
     "catnip.openInterface",
     async () => {
-      // Ensure catnip is running before opening interface
-      await ensureCatnipRunning();
-
       const codespaceName = process.env.CODESPACE_NAME;
 
       if (codespaceName) {
@@ -222,12 +427,10 @@ export function activate(context: vscode.ExtensionContext) {
           const document = await vscode.workspace.openTextDocument(uri);
           await vscode.window.showTextDocument(document);
         } catch (_error) {
-          // Log file doesn't exist, show error and try to start catnip
+          // Log file doesn't exist
           vscode.window.showWarningMessage(
-            `Catnip log file not found at ${logPath}. Attempting to start catnip...`,
+            `Catnip log file not found at ${logPath}. Catnip may not be running yet.`,
           );
-          await ensureCatnipRunning();
-          provider.refresh();
         }
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to open catnip logs: ${error}`);
@@ -274,10 +477,72 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  const openWorktreeCommand = vscode.commands.registerCommand(
+    "catnip.openWorktree",
+    async (path: string) => {
+      if (!path) {
+        vscode.window.showErrorMessage("No path provided for workspace");
+        return;
+      }
+
+      try {
+        const uri = vscode.Uri.file(path);
+
+        // Check if the directory exists locally (handles container vs host scenarios)
+        try {
+          await vscode.workspace.fs.stat(uri);
+          // Directory exists locally, open it in a new window
+          await vscode.commands.executeCommand("vscode.openFolder", uri, true);
+        } catch (statError) {
+          // Directory doesn't exist locally - likely in a container scenario
+          // Open catnip interface in browser instead
+
+          // Extract workspace name from path (everything after 'worktrees/')
+          let workspaceName = path;
+          const worktreesIndex = path.indexOf("/worktrees/");
+          if (worktreesIndex !== -1) {
+            workspaceName = path.substring(
+              worktreesIndex + "/worktrees/".length,
+            );
+          } else {
+            // Fallback: use the last part of the path
+            workspaceName = path
+              .split("/")
+              .filter((p) => p)
+              .slice(-2)
+              .join("/");
+          }
+
+          const codespaceName = process.env.CODESPACE_NAME;
+          let baseUrl: string;
+
+          if (codespaceName) {
+            // In a Codespace environment
+            baseUrl = `https://${codespaceName}-6369.app.github.dev`;
+          } else {
+            // Local environment
+            baseUrl = "http://localhost:6369";
+          }
+
+          const url = `${baseUrl}/workspace/${workspaceName}`;
+          vscode.env.openExternal(vscode.Uri.parse(url));
+          vscode.window.showInformationMessage(
+            `Opening workspace ${workspaceName} in browser (directory not accessible from VS Code)`,
+          );
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to open workspace at ${path}: ${error}`,
+        );
+      }
+    },
+  );
+
   context.subscriptions.push(
     openInterfaceCommand,
     openLogsCommand,
     showQRCommand,
+    openWorktreeCommand,
   );
 }
 
