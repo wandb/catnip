@@ -1075,6 +1075,7 @@ func (s *GitService) detectLocalRepos() {
 
 				// Fetch the default branch in the background
 				// Use FetchBranchFast for speed (shallow fetch with depth=1)
+				fetchSucceeded := false
 				if err := s.operations.FetchBranchFast(repo.Path, defaultBranch); err != nil {
 					logger.Warnf("⚠️  Failed to fetch default branch '%s': %v", defaultBranch, err)
 					logger.Infof("🔄 Attempting to determine and fetch the correct default branch from remote...")
@@ -1094,10 +1095,52 @@ func (s *GitService) detectLocalRepos() {
 							if err := s.stateManager.AddRepository(repo); err != nil {
 								logger.Warnf("⚠️ Failed to update repository default branch in state: %v", err)
 							}
+							fetchSucceeded = true
 						}
 					}
 				} else {
 					logger.Infof("✅ Successfully fetched default branch '%s'", defaultBranch)
+					fetchSucceeded = true
+				}
+
+				// If all fetch attempts failed, fall back to using any available local branch
+				if !fetchSucceeded && !s.branchExists(repo.Path, defaultBranch, false) {
+					logger.Warnf("⚠️  Could not fetch default branch '%s', checking for available local branches...", defaultBranch)
+
+					// Get list of local branches
+					if localBranches, err := s.operations.GetLocalBranches(repo.Path); err == nil && len(localBranches) > 0 {
+						// Try common branch names in order
+						commonBranches := []string{"main", "master", "develop"}
+						fallbackBranch := ""
+
+						for _, commonBranch := range commonBranches {
+							for _, localBranch := range localBranches {
+								if localBranch == commonBranch {
+									fallbackBranch = commonBranch
+									break
+								}
+							}
+							if fallbackBranch != "" {
+								break
+							}
+						}
+
+						// If no common branch found, use the first available branch
+						if fallbackBranch == "" {
+							fallbackBranch = localBranches[0]
+						}
+
+						logger.Warnf("⚠️  Using fallback branch '%s' instead of configured default '%s'", fallbackBranch, defaultBranch)
+						defaultBranch = fallbackBranch
+
+						// Update the repository's default branch
+						repo.DefaultBranch = defaultBranch
+						if err := s.stateManager.AddRepository(repo); err != nil {
+							logger.Warnf("⚠️ Failed to update repository default branch in state: %v", err)
+						}
+					} else {
+						logger.Warnf("⚠️  No local branches found, will attempt to create worktree anyway")
+					}
 				}
 			}
 
