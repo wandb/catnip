@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git/executor"
@@ -119,12 +120,41 @@ func (f *FetchExecutor) FetchBranchFast(repoPath, branch string) error {
 		"--no-recurse-submodules", // Skip submodules
 	}
 
-	output, err := f.executor.ExecuteGitWithWorkingDir(repoPath, args...)
-	if err != nil {
-		return fmt.Errorf("failed to fetch branch optimized: %v\n%s", err, output)
+	// Retry up to 3 times with exponential backoff for resilience against temporary issues
+	// (e.g., shallow.lock conflicts from concurrent/crashed git processes)
+	maxRetries := 3
+	var lastErr error
+	var lastOutput []byte
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		output, err := f.executor.ExecuteGitWithWorkingDir(repoPath, args...)
+		if err == nil {
+			// Fetch succeeded - now create local branch ref from remote tracking branch
+			// This mirrors the logic in FetchBranch's UpdateLocalRef
+			_, updateErr := f.executor.ExecuteGitWithWorkingDir(repoPath, "update-ref",
+				fmt.Sprintf("refs/heads/%s", branch),
+				fmt.Sprintf("refs/remotes/origin/%s", branch))
+			if updateErr != nil {
+				logger.Debugf("⚠️ Could not update local branch ref for %s: %v", branch, updateErr)
+				// Don't fail the fetch operation if ref update fails - the remote tracking branch is still updated
+			}
+			return nil // Success!
+		}
+
+		lastErr = err
+		lastOutput = output
+
+		// If this wasn't the last attempt, wait before retrying
+		if attempt < maxRetries-1 {
+			// Exponential backoff: 1s, 2s
+			waitTime := time.Duration(1<<attempt) * time.Second
+			logger.Debugf("🔄 Fetch attempt %d/%d failed, retrying in %v: %v", attempt+1, maxRetries, waitTime, err)
+			time.Sleep(waitTime)
+		}
 	}
 
-	return nil
+	// All retries exhausted
+	return fmt.Errorf("failed to fetch branch optimized after %d attempts: %v\n%s", maxRetries, lastErr, lastOutput)
 }
 
 // FetchBranchFull performs a full fetch for operations that need complete history

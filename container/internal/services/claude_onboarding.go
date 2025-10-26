@@ -668,7 +668,7 @@ func (s *ClaudeOnboardingService) getStateTimeout(state OnboardingState) time.Du
 	if state == StateAuthWaiting {
 		return 3 * time.Minute // User needs time for OAuth flow
 	}
-	return 10 * time.Second // Automated transitions should be fast
+	return 20 * time.Second // Automated transitions - doubled for codespaces with slow I/O
 }
 
 // IsRunning returns whether the onboarding is currently running

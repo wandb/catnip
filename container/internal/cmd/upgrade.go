@@ -114,10 +114,35 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Current version: %s\n", currentVersion)
 	fmt.Printf("Latest version:  %s\n", latestVersion)
 
-	// Check if upgrade is needed
-	if !force && currentVersion == latestVersion {
-		fmt.Println("✅ Already running the latest version")
-		return nil
+	// Check if upgrade is needed using semantic version comparison
+	if !force {
+		comparison, err := compareVersions(currentVersion, latestVersion)
+		if err != nil {
+			return fmt.Errorf("failed to compare versions: %w", err)
+		}
+
+		// Debug: show comparison result
+		if os.Getenv("DEBUG") == "1" {
+			fmt.Printf("🔍 Version comparison: %d (current vs latest)\n", comparison)
+		}
+
+		if comparison > 0 {
+			// Current version is newer than latest
+			if strings.Contains(currentVersion, "-") {
+				fmt.Printf("✅ Already running newer version %s (dev/pre-release, latest stable is %s)\n", currentVersion, latestVersion)
+			} else {
+				fmt.Printf("✅ Already running newer version %s (latest is %s)\n", currentVersion, latestVersion)
+			}
+			return nil
+		}
+
+		if comparison == 0 {
+			// Current version equals latest
+			fmt.Println("✅ Already running the latest version")
+			return nil
+		}
+
+		// comparison < 0: upgrade needed, continue below
 	}
 
 	if checkOnly {
@@ -183,6 +208,68 @@ func getLatestVersion(includeDev bool) (string, error) {
 		}
 		return release.TagName, nil
 	}
+}
+
+// parseVersion extracts the base version and pre-release suffix from a version string
+// Examples:
+//
+//	"v0.11.1-dev" -> ("0.11.1", "-dev")
+//	"0.11.2" -> ("0.11.2", "")
+//	"v1.2.3-rc.1" -> ("1.2.3", "-rc.1")
+func parseVersion(version string) (baseVersion string, suffix string) {
+	// Strip leading 'v' if present
+	version = strings.TrimPrefix(version, "v")
+
+	// Split on first hyphen to separate base version from suffix
+	if idx := strings.Index(version, "-"); idx != -1 {
+		return version[:idx], version[idx:]
+	}
+
+	return version, ""
+}
+
+// compareVersions compares two semantic versions
+// Returns:
+//
+//	-1 if v1 < v2
+//	 0 if v1 == v2 (comparing base versions)
+//	 1 if v1 > v2
+func compareVersions(v1, v2 string) (int, error) {
+	base1, _ := parseVersion(v1)
+	base2, _ := parseVersion(v2)
+
+	// Parse version components
+	parts1 := strings.Split(base1, ".")
+	parts2 := strings.Split(base2, ".")
+
+	// Ensure we have at least 3 parts (major.minor.patch)
+	for len(parts1) < 3 {
+		parts1 = append(parts1, "0")
+	}
+	for len(parts2) < 3 {
+		parts2 = append(parts2, "0")
+	}
+
+	// Compare each component
+	for i := 0; i < 3; i++ {
+		var num1, num2 int
+		if _, err := fmt.Sscanf(parts1[i], "%d", &num1); err != nil {
+			return 0, fmt.Errorf("invalid version component in %s: %s", v1, parts1[i])
+		}
+		if _, err := fmt.Sscanf(parts2[i], "%d", &num2); err != nil {
+			return 0, fmt.Errorf("invalid version component in %s: %s", v2, parts2[i])
+		}
+
+		if num1 < num2 {
+			return -1, nil
+		}
+		if num1 > num2 {
+			return 1, nil
+		}
+	}
+
+	// Base versions are equal
+	return 0, nil
 }
 
 func confirmUpgrade(currentVersion, latestVersion string) bool {
