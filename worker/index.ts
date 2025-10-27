@@ -52,6 +52,9 @@ interface CodespaceCredentials {
   githubRepo?: string;
   createdAt: number;
   updatedAt: number;
+  status?: "available" | "unavailable";
+  lastHealthCheck?: number;
+  lastError?: string;
 }
 
 type Variables = {
@@ -2421,6 +2424,37 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
     }
   });
 
+  // Helper to update codespace status
+  async function updateCodespaceStatus(
+    env: Env,
+    username: string,
+    codespaceName: string,
+    status: "available" | "unavailable",
+    lastError?: string,
+  ) {
+    try {
+      const codespaceStore = env.CODESPACE_STORE.get(
+        env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      await codespaceStore.fetch(
+        `https://internal/codespace/${username}/${codespaceName}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, lastError }),
+        },
+      );
+
+      console.log(`✅ Updated codespace ${codespaceName} status to ${status}`);
+    } catch (error) {
+      console.error(
+        `Failed to update codespace ${codespaceName} status:`,
+        error,
+      );
+    }
+  }
+
   // Authentication middleware for protected routes
   async function requireAuth(c: Context<HonoEnv>, next: () => Promise<void>) {
     const session = c.get("session");
@@ -2539,14 +2573,119 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
           return c.text("Codespace credentials not found", 404);
         }
 
-        const credentials = (await credentialsResponse.json()) as {
-          codespaceName: string;
-          githubToken: string;
-        };
+        const credentials =
+          (await credentialsResponse.json()) as CodespaceCredentials;
 
         console.log(
           `🐱 [Mobile] ✅ Found credentials for ${username}/${codespaceName}`,
         );
+
+        // Special handling for /v1/info endpoint - check GitHub API status
+        if (url.pathname === "/v1/info") {
+          console.log(
+            `🐱 [Mobile] /v1/info request - checking GitHub API for codespace status`,
+          );
+
+          // Get user's access token from session for GitHub API call
+          const accessToken = c.get("accessToken");
+          if (!accessToken) {
+            console.error(
+              `🐱 [Mobile] ❌ No access token available for GitHub API check`,
+            );
+            return c.json(
+              {
+                error: "Authentication required",
+                code: "NO_ACCESS_TOKEN",
+                message: "Please reconnect to authenticate.",
+              },
+              401,
+            );
+          }
+
+          try {
+            // Check actual codespace status via GitHub API
+            const githubResponse = await fetch(
+              `https://api.github.com/user/codespaces/${codespaceName}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  Accept: "application/vnd.github.v3+json",
+                  "User-Agent": "Catnip-Worker/1.0",
+                },
+              },
+            );
+
+            if (githubResponse.ok) {
+              const codespaceData = (await githubResponse.json()) as {
+                state: string;
+                name: string;
+              };
+              const state = codespaceData.state;
+
+              console.log(`🐱 [Mobile] GitHub API codespace state: ${state}`);
+
+              // Mark as available if state is "Available"
+              if (state === "Available") {
+                void updateCodespaceStatus(
+                  c.env,
+                  username,
+                  codespaceName,
+                  "available",
+                );
+              } else {
+                // Any other state (Shutdown, ShuttingDown, Starting, etc.) - mark unavailable
+                void updateCodespaceStatus(
+                  c.env,
+                  username,
+                  codespaceName,
+                  "unavailable",
+                  `Codespace state: ${state}`,
+                );
+
+                console.log(
+                  `🐱 [Mobile] /v1/info blocked - codespace in state: ${state}`,
+                );
+                return c.json(
+                  {
+                    error: "Codespace unavailable",
+                    code: "CODESPACE_SHUTDOWN",
+                    message: `Your codespace is ${state.toLowerCase()}. Reconnect to restart it.`,
+                    state: state,
+                  },
+                  502,
+                );
+              }
+            } else if (githubResponse.status === 404) {
+              // Codespace doesn't exist
+              void updateCodespaceStatus(
+                c.env,
+                username,
+                codespaceName,
+                "unavailable",
+                "Codespace not found (404)",
+              );
+
+              console.log(`🐱 [Mobile] /v1/info blocked - codespace not found`);
+              return c.json(
+                {
+                  error: "Codespace not found",
+                  code: "CODESPACE_SHUTDOWN",
+                  message:
+                    "Your codespace was not found. It may have been deleted.",
+                },
+                502,
+              );
+            } else {
+              // Other error from GitHub API - log but continue (fail open)
+              console.warn(
+                `🐱 [Mobile] GitHub API error: ${githubResponse.status}, continuing anyway`,
+              );
+            }
+          } catch (error) {
+            // GitHub API check failed - log but continue (fail open)
+            console.error(`🐱 [Mobile] GitHub API check failed:`, error);
+          }
+        }
 
         // Check if we have a valid token
         if (!credentials.githubToken || credentials.githubToken === "") {
@@ -2755,6 +2894,18 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
         console.log(
           `🐱 [Mobile] ✅ Proxy response status: ${proxyResponse.status}`,
         );
+
+        // Mark codespace as available on successful proxy
+        // (Status checks for unavailability happen via GitHub API in /v1/info)
+        if (proxyResponse.ok) {
+          void updateCodespaceStatus(
+            c.env,
+            username,
+            codespaceName,
+            "available",
+          );
+        }
+
         return proxyResponse;
       } catch (error) {
         console.error("🐱 [Mobile] ❌ Error proxying to codespace:", error);

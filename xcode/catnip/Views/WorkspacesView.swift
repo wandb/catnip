@@ -29,6 +29,11 @@ struct WorkspacesView: View {
     @State private var showClaudeAuthSheet = false
     @State private var hasCheckedClaudeAuth = false
 
+    // Codespace shutdown detection
+    @State private var showShutdownAlert = false
+    @State private var shutdownMessage: String?
+    @Environment(\.dismiss) private var dismiss
+
     private var availableRepositories: [String] {
         Array(Set(workspaces.map { $0.repoId })).sorted()
     }
@@ -64,6 +69,30 @@ struct WorkspacesView: View {
             if !hasCheckedClaudeAuth {
                 await checkClaudeAuth()
             }
+
+            // Start health check monitoring when workspaces view appears
+            HealthCheckService.shared.startMonitoring()
+        }
+        .onDisappear {
+            // Stop health check monitoring when leaving workspaces view
+            HealthCheckService.shared.stop()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .codespaceShutdownDetected)) { notification in
+            // Handle codespace shutdown notification
+            if let message = notification.userInfo?["message"] as? String {
+                shutdownMessage = message
+                showShutdownAlert = true
+            }
+        }
+        .alert("Codespace Unavailable", isPresented: $showShutdownAlert) {
+            Button("Reconnect") {
+                // Reset health check state
+                HealthCheckService.shared.resetShutdownState()
+                // Dismiss this view to go back to CodespaceView
+                dismiss()
+            }
+        } message: {
+            Text(shutdownMessage ?? "Your codespace has shut down. Tap 'Reconnect' to restart it.")
         }
         .refreshable {
             await loadWorkspaces()
