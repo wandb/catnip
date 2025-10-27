@@ -32,7 +32,9 @@ class HealthCheckService: ObservableObject {
     }
 
     deinit {
-        stop()
+        // Cancel polling task directly without calling stop() to avoid actor isolation issues
+        pollingTask?.cancel()
+
         if let observer = appStateObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -69,7 +71,7 @@ class HealthCheckService: ObservableObject {
 
         do {
             // Call the /v1/info endpoint
-            let result = try await CatnipAPI.shared.getServerInfo()
+            _ = try await CatnipAPI.shared.getServerInfo()
 
             // If we get a successful response, codespace is available
             await MainActor.run {
