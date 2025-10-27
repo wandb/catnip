@@ -18,7 +18,7 @@ Catnip helps you stay organized, run many agents in parallel, and operate agents
 
 ## 🚀 Why Catnip?
 
-Catnip is a web service that automates git worktree creation and runs in a container.  You can run Catnip in the cloud using GitHub Codespaces or locally on your machine.
+Catnip is a web service that automates git worktree creation and runs in a container. You can run Catnip in the cloud using GitHub Codespaces or locally on your machine.
 
 **The Problem:** You want to keep Claude Code running as long as possible.
 
@@ -32,7 +32,7 @@ Catnip is a web service that automates git worktree creation and runs in a conta
   (https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
 - **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
 - **📱 Mobile Interface**: Catnip has a native mobile interface. You can even interact with the Claude Code terminal interface on your phone!
-- **💻 Full Terminal Access**: The Claude Code terminal interface is 🔥.  Open multiple terminals via the web interface, CLI, or directly via SSH.
+- **💻 Full Terminal Access**: The Claude Code terminal interface is 🔥. Open multiple terminals via the web interface, CLI, or directly via SSH.
 - **👀 Preview Changes**: Catnip has a built in proxy and port detection in the container. Start a web service and preview it live locally!
 - **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is supported.
 
@@ -115,7 +115,7 @@ The `catnip run` command configures SSH within the container by default. It crea
 
 ### Docker in Docker
 
-If you want the catnip container to be able to run `docker` commands, pass the `--dind` flag to the `catnip run` command. This mounts the docker socket from the host into the container allowing your terminals and AI agents to build or run containers - useful for containerized ML services or complex multi-service applications.  If you're running in GitHub codespaces make sure you've 
+If you want the catnip container to be able to run `docker` commands, pass the `--dind` flag to the `catnip run` command. This mounts the docker socket from the host into the container allowing your terminals and AI agents to build or run containers - useful for containerized ML services or complex multi-service applications. If you're running in GitHub codespaces make sure you've
 
 ### Git
 
