@@ -5,6 +5,8 @@ interface CodespaceCredentials {
   githubUser: string;
   codespaceName: string;
   githubRepository?: string;
+  githubOrg?: string;
+  githubRepo?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -321,6 +323,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               githubToken: "", // Empty token - will need to be refreshed
               githubUser: githubUser,
               codespaceName: row.codespace_name as string,
+              githubRepository: row.github_repository as string | undefined,
               createdAt: result.createdAt,
               updatedAt: result.updatedAt,
             };
@@ -344,6 +347,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
                 githubToken: "", // Empty token - will need to be refreshed
                 githubUser: githubUser,
                 codespaceName: credentials.codespaceName,
+                githubRepository: credentials.githubRepository,
                 createdAt: credentials.createdAt,
                 updatedAt: credentials.updatedAt,
               };
@@ -359,6 +363,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               githubToken: "", // Empty token - will need to be refreshed
               githubUser: githubUser,
               codespaceName: row.codespace_name as string,
+              githubRepository: row.github_repository as string | undefined,
               createdAt: result.createdAt,
               updatedAt: result.updatedAt,
             };
