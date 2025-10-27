@@ -3,49 +3,37 @@
 
 # 🐾 Catnip
 
-**Run Claude Code Everywhere!**
+**Run Claude Code Everywhere**
 
-Catnip helps you stay organized, run many agents in parallel, and operate agents on the go with web our native mobile interface.
+Catnip helps you stay organized, run many agents in parallel, and operate agents remotely with our web and native mobile interfaces.
 
 [![GitHub Stars](https://img.shields.io/github/stars/wandb/catnip?style=social)](https://github.com/wandb/catnip)
 [![Docker Pulls](https://img.shields.io/docker/pulls/wandb/catnip)](https://hub.docker.com/r/wandb/catnip)
 [![Version](https://img.shields.io/github/v/release/wandb/catnip)](https://github.com/wandb/catnip/releases)
 <br/>
 
-**🔥 Parallel vibe coding in containers. Stay organized, get notified, create anything! 😎**
-
 <img src="public/screenshot.png" alt="Catnip UI Screenshot"/>
 
 </div>
 
-## 💡 When to Use Catnip
-
-**You should use Catnip if you:**
-
-- Want a quick environment to code with agents like Claude. Catnip runs in a universal docker container or your existing Dev Container, making it easy to start new projects or continue developing existing git repositories.
-- Have so many idea's that you want to try multiple things at once. Catnip creates git worktrees enabling parallel development.
-- Want a safe, isolated environment where AI assistants can run terminal commands without the risk of messing up your primary system and asking for permission all the time.
-- Are so addicted to Claude you want to be able to create and monitor agents from your phone. Catnip has a mobile UI making it a super tool when added to a cloud based runtime like Github Codespaces.
-
 ## 🚀 Why Catnip?
 
-Think of Catnip as a **multi-agent coding workspace** that solves the chaos of having AI assistants work on multiple tasks in parallel.
+Catnip is a web service that automates git worktree creation and runs in a container.  You can run Catnip in the cloud using GitHub Codespaces or locally on your machine.
 
 **The Problem:** You want to keep Claude Code running as long as possible.
 
-- It's annoying to manage multiple git worktree's and commit changes
-- Previewing the changes across multiple worktree's and more importantly giving the agent a way to test the changes is tricky and Catnip does everything it can to help
-- You lose track of what each AI assistant has been working on
-- You want to be able to review changes on the go / from your phone
+- Claude Code works best when it's sandboxed and has all the tools it needs to test or debug your code.
+- It's difficult to keep track of multiple claude sessions and manage git worktrees.
+- You want to be able to review changes / keep claude working when you're on the go from your phone
 
-**The Solution:** Catnip gives each AI assistant its own isolated workspace while keeping everything synchronized:
+**The Solution:** Catnip runs in a container, manages worktrees for you, and exposes API's and UI's to interact with it:
 
 - **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK]
   (https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
 - **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
-- **📱 Mobile Interface**: Catnip works on a mobile device. It's like having your own OpenAI Codex service.
-- **💻 Full Terminal Access**: Open multiple terminals via the web interface, CLI, or directly via SSH.
-- **👀 Preview Changes**: Catnip has a built in proxy and port detection. Start a web service and preview it live!
+- **📱 Mobile Interface**: Catnip has a native mobile interface. You can even interact with the Claude Code terminal interface on your phone!
+- **💻 Full Terminal Access**: The Claude Code terminal interface is 🔥.  Open multiple terminals via the web interface, CLI, or directly via SSH.
+- **👀 Preview Changes**: Catnip has a built in proxy and port detection in the container. Start a web service and preview it live locally!
 - **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is supported.
 
 ## ⚡ Quick Start
@@ -100,18 +88,16 @@ CATNIP_GO_VERSION=1.22
 > [!NOTE]
 > If you want complete control of your environment, run catnip in a devcontainer as described above
 
-### Environment Setup
+## Advanced Setup
 
 Catnip currently looks for a file named `setup.sh` in the root of your repo and runs it when a workspace is created. This is a great place to run `pnpm install`, `pip install -r requirements.txt`, or `uv sync` - perfect for AI projects with complex dependencies.
 
 ```bash
 #!/bin/bash
-# Example setup.sh for LLM application development
 pip install -r requirements.txt
-# Pre-load common dependencies for LLM apps
 pip install openai anthropic chromadb
-npm install  # For full-stack AI applications
-# Set up vector database or other services
+npm install
+# Assuming --dind passed locally, or the docker-in-docker feature was added
 docker-compose up -d --build
 ```
 
@@ -120,17 +106,16 @@ docker-compose up -d --build
 `catnip run` accepts `-e` arguments. For instance if you want to pass `ANTHROPIC_API_KEY` from your host into the container you can simply add `-e ANTHROPIC_API_KEY` and then all terminals and AI agent sessions within the container will see that variable. You can also explicitly set variables, `-e ANTHROPIC_BASE_URL=https://some.otherprovider.com/v1`
 
 ```bash
-# Essential for LLM application development
 catnip run -e ANTHROPIC_API_KEY -e OPENAI_API_KEY -e PINECONE_API_KEY
 ```
 
 ### SSH
 
-The `catnip run` command configures SSH within the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh). This works perfectly with Cursor, VS Code, and other editors that AI engineers commonly use. You can disable ssh by adding `--disable-ssh` to the run command.
+The `catnip run` command configures SSH within the container by default. It creates a key pair named `catnip_remote` and configures a `catnip` host allowing you to run `ssh catnip` or open a remote development environment via the [Remote-SSH extension](https://marketplace.cursorapi.com/items/?itemName=anysphere.remote-ssh). This works perfectly with Cursor, VS Code, and other editors that support remote development. You can disable ssh by adding `--disable-ssh` to the run command.
 
 ### Docker in Docker
 
-If you want the catnip container to be able to run `docker` commands, pass the `--dind` flag to the `catnip run` command. This mounts the docker socket from the host into the container allowing your terminals and AI agents to build or run containers - useful for containerized ML services or complex multi-service applications.
+If you want the catnip container to be able to run `docker` commands, pass the `--dind` flag to the `catnip run` command. This mounts the docker socket from the host into the container allowing your terminals and AI agents to build or run containers - useful for containerized ML services or complex multi-service applications.  If you're running in GitHub codespaces make sure you've 
 
 ### Git
 
@@ -168,16 +153,14 @@ This is especially powerful for LLM and agentic application development where yo
 
 - [x] 🎯 Native devcontainer support
 - [x] 📱 Mobile UI
-- [ ] 🔄 Restore to previous checkpoints
 - [ ] 🤖 Support for more AI coding agents
-- [ ] 🌐 Cloud based deployments
-- [ ] 🔧 Plugin ecosystem
+- [ ] 🌐 Other cloud native environment
 
 ## ❓ FAQ
 
 <details>
-<summary><b>How is Catnip different from Jules, Open SWE, or Conductor</b></summary>
-Catnip is Open Source, built to be extensible, and prioritizes local development first with support for cloud based deployments on the roadmap. It's specifically designed for AI engineers who need sophisticated multi-agent orchestration with powerful Git worktree management and real-time service discovery.
+<summary><b>How is Catnip different from Openai Codex, Claude Code on the web, Jules, or Conductor</b></summary>
+Catnip is Open Source, built to be extensible, and prioritizes deploying to GitHub Codespaces in the cloud so you can access Claude from anywhere.  The native cloud agent environments from OpenAI, Anthropic, and Google have limitations that GitHub Codespaces unlock such as resources and customizability.
 </details>
 <details>
 <summary><b>What AI assistants does Catnip support?</b></summary>
@@ -189,13 +172,8 @@ Currently optimized for Claude Code, with support for additional AI coding assis
 <summary><b>Can I use this for LLM and AI application projects?</b></summary>
 Absolutely! Catnip is perfect for LLM app development. The containerized environment handles complex dependencies (vector databases, embedding models, etc.), automatic port detection works great with Jupyter/Streamlit/FastAPI, and the multi-agent system lets you parallelize RAG backend development, chat interface building, and data pipeline work.
 </details>
-<details>
-<summary><b>How does the Git worktree system work with multiple AI agents?</b></summary>
-Each agent works in an isolated worktree using custom `refs/catnip/*` references, preventing Git checkout conflicts. Catnip automatically creates and syncs "nice" feature branches for PRs, so you get the isolation you need for parallel agents while maintaining clean Git workflows.
-</details>
-<details>
 <summary><b>Did you develop Catnip with Catnip?</b></summary>
-Big time... Inception 🤯 We've been using Catnip to build Catnip, which has been invaluable for dogfooding the multi-agent workflow experience.
+Big time... Inception 🤯 We've been using Catnip to build Catnip, which has been invaluable for dog fooding the multi-agent workflow experience.
 </details>
 
 ## 🤝 Contributing
