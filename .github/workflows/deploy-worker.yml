@@ -1,0 +1,64 @@
+name: Deploy Cloudflare Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "worker/**"
+      - "wrangler.jsonc"
+      - "tsconfig.worker.json"
+      - "worker-configuration.d.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-worker.yml"
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        options:
+          - production
+          - qa
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Cloudflare Workers
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build project
+        run: pnpm run build
+
+      - name: Deploy to Cloudflare Workers (Production)
+        if: github.event_name == 'push' || github.event.inputs.environment == 'production'
+        run: pnpm run deploy:prod
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Deploy to Cloudflare Workers (QA)
+        if: github.event.inputs.environment == 'qa'
+        run: pnpm run build && wrangler deploy --env qa
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
