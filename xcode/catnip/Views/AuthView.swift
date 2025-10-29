@@ -43,6 +43,18 @@ struct AuthView: View {
                 .buttonStyle(ProminentButtonStyle())
                 .padding(.horizontal, 20)
 
+                // Preview Mode Toggle
+                Button {
+                    authManager.enterPreviewMode()
+                } label: {
+                    HStack {
+                        Image(systemName: "eye")
+                        Text("Preview without signing in")
+                    }
+                }
+                .buttonStyle(SecondaryButtonStyle(isDisabled: false))
+                .padding(.horizontal, 20)
+
                 Spacer()
             }
             .padding(.horizontal, 20)
