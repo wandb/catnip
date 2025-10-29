@@ -95,27 +95,37 @@ struct CodespaceView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button {
-                        repositoryListMode = .installation
-                        phase = .repositorySelection
-                        Task {
-                            do {
-                                try await installer.fetchRepositories()
-                            } catch {
-                                errorMessage = "Failed to load repositories: \(error.localizedDescription)"
-                                phase = .connect
+                    if !authManager.isPreviewMode {
+                        Button {
+                            repositoryListMode = .installation
+                            phase = .repositorySelection
+                            Task {
+                                do {
+                                    try await installer.fetchRepositories()
+                                } catch {
+                                    errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                                    phase = .connect
+                                }
                             }
+                        } label: {
+                            Label("Install Catnip", systemImage: "plus.rectangle.on.folder")
                         }
-                    } label: {
-                        Label("Install Catnip", systemImage: "plus.rectangle.on.folder")
                     }
 
-                    Button(role: .destructive) {
-                        Task { await authManager.logout() }
-                    } label: {
-                        Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                    if authManager.isPreviewMode {
+                        Button(role: .destructive) {
+                            authManager.exitPreviewMode()
+                        } label: {
+                            Label("Exit Preview", systemImage: "xmark.circle")
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            Task { await authManager.logout() }
+                        } label: {
+                            Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                        .disabled(phase == .connecting)
                     }
-                    .disabled(phase == .connecting)
                 } label: {
                     Image(systemName: "ellipsis")
                         .imageScale(.large)
