@@ -2149,20 +2149,40 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
                   const tokenPreview =
                     refreshedCredentials.githubToken.substring(0, 7) + "...";
 
+                  // Check credential freshness (30 minutes threshold)
+                  const FRESH_CREDENTIALS_THRESHOLD = 30 * 60 * 1000; // 30 minutes
+                  const credentialAge =
+                    Date.now() - refreshedCredentials.updatedAt;
+                  const areCredentialsFresh =
+                    credentialAge < FRESH_CREDENTIALS_THRESHOLD;
+
+                  // If codespace was already running, we can try older credentials
+                  // If codespace is starting up, we should wait for fresh ones
+                  const shouldRequireFreshCredentials =
+                    !codespaceWasAlreadyRunning;
+
                   if (
                     !hadToken ||
                     refreshedCredentials.githubToken !==
-                      selectedCodespace.githubToken
+                      selectedCodespace.githubToken ||
+                    !shouldRequireFreshCredentials ||
+                    areCredentialsFresh
                   ) {
+                    const ageMinutes = Math.floor(credentialAge / 1000 / 60);
                     console.log(
-                      hadToken
-                        ? `Fresh GitHub token received for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`
-                        : `GitHub token received for codespace without stored credentials - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
+                      hadToken &&
+                        refreshedCredentials.githubToken ===
+                          selectedCodespace.githubToken
+                        ? `Using recent credentials (age: ${ageMinutes}m) - Updated: ${credentialsAge}, Token: ${tokenPreview}`
+                        : hadToken
+                          ? `Fresh GitHub token received for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`
+                          : `GitHub token received for codespace without stored credentials - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
                     );
                     credentialsRefreshed = true;
                   } else {
+                    const ageMinutes = Math.floor(credentialAge / 1000 / 60);
                     console.log(
-                      `Using existing GitHub token for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
+                      `Credentials too old (age: ${ageMinutes}m), waiting for fresh credentials - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
                     );
                   }
                   healthCheckToken = refreshedCredentials.githubToken;
