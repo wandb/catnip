@@ -28,8 +28,11 @@ struct UITestingHelper {
         ProcessInfo.processInfo.arguments.contains("-SkipAuthentication")
     }
 
+    // Preview mode flag - set by AuthManager
+    static var isInPreviewMode: Bool = false
+
     static var shouldUseMockData: Bool {
-        ProcessInfo.processInfo.arguments.contains("-UseMockData")
+        ProcessInfo.processInfo.arguments.contains("-UseMockData") || isInPreviewMode
     }
 
     static var shouldShowWorkspacesList: Bool {

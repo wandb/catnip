@@ -164,12 +164,14 @@ class AuthManager: NSObject, ObservableObject {
     func enterPreviewMode() {
         isPreviewMode = true
         username = "preview-user"
+        UITestingHelper.isInPreviewMode = true
     }
 
     @MainActor
     func exitPreviewMode() {
         isPreviewMode = false
         username = nil
+        UITestingHelper.isInPreviewMode = false
     }
 }
 
