@@ -506,6 +506,15 @@ struct CodespaceView: View {
             return
         }
 
+        // Mock connection for preview mode
+        if authManager.isPreviewMode {
+            UserDefaults.standard.set("preview-codespace", forKey: "codespace_name")
+            phase = .connect
+            statusMessage = "Connected."
+            navigateToWorkspaces = true
+            return
+        }
+
         // Save codespace name immediately when selected (non-sensitive app state)
         if let codespaceName = codespaceName, !codespaceName.isEmpty {
             UserDefaults.standard.set(codespaceName, forKey: "codespace_name")
