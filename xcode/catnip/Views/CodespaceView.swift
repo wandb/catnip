@@ -95,27 +95,37 @@ struct CodespaceView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button {
-                        repositoryListMode = .installation
-                        phase = .repositorySelection
-                        Task {
-                            do {
-                                try await installer.fetchRepositories()
-                            } catch {
-                                errorMessage = "Failed to load repositories: \(error.localizedDescription)"
-                                phase = .connect
+                    if !authManager.isPreviewMode {
+                        Button {
+                            repositoryListMode = .installation
+                            phase = .repositorySelection
+                            Task {
+                                do {
+                                    try await installer.fetchRepositories()
+                                } catch {
+                                    errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                                    phase = .connect
+                                }
                             }
+                        } label: {
+                            Label("Install Catnip", systemImage: "plus.rectangle.on.folder")
                         }
-                    } label: {
-                        Label("Install Catnip", systemImage: "plus.rectangle.on.folder")
                     }
 
-                    Button(role: .destructive) {
-                        Task { await authManager.logout() }
-                    } label: {
-                        Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                    if authManager.isPreviewMode {
+                        Button(role: .destructive) {
+                            authManager.exitPreviewMode()
+                        } label: {
+                            Label("Exit Preview", systemImage: "xmark.circle")
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            Task { await authManager.logout() }
+                        } label: {
+                            Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                        .disabled(phase == .connecting)
                     }
-                    .disabled(phase == .connecting)
                 } label: {
                     Image(systemName: "ellipsis")
                         .imageScale(.large)
@@ -149,7 +159,7 @@ struct CodespaceView: View {
             }
         }
         .onChange(of: phase) {
-            // Refresh user status when returning to connect screen from other flows (skip in UI testing)
+            // Refresh user status and repositories when returning to connect screen from other flows (skip in UI testing)
             if phase == .connect && !UITestingHelper.isUITesting {
                 Task {
                     do {
@@ -157,6 +167,16 @@ struct CodespaceView: View {
                         NSLog("🐱 [CodespaceView] Refreshed user status on phase change to connect")
                     } catch {
                         NSLog("🐱 [CodespaceView] Failed to refresh user status: \(error)")
+                    }
+                }
+
+                // Reload repositories to ensure cache is populated after reset()
+                Task {
+                    do {
+                        try await installer.fetchRepositories()
+                        NSLog("🐱 [CodespaceView] Refreshed repositories on phase change to connect")
+                    } catch {
+                        NSLog("🐱 [CodespaceView] Failed to refresh repositories: \(error)")
                     }
                 }
 
@@ -490,6 +510,15 @@ struct CodespaceView: View {
         // Mock connection for UI tests
         if UITestingHelper.isUITesting {
             UserDefaults.standard.set("mock-codespace", forKey: "codespace_name")
+            phase = .connect
+            statusMessage = "Connected."
+            navigateToWorkspaces = true
+            return
+        }
+
+        // Mock connection for preview mode
+        if authManager.isPreviewMode {
+            UserDefaults.standard.set("preview-codespace", forKey: "codespace_name")
             phase = .connect
             statusMessage = "Connected."
             navigateToWorkspaces = true

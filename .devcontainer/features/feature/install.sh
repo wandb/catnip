@@ -224,8 +224,10 @@ install_init_service() {
   cp "$(dirname $0)/catnip-init" "$init_script"
   run_as_root chmod +x "$init_script"
 
-  # Update the script to use correct user paths
+  # Update the script to use correct user paths, username, and group
   run_as_root sed -i "s|/home/vscode|$USERHOME|g" "$init_script"
+  run_as_root sed -i "s|CATNIP_USER|$USERNAME|g" "$init_script"
+  run_as_root sed -i "s|CATNIP_GROUP|$USERGROUP|g" "$init_script"
 
   # Create /etc/default/catnip template (will be populated by post-start)
   log "Creating /etc/default/catnip template..."
