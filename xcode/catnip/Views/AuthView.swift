@@ -7,8 +7,43 @@
 
 import SwiftUI
 
+// MARK: - Shake Gesture Detection
+
+extension UIDevice {
+    static let deviceDidShakeNotification = Notification.Name(rawValue: "deviceDidShakeNotification")
+}
+
+extension UIWindow {
+    open override func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+        if motion == .motionShake {
+            NotificationCenter.default.post(name: UIDevice.deviceDidShakeNotification, object: nil)
+        }
+    }
+}
+
+struct DeviceShakeViewModifier: ViewModifier {
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear()
+            .onReceive(NotificationCenter.default.publisher(for: UIDevice.deviceDidShakeNotification)) { _ in
+                action()
+            }
+    }
+}
+
+extension View {
+    func onShake(perform action: @escaping () -> Void) -> some View {
+        self.modifier(DeviceShakeViewModifier(action: action))
+    }
+}
+
+// MARK: - Auth View
+
 struct AuthView: View {
     @EnvironmentObject var authManager: AuthManager
+    @State private var showMoreOptions = false
 
     var body: some View {
         NavigationStack {
@@ -52,19 +87,24 @@ struct AuthView: View {
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button {
-                            authManager.enterPreviewMode()
+                if showMoreOptions {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Menu {
+                            Button {
+                                authManager.enterPreviewMode()
+                            } label: {
+                                Label("Preview Mode", systemImage: "eye")
+                            }
                         } label: {
-                            Label("Preview Mode", systemImage: "eye")
+                            Image(systemName: "ellipsis")
+                                .imageScale(.large)
+                                .fontWeight(.bold)
                         }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .imageScale(.large)
-                            .fontWeight(.bold)
                     }
                 }
+            }
+            .onShake {
+                showMoreOptions = true
             }
         }
     }
