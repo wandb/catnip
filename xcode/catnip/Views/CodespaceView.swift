@@ -159,7 +159,7 @@ struct CodespaceView: View {
             }
         }
         .onChange(of: phase) {
-            // Refresh user status when returning to connect screen from other flows (skip in UI testing)
+            // Refresh user status and repositories when returning to connect screen from other flows (skip in UI testing)
             if phase == .connect && !UITestingHelper.isUITesting {
                 Task {
                     do {
@@ -167,6 +167,16 @@ struct CodespaceView: View {
                         NSLog("🐱 [CodespaceView] Refreshed user status on phase change to connect")
                     } catch {
                         NSLog("🐱 [CodespaceView] Failed to refresh user status: \(error)")
+                    }
+                }
+
+                // Reload repositories to ensure cache is populated after reset()
+                Task {
+                    do {
+                        try await installer.fetchRepositories()
+                        NSLog("🐱 [CodespaceView] Refreshed repositories on phase change to connect")
+                    } catch {
+                        NSLog("🐱 [CodespaceView] Failed to refresh repositories: \(error)")
                     }
                 }
 

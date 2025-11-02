@@ -172,6 +172,10 @@ class AuthManager: NSObject, ObservableObject {
         isPreviewMode = false
         username = nil
         UITestingHelper.isInPreviewMode = false
+
+        // Clear cached mock data from CatnipInstaller
+        CatnipInstaller.shared.clearCache()
+        CatnipInstaller.shared.userStatus = nil
     }
 }
 

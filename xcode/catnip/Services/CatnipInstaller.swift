@@ -611,8 +611,9 @@ class CatnipInstaller: ObservableObject {
 
                         NSLog("🐱 [CatnipInstaller] Codespace state: \(state), has_credentials: \(hasCredentials)")
 
-                        // Complete when EITHER codespace is Available OR we have credentials
-                        if state == "Available" || hasCredentials {
+                        // Complete when codespace has credentials (devcontainer built and health check passing)
+                        // Don't rely on "Available" state alone - devcontainer can still be building
+                        if hasCredentials {
                             NSLog("🐱 [CatnipInstaller] ✅ Codespace ready! (state=\(state), credentials=\(hasCredentials))")
 
                             // Notify tracker that creation is complete
@@ -644,13 +645,20 @@ class CatnipInstaller: ObservableObject {
         NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be ready")
 
         // Notify tracker of timeout failure
+        let errorMessage = """
+        Codespace did not become ready within 10 minutes. This usually indicates a devcontainer \
+        configuration error. Please check your devcontainer logs for errors, especially in the \
+        catnip feature installation. Common issues:
+        • User/group mismatch (try rebuilding with updated Catnip feature)
+        • Missing dependencies in base image
+        • Network connectivity issues
+        """
+
         await MainActor.run {
-            CodespaceCreationTracker.shared.failCreation(
-                error: "Codespace did not become ready within 10 minutes"
-            )
+            CodespaceCreationTracker.shared.failCreation(error: errorMessage)
         }
 
-        throw APIError.serverError(408, "Codespace did not become ready within 10 minutes")
+        throw APIError.serverError(408, errorMessage)
     }
 
     /// Fetch user status (codespaces and repositories with Catnip)
