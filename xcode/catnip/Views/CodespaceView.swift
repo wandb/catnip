@@ -600,10 +600,51 @@ struct CodespaceView: View {
         case .setup(let message, let nextAction):
             statusMessage = ""
             errorMessage = message
-            phase = .setup
             sseService?.disconnect()
             sseService = nil
-            // TODO: Route based on nextAction in Task 8
+
+            NSLog("📋 Setup event received: nextAction=\(nextAction)")
+
+            // Route based on worker's determination of next action
+            switch nextAction {
+            case "create_repo":
+                // User has no repositories - show creation guidance
+                NSLog("🆕 Routing to create repository flow")
+                phase = .createRepository
+
+            case "launch":
+                // User has repos with Catnip - show launch flow
+                NSLog("🚀 Routing to launch codespace flow")
+                repositoryListMode = .launch
+                phase = .repositorySelection
+                Task {
+                    do {
+                        try await installer.fetchRepositories()
+                    } catch {
+                        errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                        phase = .connect
+                    }
+                }
+
+            case "install":
+                // User has repos but needs to install Catnip
+                NSLog("📦 Routing to install Catnip flow")
+                repositoryListMode = .installation
+                phase = .repositorySelection
+                Task {
+                    do {
+                        try await installer.fetchRepositories()
+                    } catch {
+                        errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                        phase = .connect
+                    }
+                }
+
+            default:
+                // Unknown action - fallback to old setup view
+                NSLog("⚠️ Unknown setup next_action: \(nextAction), falling back to setup view")
+                phase = .setup
+            }
 
         case .multiple(let foundCodespaces):
             codespaces = foundCodespaces
