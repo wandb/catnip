@@ -2217,7 +2217,6 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
                   "Create a GitHub repository to get started with Catnip",
                 next_action: "create_repo",
                 total_repositories: 0,
-                repositories_with_catnip: 0,
                 org: orgFromSubdomain,
               });
             } else {
