@@ -34,6 +34,9 @@ struct WorkspacesView: View {
     @State private var shutdownMessage: String?
     @Environment(\.dismiss) private var dismiss
 
+    // CatnipInstaller for status refresh
+    @StateObject private var installer = CatnipInstaller.shared
+
     private var availableRepositories: [String] {
         Array(Set(workspaces.map { $0.repoId })).sorted()
     }
@@ -86,10 +89,26 @@ struct WorkspacesView: View {
         }
         .alert("Codespace Unavailable", isPresented: $showShutdownAlert) {
             Button("Reconnect") {
-                // Reset health check state
-                HealthCheckService.shared.resetShutdownState()
-                // Dismiss this view to go back to CodespaceView
-                dismiss()
+                Task {
+                    // CRITICAL: Refresh user status BEFORE navigation
+                    // This triggers worker verification with ?refresh=true
+                    // Rate-limited to prevent abuse (10s server, 10s client)
+                    do {
+                        try await installer.fetchUserStatus(forceRefresh: true)
+                        NSLog("✅ Refreshed user status before reconnect")
+                    } catch {
+                        NSLog("⚠️ Failed to refresh status: \(error)")
+                        // Continue anyway - user will see current state
+                        // Graceful degradation if network fails
+                    }
+
+                    // Reset health check state
+                    await MainActor.run {
+                        HealthCheckService.shared.resetShutdownState()
+                        // Dismiss this view to go back to CodespaceView with fresh data
+                        dismiss()
+                    }
+                }
             }
         } message: {
             Text(shutdownMessage ?? "Your codespace has shut down. Tap 'Reconnect' to restart it.")
