@@ -981,25 +981,79 @@ export function createApp(env: Env) {
   // Get user status (codespaces only - repositories are checked client-side)
   app.get("/v1/user/status", requireAuth, async (c) => {
     const username = c.get("username");
+    const accessToken = c.get("accessToken");
+    const requestsRefresh = c.req.query("refresh") === "true";
+    const now = Date.now();
 
     try {
-      // Check if user has any codespaces (cheap - already stored in Durable Object)
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      // Get verification cache from Durable Object state
+      const cache = await getVerificationCache(codespaceStore, username);
+
+      // SERVER-SIDE RATE LIMITING
+      // Protection: Ignore refresh=true if last refresh was < 10 seconds ago
+      // This prevents rapid-fire refresh calls from client bugs or user spam
+      let shouldRefresh = requestsRefresh;
+      if (requestsRefresh && cache?.lastRefreshRequest) {
+        const timeSinceLastRefresh = now - cache.lastRefreshRequest;
+        if (timeSinceLastRefresh < 10_000) {
+          console.log(
+            `⚠️ Rate limit: Ignoring refresh request for ${username} ` +
+              `(${timeSinceLastRefresh}ms since last refresh, min 10s required)`,
+          );
+          shouldRefresh = false; // Override - use cached data instead
+        }
+      }
+
+      // CACHE LOGIC
+      // Verify with GitHub if:
+      // 1. Client requested refresh AND rate limit allows, OR
+      // 2. No cache exists, OR
+      // 3. Cache is older than 60 seconds
+      const shouldVerify =
+        shouldRefresh || !cache || now - cache.lastVerified > 60_000;
+
       let hasAnyCodespaces = false;
-      try {
-        const codespaceStore = c.env.CODESPACE_STORE.get(
-          c.env.CODESPACE_STORE.idFromName("global"),
-        );
+
+      if (shouldVerify) {
+        console.log(`🔄 Verifying codespaces for ${username} with GitHub API`);
+
+        // Update lastRefreshRequest timestamp if this was explicit refresh
+        if (shouldRefresh) {
+          await updateRefreshTimestamp(codespaceStore, username, now);
+        }
+
+        // Fetch all stored codespaces
         const allResponse = await codespaceStore.fetch(
           `https://internal/codespace/${username}?all=true`,
         );
+
         if (allResponse.ok) {
           const storedCodespaces =
             (await allResponse.json()) as CodespaceCredentials[];
-          hasAnyCodespaces = storedCodespaces.length > 0;
+
+          // Verify codespaces still exist in GitHub and clean up deleted ones
+          const verifiedCodespaces = await verifyAndCleanCodespaces(
+            storedCodespaces,
+            accessToken,
+            username,
+            codespaceStore,
+          );
+
+          // Update cache
+          await updateVerificationCache(codespaceStore, username, {
+            lastVerified: now,
+            verifiedCodespaces,
+          });
+
+          hasAnyCodespaces = verifiedCodespaces.length > 0;
         }
-      } catch (error) {
-        console.warn("Failed to check codespaces:", error);
-        // Continue with hasAnyCodespaces = false
+      } else {
+        console.log(`📦 Using cached codespace data for ${username}`);
+        hasAnyCodespaces = cache.verifiedCodespaces.length > 0;
       }
 
       return c.json({
