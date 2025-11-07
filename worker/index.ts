@@ -57,6 +57,13 @@ interface CodespaceCredentials {
   lastError?: string;
 }
 
+interface VerificationCache {
+  username: string;
+  lastVerified: number; // timestamp of last verification
+  lastRefreshRequest: number; // timestamp of last refresh=true request
+  verifiedCodespaces: CodespaceCredentials[];
+}
+
 type Variables = {
   userId: string;
   username: string;
@@ -252,6 +259,57 @@ async function verifyAndCleanCodespaces(
   );
 
   return validCodespaces;
+}
+
+// Verification cache helpers for rate limiting and performance
+async function getVerificationCache(
+  codespaceStore: DurableObjectStub,
+  username: string,
+): Promise<VerificationCache | null> {
+  try {
+    const response = await codespaceStore.fetch(
+      `https://internal/verification-cache/${username}`,
+    );
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.warn(`Failed to get verification cache for ${username}:`, error);
+    return null;
+  }
+}
+
+async function updateVerificationCache(
+  codespaceStore: DurableObjectStub,
+  username: string,
+  update: Partial<VerificationCache>,
+): Promise<void> {
+  try {
+    const response = await codespaceStore.fetch(
+      `https://internal/verification-cache/${username}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(update),
+      },
+    );
+    if (!response.ok) {
+      console.error(`Failed to update verification cache: ${response.status}`);
+    }
+  } catch (error) {
+    console.error(
+      `Failed to update verification cache for ${username}:`,
+      error,
+    );
+  }
+}
+
+async function updateRefreshTimestamp(
+  codespaceStore: DurableObjectStub,
+  username: string,
+  timestamp: number,
+): Promise<void> {
+  await updateVerificationCache(codespaceStore, username, {
+    lastRefreshRequest: timestamp,
+  });
 }
 
 // Factory function to create app with environment bindings
