@@ -208,15 +208,19 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
           headers: { "Content-Type": "application/json" },
         });
       }
-
       // PATCH /verification-cache/{username}
-      if (request.method === "PATCH") {
-        const update = await request.json<{
-          username?: string;
-          lastVerified?: number;
-          lastRefreshRequest?: number;
-          verifiedCodespaces?: any[];
-        }>();
+      else if (request.method === "PATCH") {
+        let update;
+        try {
+          update = await request.json<{
+            username?: string;
+            lastVerified?: number;
+            lastRefreshRequest?: number;
+            verifiedCodespaces?: any[];
+          }>();
+        } catch (error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
 
         // Get existing cache or create new one
         let cache = await this.ctx.storage.get<{
@@ -242,6 +246,10 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
         await this.ctx.storage.put(cacheKey, cache);
 
         return new Response("OK", { status: 200 });
+      }
+      // Unsupported methods
+      else {
+        return new Response("Method not allowed", { status: 405 });
       }
     }
 
