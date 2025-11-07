@@ -11,7 +11,8 @@ import MarkdownUI
 enum CodespacePhase {
     case connect
     case connecting
-    case setup
+    case setup  // Deprecated - rarely used, fallback only
+    case createRepository  // NEW - friendly onboarding for zero repos
     case selection
     case repositorySelection
     case installing
@@ -55,7 +56,9 @@ struct CodespaceView: View {
 
     var body: some View {
         ZStack {
-            if phase == .setup {
+            if phase == .createRepository {
+                createRepositoryView
+            } else if phase == .setup {
                 setupView
             } else if phase == .selection {
                 selectionView
@@ -73,7 +76,7 @@ struct CodespaceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                if phase == .setup || phase == .selection || phase == .repositorySelection || phase == .creatingCodespace {
+                if phase == .createRepository || phase == .setup || phase == .selection || phase == .repositorySelection || phase == .creatingCodespace {
                     Button {
                         // If creating, keep it running in background
                         if tracker.isCreating {
@@ -1068,6 +1071,103 @@ struct CodespaceView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private var createRepositoryView: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                Spacer()
+
+                // Welcoming icon
+                Image(systemName: "plus.rectangle.on.folder")
+                    .font(.system(size: 60))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(spacing: 12) {
+                    Text("Create Your First Repository")
+                        .font(.title2.weight(.semibold))
+                        .multilineTextAlignment(.center)
+
+                    Text("Catnip needs a GitHub repository to work with. Create one to get started with agentic coding on your mobile device.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                Spacer()
+
+                VStack(spacing: 12) {
+                    // Primary action - Create on GitHub
+                    Button {
+                        if let url = URL(string: "https://github.com/new") {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Create Repository on GitHub")
+                        }
+                    }
+                    .buttonStyle(ProminentButtonStyle(isDisabled: false))
+
+                    // Secondary action - Refresh to check
+                    Button {
+                        Task {
+                            do {
+                                // Force refresh both user status and repositories
+                                // This will re-check GitHub state after user creates repo
+                                try await installer.fetchUserStatus(forceRefresh: true)
+                                try await installer.fetchRepositories(forceRefresh: true)
+
+                                // After refresh, determine next flow
+                                await MainActor.run {
+                                    if installer.repositories.isEmpty {
+                                        // Still no repos - show error
+                                        errorMessage = "No repositories found yet. Create one on GitHub and try again."
+                                    } else {
+                                        // Success! Navigate to install flow
+                                        NSLog("✅ User now has \(installer.repositories.count) repositories")
+                                        repositoryListMode = .installation
+                                        phase = .repositorySelection
+                                    }
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    errorMessage = "Failed to check repositories: \(error.localizedDescription)"
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("I Created a Repository")
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle(isDisabled: false))
+                }
+                .padding(.horizontal, 20)
+
+                // Show error if refresh found no repos
+                if !errorMessage.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.orange)
+                        Text(errorMessage)
+                            .font(.subheadline)
+                        Spacer()
+                    }
+                    .foregroundStyle(Color.orange)
+                    .padding(12)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, 20)
+                }
+            }
+            .padding()
+        }
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color(uiColor: .systemGroupedBackground))
     }
 }
