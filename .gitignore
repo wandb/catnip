@@ -42,6 +42,9 @@ worker/**/*.js.map
 # crush
 .crush/
 
+# worktrees
+.worktrees/
+
 # secrets
 *.pem
 
