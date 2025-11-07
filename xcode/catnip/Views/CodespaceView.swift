@@ -594,12 +594,13 @@ struct CodespaceView: View {
             sseService?.disconnect()
             sseService = nil
 
-        case .setup(let message):
+        case .setup(let message, let nextAction):
             statusMessage = ""
             errorMessage = message
             phase = .setup
             sseService?.disconnect()
             sseService = nil
+            // TODO: Route based on nextAction in Task 8
 
         case .multiple(let foundCodespaces):
             codespaces = foundCodespaces
