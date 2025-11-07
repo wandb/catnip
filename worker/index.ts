@@ -1019,41 +1019,51 @@ export function createApp(env: Env) {
       let hasAnyCodespaces = false;
 
       if (shouldVerify) {
-        console.log(`🔄 Verifying codespaces for ${username} with GitHub API`);
-
-        // Update lastRefreshRequest timestamp if this was explicit refresh
-        if (shouldRefresh) {
-          await updateRefreshTimestamp(codespaceStore, username, now);
-        }
-
-        // Fetch all stored codespaces
-        const allResponse = await codespaceStore.fetch(
-          `https://internal/codespace/${username}?all=true`,
-        );
-
-        if (allResponse.ok) {
-          const storedCodespaces =
-            (await allResponse.json()) as CodespaceCredentials[];
-
-          // Verify codespaces still exist in GitHub and clean up deleted ones
-          const verifiedCodespaces = await verifyAndCleanCodespaces(
-            storedCodespaces,
-            accessToken,
-            username,
-            codespaceStore,
+        try {
+          console.log(
+            `🔄 Verifying codespaces for ${username} with GitHub API`,
           );
 
-          // Update cache
-          await updateVerificationCache(codespaceStore, username, {
-            lastVerified: now,
-            verifiedCodespaces,
-          });
+          // Update lastRefreshRequest timestamp if this was explicit refresh
+          if (shouldRefresh) {
+            await updateRefreshTimestamp(codespaceStore, username, now);
+          }
 
-          hasAnyCodespaces = verifiedCodespaces.length > 0;
+          // Fetch all stored codespaces
+          const allResponse = await codespaceStore.fetch(
+            `https://internal/codespace/${username}?all=true`,
+          );
+
+          if (allResponse.ok) {
+            const storedCodespaces =
+              (await allResponse.json()) as CodespaceCredentials[];
+
+            // Verify codespaces still exist in GitHub and clean up deleted ones
+            const verifiedCodespaces = await verifyAndCleanCodespaces(
+              storedCodespaces,
+              accessToken,
+              username,
+              codespaceStore,
+            );
+
+            // Update cache
+            await updateVerificationCache(codespaceStore, username, {
+              lastVerified: now,
+              verifiedCodespaces,
+            });
+
+            hasAnyCodespaces = verifiedCodespaces.length > 0;
+          }
+        } catch (verifyError) {
+          console.warn(
+            "Failed to verify codespaces, using cached or default:",
+            verifyError,
+          );
+          hasAnyCodespaces = cache?.verifiedCodespaces.length > 0 ?? false;
         }
       } else {
         console.log(`📦 Using cached codespace data for ${username}`);
-        hasAnyCodespaces = cache.verifiedCodespaces.length > 0;
+        hasAnyCodespaces = cache?.verifiedCodespaces.length > 0 ?? false;
       }
 
       return c.json({
