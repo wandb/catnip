@@ -2144,10 +2144,6 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
 
         // If no stored codespace or it's not accessible, we can't help the user
         if (!targetCodespace) {
-          const errorMsg = orgFromSubdomain
-            ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
-            : "No Catnip codespaces found. Please start a codespace with Catnip feature enabled first.";
-
           console.log(
             `No stored codespace available for user: ${username}${orgFromSubdomain ? `, org: ${orgFromSubdomain}` : ""}`,
           );
@@ -2164,7 +2160,98 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
             });
           }
 
-          sendEvent("setup", { message: errorMsg, org: orgFromSubdomain });
+          // Determine next_action based on user's GitHub repository state
+          try {
+            console.log(
+              `Determining next_action for user ${username} with no codespace`,
+            );
+
+            // Fetch user's repositories to determine next action
+            const reposResponse = await fetch(
+              `https://api.github.com/user/repos?per_page=30&sort=pushed&affiliation=owner,collaborator`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  Accept: "application/vnd.github.v3+json",
+                  "User-Agent": "Catnip-Worker/1.0",
+                },
+              },
+            );
+
+            if (!reposResponse.ok) {
+              // API error - fallback to safe default
+              console.error(
+                "Failed to fetch repos for setup guidance:",
+                reposResponse.status,
+              );
+              const errorMsg = orgFromSubdomain
+                ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+                : "Setup required. Please add Catnip feature to your repository.";
+              sendEvent("setup", {
+                message: errorMsg,
+                next_action: "install", // Safe default
+                total_repositories: 0,
+                org: orgFromSubdomain,
+              });
+              void writer.close();
+              return;
+            }
+
+            const repos = (await reposResponse.json()) as Array<{
+              id: number;
+              name: string;
+              archived: boolean;
+              permissions?: { push: boolean };
+            }>;
+
+            // Filter to repos user can modify
+            const writableRepos = repos.filter(
+              (r) => !r.archived && r.permissions?.push,
+            );
+
+            if (writableRepos.length === 0) {
+              // CASE 1: No repositories (or no writable repositories)
+              console.log(`User ${username} has no writable repositories`);
+              sendEvent("setup", {
+                message:
+                  "Create a GitHub repository to get started with Catnip",
+                next_action: "create_repo",
+                total_repositories: 0,
+                repositories_with_catnip: 0,
+                org: orgFromSubdomain,
+              });
+            } else {
+              // CASE 2: Has repositories
+              // Default to "install" flow - iOS will fetch detailed repo info
+              // and determine if any already have Catnip feature
+              console.log(
+                `User ${username} has ${writableRepos.length} writable repositories`,
+              );
+              const errorMsg = orgFromSubdomain
+                ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+                : "Add Catnip feature to a repository to continue";
+              sendEvent("setup", {
+                message: errorMsg,
+                next_action: "install",
+                total_repositories: writableRepos.length,
+                org: orgFromSubdomain,
+                // iOS CatnipInstaller will fetch full repo details with Catnip status
+              });
+            }
+          } catch (error) {
+            console.error("Failed to determine next_action for setup:", error);
+            // Fallback to safe default
+            const errorMsg = orgFromSubdomain
+              ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+              : "Setup required";
+            sendEvent("setup", {
+              message: errorMsg,
+              next_action: "install",
+              total_repositories: 0,
+              org: orgFromSubdomain,
+            });
+          }
+
           void writer.close();
           return;
         }
