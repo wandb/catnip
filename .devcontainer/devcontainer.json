@@ -27,8 +27,12 @@
     "source=${localWorkspaceFolderBasename}-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume",
     "source=${localWorkspaceFolderBasename}-go-mods,target=/go/pkg/mod,type=volume"
   ],
+  "runArgs": ["--device=/dev/net/tun"],
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/tailscale/codespace/tailscale": {
+      "version": "latest"
+    },
     "ghcr.io/devcontainers/features/node:1": {
       "version": "latest"
     },
