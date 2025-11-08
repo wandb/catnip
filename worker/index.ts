@@ -1059,11 +1059,11 @@ export function createApp(env: Env) {
             "Failed to verify codespaces, using cached or default:",
             verifyError,
           );
-          hasAnyCodespaces = cache?.verifiedCodespaces.length > 0 ?? false;
+          hasAnyCodespaces = (cache?.verifiedCodespaces?.length ?? 0) > 0;
         }
       } else {
         console.log(`📦 Using cached codespace data for ${username}`);
-        hasAnyCodespaces = cache?.verifiedCodespaces.length > 0 ?? false;
+        hasAnyCodespaces = (cache?.verifiedCodespaces?.length ?? 0) > 0;
       }
 
       return c.json({
