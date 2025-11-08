@@ -186,6 +186,73 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
     const url = new URL(request.url);
     const pathParts = url.pathname.split("/");
 
+    // Handle verification cache routes: /verification-cache/{username}
+    if (url.pathname.match(/^\/verification-cache\/(.+)$/)) {
+      const username = url.pathname.split("/")[2];
+      const cacheKey = `verification-cache:${username}`;
+
+      // GET /verification-cache/{username}
+      if (request.method === "GET") {
+        const cache = await this.ctx.storage.get<{
+          username: string;
+          lastVerified: number;
+          lastRefreshRequest: number;
+          verifiedCodespaces: any[];
+        }>(cacheKey);
+
+        if (!cache) {
+          return new Response("Not found", { status: 404 });
+        }
+
+        return new Response(JSON.stringify(cache), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      // PATCH /verification-cache/{username}
+      else if (request.method === "PATCH") {
+        let update;
+        try {
+          update = await request.json<{
+            username?: string;
+            lastVerified?: number;
+            lastRefreshRequest?: number;
+            verifiedCodespaces?: any[];
+          }>();
+        } catch (error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+
+        // Get existing cache or create new one
+        let cache = await this.ctx.storage.get<{
+          username: string;
+          lastVerified: number;
+          lastRefreshRequest: number;
+          verifiedCodespaces: any[];
+        }>(cacheKey);
+
+        if (!cache) {
+          cache = {
+            username,
+            lastVerified: 0,
+            lastRefreshRequest: 0,
+            verifiedCodespaces: [],
+          };
+        }
+
+        // Apply update
+        cache = { ...cache, ...update };
+
+        // Save
+        await this.ctx.storage.put(cacheKey, cache);
+
+        return new Response("OK", { status: 200 });
+      }
+      // Unsupported methods
+      else {
+        return new Response("Method not allowed", { status: 405 });
+      }
+    }
+
     // Handle specific codespace lookup: /internal/codespace/{username}/{codespaceName}
     if (pathParts.length >= 4 && request.method === "GET") {
       const codespaceName = pathParts.pop();

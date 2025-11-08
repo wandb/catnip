@@ -57,6 +57,13 @@ interface CodespaceCredentials {
   lastError?: string;
 }
 
+interface VerificationCache {
+  username: string;
+  lastVerified: number; // timestamp of last verification
+  lastRefreshRequest: number; // timestamp of last refresh=true request
+  verifiedCodespaces: CodespaceCredentials[];
+}
+
 type Variables = {
   userId: string;
   username: string;
@@ -252,6 +259,57 @@ async function verifyAndCleanCodespaces(
   );
 
   return validCodespaces;
+}
+
+// Verification cache helpers for rate limiting and performance
+async function getVerificationCache(
+  codespaceStore: DurableObjectStub,
+  username: string,
+): Promise<VerificationCache | null> {
+  try {
+    const response = await codespaceStore.fetch(
+      `https://internal/verification-cache/${username}`,
+    );
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.warn(`Failed to get verification cache for ${username}:`, error);
+    return null;
+  }
+}
+
+async function updateVerificationCache(
+  codespaceStore: DurableObjectStub,
+  username: string,
+  update: Partial<VerificationCache>,
+): Promise<void> {
+  try {
+    const response = await codespaceStore.fetch(
+      `https://internal/verification-cache/${username}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(update),
+      },
+    );
+    if (!response.ok) {
+      console.error(`Failed to update verification cache: ${response.status}`);
+    }
+  } catch (error) {
+    console.error(
+      `Failed to update verification cache for ${username}:`,
+      error,
+    );
+  }
+}
+
+async function updateRefreshTimestamp(
+  codespaceStore: DurableObjectStub,
+  username: string,
+  timestamp: number,
+): Promise<void> {
+  await updateVerificationCache(codespaceStore, username, {
+    lastRefreshRequest: timestamp,
+  });
 }
 
 // Factory function to create app with environment bindings
@@ -923,25 +981,89 @@ export function createApp(env: Env) {
   // Get user status (codespaces only - repositories are checked client-side)
   app.get("/v1/user/status", requireAuth, async (c) => {
     const username = c.get("username");
+    const accessToken = c.get("accessToken");
+    const requestsRefresh = c.req.query("refresh") === "true";
+    const now = Date.now();
 
     try {
-      // Check if user has any codespaces (cheap - already stored in Durable Object)
-      let hasAnyCodespaces = false;
-      try {
-        const codespaceStore = c.env.CODESPACE_STORE.get(
-          c.env.CODESPACE_STORE.idFromName("global"),
-        );
-        const allResponse = await codespaceStore.fetch(
-          `https://internal/codespace/${username}?all=true`,
-        );
-        if (allResponse.ok) {
-          const storedCodespaces =
-            (await allResponse.json()) as CodespaceCredentials[];
-          hasAnyCodespaces = storedCodespaces.length > 0;
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      // Get verification cache from Durable Object state
+      const cache = await getVerificationCache(codespaceStore, username);
+
+      // SERVER-SIDE RATE LIMITING
+      // Protection: Ignore refresh=true if last refresh was < 10 seconds ago
+      // This prevents rapid-fire refresh calls from client bugs or user spam
+      let shouldRefresh = requestsRefresh;
+      if (requestsRefresh && cache?.lastRefreshRequest) {
+        const timeSinceLastRefresh = now - cache.lastRefreshRequest;
+        if (timeSinceLastRefresh < 10_000) {
+          console.log(
+            `⚠️ Rate limit: Ignoring refresh request for ${username} ` +
+              `(${timeSinceLastRefresh}ms since last refresh, min 10s required)`,
+          );
+          shouldRefresh = false; // Override - use cached data instead
         }
-      } catch (error) {
-        console.warn("Failed to check codespaces:", error);
-        // Continue with hasAnyCodespaces = false
+      }
+
+      // CACHE LOGIC
+      // Verify with GitHub if:
+      // 1. Client requested refresh AND rate limit allows, OR
+      // 2. No cache exists, OR
+      // 3. Cache is older than 60 seconds
+      const shouldVerify =
+        shouldRefresh || !cache || now - cache.lastVerified > 60_000;
+
+      let hasAnyCodespaces = false;
+
+      if (shouldVerify) {
+        try {
+          console.log(
+            `🔄 Verifying codespaces for ${username} with GitHub API`,
+          );
+
+          // Update lastRefreshRequest timestamp if this was explicit refresh
+          if (shouldRefresh) {
+            await updateRefreshTimestamp(codespaceStore, username, now);
+          }
+
+          // Fetch all stored codespaces
+          const allResponse = await codespaceStore.fetch(
+            `https://internal/codespace/${username}?all=true`,
+          );
+
+          if (allResponse.ok) {
+            const storedCodespaces =
+              (await allResponse.json()) as CodespaceCredentials[];
+
+            // Verify codespaces still exist in GitHub and clean up deleted ones
+            const verifiedCodespaces = await verifyAndCleanCodespaces(
+              storedCodespaces,
+              accessToken,
+              username,
+              codespaceStore,
+            );
+
+            // Update cache
+            await updateVerificationCache(codespaceStore, username, {
+              lastVerified: now,
+              verifiedCodespaces,
+            });
+
+            hasAnyCodespaces = verifiedCodespaces.length > 0;
+          }
+        } catch (verifyError) {
+          console.warn(
+            "Failed to verify codespaces, using cached or default:",
+            verifyError,
+          );
+          hasAnyCodespaces = (cache?.verifiedCodespaces?.length ?? 0) > 0;
+        }
+      } else {
+        console.log(`📦 Using cached codespace data for ${username}`);
+        hasAnyCodespaces = (cache?.verifiedCodespaces?.length ?? 0) > 0;
       }
 
       return c.json({
@@ -2022,10 +2144,6 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
 
         // If no stored codespace or it's not accessible, we can't help the user
         if (!targetCodespace) {
-          const errorMsg = orgFromSubdomain
-            ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
-            : "No Catnip codespaces found. Please start a codespace with Catnip feature enabled first.";
-
           console.log(
             `No stored codespace available for user: ${username}${orgFromSubdomain ? `, org: ${orgFromSubdomain}` : ""}`,
           );
@@ -2042,7 +2160,97 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
             });
           }
 
-          sendEvent("setup", { message: errorMsg, org: orgFromSubdomain });
+          // Determine next_action based on user's GitHub repository state
+          try {
+            console.log(
+              `Determining next_action for user ${username} with no codespace`,
+            );
+
+            // Fetch user's repositories to determine next action
+            const reposResponse = await fetch(
+              `https://api.github.com/user/repos?per_page=30&sort=pushed&affiliation=owner,collaborator`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  Accept: "application/vnd.github.v3+json",
+                  "User-Agent": "Catnip-Worker/1.0",
+                },
+              },
+            );
+
+            if (!reposResponse.ok) {
+              // API error - fallback to safe default
+              console.error(
+                "Failed to fetch repos for setup guidance:",
+                reposResponse.status,
+              );
+              const errorMsg = orgFromSubdomain
+                ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+                : "Setup required. Please add Catnip feature to your repository.";
+              sendEvent("setup", {
+                message: errorMsg,
+                next_action: "install", // Safe default
+                total_repositories: 0,
+                org: orgFromSubdomain,
+              });
+              void writer.close();
+              return;
+            }
+
+            const repos = (await reposResponse.json()) as Array<{
+              id: number;
+              name: string;
+              archived: boolean;
+              permissions?: { push: boolean };
+            }>;
+
+            // Filter to repos user can modify
+            const writableRepos = repos.filter(
+              (r) => !r.archived && r.permissions?.push,
+            );
+
+            if (writableRepos.length === 0) {
+              // CASE 1: No repositories (or no writable repositories)
+              console.log(`User ${username} has no writable repositories`);
+              sendEvent("setup", {
+                message:
+                  "Create a GitHub repository to get started with Catnip",
+                next_action: "create_repo",
+                total_repositories: 0,
+                org: orgFromSubdomain,
+              });
+            } else {
+              // CASE 2: Has repositories
+              // Default to "install" flow - iOS will fetch detailed repo info
+              // and determine if any already have Catnip feature
+              console.log(
+                `User ${username} has ${writableRepos.length} writable repositories`,
+              );
+              const errorMsg = orgFromSubdomain
+                ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+                : "Add Catnip feature to a repository to continue";
+              sendEvent("setup", {
+                message: errorMsg,
+                next_action: "install",
+                total_repositories: writableRepos.length,
+                org: orgFromSubdomain,
+                // iOS CatnipInstaller will fetch full repo details with Catnip status
+              });
+            }
+          } catch (error) {
+            console.error("Failed to determine next_action for setup:", error);
+            // Fallback to safe default
+            const errorMsg = orgFromSubdomain
+              ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+              : "Setup required";
+            sendEvent("setup", {
+              message: errorMsg,
+              next_action: "install",
+              total_repositories: 0,
+              org: orgFromSubdomain,
+            });
+          }
+
           void writer.close();
           return;
         }
