@@ -38,6 +38,10 @@ Catnip is a web service that automates git worktree creation and runs in a conta
 
 ## ⚡ Quick Start
 
+### Mobile App
+
+Our iOS native interface is currently in beta.  You can join the [TestFlight group](https://testflight.apple.com/join/dm8GahU7) to try the app today.  The app will help you configure an existing GitHub repository with catnip as described below.  Once setup you can fire up claude code on the go!  Please share any bug reports or feedback.
+
 ### Github Codespaces / Devcontainers
 
 You can add Catnip to a `.devcontainer/devcontainer.json` in an existing GitHub repository. This gives you complete control over the environment that claude operates in. If you don't have a devcontainer config, add the following to your repo's github url: `/new/main?dev_container_template=1&filename=.devcontainer%2Fdevcontainer.json` to create one. Just add the catnip feature and ensure the port is forwarded:
