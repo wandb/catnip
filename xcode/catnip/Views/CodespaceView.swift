@@ -39,6 +39,8 @@ struct CodespaceView: View {
     @State private var createdCodespace: CodespaceCreationResult.CodespaceInfo?
     @State private var repositoryListMode: RepositoryListMode = .installation
     @State private var pendingRepository: String?
+    @State private var pendingCodespaceName: String?
+    @State private var wasConnectingBeforeBackground = false
 
     private let catFacts = [
         "Cats can rotate their ears 180 degrees.",
