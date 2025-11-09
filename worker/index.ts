@@ -52,6 +52,16 @@ interface CodespaceCredentials {
   githubRepo?: string;
   createdAt: number;
   updatedAt: number;
+  status?: "available" | "unavailable";
+  lastHealthCheck?: number;
+  lastError?: string;
+}
+
+interface VerificationCache {
+  username: string;
+  lastVerified: number; // timestamp of last verification
+  lastRefreshRequest: number; // timestamp of last refresh=true request
+  verifiedCodespaces: CodespaceCredentials[];
 }
 
 type Variables = {
@@ -249,6 +259,57 @@ async function verifyAndCleanCodespaces(
   );
 
   return validCodespaces;
+}
+
+// Verification cache helpers for rate limiting and performance
+async function getVerificationCache(
+  codespaceStore: DurableObjectStub,
+  username: string,
+): Promise<VerificationCache | null> {
+  try {
+    const response = await codespaceStore.fetch(
+      `https://internal/verification-cache/${username}`,
+    );
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.warn(`Failed to get verification cache for ${username}:`, error);
+    return null;
+  }
+}
+
+async function updateVerificationCache(
+  codespaceStore: DurableObjectStub,
+  username: string,
+  update: Partial<VerificationCache>,
+): Promise<void> {
+  try {
+    const response = await codespaceStore.fetch(
+      `https://internal/verification-cache/${username}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(update),
+      },
+    );
+    if (!response.ok) {
+      console.error(`Failed to update verification cache: ${response.status}`);
+    }
+  } catch (error) {
+    console.error(
+      `Failed to update verification cache for ${username}:`,
+      error,
+    );
+  }
+}
+
+async function updateRefreshTimestamp(
+  codespaceStore: DurableObjectStub,
+  username: string,
+  timestamp: number,
+): Promise<void> {
+  await updateVerificationCache(codespaceStore, username, {
+    lastRefreshRequest: timestamp,
+  });
 }
 
 // Factory function to create app with environment bindings
@@ -920,25 +981,89 @@ export function createApp(env: Env) {
   // Get user status (codespaces only - repositories are checked client-side)
   app.get("/v1/user/status", requireAuth, async (c) => {
     const username = c.get("username");
+    const accessToken = c.get("accessToken");
+    const requestsRefresh = c.req.query("refresh") === "true";
+    const now = Date.now();
 
     try {
-      // Check if user has any codespaces (cheap - already stored in Durable Object)
-      let hasAnyCodespaces = false;
-      try {
-        const codespaceStore = c.env.CODESPACE_STORE.get(
-          c.env.CODESPACE_STORE.idFromName("global"),
-        );
-        const allResponse = await codespaceStore.fetch(
-          `https://internal/codespace/${username}?all=true`,
-        );
-        if (allResponse.ok) {
-          const storedCodespaces =
-            (await allResponse.json()) as CodespaceCredentials[];
-          hasAnyCodespaces = storedCodespaces.length > 0;
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      // Get verification cache from Durable Object state
+      const cache = await getVerificationCache(codespaceStore, username);
+
+      // SERVER-SIDE RATE LIMITING
+      // Protection: Ignore refresh=true if last refresh was < 10 seconds ago
+      // This prevents rapid-fire refresh calls from client bugs or user spam
+      let shouldRefresh = requestsRefresh;
+      if (requestsRefresh && cache?.lastRefreshRequest) {
+        const timeSinceLastRefresh = now - cache.lastRefreshRequest;
+        if (timeSinceLastRefresh < 10_000) {
+          console.log(
+            `⚠️ Rate limit: Ignoring refresh request for ${username} ` +
+              `(${timeSinceLastRefresh}ms since last refresh, min 10s required)`,
+          );
+          shouldRefresh = false; // Override - use cached data instead
         }
-      } catch (error) {
-        console.warn("Failed to check codespaces:", error);
-        // Continue with hasAnyCodespaces = false
+      }
+
+      // CACHE LOGIC
+      // Verify with GitHub if:
+      // 1. Client requested refresh AND rate limit allows, OR
+      // 2. No cache exists, OR
+      // 3. Cache is older than 60 seconds
+      const shouldVerify =
+        shouldRefresh || !cache || now - cache.lastVerified > 60_000;
+
+      let hasAnyCodespaces = false;
+
+      if (shouldVerify) {
+        try {
+          console.log(
+            `🔄 Verifying codespaces for ${username} with GitHub API`,
+          );
+
+          // Update lastRefreshRequest timestamp if this was explicit refresh
+          if (shouldRefresh) {
+            await updateRefreshTimestamp(codespaceStore, username, now);
+          }
+
+          // Fetch all stored codespaces
+          const allResponse = await codespaceStore.fetch(
+            `https://internal/codespace/${username}?all=true`,
+          );
+
+          if (allResponse.ok) {
+            const storedCodespaces =
+              (await allResponse.json()) as CodespaceCredentials[];
+
+            // Verify codespaces still exist in GitHub and clean up deleted ones
+            const verifiedCodespaces = await verifyAndCleanCodespaces(
+              storedCodespaces,
+              accessToken,
+              username,
+              codespaceStore,
+            );
+
+            // Update cache
+            await updateVerificationCache(codespaceStore, username, {
+              lastVerified: now,
+              verifiedCodespaces,
+            });
+
+            hasAnyCodespaces = verifiedCodespaces.length > 0;
+          }
+        } catch (verifyError) {
+          console.warn(
+            "Failed to verify codespaces, using cached or default:",
+            verifyError,
+          );
+          hasAnyCodespaces = (cache?.verifiedCodespaces?.length ?? 0) > 0;
+        }
+      } else {
+        console.log(`📦 Using cached codespace data for ${username}`);
+        hasAnyCodespaces = (cache?.verifiedCodespaces?.length ?? 0) > 0;
       }
 
       return c.json({
@@ -2019,10 +2144,6 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
 
         // If no stored codespace or it's not accessible, we can't help the user
         if (!targetCodespace) {
-          const errorMsg = orgFromSubdomain
-            ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
-            : "No Catnip codespaces found. Please start a codespace with Catnip feature enabled first.";
-
           console.log(
             `No stored codespace available for user: ${username}${orgFromSubdomain ? `, org: ${orgFromSubdomain}` : ""}`,
           );
@@ -2039,7 +2160,97 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
             });
           }
 
-          sendEvent("setup", { message: errorMsg, org: orgFromSubdomain });
+          // Determine next_action based on user's GitHub repository state
+          try {
+            console.log(
+              `Determining next_action for user ${username} with no codespace`,
+            );
+
+            // Fetch user's repositories to determine next action
+            const reposResponse = await fetch(
+              `https://api.github.com/user/repos?per_page=30&sort=pushed&affiliation=owner,collaborator`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  Accept: "application/vnd.github.v3+json",
+                  "User-Agent": "Catnip-Worker/1.0",
+                },
+              },
+            );
+
+            if (!reposResponse.ok) {
+              // API error - fallback to safe default
+              console.error(
+                "Failed to fetch repos for setup guidance:",
+                reposResponse.status,
+              );
+              const errorMsg = orgFromSubdomain
+                ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+                : "Setup required. Please add Catnip feature to your repository.";
+              sendEvent("setup", {
+                message: errorMsg,
+                next_action: "install", // Safe default
+                total_repositories: 0,
+                org: orgFromSubdomain,
+              });
+              void writer.close();
+              return;
+            }
+
+            const repos = (await reposResponse.json()) as Array<{
+              id: number;
+              name: string;
+              archived: boolean;
+              permissions?: { push: boolean };
+            }>;
+
+            // Filter to repos user can modify
+            const writableRepos = repos.filter(
+              (r) => !r.archived && r.permissions?.push,
+            );
+
+            if (writableRepos.length === 0) {
+              // CASE 1: No repositories (or no writable repositories)
+              console.log(`User ${username} has no writable repositories`);
+              sendEvent("setup", {
+                message:
+                  "Create a GitHub repository to get started with Catnip",
+                next_action: "create_repo",
+                total_repositories: 0,
+                org: orgFromSubdomain,
+              });
+            } else {
+              // CASE 2: Has repositories
+              // Default to "install" flow - iOS will fetch detailed repo info
+              // and determine if any already have Catnip feature
+              console.log(
+                `User ${username} has ${writableRepos.length} writable repositories`,
+              );
+              const errorMsg = orgFromSubdomain
+                ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+                : "Add Catnip feature to a repository to continue";
+              sendEvent("setup", {
+                message: errorMsg,
+                next_action: "install",
+                total_repositories: writableRepos.length,
+                org: orgFromSubdomain,
+                // iOS CatnipInstaller will fetch full repo details with Catnip status
+              });
+            }
+          } catch (error) {
+            console.error("Failed to determine next_action for setup:", error);
+            // Fallback to safe default
+            const errorMsg = orgFromSubdomain
+              ? `No Catnip codespaces found for the "${orgFromSubdomain}" organization. Please start a codespace with Catnip feature enabled first.`
+              : "Setup required";
+            sendEvent("setup", {
+              message: errorMsg,
+              next_action: "install",
+              total_repositories: 0,
+              org: orgFromSubdomain,
+            });
+          }
+
           void writer.close();
           return;
         }
@@ -2146,20 +2357,40 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
                   const tokenPreview =
                     refreshedCredentials.githubToken.substring(0, 7) + "...";
 
+                  // Check credential freshness (30 minutes threshold)
+                  const FRESH_CREDENTIALS_THRESHOLD = 30 * 60 * 1000; // 30 minutes
+                  const credentialAge =
+                    Date.now() - refreshedCredentials.updatedAt;
+                  const areCredentialsFresh =
+                    credentialAge < FRESH_CREDENTIALS_THRESHOLD;
+
+                  // If codespace was already running, we can try older credentials
+                  // If codespace is starting up, we should wait for fresh ones
+                  const shouldRequireFreshCredentials =
+                    !codespaceWasAlreadyRunning;
+
                   if (
                     !hadToken ||
                     refreshedCredentials.githubToken !==
-                      selectedCodespace.githubToken
+                      selectedCodespace.githubToken ||
+                    !shouldRequireFreshCredentials ||
+                    areCredentialsFresh
                   ) {
+                    const ageMinutes = Math.floor(credentialAge / 1000 / 60);
                     console.log(
-                      hadToken
-                        ? `Fresh GitHub token received for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`
-                        : `GitHub token received for codespace without stored credentials - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
+                      hadToken &&
+                        refreshedCredentials.githubToken ===
+                          selectedCodespace.githubToken
+                        ? `Using recent credentials (age: ${ageMinutes}m) - Updated: ${credentialsAge}, Token: ${tokenPreview}`
+                        : hadToken
+                          ? `Fresh GitHub token received for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`
+                          : `GitHub token received for codespace without stored credentials - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
                     );
                     credentialsRefreshed = true;
                   } else {
+                    const ageMinutes = Math.floor(credentialAge / 1000 / 60);
                     console.log(
-                      `Using existing GitHub token for health check - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
+                      `Credentials too old (age: ${ageMinutes}m), waiting for fresh credentials - Updated: ${credentialsAge}, Token: ${tokenPreview}`,
                     );
                   }
                   healthCheckToken = refreshedCredentials.githubToken;
@@ -2421,6 +2652,37 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
     }
   });
 
+  // Helper to update codespace status
+  async function updateCodespaceStatus(
+    env: Env,
+    username: string,
+    codespaceName: string,
+    status: "available" | "unavailable",
+    lastError?: string,
+  ) {
+    try {
+      const codespaceStore = env.CODESPACE_STORE.get(
+        env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      await codespaceStore.fetch(
+        `https://internal/codespace/${username}/${codespaceName}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, lastError }),
+        },
+      );
+
+      console.log(`✅ Updated codespace ${codespaceName} status to ${status}`);
+    } catch (error) {
+      console.error(
+        `Failed to update codespace ${codespaceName} status:`,
+        error,
+      );
+    }
+  }
+
   // Authentication middleware for protected routes
   async function requireAuth(c: Context<HonoEnv>, next: () => Promise<void>) {
     const session = c.get("session");
@@ -2539,14 +2801,119 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
           return c.text("Codespace credentials not found", 404);
         }
 
-        const credentials = (await credentialsResponse.json()) as {
-          codespaceName: string;
-          githubToken: string;
-        };
+        const credentials =
+          (await credentialsResponse.json()) as CodespaceCredentials;
 
         console.log(
           `🐱 [Mobile] ✅ Found credentials for ${username}/${codespaceName}`,
         );
+
+        // Special handling for /v1/info endpoint - check GitHub API status
+        if (url.pathname === "/v1/info") {
+          console.log(
+            `🐱 [Mobile] /v1/info request - checking GitHub API for codespace status`,
+          );
+
+          // Get user's access token from session for GitHub API call
+          const accessToken = c.get("accessToken");
+          if (!accessToken) {
+            console.error(
+              `🐱 [Mobile] ❌ No access token available for GitHub API check`,
+            );
+            return c.json(
+              {
+                error: "Authentication required",
+                code: "NO_ACCESS_TOKEN",
+                message: "Please reconnect to authenticate.",
+              },
+              401,
+            );
+          }
+
+          try {
+            // Check actual codespace status via GitHub API
+            const githubResponse = await fetch(
+              `https://api.github.com/user/codespaces/${codespaceName}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  Accept: "application/vnd.github.v3+json",
+                  "User-Agent": "Catnip-Worker/1.0",
+                },
+              },
+            );
+
+            if (githubResponse.ok) {
+              const codespaceData = (await githubResponse.json()) as {
+                state: string;
+                name: string;
+              };
+              const state = codespaceData.state;
+
+              console.log(`🐱 [Mobile] GitHub API codespace state: ${state}`);
+
+              // Mark as available if state is "Available"
+              if (state === "Available") {
+                void updateCodespaceStatus(
+                  c.env,
+                  username,
+                  codespaceName,
+                  "available",
+                );
+              } else {
+                // Any other state (Shutdown, ShuttingDown, Starting, etc.) - mark unavailable
+                void updateCodespaceStatus(
+                  c.env,
+                  username,
+                  codespaceName,
+                  "unavailable",
+                  `Codespace state: ${state}`,
+                );
+
+                console.log(
+                  `🐱 [Mobile] /v1/info blocked - codespace in state: ${state}`,
+                );
+                return c.json(
+                  {
+                    error: "Codespace unavailable",
+                    code: "CODESPACE_SHUTDOWN",
+                    message: `Your codespace is ${state.toLowerCase()}. Reconnect to restart it.`,
+                    state: state,
+                  },
+                  502,
+                );
+              }
+            } else if (githubResponse.status === 404) {
+              // Codespace doesn't exist
+              void updateCodespaceStatus(
+                c.env,
+                username,
+                codespaceName,
+                "unavailable",
+                "Codespace not found (404)",
+              );
+
+              console.log(`🐱 [Mobile] /v1/info blocked - codespace not found`);
+              return c.json(
+                {
+                  error: "Codespace not found",
+                  code: "CODESPACE_SHUTDOWN",
+                  message:
+                    "Your codespace was not found. It may have been deleted.",
+                },
+                502,
+              );
+            } else {
+              // Other error from GitHub API - log but continue (fail open)
+              console.warn(
+                `🐱 [Mobile] GitHub API error: ${githubResponse.status}, continuing anyway`,
+              );
+            }
+          } catch (error) {
+            // GitHub API check failed - log but continue (fail open)
+            console.error(`🐱 [Mobile] GitHub API check failed:`, error);
+          }
+        }
 
         // Check if we have a valid token
         if (!credentials.githubToken || credentials.githubToken === "") {
@@ -2755,6 +3122,18 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
         console.log(
           `🐱 [Mobile] ✅ Proxy response status: ${proxyResponse.status}`,
         );
+
+        // Mark codespace as available on successful proxy
+        // (Status checks for unavailability happen via GitHub API in /v1/info)
+        if (proxyResponse.ok) {
+          void updateCodespaceStatus(
+            c.env,
+            username,
+            codespaceName,
+            "available",
+          );
+        }
+
         return proxyResponse;
       } catch (error) {
         console.error("🐱 [Mobile] ❌ Error proxying to codespace:", error);

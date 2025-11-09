@@ -15,6 +15,7 @@ enum APIError: LocalizedError {
     case networkError(Error)
     case decodingError(Error)
     case serverError(Int, String)
+    case httpError(Int, Data?)  // HTTP error with status code and optional response data
     case timeout
 
     var errorDescription: String? {
@@ -29,6 +30,8 @@ enum APIError: LocalizedError {
             return "Decoding error: \(error.localizedDescription)"
         case .serverError(let code, let message):
             return "Server error \(code): \(message)"
+        case .httpError(let code, _):
+            return "HTTP error \(code)"
         case .timeout:
             return "PTY not ready yet"
         }
@@ -841,6 +844,35 @@ Avoid overly lengthy explanations or step-by-step implementation details.
         }
 
         throw APIError.decodingError(NSError(domain: "Failed to parse PR URL from response", code: -1))
+    }
+
+    // MARK: - Server Info API
+
+    /// Get server info (used for health checks)
+    func getServerInfo() async throws -> ServerInfo {
+        let headers = try await getHeaders(includeCodespace: true)
+
+        guard let url = URL(string: "\(baseURL)/v1/info") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.allHTTPHeaderFields = headers
+        request.timeoutInterval = 5.0 // 5 second timeout
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        // Throw httpError to allow checking for CODESPACE_SHUTDOWN
+        if httpResponse.statusCode != 200 {
+            throw APIError.httpError(httpResponse.statusCode, data)
+        }
+
+        let serverInfo = try decoder.decode(ServerInfo.self, from: data)
+        return serverInfo
     }
 }
 

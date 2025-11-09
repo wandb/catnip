@@ -194,6 +194,9 @@ class CatnipInstaller: ObservableObject {
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
+    // Client-side rate limiting state (10 second minimum)
+    private var lastRefreshTime: Date?
+
     // Cache settings
     private let cacheValidityDuration: TimeInterval = 30 * 60 // 30 minutes
     private let repositoriesCacheKey = "cached_repositories"
@@ -611,8 +614,9 @@ class CatnipInstaller: ObservableObject {
 
                         NSLog("🐱 [CatnipInstaller] Codespace state: \(state), has_credentials: \(hasCredentials)")
 
-                        // Complete when EITHER codespace is Available OR we have credentials
-                        if state == "Available" || hasCredentials {
+                        // Complete when codespace has credentials (devcontainer built and health check passing)
+                        // Don't rely on "Available" state alone - devcontainer can still be building
+                        if hasCredentials {
                             NSLog("🐱 [CatnipInstaller] ✅ Codespace ready! (state=\(state), credentials=\(hasCredentials))")
 
                             // Notify tracker that creation is complete
@@ -644,17 +648,24 @@ class CatnipInstaller: ObservableObject {
         NSLog("🐱 [CatnipInstaller] ⏰ Timeout waiting for codespace to be ready")
 
         // Notify tracker of timeout failure
+        let errorMessage = """
+        Codespace did not become ready within 10 minutes. This usually indicates a devcontainer \
+        configuration error. Please check your devcontainer logs for errors, especially in the \
+        catnip feature installation. Common issues:
+        • User/group mismatch (try rebuilding with updated Catnip feature)
+        • Missing dependencies in base image
+        • Network connectivity issues
+        """
+
         await MainActor.run {
-            CodespaceCreationTracker.shared.failCreation(
-                error: "Codespace did not become ready within 10 minutes"
-            )
+            CodespaceCreationTracker.shared.failCreation(error: errorMessage)
         }
 
-        throw APIError.serverError(408, "Codespace did not become ready within 10 minutes")
+        throw APIError.serverError(408, errorMessage)
     }
 
     /// Fetch user status (codespaces and repositories with Catnip)
-    func fetchUserStatus() async throws {
+    func fetchUserStatus(forceRefresh: Bool = false) async throws {
         // Skip in UI testing mode
         if UITestingHelper.shouldUseMockData {
             NSLog("🐱 [CatnipInstaller] Using mock user status")
@@ -664,8 +675,35 @@ class CatnipInstaller: ObservableObject {
             return
         }
 
+        // CLIENT-SIDE RATE LIMITING (10 second minimum)
+        // Note: Server also enforces this limit, but we fail fast here
+        // to avoid unnecessary network calls
+        if forceRefresh, let lastRefresh = lastRefreshTime {
+            let timeSinceRefresh = Date().timeIntervalSince(lastRefresh)
+            if timeSinceRefresh < 10.0 {
+                NSLog(
+                    "⚠️ Client rate limit: Skipping refresh - only " +
+                    "\(String(format: "%.1f", timeSinceRefresh))s since last refresh " +
+                    "(min 10s required)"
+                )
+                return // Server would also reject this
+            }
+        }
+
+        // Build URL with refresh parameter
+        let urlString = forceRefresh
+            ? "\(baseURL)/v1/user/status?refresh=true"
+            : "\(baseURL)/v1/user/status"
+
+        NSLog("🔄 Fetching user status (forceRefresh: \(forceRefresh))")
+
+        // Track refresh time BEFORE the call to prevent race conditions
+        if forceRefresh {
+            lastRefreshTime = Date()
+        }
+
         let headers = try await getHeaders()
-        guard let url = URL(string: "\(baseURL)/v1/user/status") else {
+        guard let url = URL(string: urlString) else {
             throw APIError.invalidURL
         }
 
@@ -673,7 +711,6 @@ class CatnipInstaller: ObservableObject {
         request.allHTTPHeaderFields = headers
 
         do {
-            NSLog("🐱 [CatnipInstaller] Fetching user status")
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
@@ -687,11 +724,14 @@ class CatnipInstaller: ObservableObject {
             }
 
             let status = try decoder.decode(UserStatus.self, from: data)
-            NSLog("🐱 [CatnipInstaller] User status: hasCodespaces=\(status.hasAnyCodespaces)")
 
             await MainActor.run {
                 self.userStatus = status
             }
+
+            NSLog(
+                "✅ User status updated: has_any_codespaces=\(status.hasAnyCodespaces)"
+            )
         } catch {
             NSLog("🐱 [CatnipInstaller] ❌ Error fetching user status: \(error)")
             throw error

@@ -15,6 +15,7 @@ class AuthManager: NSObject, ObservableObject {
     @Published var isLoading = true
     @Published var sessionToken: String?
     @Published var username: String?
+    @Published var isPreviewMode = false
 
     private let baseURL = "https://catnip.run"
     private var authSession: ASWebAuthenticationSession?
@@ -157,6 +158,24 @@ class AuthManager: NSObject, ObservableObject {
         sessionToken = nil
         username = nil
         isAuthenticated = false
+    }
+
+    @MainActor
+    func enterPreviewMode() {
+        isPreviewMode = true
+        username = "preview-user"
+        UITestingHelper.isInPreviewMode = true
+    }
+
+    @MainActor
+    func exitPreviewMode() {
+        isPreviewMode = false
+        username = nil
+        UITestingHelper.isInPreviewMode = false
+
+        // Clear cached mock data from CatnipInstaller
+        CatnipInstaller.shared.clearCache()
+        CatnipInstaller.shared.userStatus = nil
     }
 }
 

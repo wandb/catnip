@@ -5,8 +5,13 @@ interface CodespaceCredentials {
   githubUser: string;
   codespaceName: string;
   githubRepository?: string;
+  githubOrg?: string;
+  githubRepo?: string;
   createdAt: number;
   updatedAt: number;
+  status?: "available" | "unavailable";
+  lastHealthCheck?: number;
+  lastError?: string;
 }
 
 interface StoredCodespaceCredentials {
@@ -54,6 +59,17 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
     } catch (_error) {
       // Column already exists or other error - safe to ignore
       // SQLite will throw if column already exists
+    }
+
+    // Migration: Add status tracking columns if they don't exist
+    try {
+      this.sql.exec(`
+        ALTER TABLE codespace_credentials ADD COLUMN status TEXT DEFAULT 'available';
+        ALTER TABLE codespace_credentials ADD COLUMN last_health_check INTEGER;
+        ALTER TABLE codespace_credentials ADD COLUMN last_error TEXT;
+      `);
+    } catch (_error) {
+      // Columns already exist or other error - safe to ignore
     }
   }
 
@@ -170,6 +186,73 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
     const url = new URL(request.url);
     const pathParts = url.pathname.split("/");
 
+    // Handle verification cache routes: /verification-cache/{username}
+    if (url.pathname.match(/^\/verification-cache\/(.+)$/)) {
+      const username = url.pathname.split("/")[2];
+      const cacheKey = `verification-cache:${username}`;
+
+      // GET /verification-cache/{username}
+      if (request.method === "GET") {
+        const cache = await this.ctx.storage.get<{
+          username: string;
+          lastVerified: number;
+          lastRefreshRequest: number;
+          verifiedCodespaces: any[];
+        }>(cacheKey);
+
+        if (!cache) {
+          return new Response("Not found", { status: 404 });
+        }
+
+        return new Response(JSON.stringify(cache), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      // PATCH /verification-cache/{username}
+      else if (request.method === "PATCH") {
+        let update;
+        try {
+          update = await request.json<{
+            username?: string;
+            lastVerified?: number;
+            lastRefreshRequest?: number;
+            verifiedCodespaces?: any[];
+          }>();
+        } catch (error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+
+        // Get existing cache or create new one
+        let cache = await this.ctx.storage.get<{
+          username: string;
+          lastVerified: number;
+          lastRefreshRequest: number;
+          verifiedCodespaces: any[];
+        }>(cacheKey);
+
+        if (!cache) {
+          cache = {
+            username,
+            lastVerified: 0,
+            lastRefreshRequest: 0,
+            verifiedCodespaces: [],
+          };
+        }
+
+        // Apply update
+        cache = { ...cache, ...update };
+
+        // Save
+        await this.ctx.storage.put(cacheKey, cache);
+
+        return new Response("OK", { status: 200 });
+      }
+      // Unsupported methods
+      else {
+        return new Response("Method not allowed", { status: 405 });
+      }
+    }
+
     // Handle specific codespace lookup: /internal/codespace/{username}/{codespaceName}
     if (pathParts.length >= 4 && request.method === "GET") {
       const codespaceName = pathParts.pop();
@@ -198,6 +281,11 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
           updatedAt: row.updated_at as number,
         } as StoredCodespaceCredentials;
 
+        // Extract status fields
+        const status = row.status as string | null;
+        const lastHealthCheck = row.last_health_check as number | null;
+        const lastError = row.last_error as string | null;
+
         // Check if credentials are already nullified (expired)
         if (
           !result.encryptedData ||
@@ -213,6 +301,9 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             githubRepository: row.github_repository as string | undefined,
             createdAt: result.createdAt,
             updatedAt: result.updatedAt,
+            status: status as "available" | "unavailable" | undefined,
+            lastHealthCheck: lastHealthCheck ?? undefined,
+            lastError: lastError ?? undefined,
           };
           return Response.json(basicCodespace);
         }
@@ -237,9 +328,20 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               githubRepository: credentials.githubRepository,
               createdAt: credentials.createdAt,
               updatedAt: credentials.updatedAt,
+              status: status as "available" | "unavailable" | undefined,
+              lastHealthCheck: lastHealthCheck ?? undefined,
+              lastError: lastError ?? undefined,
             };
             return Response.json(basicCodespace);
           }
+
+          // Add status fields to decrypted credentials
+          credentials.status = status as
+            | "available"
+            | "unavailable"
+            | undefined;
+          credentials.lastHealthCheck = lastHealthCheck ?? undefined;
+          credentials.lastError = lastError ?? undefined;
 
           return Response.json(credentials);
         } catch (error) {
@@ -252,6 +354,9 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             githubRepository: row.github_repository as string | undefined,
             createdAt: result.createdAt,
             updatedAt: result.updatedAt,
+            status: status as "available" | "unavailable" | undefined,
+            lastHealthCheck: lastHealthCheck ?? undefined,
+            lastError: lastError ?? undefined,
           };
           return Response.json(basicCodespace);
         }
@@ -279,6 +384,54 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
     }
 
     const githubUser = pathParts.pop();
+
+    // Handle status update: PATCH /internal/codespace/{username}/{codespaceName}/status
+    if (request.method === "PATCH" && url.pathname.endsWith("/status")) {
+      // Path format: /internal/codespace/{username}/{codespaceName}/status
+      const statusUpdate: {
+        status?: "available" | "unavailable";
+        lastError?: string;
+      } = await request.json();
+
+      const pathSegments = url.pathname.split("/");
+      const codespaceName = pathSegments[pathSegments.length - 2]; // Second to last segment (before "status")
+      const username = pathSegments[pathSegments.length - 3]; // Third to last
+
+      if (!username || !codespaceName) {
+        return new Response("Invalid path", { status: 400 });
+      }
+
+      const now = Date.now();
+
+      // Build UPDATE statement dynamically based on what fields are provided
+      const updates: string[] = ["last_health_check = ?"];
+      const params: any[] = [now];
+
+      if (statusUpdate.status !== undefined) {
+        updates.push("status = ?");
+        params.push(statusUpdate.status);
+      }
+
+      if (statusUpdate.lastError !== undefined) {
+        updates.push("last_error = ?");
+        params.push(statusUpdate.lastError);
+      }
+
+      params.push(username, codespaceName);
+
+      const result = this.sql.exec(
+        `UPDATE codespace_credentials
+         SET ${updates.join(", ")}
+         WHERE github_user = ? AND codespace_name = ?`,
+        ...params,
+      );
+
+      if (result.rowsWritten === 0) {
+        return new Response("Codespace not found", { status: 404 });
+      }
+
+      return new Response("OK");
+    }
 
     if (request.method === "GET" && githubUser) {
       // Check if requesting all codespaces
@@ -321,6 +474,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               githubToken: "", // Empty token - will need to be refreshed
               githubUser: githubUser,
               codespaceName: row.codespace_name as string,
+              githubRepository: row.github_repository as string | undefined,
               createdAt: result.createdAt,
               updatedAt: result.updatedAt,
             };
@@ -344,6 +498,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
                 githubToken: "", // Empty token - will need to be refreshed
                 githubUser: githubUser,
                 codespaceName: credentials.codespaceName,
+                githubRepository: credentials.githubRepository,
                 createdAt: credentials.createdAt,
                 updatedAt: credentials.updatedAt,
               };
@@ -359,6 +514,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
               githubToken: "", // Empty token - will need to be refreshed
               githubUser: githubUser,
               codespaceName: row.codespace_name as string,
+              githubRepository: row.github_repository as string | undefined,
               createdAt: result.createdAt,
               updatedAt: result.updatedAt,
             };
