@@ -11,7 +11,7 @@ enum SSEEvent {
     case status(String)
     case success(String, String?) // message, codespaceUrl
     case error(String)
-    case setup(String)
+    case setup(String, nextAction: String)
     case multiple([CodespaceInfo])
 }
 
@@ -145,7 +145,8 @@ class SSEService {
             }
         case "setup":
             if let message = json["message"] as? String {
-                eventCallback?(.setup(message))
+                let nextAction = json["next_action"] as? String ?? "install"
+                eventCallback?(.setup(message, nextAction: nextAction))
             }
         case "multiple":
             if let codespacesData = json["codespaces"] as? [[String: Any]] {
@@ -235,7 +236,8 @@ class SSEDelegate: NSObject, URLSessionDataDelegate {
             }
         case "setup":
             if let message = json["message"] as? String {
-                onEvent(.setup(message))
+                let nextAction = json["next_action"] as? String ?? "install"
+                onEvent(.setup(message, nextAction: nextAction))
             }
         case "multiple":
             if let codespacesData = json["codespaces"] as? [[String: Any]] {

@@ -42,6 +42,9 @@ worker/**/*.js.map
 # crush
 .crush/
 
+# worktrees
+.worktrees/
+
 # secrets
 *.pem
 
@@ -49,6 +52,7 @@ worker/**/*.js.map
 reference
 container/Dockerfile.backup
 public/*.jsonl
+docs/plans/
 
 # fallback frontend assets for local go builds (real assets are built in docker)
 # keep the dummy index.html but ignore anything else that gets copied here

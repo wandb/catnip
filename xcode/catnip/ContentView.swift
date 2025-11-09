@@ -24,8 +24,9 @@ struct ContentView: View {
                             .tint(AppTheme.Colors.Brand.primary)
                     }
                 }
-            } else if authManager.isAuthenticated {
+            } else if authManager.isAuthenticated || authManager.isPreviewMode {
                 // Main app flow: Codespace -> Workspaces -> Workspace Detail
+                // Also show main app when in preview mode
                 CodespaceView()
             } else {
                 // Auth flow
