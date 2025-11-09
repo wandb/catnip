@@ -25,6 +25,7 @@ enum RepositoryListMode {
 }
 
 struct CodespaceView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var authManager: AuthManager
     @StateObject private var installer = CatnipInstaller.shared
     @StateObject private var tracker = CodespaceCreationTracker.shared
@@ -207,11 +208,9 @@ struct CodespaceView: View {
                 }
             }
 
-            // Set up app lifecycle observers for SSE reconnection
-            setupLifecycleObservers()
         }
-        .onDisappear {
-            removeLifecycleObservers()
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            handleScenePhaseChange(oldPhase: oldPhase, newPhase: newPhase)
         }
     }
 
@@ -1052,50 +1051,17 @@ struct CodespaceView: View {
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
-    // MARK: - App Lifecycle Observers
+    // MARK: - App Lifecycle Handling
 
-    private func setupLifecycleObservers() {
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.willEnterForegroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleAppWillEnterForeground()
-        }
-
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.handleAppDidEnterBackground()
-        }
-    }
-
-    private func removeLifecycleObservers() {
-        NotificationCenter.default.removeObserver(
-            self,
-            name: UIApplication.willEnterForegroundNotification,
-            object: nil
-        )
-        NotificationCenter.default.removeObserver(
-            self,
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
-    }
-
-    private func handleAppDidEnterBackground() {
-        // Remember if we were connecting when we went to background
-        if phase == .connecting {
+    private func handleScenePhaseChange(oldPhase: ScenePhase, newPhase: ScenePhase) {
+        // Track when app goes to background during SSE connection
+        if newPhase == .background && phase == .connecting {
             wasConnectingBeforeBackground = true
             NSLog("🐱 [CodespaceView] App backgrounded during SSE connection, will reconnect on foreground")
         }
-    }
 
-    private func handleAppWillEnterForeground() {
-        // Reconnect if we were connecting when backgrounded
-        if wasConnectingBeforeBackground && phase == .connecting {
+        // Reconnect when app returns to foreground if we were connecting
+        if newPhase == .active && oldPhase == .background && wasConnectingBeforeBackground && phase == .connecting {
             NSLog("🐱 [CodespaceView] App foregrounded, reconnecting SSE...")
 
             // Disconnect the old stale connection
