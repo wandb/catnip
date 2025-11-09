@@ -206,6 +206,12 @@ struct CodespaceView: View {
                     NSLog("🐱 [CodespaceView] Failed to preload repositories: \(error)")
                 }
             }
+
+            // Set up app lifecycle observers for SSE reconnection
+            setupLifecycleObservers()
+        }
+        .onDisappear {
+            removeLifecycleObservers()
         }
     }
 
@@ -488,6 +494,9 @@ struct CodespaceView: View {
         errorMessage = ""
         statusMessage = ""
         statusMessage = "Finding your codespace..."
+
+        // Store codespace name for potential reconnection after backgrounding
+        pendingCodespaceName = codespaceName
 
         // Mock connection for UI tests
         if UITestingHelper.isUITesting {
@@ -1041,6 +1050,64 @@ struct CodespaceView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    // MARK: - App Lifecycle Observers
+
+    private func setupLifecycleObservers() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAppWillEnterForeground()
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAppDidEnterBackground()
+        }
+    }
+
+    private func removeLifecycleObservers() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    private func handleAppDidEnterBackground() {
+        // Remember if we were connecting when we went to background
+        if phase == .connecting {
+            wasConnectingBeforeBackground = true
+            NSLog("🐱 [CodespaceView] App backgrounded during SSE connection, will reconnect on foreground")
+        }
+    }
+
+    private func handleAppWillEnterForeground() {
+        // Reconnect if we were connecting when backgrounded
+        if wasConnectingBeforeBackground && phase == .connecting {
+            NSLog("🐱 [CodespaceView] App foregrounded, reconnecting SSE...")
+
+            // Disconnect the old stale connection
+            sseService?.disconnect()
+            sseService = nil
+
+            // Restart the connection with the same codespace name
+            handleConnect(codespaceName: pendingCodespaceName)
+
+            // Reset the flag
+            wasConnectingBeforeBackground = false
+        }
     }
 }
 
