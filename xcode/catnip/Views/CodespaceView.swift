@@ -1125,7 +1125,6 @@ struct CodespaceView: View {
         .background(Color(uiColor: .systemGroupedBackground))
     }
 
-<<<<<<< HEAD
     // MARK: - App Lifecycle Handling
 
     private func handleScenePhaseChange(oldPhase: ScenePhase, newPhase: ScenePhase) {
@@ -1149,7 +1148,8 @@ struct CodespaceView: View {
             // Reset the flag
             wasConnectingBeforeBackground = false
         }
-=======
+    }
+
     private var createRepositoryView: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -1245,7 +1245,6 @@ struct CodespaceView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(Color(uiColor: .systemGroupedBackground))
->>>>>>> origin/main
     }
 }
 
