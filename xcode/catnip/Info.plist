@@ -15,6 +15,10 @@
 	</array>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>Catnip sends notifications when your codespace is ready. Creating a codespace can take up to 10 minutes.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
