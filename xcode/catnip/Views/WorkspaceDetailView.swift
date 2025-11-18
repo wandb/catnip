@@ -819,7 +819,8 @@ struct WorkspaceDetailView: View {
                     baseURL: websocketBaseURL,
                     codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
                     authToken: authManager.sessionToken,
-                    shouldConnect: showPortraitTerminal
+                    shouldConnect: showPortraitTerminal,
+                    showExitButton: false
                 )
                 .frame(height: geometry.size.height * 0.5)
 
