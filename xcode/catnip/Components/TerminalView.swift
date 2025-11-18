@@ -16,16 +16,18 @@ struct TerminalView: View {
     let codespaceName: String?
     let authToken: String?
     let shouldConnect: Bool  // Only connect when explicitly told to
+    let showExitButton: Bool  // Show the exit/rotate button in toolbar
 
     @StateObject private var terminalController: TerminalController
     @State private var showLoadingBar = true  // Delayed hide for better UX
 
-    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true) {
+    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true, showExitButton: Bool = true) {
         self.workspaceId = workspaceId
         self.baseURL = baseURL
         self.codespaceName = codespaceName
         self.authToken = authToken
         self.shouldConnect = shouldConnect
+        self.showExitButton = showExitButton
         _terminalController = StateObject(wrappedValue: TerminalController(
             workspaceId: workspaceId,
             baseURL: baseURL,
@@ -112,12 +114,14 @@ struct TerminalView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    rotateToPortrait()
-                } label: {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.body)
+            if showExitButton {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        rotateToPortrait()
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.body)
+                    }
                 }
             }
         }
