@@ -17,22 +17,25 @@ struct TerminalView: View {
     let authToken: String?
     let shouldConnect: Bool  // Only connect when explicitly told to
     let showExitButton: Bool  // Show the exit/rotate button in toolbar
+    let showDismissButton: Bool  // Show dismiss keyboard button in accessory
 
     @StateObject private var terminalController: TerminalController
     @State private var showLoadingBar = true  // Delayed hide for better UX
 
-    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true, showExitButton: Bool = true) {
+    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true, showExitButton: Bool = true, showDismissButton: Bool = true) {
         self.workspaceId = workspaceId
         self.baseURL = baseURL
         self.codespaceName = codespaceName
         self.authToken = authToken
         self.shouldConnect = shouldConnect
         self.showExitButton = showExitButton
+        self.showDismissButton = showDismissButton
         _terminalController = StateObject(wrappedValue: TerminalController(
             workspaceId: workspaceId,
             baseURL: baseURL,
             codespaceName: codespaceName,
-            authToken: authToken
+            authToken: authToken,
+            showDismissButton: showDismissButton
         ))
     }
 
