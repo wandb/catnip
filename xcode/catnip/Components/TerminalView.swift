@@ -173,6 +173,7 @@ struct TerminalViewRepresentable: UIViewRepresentable {
         // Replace the default accessory view with our custom one
         let customAccessory = CustomTerminalAccessory(terminalView: terminalView, controller: controller, showDismissButton: controller.showDismissButton)
         terminalView.inputAccessoryView = customAccessory
+        controller.accessoryView = customAccessory
 
         // Wrap in a container
         let wrapper = TerminalViewWrapper()
@@ -674,7 +675,35 @@ class TerminalController: NSObject, ObservableObject {
 extension TerminalController: TerminalViewDelegate {
     func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
         // User typed input - send to backend
-        let string = String(bytes: data, encoding: .utf8) ?? ""
+        var string = String(bytes: data, encoding: .utf8) ?? ""
+
+        // Apply ctrl modifier if active
+        if ctrlModifierActive && !string.isEmpty {
+            // Convert to ctrl character (ctrl+a = 0x01, ctrl+b = 0x02, etc.)
+            // For a-z, ctrl code is char - 'a' + 1
+            // For A-Z, ctrl code is char - 'A' + 1
+            var ctrlString = ""
+            for char in string {
+                let scalar = char.unicodeScalars.first?.value ?? 0
+                if scalar >= 97 && scalar <= 122 { // a-z
+                    let ctrlCode = scalar - 97 + 1
+                    ctrlString.append(Character(UnicodeScalar(ctrlCode)!))
+                } else if scalar >= 65 && scalar <= 90 { // A-Z
+                    let ctrlCode = scalar - 65 + 1
+                    ctrlString.append(Character(UnicodeScalar(ctrlCode)!))
+                } else {
+                    ctrlString.append(char)
+                }
+            }
+            string = ctrlString
+
+            // Clear ctrl state after use
+            ctrlModifierActive = false
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.clearCtrlState()
+            }
+        }
+
         webSocketManager.sendInput(string)
     }
 
