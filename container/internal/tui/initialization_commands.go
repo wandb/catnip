@@ -56,17 +56,21 @@ func semverCompare(a, b string) int {
 		}
 		parts := strings.Split(s, ".")
 		result := make([]int, 3)
-		for i := 0; i < 3 && i < len(parts); i++ {
+		// Limit to first 3 parts
+		if len(parts) > 3 {
+			parts = parts[:3]
+		}
+		for i, part := range parts {
 			// best-effort parse
 			n := 0
-			for _, ch := range parts[i] {
+			for _, ch := range part {
 				if ch >= '0' && ch <= '9' {
 					n = n*10 + int(ch-'0')
 				} else {
 					break
 				}
 			}
-			result[i] = n
+			result[i] = n //nolint:gosec // Safe: parts is truncated to max 3 elements above
 		}
 		return result
 	}

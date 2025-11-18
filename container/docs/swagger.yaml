@@ -1,4 +1,7 @@
 definitions:
+  fiber.Map:
+    additionalProperties: true
+    type: object
   github_com_vanpelt_catnip_internal_models.ClaudeActivityState:
     enum:
     - inactive
@@ -994,6 +997,30 @@ definitions:
         example: feature/add-auth
         type: string
     type: object
+  internal_handlers.InferenceStatusResponse:
+    description: Status of the local inference service
+    properties:
+      architecture:
+        description: Architecture (amd64, arm64)
+        example: arm64
+        type: string
+      available:
+        description: Whether inference is available on this platform
+        example: true
+        type: boolean
+      error:
+        description: Error message if initialization failed
+        example: model not found
+        type: string
+      modelPath:
+        description: Model path if loaded
+        example: /Users/user/.catnip/models/gemma3-270m-summarizer-Q4_K_M.gguf
+        type: string
+      platform:
+        description: Platform name (darwin, linux, windows)
+        example: darwin
+        type: string
+    type: object
   internal_handlers.NotificationPayload:
     properties:
       body:
@@ -1018,6 +1045,26 @@ definitions:
     additionalProperties:
       $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
     description: Map of workspace paths to session information
+    type: object
+  internal_handlers.SummarizeRequest:
+    description: Request to summarize a task and generate a branch name
+    properties:
+      prompt:
+        description: Task description or code changes to summarize
+        example: Add user authentication with OAuth2
+        type: string
+    type: object
+  internal_handlers.SummarizeResponse:
+    description: Response containing task summary and suggested branch name
+    properties:
+      branchName:
+        description: Git branch name in kebab-case with category prefix
+        example: feat/add-user-auth
+        type: string
+      summary:
+        description: 2-4 word summary in Title Case
+        example: Add User Auth
+        type: string
     type: object
   internal_handlers.UploadResponse:
     description: Response containing upload status and file location
@@ -2017,6 +2064,54 @@ paths:
       summary: Cleanup merged worktrees
       tags:
       - git
+  /v1/inference/status:
+    get:
+      description: Check if local inference is available and get service information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Inference service status
+          schema:
+            $ref: '#/definitions/internal_handlers.InferenceStatusResponse'
+      summary: Get inference service status
+      tags:
+      - inference
+  /v1/inference/summarize:
+    post:
+      consumes:
+      - application/json
+      description: Generate a short task summary and git branch name using local GGUF
+        model
+      parameters:
+      - description: Summarization request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.SummarizeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully generated summary and branch name
+          schema:
+            $ref: '#/definitions/internal_handlers.SummarizeResponse'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/fiber.Map'
+        "500":
+          description: Inference error
+          schema:
+            $ref: '#/definitions/fiber.Map'
+        "503":
+          description: Inference not available on this platform
+          schema:
+            $ref: '#/definitions/fiber.Map'
+      summary: Summarize task and generate branch name
+      tags:
+      - inference
   /v1/notifications:
     post:
       consumes:

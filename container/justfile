@@ -1,7 +1,7 @@
 # Catnip Go Server Development
 
 # Configuration
-GOLANGCI_LINT_VERSION := "2.3.0"
+GOLANGCI_LINT_VERSION := "2.6.2"
 
 # Build the unified catnip binary
 build: swagger build-frontend build-scripts

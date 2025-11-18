@@ -1315,6 +1315,78 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/inference/status": {
+            "get": {
+                "description": "Check if local inference is available and get service information",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "inference"
+                ],
+                "summary": "Get inference service status",
+                "responses": {
+                    "200": {
+                        "description": "Inference service status",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.InferenceStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/inference/summarize": {
+            "post": {
+                "description": "Generate a short task summary and git branch name using local GGUF model",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "inference"
+                ],
+                "summary": "Summarize task and generate branch name",
+                "parameters": [
+                    {
+                        "description": "Summarization request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SummarizeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successfully generated summary and branch name",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.SummarizeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "500": {
+                        "description": "Inference error",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    },
+                    "503": {
+                        "description": "Inference not available on this platform",
+                        "schema": {
+                            "$ref": "#/definitions/fiber.Map"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/notifications": {
             "post": {
                 "description": "Sends a notification event to all connected SSE clients, including the TUI app which can display native macOS notifications",
@@ -1846,6 +1918,10 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "fiber.Map": {
+            "type": "object",
+            "additionalProperties": true
+        },
         "github_com_vanpelt_catnip_internal_models.ClaudeActivityState": {
             "type": "string",
             "enum": [
@@ -3148,6 +3224,37 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_handlers.InferenceStatusResponse": {
+            "description": "Status of the local inference service",
+            "type": "object",
+            "properties": {
+                "architecture": {
+                    "description": "Architecture (amd64, arm64)",
+                    "type": "string",
+                    "example": "arm64"
+                },
+                "available": {
+                    "description": "Whether inference is available on this platform",
+                    "type": "boolean",
+                    "example": true
+                },
+                "error": {
+                    "description": "Error message if initialization failed",
+                    "type": "string",
+                    "example": "model not found"
+                },
+                "modelPath": {
+                    "description": "Model path if loaded",
+                    "type": "string",
+                    "example": "/Users/user/.catnip/models/gemma3-270m-summarizer-Q4_K_M.gguf"
+                },
+                "platform": {
+                    "description": "Platform name (darwin, linux, windows)",
+                    "type": "string",
+                    "example": "darwin"
+                }
+            }
+        },
         "internal_handlers.NotificationPayload": {
             "type": "object",
             "properties": {
@@ -3184,6 +3291,33 @@ const docTemplate = `{
             "type": "object",
             "additionalProperties": {
                 "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
+            }
+        },
+        "internal_handlers.SummarizeRequest": {
+            "description": "Request to summarize a task and generate a branch name",
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "description": "Task description or code changes to summarize",
+                    "type": "string",
+                    "example": "Add user authentication with OAuth2"
+                }
+            }
+        },
+        "internal_handlers.SummarizeResponse": {
+            "description": "Response containing task summary and suggested branch name",
+            "type": "object",
+            "properties": {
+                "branchName": {
+                    "description": "Git branch name in kebab-case with category prefix",
+                    "type": "string",
+                    "example": "feat/add-user-auth"
+                },
+                "summary": {
+                    "description": "2-4 word summary in Title Case",
+                    "type": "string",
+                    "example": "Add User Auth"
+                }
             }
         },
         "internal_handlers.UploadResponse": {
