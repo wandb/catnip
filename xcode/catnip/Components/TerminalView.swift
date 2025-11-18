@@ -531,6 +531,15 @@ class TerminalController: NSObject, ObservableObject {
             self.hasSentReady = true
             self.sendReadySignal()
         }
+
+        // Auto-focus terminal to show keyboard with custom accessory
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            _ = self?.terminalView.becomeFirstResponder()
+        }
+    }
+
+    func focusTerminal() {
+        _ = terminalView.becomeFirstResponder()
     }
 
     func disconnect() {

@@ -839,6 +839,11 @@ struct WorkspaceDetailView: View {
         if newIsLandscape != isLandscape {
             isLandscape = newIsLandscape
             NSLog("📱 Orientation changed - isLandscape: \(isLandscape)")
+
+            // Close portrait terminal when rotating to landscape
+            if newIsLandscape && showPortraitTerminal {
+                showPortraitTerminal = false
+            }
         }
     }
 
