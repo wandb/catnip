@@ -154,20 +154,21 @@ func startServer(cmd *cobra.Command) {
 	claudeService := services.NewClaudeService()
 	sessionService := services.NewSessionService()
 
-	// Initialize inference service (cross-platform support via yzma FFI)
+	// Initialize inference service if enabled via CATNIP_INFERENCE=1
 	var inferenceService *services.InferenceService
-	inferenceConfig := services.InferenceConfig{
-		ModelURL: "https://huggingface.co/vanpelt/catnip-summarizer/resolve/main/gemma3-270m-summarizer-Q4_K_M.gguf",
-		Checksum: "", // Optional checksum for verification
-	}
-	var err error
-	inferenceService, err = services.NewInferenceService(inferenceConfig)
-	if err != nil {
-		logger.Warnf("⚠️  Failed to initialize inference service: %v", err)
-		logger.Warnf("   Run 'catnip download' to pre-download dependencies")
-		inferenceService = nil
+	if os.Getenv("CATNIP_INFERENCE") == "1" {
+		inferenceConfig := services.InferenceConfig{
+			ModelURL: "https://huggingface.co/vanpelt/catnip-summarizer/resolve/main/gemma3-270m-summarizer-Q4_K_M.gguf",
+			Checksum: "", // Optional checksum for verification
+		}
+		inferenceService = services.NewInferenceService(inferenceConfig)
+
+		// Start background initialization (non-blocking)
+		go inferenceService.InitializeAsync()
+
+		logger.Infof("🧠 Inference service enabled, downloading in background... (%s/%s)", goruntime.GOOS, goruntime.GOARCH)
 	} else {
-		logger.Infof("✅ Inference service initialized (%s/%s)", goruntime.GOOS, goruntime.GOARCH)
+		logger.Debugf("🧠 Inference service disabled (set CATNIP_INFERENCE=1 to enable)")
 	}
 
 	// Wire up SessionService to ClaudeService for best session file selection
@@ -224,7 +225,11 @@ func startServer(cmd *cobra.Command) {
 	defer eventsHandler.Stop()
 	portsHandler := handlers.NewPortsHandler(portMonitor).WithEvents(eventsHandler)
 	proxyHandler := handlers.NewProxyHandler(portMonitor)
-	inferenceHandler := handlers.NewInferenceHandler(inferenceService)
+	// Only create inference handler if service is enabled
+	var inferenceHandler *handlers.InferenceHandler
+	if inferenceService != nil {
+		inferenceHandler = handlers.NewInferenceHandler(inferenceService)
+	}
 
 	// Connect events handler to GitService for worktree status events
 	gitService.SetEventsHandler(eventsHandler)
@@ -309,9 +314,11 @@ func startServer(cmd *cobra.Command) {
 	v1.Post("/ports/mappings", portsHandler.SetPortMapping)
 	v1.Delete("/ports/mappings/:port", portsHandler.DeletePortMapping)
 
-	// Inference routes (cross-platform local inference)
-	v1.Post("/inference/summarize", inferenceHandler.HandleSummarize)
-	v1.Get("/inference/status", inferenceHandler.HandleInferenceStatus)
+	// Inference routes (only if enabled via CATNIP_INFERENCE=1)
+	if inferenceHandler != nil {
+		v1.Post("/inference/summarize", inferenceHandler.HandleSummarize)
+		v1.Get("/inference/status", inferenceHandler.HandleInferenceStatus)
+	}
 
 	// Server info route
 	v1.Get("/info", func(c *fiber.Ctx) error {

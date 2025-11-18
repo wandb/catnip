@@ -4,14 +4,32 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
+	"sync/atomic"
 	"time"
 
 	"github.com/hybridgroup/yzma/pkg/llama"
+	"github.com/vanpelt/catnip/internal/logger"
 )
+
+// InferenceState represents the current state of the inference service
+type InferenceState string
+
+// Inference service states
+const (
+	InferenceStateInitializing InferenceState = "initializing"
+	InferenceStateReady        InferenceState = "ready"
+	InferenceStateFailed       InferenceState = "failed"
+	InferenceStateDisabled     InferenceState = "disabled"
+)
+
+// DownloadProgress tracks the progress of library and model downloads
+type DownloadProgress struct {
+	LibraryPercent int    `json:"library"`
+	ModelPercent   int    `json:"model"`
+	CurrentStep    string `json:"step"` // "library", "model", "loading"
+}
 
 // InferenceService handles local GGUF model inference using llama.cpp
 type InferenceService struct {
@@ -20,6 +38,17 @@ type InferenceService struct {
 	model       llama.Model
 	mu          sync.Mutex
 	initialized bool
+
+	// State management
+	state        atomic.Value // InferenceState
+	stateMessage string
+	stateMu      sync.RWMutex
+	progress     DownloadProgress
+	progressMu   sync.RWMutex
+
+	// Configuration for async init
+	config     InferenceConfig
+	maxRetries int
 }
 
 // InferenceConfig holds configuration for the inference service
@@ -30,42 +59,94 @@ type InferenceConfig struct {
 	Checksum    string
 }
 
-// NewInferenceService creates a new inference service instance
-func NewInferenceService(config InferenceConfig) (*InferenceService, error) {
+// NewInferenceService creates a new inference service instance (non-blocking)
+func NewInferenceService(config InferenceConfig) *InferenceService {
 	svc := &InferenceService{
 		modelPath:   config.ModelPath,
 		libraryPath: config.LibraryPath,
+		config:      config,
+		maxRetries:  3,
 	}
+	svc.state.Store(InferenceStateInitializing)
+	svc.setStateMessage("Waiting to start initialization...")
+	return svc
+}
 
-	// Auto-detect library path if not provided
-	if svc.libraryPath == "" {
-		libPath, err := svc.detectLibraryPath()
-		if err != nil {
-			return nil, fmt.Errorf("failed to detect library path: %w", err)
+// InitializeAsync starts the background initialization process
+func (s *InferenceService) InitializeAsync() {
+	var lastErr error
+
+	for attempt := 1; attempt <= s.maxRetries; attempt++ {
+		if attempt > 1 {
+			// Exponential backoff: 2s, 4s, 8s
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			s.setStateMessage(fmt.Sprintf("Retry %d/%d in %v...", attempt, s.maxRetries, backoff))
+			time.Sleep(backoff)
 		}
-		svc.libraryPath = libPath
+
+		err := s.initializeOnce()
+		if err == nil {
+			s.state.Store(InferenceStateReady)
+			s.setStateMessage("Inference service ready")
+			logger.Infof("🧠 Inference service initialized successfully")
+			return
+		}
+
+		lastErr = err
+		logger.Warnf("🧠 Inference initialization attempt %d/%d failed: %v", attempt, s.maxRetries, err)
 	}
 
-	// Download model if needed
-	if config.ModelURL != "" && svc.modelPath == "" {
+	// All retries exhausted
+	s.state.Store(InferenceStateFailed)
+	s.setStateMessage(fmt.Sprintf("Failed after %d attempts: %v", s.maxRetries, lastErr))
+	logger.Errorf("🧠 Inference service failed to initialize after %d attempts: %v", s.maxRetries, lastErr)
+}
+
+// initializeOnce performs a single initialization attempt
+func (s *InferenceService) initializeOnce() error {
+	// Step 1: Download/detect library
+	s.setProgress(0, 0, "library")
+	s.setStateMessage("Downloading llama.cpp libraries...")
+
+	if s.libraryPath == "" {
+		libPath, err := s.downloadOrDetectLibrary()
+		if err != nil {
+			return fmt.Errorf("failed to get library: %w", err)
+		}
+		s.libraryPath = libPath
+	}
+	s.setProgress(100, 0, "model")
+
+	// Step 2: Download model
+	s.setStateMessage("Downloading model...")
+
+	if s.config.ModelURL != "" && s.modelPath == "" {
 		downloader, err := NewModelDownloader()
 		if err != nil {
-			return nil, fmt.Errorf("failed to create downloader: %w", err)
+			return fmt.Errorf("failed to create downloader: %w", err)
 		}
 
 		modelFilename := "gemma3-270m-summarizer-Q4_K_M.gguf"
-		modelPath, err := downloader.DownloadModel(config.ModelURL, modelFilename, config.Checksum)
+		modelPath, err := downloader.DownloadModel(s.config.ModelURL, modelFilename, s.config.Checksum)
 		if err != nil {
-			return nil, fmt.Errorf("failed to download model: %w", err)
+			return fmt.Errorf("failed to download model: %w", err)
 		}
-		svc.modelPath = modelPath
+		s.modelPath = modelPath
+	}
+	s.setProgress(100, 100, "loading")
+
+	// Step 3: Load model
+	s.setStateMessage("Loading model...")
+
+	if err := s.Initialize(); err != nil {
+		return fmt.Errorf("failed to initialize model: %w", err)
 	}
 
-	return svc, nil
+	return nil
 }
 
-// detectLibraryPath attempts to find the llama.cpp library
-func (s *InferenceService) detectLibraryPath() (string, error) {
+// downloadOrDetectLibrary attempts to find or download the llama.cpp library
+func (s *InferenceService) downloadOrDetectLibrary() (string, error) {
 	// Check environment variable first
 	if libPath := os.Getenv("YZMA_LIB"); libPath != "" {
 		if _, err := os.Stat(libPath); err == nil {
@@ -75,65 +156,72 @@ func (s *InferenceService) detectLibraryPath() (string, error) {
 
 	// Try auto-download to ~/.catnip/lib
 	downloader, err := NewLibraryDownloader()
-	if err == nil {
-		// Check if library already exists
-		libPath, err := downloader.GetLibraryPath()
-		if err == nil {
-			if _, statErr := os.Stat(libPath); statErr == nil {
-				// Library already downloaded
-				return libPath, nil
-			}
-
-			// Library doesn't exist, try to download it
-			fmt.Println("🔍 llama.cpp library not found, downloading automatically...")
-			libPath, err = downloader.DownloadLibrary()
-			if err == nil {
-				return libPath, nil
-			}
-			// If download fails, continue to fallback locations
-			fmt.Printf("⚠️  Auto-download failed: %v\n", err)
-		}
+	if err != nil {
+		return "", err
 	}
 
-	// Detect based on platform
-	var libName string
-	switch runtime.GOOS {
-	case "darwin":
-		libName = "libllama.dylib"
-	case "linux":
-		libName = "libllama.so"
-	case "windows":
-		libName = "llama.dll"
-	default:
-		return "", fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	// Check if library already exists
+	libPath, err := downloader.GetLibraryPath()
+	if err != nil {
+		return "", err
 	}
 
-	// Check common locations relative to executable (bundled with release)
-	exePath, err := os.Executable()
-	if err == nil {
-		exeDir := filepath.Dir(exePath)
-
-		// Check in lib/ directory next to executable
-		candidates := []string{
-			filepath.Join(exeDir, "lib", libName),
-			filepath.Join(exeDir, "lib", runtime.GOOS, runtime.GOARCH, "build", "bin", libName),
-			filepath.Join(exeDir, "..", "models", "lib", runtime.GOOS, runtime.GOARCH, "build", "bin", libName),
-		}
-
-		for _, candidate := range candidates {
-			if _, err := os.Stat(candidate); err == nil {
-				return candidate, nil
-			}
-		}
+	if _, statErr := os.Stat(libPath); statErr == nil {
+		// Library already downloaded
+		return libPath, nil
 	}
 
-	// For development: check container/models/lib relative to current directory
-	devPath := filepath.Join("container", "models", "lib", runtime.GOOS, runtime.GOARCH, "build", "bin", libName)
-	if _, err := os.Stat(devPath); err == nil {
-		return devPath, nil
+	// Download it
+	logger.Infof("🔍 Downloading llama.cpp library...")
+	libPath, err = downloader.DownloadLibrary()
+	if err != nil {
+		return "", err
 	}
 
-	return "", fmt.Errorf("llama.cpp library not found (set YZMA_LIB environment variable or ensure auto-download is working)")
+	return libPath, nil
+}
+
+// setStateMessage updates the state message thread-safely
+func (s *InferenceService) setStateMessage(msg string) {
+	s.stateMu.Lock()
+	s.stateMessage = msg
+	s.stateMu.Unlock()
+}
+
+// setProgress updates the download progress thread-safely
+func (s *InferenceService) setProgress(library, model int, step string) {
+	s.progressMu.Lock()
+	s.progress = DownloadProgress{
+		LibraryPercent: library,
+		ModelPercent:   model,
+		CurrentStep:    step,
+	}
+	s.progressMu.Unlock()
+}
+
+// GetState returns the current state of the service
+func (s *InferenceService) GetState() InferenceState {
+	return s.state.Load().(InferenceState)
+}
+
+// GetStatus returns the current status for the API
+func (s *InferenceService) GetStatus() (InferenceState, string, DownloadProgress) {
+	state := s.GetState()
+
+	s.stateMu.RLock()
+	message := s.stateMessage
+	s.stateMu.RUnlock()
+
+	s.progressMu.RLock()
+	progress := s.progress
+	s.progressMu.RUnlock()
+
+	return state, message, progress
+}
+
+// IsReady returns true if the service is ready for inference
+func (s *InferenceService) IsReady() bool {
+	return s.GetState() == InferenceStateReady
 }
 
 // Initialize loads the library and model
@@ -355,63 +443,4 @@ func (s *InferenceService) Close() error {
 	// Note: yzma doesn't expose model cleanup in current API
 	s.initialized = false
 	return nil
-}
-
-// Stderr redirection state
-var (
-	savedStderrFd    = -1
-	stderrSuppressed bool
-	suppressMutex    sync.Mutex
-)
-
-// suppressStderr redirects stderr (fd 2) to /dev/null to silence llama.cpp's verbose output
-func suppressStderr() {
-	suppressMutex.Lock()
-	defer suppressMutex.Unlock()
-
-	if stderrSuppressed {
-		return
-	}
-
-	// Open /dev/null
-	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		return // If we can't open /dev/null, just continue with normal stderr
-	}
-
-	// Save the original stderr file descriptor by duplicating it
-	savedStderrFd, err = syscall.Dup(int(os.Stderr.Fd()))
-	if err != nil {
-		devNull.Close()
-		return
-	}
-
-	// Redirect stderr (fd 2) to /dev/null using dup2
-	err = syscall.Dup2(int(devNull.Fd()), int(os.Stderr.Fd()))
-	if err != nil {
-		syscall.Close(savedStderrFd)
-		devNull.Close()
-		return
-	}
-
-	devNull.Close() // We can close devNull now, the fd is duplicated to stderr
-	stderrSuppressed = true
-}
-
-// restoreStderr restores the original stderr file descriptor
-func restoreStderr() {
-	suppressMutex.Lock()
-	defer suppressMutex.Unlock()
-
-	if !stderrSuppressed || savedStderrFd < 0 {
-		return
-	}
-
-	// Restore stderr by duplicating the saved fd back to fd 2
-	_ = syscall.Dup2(savedStderrFd, int(os.Stderr.Fd()))
-
-	// Close the saved fd
-	syscall.Close(savedStderrFd)
-	savedStderrFd = -1
-	stderrSuppressed = false
 }

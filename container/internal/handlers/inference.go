@@ -40,16 +40,18 @@ type SummarizeResponse struct {
 // InferenceStatusResponse represents the inference service status
 // @Description Status of the local inference service
 type InferenceStatusResponse struct {
-	// Whether inference is available on this platform
+	// Whether inference is ready for requests
 	Available bool `json:"available" example:"true"`
+	// Current status: initializing, ready, failed
+	Status string `json:"status" example:"ready"`
+	// Human-readable status message
+	Message string `json:"message,omitempty" example:"Inference service ready"`
+	// Download progress (when initializing)
+	Progress *services.DownloadProgress `json:"progress,omitempty"`
 	// Platform name (darwin, linux, windows)
 	Platform string `json:"platform" example:"darwin"`
 	// Architecture (amd64, arm64)
 	Architecture string `json:"architecture" example:"arm64"`
-	// Model path if loaded
-	ModelPath string `json:"modelPath,omitempty" example:"/Users/user/.catnip/models/gemma3-270m-summarizer-Q4_K_M.gguf"`
-	// Error message if initialization failed
-	Error string `json:"error,omitempty" example:"model not found"`
 }
 
 // HandleSummarize godoc
@@ -65,10 +67,20 @@ type InferenceStatusResponse struct {
 // @Failure 503 {object} fiber.Map "Inference not available on this platform"
 // @Router /v1/inference/summarize [post]
 func (h *InferenceHandler) HandleSummarize(c *fiber.Ctx) error {
-	// Check if service is available
+	// Check if service is available and ready
 	if h.service == nil {
 		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
-			"error": "Inference service not available on this platform",
+			"error": "Inference service not configured",
+		})
+	}
+
+	// Check if service is ready
+	if !h.service.IsReady() {
+		state, message, progress := h.service.GetStatus()
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"error":    fmt.Sprintf("Inference service not ready: %s", message),
+			"status":   string(state),
+			"progress": progress,
 		})
 	}
 
@@ -114,18 +126,27 @@ func (h *InferenceHandler) HandleSummarize(c *fiber.Ctx) error {
 // @Success 200 {object} InferenceStatusResponse "Inference service status"
 // @Router /v1/inference/status [get]
 func (h *InferenceHandler) HandleInferenceStatus(c *fiber.Ctx) error {
-	status := InferenceStatusResponse{
-		Available:    h.service != nil,
+	resp := InferenceStatusResponse{
 		Platform:     runtime.GOOS,
 		Architecture: runtime.GOARCH,
 	}
 
-	if h.service != nil {
-		// Try to get model path (implementation would need to expose this)
-		status.ModelPath = "~/.catnip/models/gemma3-270m-summarizer-Q4_K_M.gguf"
-	} else {
-		status.Error = "Inference only available on macOS currently"
+	if h.service == nil {
+		resp.Available = false
+		resp.Status = "disabled"
+		resp.Message = "Inference service not configured"
+		return c.JSON(resp)
 	}
 
-	return c.JSON(status)
+	state, message, progress := h.service.GetStatus()
+	resp.Available = h.service.IsReady()
+	resp.Status = string(state)
+	resp.Message = message
+
+	// Include progress if still initializing
+	if state == services.InferenceStateInitializing {
+		resp.Progress = &progress
+	}
+
+	return c.JSON(resp)
 }

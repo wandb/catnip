@@ -111,17 +111,6 @@ archives:
       # Copy the entire signed app bundle - keep the Catnip.app directory name
       - src: "dist/catnip-macos_darwin_amd64_v1/Catnip.app"
         dst: "Catnip.app"
-      # Include llama.cpp libraries for local inference
-      - src: "models/lib/darwin/amd64/build/bin/libllama.dylib"
-        dst: "lib/libllama.dylib"
-      - src: "models/lib/darwin/amd64/build/bin/libggml.dylib"
-        dst: "lib/libggml.dylib"
-      - src: "models/lib/darwin/amd64/build/bin/libggml-metal.dylib"
-        dst: "lib/libggml-metal.dylib"
-      - src: "models/lib/darwin/amd64/build/bin/libggml-base.dylib"
-        dst: "lib/libggml-base.dylib"
-      - src: "models/lib/darwin/amd64/build/bin/libggml-cpu.dylib"
-        dst: "lib/libggml-cpu.dylib"
       # Documentation files
       - README.md
       - LICENSE
@@ -139,17 +128,6 @@ archives:
       # Copy the entire signed app bundle - keep the Catnip.app directory name
       - src: "dist/catnip-macos_darwin_arm64_v8.0/Catnip.app"
         dst: "Catnip.app"
-      # Include llama.cpp libraries for local inference
-      - src: "models/lib/darwin/arm64/build/bin/libllama.dylib"
-        dst: "lib/libllama.dylib"
-      - src: "models/lib/darwin/arm64/build/bin/libggml.dylib"
-        dst: "lib/libggml.dylib"
-      - src: "models/lib/darwin/arm64/build/bin/libggml-metal.dylib"
-        dst: "lib/libggml-metal.dylib"
-      - src: "models/lib/darwin/arm64/build/bin/libggml-base.dylib"
-        dst: "lib/libggml-base.dylib"
-      - src: "models/lib/darwin/arm64/build/bin/libggml-cpu.dylib"
-        dst: "lib/libggml-cpu.dylib"
       # Documentation files
       - README.md
       - LICENSE

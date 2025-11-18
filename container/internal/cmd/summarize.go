@@ -61,9 +61,15 @@ func runSummarize(cmd *cobra.Command, args []string) error {
 		Checksum: "",
 	}
 
-	inferenceService, err := services.NewInferenceService(inferenceConfig)
-	if err != nil {
-		return fmt.Errorf("failed to initialize inference service: %w\n\nTry running: catnip download", err)
+	inferenceService := services.NewInferenceService(inferenceConfig)
+
+	// Run initialization synchronously for CLI usage
+	inferenceService.InitializeAsync()
+
+	// Check if initialization succeeded
+	if !inferenceService.IsReady() {
+		state, message, _ := inferenceService.GetStatus()
+		return fmt.Errorf("failed to initialize inference service: %s (%s)\n\nTry running: catnip download", message, state)
 	}
 
 	// Run inference

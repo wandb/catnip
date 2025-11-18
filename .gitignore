@@ -64,9 +64,3 @@ container/internal/assets/dist/*
 # Xcode user-specific files
 **/xcuserdata/
 xcode/build/
-
-# Inference: llama.cpp libraries and GGUF models
-# Libraries are downloaded at build time, not committed
-container/models/lib/
-models/*.gguf
-*.gguf
