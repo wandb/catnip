@@ -171,7 +171,7 @@ struct TerminalViewRepresentable: UIViewRepresentable {
         terminalView.smartInsertDeleteType = .no
 
         // Replace the default accessory view with our custom one
-        let customAccessory = CustomTerminalAccessory(terminalView: terminalView, controller: controller)
+        let customAccessory = CustomTerminalAccessory(terminalView: terminalView, controller: controller, showDismissButton: controller.showDismissButton)
         terminalView.inputAccessoryView = customAccessory
 
         // Wrap in a container
@@ -378,6 +378,7 @@ class TerminalController: NSObject, ObservableObject {
 
     let terminalView: SwiftTerm.TerminalView
     private let webSocketManager: PTYWebSocketManager
+    let showDismissButton: Bool
 
     private var hasSentReady = false
 
@@ -386,9 +387,10 @@ class TerminalController: NSObject, ObservableObject {
     private var feedTimer: Timer?
     private let feedQueue = DispatchQueue(label: "com.catnip.terminal.feed", qos: .userInteractive)
 
-    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil) {
+    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, showDismissButton: Bool = true) {
         // Create terminal view
         self.terminalView = SwiftTerm.TerminalView(frame: .zero)
+        self.showDismissButton = showDismissButton
 
         // Create WebSocket manager with mobile authentication
         self.webSocketManager = PTYWebSocketManager(
