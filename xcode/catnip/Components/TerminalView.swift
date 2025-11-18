@@ -363,6 +363,50 @@ class CustomTerminalAccessory: UIInputView {
 
     // MARK: - Button Actions
 
+    @objc private func modePressed() {
+        // Shift+Tab = ESC [ Z
+        let shiftTab = "\u{1B}[Z"
+
+        if isPlanMode {
+            // Switch back to regular mode - send shift+tab once
+            terminalView?.send(txt: shiftTab)
+            isPlanMode = false
+            modeButton?.setTitle("reg", for: .normal)
+            modeButton?.backgroundColor = UIColor.systemBackground
+        } else {
+            // Switch to plan mode - send shift+tab 3 times with delays
+            terminalView?.send(txt: shiftTab)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.terminalView?.send(txt: shiftTab)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                    self?.terminalView?.send(txt: shiftTab)
+                }
+            }
+            isPlanMode = true
+            modeButton?.setTitle("plan", for: .normal)
+            modeButton?.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
+        }
+    }
+
+    @objc private func ctrlPressed() {
+        isCtrlActive.toggle()
+
+        if isCtrlActive {
+            ctrlButton?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.3)
+            // Tell controller to apply ctrl modifier to next input
+            controller?.setCtrlModifier(active: true)
+        } else {
+            ctrlButton?.backgroundColor = UIColor.systemBackground
+            controller?.setCtrlModifier(active: false)
+        }
+    }
+
+    // Called by controller after ctrl+key is sent
+    func clearCtrlState() {
+        isCtrlActive = false
+        ctrlButton?.backgroundColor = UIColor.systemBackground
+    }
+
     @objc private func escPressed() {
         terminalView?.send(txt: "\u{1B}") // ESC
     }
@@ -408,6 +452,10 @@ class TerminalController: NSObject, ObservableObject {
     let showDismissButton: Bool
 
     private var hasSentReady = false
+
+    // Ctrl modifier state
+    private var ctrlModifierActive = false
+    weak var accessoryView: CustomTerminalAccessory?
 
     // Buffer batching for performance during large buffer replays
     private var pendingDataBuffer: [UInt8] = []
@@ -614,6 +662,10 @@ class TerminalController: NSObject, ObservableObject {
 
     @objc func dismissKeyboard() {
         _ = terminalView.resignFirstResponder()
+    }
+
+    func setCtrlModifier(active: Bool) {
+        ctrlModifierActive = active
     }
 }
 
