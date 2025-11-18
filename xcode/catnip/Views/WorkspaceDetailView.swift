@@ -75,9 +75,11 @@ struct WorkspaceDetailView: View {
             Color(uiColor: .systemBackground)
                 .ignoresSafeArea()
 
-            // Show terminal in landscape, normal UI in portrait
+            // Show terminal in landscape or portrait terminal mode, normal UI otherwise
             if isLandscape {
                 terminalView
+            } else if showPortraitTerminal {
+                portraitTerminalView
             } else {
                 if phase == .loading {
                     loadingView
@@ -91,13 +93,13 @@ struct WorkspaceDetailView: View {
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Show terminal/fullscreen button when in portrait mode
-            if !isLandscape {
+            // Show terminal button when in portrait mode (not showing terminal)
+            if !isLandscape && !showPortraitTerminal {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        rotateToLandscape()
+                        showPortraitTerminal = true
                     } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        Image(systemName: "terminal")
                             .font(.body)
                     }
                 }
