@@ -40,7 +40,7 @@ Catnip is a web service that automates git worktree creation and runs in a conta
 
 ### Mobile App
 
-Our iOS native interface is currently in beta. You can join the [TestFlight group](https://testflight.apple.com/join/dm8GahU7) to try the app today. The app will help you configure an existing GitHub repository with catnip as described below. Once setup you can fire up claude code on the go! Please share any bug reports or feedback.
+Our iOS native interface is currently in beta. You can join the [TestFlight group](https://testflight.apple.com/join/3gSY17tf) to try the app today. The app will help you configure an existing GitHub repository with catnip as described below. Once setup you can fire up claude code on the go! Please share any bug reports or feedback.
 
 ### Github Codespaces / Devcontainers
 

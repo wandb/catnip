@@ -26,6 +26,7 @@ enum RepositoryListMode {
 }
 
 struct CodespaceView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var authManager: AuthManager
     @StateObject private var installer = CatnipInstaller.shared
     @StateObject private var tracker = CodespaceCreationTracker.shared
@@ -40,6 +41,8 @@ struct CodespaceView: View {
     @State private var createdCodespace: CodespaceCreationResult.CodespaceInfo?
     @State private var repositoryListMode: RepositoryListMode = .installation
     @State private var pendingRepository: String?
+    @State private var pendingCodespaceName: String?
+    @State private var wasConnectingBeforeBackground = false
 
     private let catFacts = [
         "Cats can rotate their ears 180 degrees.",
@@ -227,6 +230,10 @@ struct CodespaceView: View {
                     NSLog("🐱 [CodespaceView] Failed to preload repositories: \(error)")
                 }
             }
+
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            handleScenePhaseChange(oldPhase: oldPhase, newPhase: newPhase)
         }
     }
 
@@ -509,6 +516,9 @@ struct CodespaceView: View {
         errorMessage = ""
         statusMessage = ""
         statusMessage = "Finding your codespace..."
+
+        // Store codespace name for potential reconnection after backgrounding
+        pendingCodespaceName = codespaceName
 
         // Mock connection for UI tests
         if UITestingHelper.isUITesting {
@@ -1113,6 +1123,31 @@ struct CodespaceView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    // MARK: - App Lifecycle Handling
+
+    private func handleScenePhaseChange(oldPhase: ScenePhase, newPhase: ScenePhase) {
+        // Track when app goes to background during SSE connection
+        if newPhase == .background && phase == .connecting {
+            wasConnectingBeforeBackground = true
+            NSLog("🐱 [CodespaceView] App backgrounded during SSE connection, will reconnect on foreground")
+        }
+
+        // Reconnect when app returns to foreground if we were connecting
+        if newPhase == .active && oldPhase == .background && wasConnectingBeforeBackground && phase == .connecting {
+            NSLog("🐱 [CodespaceView] App foregrounded, reconnecting SSE...")
+
+            // Disconnect the old stale connection
+            sseService?.disconnect()
+            sseService = nil
+
+            // Restart the connection with the same codespace name
+            handleConnect(codespaceName: pendingCodespaceName)
+
+            // Reset the flag
+            wasConnectingBeforeBackground = false
+        }
     }
 
     private var createRepositoryView: some View {

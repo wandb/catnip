@@ -218,7 +218,7 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
             lastRefreshRequest?: number;
             verifiedCodespaces?: any[];
           }>();
-        } catch (error) {
+        } catch (_error) {
           return new Response("Invalid JSON", { status: 400 });
         }
 
