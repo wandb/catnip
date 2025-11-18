@@ -784,6 +784,52 @@ struct WorkspaceDetailView: View {
         return "wss://catnip.run"
     }
 
+    // MARK: - Portrait Terminal View
+
+    private var portraitTerminalView: some View {
+        let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "nil"
+        let worktreeName = workspace?.name ?? "unknown"
+
+        NSLog("🐱 Portrait terminal - Codespace: \(codespaceName), Worktree: \(worktreeName)")
+
+        return GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Close button bar
+                HStack {
+                    Button {
+                        showPortraitTerminal = false
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "xmark")
+                            Text("Close Terminal")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.primary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+
+                    Spacer()
+                }
+                .background(Color(uiColor: .secondarySystemBackground))
+
+                // Terminal taking up the space (keyboard will push this up)
+                TerminalView(
+                    workspaceId: worktreeName,
+                    baseURL: websocketBaseURL,
+                    codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
+                    authToken: authManager.sessionToken,
+                    shouldConnect: showPortraitTerminal
+                )
+                .frame(height: geometry.size.height * 0.5)
+
+                Spacer()
+            }
+        }
+        .background(Color.black)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+    }
+
     private func updateOrientation() {
         // Detect landscape: compact height OR regular width + compact height
         // This works for both iPhone landscape and iPad landscape
