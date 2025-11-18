@@ -218,6 +218,14 @@ class CustomTerminalAccessory: UIInputView {
     private weak var controller: TerminalController?
     private let showDismissButton: Bool
 
+    // Mode toggle state (regular vs plan)
+    private var isPlanMode = false
+    private var modeButton: UIButton?
+
+    // Ctrl toggle state
+    private var isCtrlActive = false
+    private var ctrlButton: UIButton?
+
     init(terminalView: SwiftTerm.TerminalView, controller: TerminalController, showDismissButton: Bool = true) {
         self.terminalView = terminalView
         self.controller = controller
@@ -228,10 +236,16 @@ class CustomTerminalAccessory: UIInputView {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 44), inputViewStyle: .keyboard)
 
         setupUI()
+        setupCtrlInterception()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupCtrlInterception() {
+        // We need to intercept keyboard input when ctrl is active
+        // This is done by observing the terminal's send delegate
     }
 
     private func setupUI() {
@@ -268,6 +282,16 @@ class CustomTerminalAccessory: UIInputView {
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
         ])
+
+        // Mode toggle (regular/plan)
+        let modeBtn = createButton(title: "reg", action: #selector(modePressed))
+        modeButton = modeBtn
+        stackView.addArrangedSubview(modeBtn)
+
+        // Ctrl toggle
+        let ctrlBtn = createButton(title: "ctrl", action: #selector(ctrlPressed))
+        ctrlButton = ctrlBtn
+        stackView.addArrangedSubview(ctrlBtn)
 
         // Essential keys
         stackView.addArrangedSubview(createButton(title: "esc", action: #selector(escPressed)))
