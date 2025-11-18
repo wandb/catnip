@@ -794,33 +794,15 @@ struct WorkspaceDetailView: View {
 
         return GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Close button bar
-                HStack {
-                    Button {
-                        showPortraitTerminal = false
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "xmark")
-                            Text("Close Terminal")
-                        }
-                        .font(.subheadline.weight(.medium))
-                        .foregroundColor(.primary)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-
-                    Spacer()
-                }
-                .background(Color(uiColor: .secondarySystemBackground))
-
-                // Terminal taking up the space (keyboard will push this up)
+                // Terminal taking up the top half
                 TerminalView(
                     workspaceId: worktreeName,
                     baseURL: websocketBaseURL,
                     codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
                     authToken: authManager.sessionToken,
                     shouldConnect: showPortraitTerminal,
-                    showExitButton: false
+                    showExitButton: false,
+                    showDismissButton: false
                 )
                 .frame(height: geometry.size.height * 0.5)
 
@@ -829,6 +811,16 @@ struct WorkspaceDetailView: View {
         }
         .background(Color.black)
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showPortraitTerminal = false
+                } label: {
+                    Image(systemName: "terminal")
+                        .font(.body)
+                }
+            }
+        }
     }
 
     private func updateOrientation() {

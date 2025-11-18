@@ -216,10 +216,12 @@ class TerminalViewWrapper: UIView {
 class CustomTerminalAccessory: UIInputView {
     private weak var terminalView: SwiftTerm.TerminalView?
     private weak var controller: TerminalController?
+    private let showDismissButton: Bool
 
-    init(terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
+    init(terminalView: SwiftTerm.TerminalView, controller: TerminalController, showDismissButton: Bool = true) {
         self.terminalView = terminalView
         self.controller = controller
+        self.showDismissButton = showDismissButton
 
         // Standard accessory height for iOS
         // Width will be set by auto-layout to match keyboard width
@@ -235,54 +237,55 @@ class CustomTerminalAccessory: UIInputView {
     private func setupUI() {
         backgroundColor = UIColor.systemGray5
 
+        // Create scroll view to allow horizontal scrolling when buttons don't fit
+        let scrollView = UIScrollView()
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            scrollView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+        ])
+
         // Create horizontal stack for buttons
         let stackView = UIStackView()
         stackView.axis = .horizontal
-        stackView.spacing = 8
+        stackView.spacing = 6
         stackView.alignment = .center
-        stackView.distribution = .fillProportionally
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
-        addSubview(stackView)
+        scrollView.addSubview(stackView)
 
         NSLayoutConstraint.activate([
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
         ])
 
-        // Essential buttons for LLM prompt input
-        // Left side: Navigation and special keys
-        let leftStack = createButtonStack()
-        stackView.addArrangedSubview(leftStack)
-
         // Essential keys
-        leftStack.addArrangedSubview(createButton(title: "esc", action: #selector(escPressed)))
-        leftStack.addArrangedSubview(createButton(title: "tab", action: #selector(tabPressed)))
-        leftStack.addArrangedSubview(createButton(title: "/↵", action: #selector(newlinePressed)))
-        leftStack.addArrangedSubview(createButton(title: "/", action: #selector(slashPressed)))
+        stackView.addArrangedSubview(createButton(title: "esc", action: #selector(escPressed)))
+        stackView.addArrangedSubview(createButton(title: "tab", action: #selector(tabPressed)))
+        stackView.addArrangedSubview(createButton(title: "/↵", action: #selector(newlinePressed)))
+        stackView.addArrangedSubview(createButton(title: "/", action: #selector(slashPressed)))
 
         // Arrow keys
-        let arrowStack = UIStackView()
-        arrowStack.axis = .horizontal
-        arrowStack.spacing = 4
+        stackView.addArrangedSubview(createButton(title: "↑", action: #selector(upPressed)))
+        stackView.addArrangedSubview(createButton(title: "↓", action: #selector(downPressed)))
+        stackView.addArrangedSubview(createButton(title: "←", action: #selector(leftPressed)))
+        stackView.addArrangedSubview(createButton(title: "→", action: #selector(rightPressed)))
 
-        arrowStack.addArrangedSubview(createButton(title: "↑", action: #selector(upPressed)))
-        arrowStack.addArrangedSubview(createButton(title: "↓", action: #selector(downPressed)))
-        arrowStack.addArrangedSubview(createButton(title: "←", action: #selector(leftPressed)))
-        arrowStack.addArrangedSubview(createButton(title: "→", action: #selector(rightPressed)))
-
-        leftStack.addArrangedSubview(arrowStack)
-
-        // Spacer to push dismiss button to the right
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        stackView.addArrangedSubview(spacer)
-
-        // Right side: Dismiss button
-        let dismissButton = createDismissButton()
-        stackView.addArrangedSubview(dismissButton)
+        // Dismiss button (only if enabled)
+        if showDismissButton {
+            let dismissButton = createDismissButton()
+            stackView.addArrangedSubview(dismissButton)
+        }
     }
 
     private func createButtonStack() -> UIStackView {
