@@ -792,28 +792,23 @@ struct WorkspaceDetailView: View {
 
         NSLog("🐱 Portrait terminal - Codespace: \(codespaceName), Worktree: \(worktreeName)")
 
+        // Terminal fills available space - glass accessory overlays it
+        // Add ~60 points width for approximately 7-8 extra columns at 12pt mono font
         return GeometryReader { geometry in
-            VStack(spacing: 0) {
-                // Terminal taking up the top half, wider than screen for extra columns
-                // Add ~60 points for approximately 7-8 extra columns at 12pt mono font
-                ScrollView(.horizontal, showsIndicators: false) {
-                    TerminalView(
-                        workspaceId: worktreeName,
-                        baseURL: websocketBaseURL,
-                        codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
-                        authToken: authManager.sessionToken,
-                        shouldConnect: showPortraitTerminal,
-                        showExitButton: false,
-                        showDismissButton: false
-                    )
-                    .frame(width: geometry.size.width + 60, height: geometry.size.height * 0.5)
-                }
-
-                Spacer()
+            ScrollView(.horizontal, showsIndicators: false) {
+                TerminalView(
+                    workspaceId: worktreeName,
+                    baseURL: websocketBaseURL,
+                    codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
+                    authToken: authManager.sessionToken,
+                    shouldConnect: showPortraitTerminal,
+                    showExitButton: false,
+                    showDismissButton: false
+                )
+                .frame(width: geometry.size.width + 60)
             }
         }
         .background(Color.black)
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

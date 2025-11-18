@@ -226,7 +226,7 @@ class PTYWebSocketManager: NSObject, ObservableObject {
                 NSLog("❌ WebSocket receive error: %@", error.localizedDescription)
                 DispatchQueue.main.async {
                     self.isConnected = false
-                    self.error = error.localizedDescription
+                    self.error = "Reconnecting..."
                 }
 
                 // Attempt reconnection
@@ -255,8 +255,27 @@ class PTYWebSocketManager: NSObject, ObservableObject {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self = self, !self.isManuallyDisconnected else { return }
-            self.webSocketTask = nil
-            self.connect()
+
+            // Check health before reconnecting to detect codespace shutdown
+            Task {
+                let isHealthy = await HealthCheckService.shared.checkHealth()
+
+                await MainActor.run {
+                    if isHealthy {
+                        // Codespace is available, proceed with reconnection
+                        self.webSocketTask = nil
+                        self.connect()
+                    } else if HealthCheckService.shared.shutdownDetected {
+                        // Shutdown was detected - notification already posted by HealthCheckService
+                        NSLog("🔌 Skipping reconnect - codespace shutdown detected")
+                        self.error = "Codespace unavailable"
+                    } else {
+                        // Other health check failure - try reconnecting anyway
+                        self.webSocketTask = nil
+                        self.connect()
+                    }
+                }
+            }
         }
     }
 
