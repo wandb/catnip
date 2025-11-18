@@ -34,6 +34,7 @@ struct WorkspaceDetailView: View {
 
     // Terminal / Orientation tracking
     @State private var isLandscape = false
+    @State private var showPortraitTerminal = false  // Show terminal in portrait mode
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @EnvironmentObject var authManager: AuthManager
