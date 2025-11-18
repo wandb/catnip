@@ -193,6 +193,7 @@ class TerminalViewWrapper: UIView {
     private weak var controller: TerminalController?
     private weak var dismissButton: UIButton?
     private static let dismissButtonTag = 99999
+    private var refreshControl: UIRefreshControl?
 
     func setup(with terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
         self.terminalView = terminalView
@@ -209,6 +210,50 @@ class TerminalViewWrapper: UIView {
             terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalView.trailingAnchor.constraint(equalTo: trailingAnchor)
         ])
+
+        // Add pull-to-refresh for reconnecting WebSocket
+        setupRefreshControl(for: terminalView, controller: controller)
+    }
+
+    private func setupRefreshControl(for terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
+        let refresh = UIRefreshControl()
+        refresh.tintColor = .white
+        refresh.attributedTitle = NSAttributedString(
+            string: "Reconnecting...",
+            attributes: [.foregroundColor: UIColor.white]
+        )
+        refresh.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
+
+        // SwiftTerm's TerminalView is a UIScrollView subclass
+        terminalView.refreshControl = refresh
+        self.refreshControl = refresh
+    }
+
+    @objc private func handleRefresh() {
+        guard let controller = controller else {
+            refreshControl?.endRefreshing()
+            return
+        }
+
+        NSLog("🔄 Pull-to-refresh triggered - reconnecting WebSocket")
+
+        // Disconnect first
+        controller.disconnect()
+
+        // Wait longer to ensure WebSocket fully closes, then reconnect
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak controller] in
+            guard let controller = controller else {
+                self?.refreshControl?.endRefreshing()
+                return
+            }
+
+            controller.connect()
+
+            // End refreshing after connection starts
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self?.refreshControl?.endRefreshing()
+            }
+        }
     }
 }
 
@@ -226,6 +271,10 @@ class CustomTerminalAccessory: UIInputView {
     // Ctrl toggle state
     private var isCtrlActive = false
     private var ctrlButton: UIButton?
+
+    // Help toggle state
+    private var isHelpActive = false
+    private var helpButton: UIButton?
 
     init(terminalView: SwiftTerm.TerminalView, controller: TerminalController, showDismissButton: Bool = true) {
         self.terminalView = terminalView
@@ -281,11 +330,19 @@ class CustomTerminalAccessory: UIInputView {
             stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
             stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
+            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+            // Make content at least as wide as the scroll view for right-alignment
+            stackView.widthAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.widthAnchor)
         ])
 
-        // Mode toggle (regular/plan)
-        let modeBtn = createButton(title: "reg", action: #selector(modePressed))
+        // Flexible spacer to push buttons to the right
+        let spacer = UIView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        stackView.addArrangedSubview(spacer)
+
+        // Mode toggle (code/plan)
+        let modeBtn = createButton(title: "code", action: #selector(modePressed))
         modeButton = modeBtn
         stackView.addArrangedSubview(modeBtn)
 
@@ -297,7 +354,7 @@ class CustomTerminalAccessory: UIInputView {
         // Essential keys
         stackView.addArrangedSubview(createButton(title: "esc", action: #selector(escPressed)))
         stackView.addArrangedSubview(createButton(title: "tab", action: #selector(tabPressed)))
-        stackView.addArrangedSubview(createButton(title: "/↵", action: #selector(newlinePressed)))
+        stackView.addArrangedSubview(createButton(title: "\\n", action: #selector(newlinePressed)))
         stackView.addArrangedSubview(createButton(title: "/", action: #selector(slashPressed)))
 
         // Arrow keys
@@ -305,6 +362,11 @@ class CustomTerminalAccessory: UIInputView {
         stackView.addArrangedSubview(createButton(title: "↓", action: #selector(downPressed)))
         stackView.addArrangedSubview(createButton(title: "←", action: #selector(leftPressed)))
         stackView.addArrangedSubview(createButton(title: "→", action: #selector(rightPressed)))
+
+        // Help toggle
+        let helpBtn = createButton(title: "?", action: #selector(helpPressed))
+        helpButton = helpBtn
+        stackView.addArrangedSubview(helpBtn)
 
         // Dismiss button (only if enabled)
         if showDismissButton {
@@ -369,10 +431,10 @@ class CustomTerminalAccessory: UIInputView {
         let shiftTab = "\u{1B}[Z"
 
         if isPlanMode {
-            // Switch back to regular mode - send shift+tab once
+            // Switch back to code mode - send shift+tab once
             terminalView?.send(txt: shiftTab)
             isPlanMode = false
-            modeButton?.setTitle("reg", for: .normal)
+            modeButton?.setTitle("code", for: .normal)
             modeButton?.backgroundColor = UIColor.systemBackground
         } else {
             // Switch to plan mode - send shift+tab 3 times with delays
@@ -393,7 +455,7 @@ class CustomTerminalAccessory: UIInputView {
         isCtrlActive.toggle()
 
         if isCtrlActive {
-            ctrlButton?.backgroundColor = UIColor.systemOrange.withAlphaComponent(0.3)
+            ctrlButton?.backgroundColor = UIColor.orange
             // Tell controller to apply ctrl modifier to next input
             controller?.setCtrlModifier(active: true)
         } else {
@@ -410,6 +472,11 @@ class CustomTerminalAccessory: UIInputView {
 
     @objc private func escPressed() {
         terminalView?.send(txt: "\u{1B}") // ESC
+        // Clear help state when ESC is pressed
+        if isHelpActive {
+            isHelpActive = false
+            helpButton?.backgroundColor = UIColor.systemBackground
+        }
     }
 
     @objc private func tabPressed() {
@@ -417,7 +484,7 @@ class CustomTerminalAccessory: UIInputView {
     }
 
     @objc private func newlinePressed() {
-        terminalView?.send(txt: "/\n") // Slash + newline for multi-line prompts
+        terminalView?.send(txt: "\n") // Line feed
     }
 
     @objc private func slashPressed() {
@@ -438,6 +505,23 @@ class CustomTerminalAccessory: UIInputView {
 
     @objc private func rightPressed() {
         terminalView?.send(txt: "\u{1B}[C") // Right arrow
+    }
+
+    @objc private func helpPressed() {
+        if isHelpActive {
+            // Already in help mode - send ESC to exit
+            terminalView?.send(txt: "\u{1B}")
+            isHelpActive = false
+            helpButton?.backgroundColor = UIColor.systemBackground
+        } else {
+            // Enter help mode - send /help then carriage return with delay
+            terminalView?.send(txt: "/help")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.terminalView?.send(txt: "\r")
+            }
+            isHelpActive = true
+            helpButton?.backgroundColor = UIColor.cyan
+        }
     }
 }
 
@@ -462,6 +546,9 @@ class TerminalController: NSObject, ObservableObject {
     private var pendingDataBuffer: [UInt8] = []
     private var feedTimer: Timer?
     private let feedQueue = DispatchQueue(label: "com.catnip.terminal.feed", qos: .userInteractive)
+
+    // Connection generation tracking to invalidate stale async callbacks
+    private var connectionGeneration: Int = 0
 
     init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, showDismissButton: Bool = true) {
         // Create terminal view
@@ -608,18 +695,33 @@ class TerminalController: NSObject, ObservableObject {
     }
 
     func connect() {
+        // Increment generation to invalidate any pending callbacks from previous connection
+        connectionGeneration += 1
+        let currentGeneration = connectionGeneration
+
+        NSLog("🔌 TerminalController.connect() - generation %d", currentGeneration)
+
         webSocketManager.connect()
 
         // Wait a bit for connection to establish, then send ready signal
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self, !self.hasSentReady else { return }
+            guard let self = self,
+                  self.connectionGeneration == currentGeneration,
+                  !self.hasSentReady else { return }
             self.hasSentReady = true
             self.sendReadySignal()
         }
 
         // Auto-focus terminal to show keyboard with custom accessory
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            _ = self?.terminalView.becomeFirstResponder()
+            guard let self = self, self.connectionGeneration == currentGeneration else { return }
+            _ = self.terminalView.becomeFirstResponder()
+        }
+
+        // Send another resize after layout settles (helps with orientation changes)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self, self.connectionGeneration == currentGeneration else { return }
+            self.handleResize()
         }
     }
 
@@ -628,6 +730,11 @@ class TerminalController: NSObject, ObservableObject {
     }
 
     func disconnect() {
+        // Increment generation to invalidate any pending callbacks
+        connectionGeneration += 1
+
+        NSLog("🔌 TerminalController.disconnect() - generation now %d", connectionGeneration)
+
         webSocketManager.disconnect()
 
         // Clean up batching resources
@@ -643,10 +750,16 @@ class TerminalController: NSObject, ObservableObject {
         hasSentReady = false
     }
 
+    // Minimum terminal dimensions for TUI rendering
+    private static let minCols: UInt16 = 40
+    private static let minRows: UInt16 = 15
+
     private func sendReadySignal() {
-        // Get current terminal dimensions
-        let cols = UInt16(terminalView.getTerminal().cols)
-        let rows = UInt16(terminalView.getTerminal().rows)
+        // Get current terminal dimensions with minimums for TUI compatibility
+        let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
+        let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
+
+        NSLog("📐 Sending ready signal with dimensions: %dx%d (min: %dx%d)", cols, rows, Self.minCols, Self.minRows)
 
         // Send resize to ensure backend knows our dimensions
         webSocketManager.sendResize(cols: cols, rows: rows)
@@ -656,8 +769,12 @@ class TerminalController: NSObject, ObservableObject {
     }
 
     func handleResize() {
-        let cols = UInt16(terminalView.getTerminal().cols)
-        let rows = UInt16(terminalView.getTerminal().rows)
+        // Get current terminal dimensions with minimums for TUI compatibility
+        let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
+        let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
+
+        NSLog("📐 Resize event: %dx%d (actual: %dx%d)", cols, rows, terminalView.getTerminal().cols, terminalView.getTerminal().rows)
+
         webSocketManager.sendResize(cols: cols, rows: rows)
     }
 

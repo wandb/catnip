@@ -794,17 +794,20 @@ struct WorkspaceDetailView: View {
 
         return GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Terminal taking up the top half
-                TerminalView(
-                    workspaceId: worktreeName,
-                    baseURL: websocketBaseURL,
-                    codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
-                    authToken: authManager.sessionToken,
-                    shouldConnect: showPortraitTerminal,
-                    showExitButton: false,
-                    showDismissButton: false
-                )
-                .frame(height: geometry.size.height * 0.5)
+                // Terminal taking up the top half, wider than screen for extra columns
+                // Add ~60 points for approximately 7-8 extra columns at 12pt mono font
+                ScrollView(.horizontal, showsIndicators: false) {
+                    TerminalView(
+                        workspaceId: worktreeName,
+                        baseURL: websocketBaseURL,
+                        codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
+                        authToken: authManager.sessionToken,
+                        shouldConnect: showPortraitTerminal,
+                        showExitButton: false,
+                        showDismissButton: false
+                    )
+                    .frame(width: geometry.size.width + 60, height: geometry.size.height * 0.5)
+                }
 
                 Spacer()
             }
