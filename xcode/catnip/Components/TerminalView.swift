@@ -502,6 +502,9 @@ class GlassTerminalAccessory: UIInputView {
         let effectView = UIVisualEffectView()
         effectView.clipsToBounds = true
 
+        // Use compile-time check for iOS 26+ SDK availability
+        // This allows compilation with older Xcode versions in CI
+        #if compiler(>=6.0)
         // Apply glass effect with animation for iOS 26+
         if #available(iOS 26.0, *) {
             // Create glass effect with regular style for the liquid glass appearance
@@ -520,6 +523,11 @@ class GlassTerminalAccessory: UIInputView {
             effectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
             effectView.layer.cornerRadius = 22
         }
+        #else
+        // Fallback for older SDK - use blur effect with rounded corners
+        effectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+        effectView.layer.cornerRadius = 22
+        #endif
 
         return effectView
     }
