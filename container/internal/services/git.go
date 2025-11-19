@@ -407,21 +407,21 @@ type EventsEmitter interface {
 }
 
 type GitService struct {
-	stateManager       *WorktreeStateManager // Centralized state management
-	operations         git.Operations        // All git operations through this interface
-	gitWorktreeManager *git.WorktreeManager  // Git layer worktree operations
-	conflictResolver   *git.ConflictResolver // Handles conflict detection/resolution
-	githubManager      *git.GitHubManager    // Handles all GitHub CLI operations
-	localRepoManager   *LocalRepoManager     // Handles local repository detection
-	commitSync         *CommitSyncService    // Handles automatic checkpointing and commit sync
-	setupExecutor      SetupExecutor         // Handles setup.sh execution in PTY sessions
-	worktreeCache      *WorktreeStatusCache  // Handles worktree status caching with event updates
-	eventsEmitter      EventsEmitter         // Handles emitting events to connected clients
-	claudeMonitor      *ClaudeMonitorService // Handles Claude session monitoring
-	mu                 sync.RWMutex
-	lastFetchTimes     map[string]time.Time // Track last fetch time per repo path
-	lastFetchMu        sync.RWMutex         // Protect lastFetchTimes map
-	fetchThrottlePeriod time.Duration       // How long to wait between fetches for same repo
+	stateManager        *WorktreeStateManager // Centralized state management
+	operations          git.Operations        // All git operations through this interface
+	gitWorktreeManager  *git.WorktreeManager  // Git layer worktree operations
+	conflictResolver    *git.ConflictResolver // Handles conflict detection/resolution
+	githubManager       *git.GitHubManager    // Handles all GitHub CLI operations
+	localRepoManager    *LocalRepoManager     // Handles local repository detection
+	commitSync          *CommitSyncService    // Handles automatic checkpointing and commit sync
+	setupExecutor       SetupExecutor         // Handles setup.sh execution in PTY sessions
+	worktreeCache       *WorktreeStatusCache  // Handles worktree status caching with event updates
+	eventsEmitter       EventsEmitter         // Handles emitting events to connected clients
+	claudeMonitor       *ClaudeMonitorService // Handles Claude session monitoring
+	mu                  sync.RWMutex
+	lastFetchTimes      map[string]time.Time // Track last fetch time per repo path
+	lastFetchMu         sync.RWMutex         // Protect lastFetchTimes map
+	fetchThrottlePeriod time.Duration        // How long to wait between fetches for same repo
 }
 
 // Helper functions for standardized command execution
