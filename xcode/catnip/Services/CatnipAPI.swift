@@ -846,6 +846,60 @@ Avoid overly lengthy explanations or step-by-step implementation details.
         throw APIError.decodingError(NSError(domain: "Failed to parse PR URL from response", code: -1))
     }
 
+    func updatePullRequest(workspaceId: String) async throws -> String {
+        NSLog("🐱 [updatePullRequest] Updating PR for workspace: \(workspaceId)")
+
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return "https://github.com/mock/repo/pull/123"
+        }
+
+        let headers = try await getHeaders(includeCodespace: true)
+
+        guard let url = URL(string: "\(baseURL)/v1/git/worktrees/\(workspaceId)/pr") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        // For updates, we just need force_push: true
+        // The backend will handle updating the branch
+        let body: [String: Any] = [
+            "force_push": true
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            NSLog("🐱 [updatePullRequest] ❌ Network error: \(error)")
+            throw APIError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            NSLog("🐱 [updatePullRequest] ❌ Server error \(httpResponse.statusCode): \(errorMessage)")
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+
+        // Parse the response to get the PR URL
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let prUrl = json["url"] as? String {
+            NSLog("🐱 [updatePullRequest] ✅ Successfully updated PR: \(prUrl)")
+            return prUrl
+        }
+
+        throw APIError.decodingError(NSError(domain: "Failed to parse PR URL from response", code: -1))
+    }
+
     // MARK: - Server Info API
 
     /// Get server info (used for health checks)

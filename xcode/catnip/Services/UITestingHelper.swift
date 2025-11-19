@@ -104,6 +104,8 @@ struct UITestingHelper {
                 latestSessionTitle: "Implementing GitHub OAuth",
                 latestUserPrompt: "Add GitHub authentication",
                 pullRequestUrl: "https://github.com/wandb/catnip/pull/123",
+                pullRequestState: "OPEN",
+                hasCommitsAheadOfRemote: nil,
                 path: "/workspaces/feature-auth",
                 cacheStatus: nil
             ),
@@ -121,6 +123,8 @@ struct UITestingHelper {
                 latestSessionTitle: "Fixed API error handling",
                 latestUserPrompt: "Fix API errors",
                 pullRequestUrl: nil,
+                pullRequestState: nil,
+                hasCommitsAheadOfRemote: nil,
                 path: "/workspaces/bugfix-api",
                 cacheStatus: nil
             ),
@@ -138,6 +142,8 @@ struct UITestingHelper {
                 latestSessionTitle: nil,
                 latestUserPrompt: nil,
                 pullRequestUrl: nil,
+                pullRequestState: nil,
+                hasCommitsAheadOfRemote: nil,
                 path: "/workspaces/refactor",
                 cacheStatus: nil
             )

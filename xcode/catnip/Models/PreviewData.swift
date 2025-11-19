@@ -27,6 +27,8 @@ extension WorkspaceInfo {
         latestSessionTitle: "I'll help you update the API documentation for v2.0. I've reviewed the endpoint descriptions and added code examples for better clarity.",
         latestUserPrompt: "Can you help me update our API documentation for the v2.0 endpoints?",
         pullRequestUrl: nil,
+        pullRequestState: nil,
+        hasCommitsAheadOfRemote: nil,
         path: "/workspaces/catnip/feature-api-docs",
         cacheStatus: nil
     )
@@ -45,6 +47,8 @@ extension WorkspaceInfo {
         latestSessionTitle: nil,
         latestUserPrompt: "Fix the token refresh logic in the authentication module",
         pullRequestUrl: "https://github.com/wandb/catnip/pull/123",
+        pullRequestState: "OPEN",
+        hasCommitsAheadOfRemote: nil,
         path: "/workspaces/catnip/fix-auth",
         cacheStatus: nil
     )
@@ -63,6 +67,8 @@ extension WorkspaceInfo {
         latestSessionTitle: nil,
         latestUserPrompt: nil,
         pullRequestUrl: nil,
+        pullRequestState: nil,
+        hasCommitsAheadOfRemote: nil,
         path: "/workspaces/project/main",
         cacheStatus: nil
     )

@@ -21,6 +21,8 @@ struct WorkspaceInfo: Codable, Identifiable, Hashable {
     let latestSessionTitle: String?
     let latestUserPrompt: String?
     let pullRequestUrl: String?
+    let pullRequestState: String?
+    let hasCommitsAheadOfRemote: Bool?
     let path: String
     let cacheStatus: CacheStatus?
 
@@ -35,6 +37,8 @@ struct WorkspaceInfo: Codable, Identifiable, Hashable {
         case latestSessionTitle = "latest_session_title"
         case latestUserPrompt = "latest_user_prompt"
         case pullRequestUrl = "pull_request_url"
+        case pullRequestState = "pull_request_state"
+        case hasCommitsAheadOfRemote = "has_commits_ahead_of_remote"
         case cacheStatus = "cache_status"
     }
 
