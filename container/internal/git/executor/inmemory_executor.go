@@ -136,6 +136,8 @@ func (e *InMemoryExecutor) handleGitCommand(repo *TestRepository, workingDir str
 		return e.handlePush(repo, args[1:])
 	case "diff":
 		return e.handleDiff(repo, args[1:])
+	case "diff-index":
+		return e.handleDiffIndex(repo, args[1:])
 	case "ls-files":
 		return e.handleLsFiles(repo, args[1:])
 	case "show":
@@ -286,6 +288,14 @@ func (e *InMemoryExecutor) handlePush(repo *TestRepository, args []string) ([]by
 // handleDiff implements git diff commands
 func (e *InMemoryExecutor) handleDiff(repo *TestRepository, args []string) ([]byte, error) {
 	// For testing, return empty diff (no changes)
+	return []byte(""), nil
+}
+
+// handleDiffIndex implements git diff-index commands
+// Used by IsDirty() for fast dirty checking
+func (e *InMemoryExecutor) handleDiffIndex(repo *TestRepository, args []string) ([]byte, error) {
+	// For testing, return success (no changes) - exit code 0
+	// A real dirty repository would return exit code 1
 	return []byte(""), nil
 }
 

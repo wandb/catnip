@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"net/http/pprof"
 	"os"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger"
@@ -127,6 +129,22 @@ func startServer(cmd *cobra.Command) {
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
+
+	// pprof endpoints for profiling (dev mode only)
+	if isDevMode {
+		logger.Infof("🔧 Development mode: enabling pprof at /debug/pprof")
+		app.Get("/debug/pprof/", adaptor.HTTPHandlerFunc(pprof.Index))
+		app.Get("/debug/pprof/cmdline", adaptor.HTTPHandlerFunc(pprof.Cmdline))
+		app.Get("/debug/pprof/profile", adaptor.HTTPHandlerFunc(pprof.Profile))
+		app.Get("/debug/pprof/symbol", adaptor.HTTPHandlerFunc(pprof.Symbol))
+		app.Get("/debug/pprof/trace", adaptor.HTTPHandlerFunc(pprof.Trace))
+		app.Get("/debug/pprof/allocs", adaptor.HTTPHandler(pprof.Handler("allocs")))
+		app.Get("/debug/pprof/block", adaptor.HTTPHandler(pprof.Handler("block")))
+		app.Get("/debug/pprof/goroutine", adaptor.HTTPHandler(pprof.Handler("goroutine")))
+		app.Get("/debug/pprof/heap", adaptor.HTTPHandler(pprof.Handler("heap")))
+		app.Get("/debug/pprof/mutex", adaptor.HTTPHandler(pprof.Handler("mutex")))
+		app.Get("/debug/pprof/threadcreate", adaptor.HTTPHandler(pprof.Handler("threadcreate")))
+	}
 
 	// Settings endpoint - returns environment configuration
 	app.Get("/v1/settings", func(c *fiber.Ctx) error {
