@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -206,79 +205,11 @@ func (e *GitExecutor) getRepository(repoPath string) (*gogit.Repository, error) 
 }
 
 // handleStatus implements git status --porcelain
+// Always uses shell git for performance - go-git's Worktree.Status() is slow due to gitignore pattern matching
 func (e *GitExecutor) handleStatus(workingDir string, args []string) ([]byte, error) {
-	// Resolve workingDir to an absolute path for mutex lookup
-	absWorkingDir, err := filepath.Abs(workingDir)
-	if err != nil {
-		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
-	}
-
-	// Get per-repository mutex and lock it for the entire operation
-	mutex := e.getRepositoryMutex(absWorkingDir)
-	mutex.Lock()
-	defer mutex.Unlock()
-
-	repo, err := e.getRepository(workingDir)
-	if err != nil {
-		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
-	}
-
-	// Get all worktrees for the repository
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
-	}
-	worktrees := []*gogit.Worktree{worktree}
-
-	// Find the worktree that matches the current working directory
-	var targetWorktree *gogit.Worktree
-	for _, wt := range worktrees {
-		wtPath := wt.Filesystem.Root()
-		absWtPath, err := filepath.Abs(wtPath)
-		if err != nil {
-			continue
-		}
-
-		if absWtPath == absWorkingDir {
-			targetWorktree = wt
-			break
-		}
-	}
-
-	// If no matching worktree is found, something is wrong. Fallback to shell.
-	if targetWorktree == nil {
-		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
-	}
-
-	// Now use the correct worktree to get the status
-	status, err := targetWorktree.Status()
-	if err != nil {
-		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
-	}
-
-	// Check if --porcelain flag is present
-	porcelain := false
-	for _, arg := range args {
-		if arg == "--porcelain" {
-			porcelain = true
-			break
-		}
-	}
-
-	var output bytes.Buffer
-	if porcelain {
-		// Format as porcelain output
-		for filename, fileStatus := range status {
-			stagingCode := e.getStatusCode(fileStatus.Staging)
-			worktreeCode := e.getStatusCode(fileStatus.Worktree)
-			output.WriteString(fmt.Sprintf("%s%s %s\n", stagingCode, worktreeCode, filename))
-		}
-	} else {
-		// Fall back to shell git for non-porcelain status (more complex formatting)
-		return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
-	}
-
-	return output.Bytes(), nil
+	// Shell git is much faster for status operations because it uses native C code
+	// for gitignore matching instead of go-git's pure-Go filepath.Match implementation
+	return e.fallbackExecutor.ExecuteGitWithWorkingDir(workingDir, append([]string{"status"}, args...)...)
 }
 
 // handleBranch implements various git branch commands
@@ -585,29 +516,6 @@ func (e *GitExecutor) getCurrentBranch(repo *gogit.Repository) ([]byte, error) {
 	}
 
 	return []byte(head.Name().Short() + "\n"), nil
-}
-
-func (e *GitExecutor) getStatusCode(status gogit.StatusCode) string {
-	switch status {
-	case gogit.Unmodified:
-		return " "
-	case gogit.Modified:
-		return "M"
-	case gogit.Added:
-		return "A"
-	case gogit.Deleted:
-		return "D"
-	case gogit.Renamed:
-		return "R"
-	case gogit.Copied:
-		return "C"
-	case gogit.UpdatedButUnmerged:
-		return "U"
-	case gogit.Untracked:
-		return "?"
-	default:
-		return "?"
-	}
 }
 
 // ExecuteWithEnvAndTimeout runs a command with timeout - delegates to fallback executor
