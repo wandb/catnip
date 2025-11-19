@@ -251,7 +251,7 @@ RUN mkdir -p ${CATNIP_ROOT}/pnpm && \
     nvm use ${NODE_VERSION} && \
     nvm alias default ${NODE_VERSION} && \
     corepack enable && \
-    corepack install -g yarn pnpm npm && \
+    corepack install -g yarn@stable pnpm@latest npm@latest && \
     pnpm config set global-dir ${CATNIP_ROOT}/pnpm && \
     pnpm config set global-bin-dir ${CATNIP_ROOT}/pnpm'
 

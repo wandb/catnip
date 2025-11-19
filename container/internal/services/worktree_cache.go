@@ -265,7 +265,7 @@ func getDebounceInterval() time.Duration {
 			return time.Duration(ms) * time.Millisecond
 		}
 	}
-	return 200 * time.Millisecond // Default: 200ms
+	return 500 * time.Millisecond // Default: 500ms (increased from 200ms for better batching)
 }
 
 // getBatchInterval returns the batch processing interval, configurable via CATNIP_CACHE_BATCH_MS
@@ -280,7 +280,7 @@ func getBatchInterval() time.Duration {
 
 // backgroundUpdateWorker processes the update queue
 func (c *WorktreeStatusCache) backgroundUpdateWorker() {
-	ticker := time.NewTicker(30 * time.Second) // Periodic full refresh
+	ticker := time.NewTicker(60 * time.Second) // Periodic full refresh (increased from 30s to reduce CPU load)
 	defer ticker.Stop()
 
 	batchTimer := time.NewTimer(0)

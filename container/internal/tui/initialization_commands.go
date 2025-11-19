@@ -66,7 +66,7 @@ func semverCompare(a, b string) int {
 					break
 				}
 			}
-			result[i] = n
+			result[i] = n //nolint:gosec // i is bounded by loop condition (0-2), result has length 3
 		}
 		return result
 	}
