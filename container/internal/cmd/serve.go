@@ -130,9 +130,10 @@ func startServer(cmd *cobra.Command) {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
 
-	// pprof endpoints for profiling (dev mode only)
-	if isDevMode {
-		logger.Infof("🔧 Development mode: enabling pprof at /debug/pprof")
+	// pprof endpoints for profiling (dev mode or DEBUG=true)
+	enablePprof := isDevMode || os.Getenv("DEBUG") == "true"
+	if enablePprof {
+		logger.Infof("🔧 Enabling pprof at /debug/pprof")
 		app.Get("/debug/pprof/", adaptor.HTTPHandlerFunc(pprof.Index))
 		app.Get("/debug/pprof/cmdline", adaptor.HTTPHandlerFunc(pprof.Cmdline))
 		app.Get("/debug/pprof/profile", adaptor.HTTPHandlerFunc(pprof.Profile))
