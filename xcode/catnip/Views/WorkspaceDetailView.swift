@@ -814,7 +814,7 @@ struct WorkspaceDetailView: View {
                 Button {
                     showPortraitTerminal = false
                 } label: {
-                    Image(systemName: "terminal")
+                    Image(systemName: "square.grid.2x2")
                         .font(.body)
                 }
             }
