@@ -30,7 +30,7 @@ jobs:
           xcodebuild test \
             -project xcode/catnip.xcodeproj \
             -scheme catnip \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=26.0' \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.6' \
             -only-testing:CatnipTests \
             -enableCodeCoverage YES \
             CODE_SIGN_IDENTITY="" \
@@ -65,7 +65,7 @@ jobs:
           xcrun simctl shutdown all || true
           xcrun simctl erase all || true
 
-          SIMULATOR_ID=$(xcrun simctl list devices available | grep -A 20 "iOS 26.0" | grep "iPhone 16 " | head -1 | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
+          SIMULATOR_ID=$(xcrun simctl list devices available | grep -A 20 "iOS 18.6" | grep "iPhone 16 " | head -1 | sed -E 's/.*\(([0-9A-F-]+)\).*/\1/')
           echo "Booting simulator: $SIMULATOR_ID"
           xcrun simctl boot "$SIMULATOR_ID" || true
 
@@ -81,7 +81,7 @@ jobs:
             if xcodebuild test \
               -project xcode/catnip.xcodeproj \
               -scheme catnip \
-              -destination 'platform=iOS Simulator,name=iPhone 16,OS=26.0' \
+              -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.6' \
               -only-testing:CatnipUITests \
               -maximum-concurrent-test-simulator-destinations 4 \
               -test-timeouts-enabled YES \
