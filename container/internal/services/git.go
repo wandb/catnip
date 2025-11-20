@@ -3267,3 +3267,124 @@ func (s *GitService) isTemporaryPath(path string) bool {
 
 	return false
 }
+
+// UpdateMountedRepo updates the mounted codespace repository to the latest default branch
+// It handles various scenarios: dirty working tree, being on a feature branch, etc.
+func (s *GitService) UpdateMountedRepo() error {
+	// 1. Detect repository path from GITHUB_REPOSITORY env var
+	githubRepo := os.Getenv("GITHUB_REPOSITORY")
+	if githubRepo == "" {
+		logger.Warn("CATNIP_UPDATE_DEFAULT_BRANCH enabled but GITHUB_REPOSITORY not set, skipping")
+		return nil
+	}
+
+	// Extract repo name from "owner/repo" format
+	parts := strings.Split(githubRepo, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid GITHUB_REPOSITORY format: %s", githubRepo)
+	}
+	repoName := parts[1]
+
+	// Construct repository path
+	liveDir := config.Runtime.LiveDir
+	if liveDir == "" {
+		liveDir = "/workspaces"
+	}
+	repoPath := filepath.Join(liveDir, repoName)
+
+	// 2. Validate repository exists and is a git repo
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		logger.Warnf("Repository not found at %s, skipping update", repoPath)
+		return nil
+	}
+
+	if !s.operations.IsGitRepository(repoPath) {
+		logger.Warnf("Path %s is not a git repository, skipping update", repoPath)
+		return nil
+	}
+
+	logger.Infof("🔄 Updating mounted repository: %s", repoPath)
+
+	// 3. Get the remote default branch
+	defaultBranch, err := s.operations.GetRemoteDefaultBranch(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to detect default branch: %v", err)
+	}
+	logger.Infof("   Default branch: %s", defaultBranch)
+
+	// 4. Get current branch
+	currentBranchBytes, err := s.operations.ExecuteGit(repoPath, "branch", "--show-current")
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %v", err)
+	}
+	currentBranch := strings.TrimSpace(string(currentBranchBytes))
+	logger.Infof("   Current branch: %s", currentBranch)
+
+	// 5. Check if working tree is dirty
+	isDirty := s.operations.IsDirty(repoPath)
+
+	// 6. Execute update based on current state
+	var stashed bool
+
+	// If on default branch
+	if currentBranch == defaultBranch {
+		// Stash changes if dirty
+		if isDirty {
+			logger.Info("   Working tree has changes, stashing...")
+			if err := s.operations.Stash(repoPath); err != nil {
+				return fmt.Errorf("failed to stash changes: %v", err)
+			}
+			stashed = true
+		}
+
+		// Pull with --ff-only
+		logger.Infof("   Pulling latest changes from origin/%s...", defaultBranch)
+		_, err := s.operations.ExecuteGit(repoPath, "pull", "--ff-only", "origin", defaultBranch)
+		if err != nil {
+			// If pull failed and we stashed, try to pop
+			if stashed {
+				logger.Warn("   Pull failed, restoring stashed changes...")
+				_ = s.operations.StashPop(repoPath)
+			}
+			return fmt.Errorf("failed to pull (cannot fast-forward): %v", err)
+		}
+
+		// Pop stash if we stashed
+		if stashed {
+			logger.Info("   Restoring stashed changes...")
+			if err := s.operations.StashPop(repoPath); err != nil {
+				logger.Warn("   Stash pop resulted in conflicts - manual resolution required")
+				logger.Infof("✅ Repository updated successfully (with stash conflicts)")
+				return nil
+			}
+		}
+
+		logger.Info("✅ Repository updated successfully")
+		return nil
+	}
+
+	// If on a different branch, switch to default, update, then switch back
+	logger.Infof("   Switching from %s to %s...", currentBranch, defaultBranch)
+
+	// Checkout default branch
+	if _, err := s.operations.ExecuteGit(repoPath, "checkout", defaultBranch); err != nil {
+		return fmt.Errorf("failed to checkout %s: %v", defaultBranch, err)
+	}
+
+	// Pull latest changes
+	logger.Infof("   Pulling latest changes from origin/%s...", defaultBranch)
+	if _, err := s.operations.ExecuteGit(repoPath, "pull", "--ff-only", "origin", defaultBranch); err != nil {
+		// Try to switch back to original branch
+		_, _ = s.operations.ExecuteGit(repoPath, "checkout", currentBranch)
+		return fmt.Errorf("failed to pull (cannot fast-forward): %v", err)
+	}
+
+	// Switch back to original branch
+	logger.Infof("   Switching back to %s...", currentBranch)
+	if _, err := s.operations.ExecuteGit(repoPath, "checkout", currentBranch); err != nil {
+		return fmt.Errorf("updated %s but failed to return to %s: %v", defaultBranch, currentBranch, err)
+	}
+
+	logger.Info("✅ Repository updated successfully")
+	return nil
+}

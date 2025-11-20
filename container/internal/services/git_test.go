@@ -308,3 +308,92 @@ func TestGitServiceSetupExecutor(t *testing.T) {
 		assert.Contains(t, mock.executedPaths, "/test/path")
 	})
 }
+
+func TestUpdateMountedRepo(t *testing.T) {
+	// Set up isolated workspace
+	cleanup := setupTestWorkspace(t)
+	defer cleanup()
+
+	service := createTestGitService(t)
+	require.NotNil(t, service)
+
+	t.Run("NoGitHubRepository", func(t *testing.T) {
+		// Ensure GITHUB_REPOSITORY is not set
+		oldValue := os.Getenv("GITHUB_REPOSITORY")
+		_ = os.Unsetenv("GITHUB_REPOSITORY")
+		defer func() {
+			if oldValue != "" {
+				_ = os.Setenv("GITHUB_REPOSITORY", oldValue)
+			}
+		}()
+
+		// Should return nil (skip) when GITHUB_REPOSITORY is not set
+		err := service.UpdateMountedRepo()
+		assert.NoError(t, err)
+	})
+
+	t.Run("InvalidGitHubRepositoryFormat", func(t *testing.T) {
+		// Set invalid format (no slash)
+		oldValue := os.Getenv("GITHUB_REPOSITORY")
+		_ = os.Setenv("GITHUB_REPOSITORY", "invalid-format")
+		defer func() {
+			if oldValue == "" {
+				_ = os.Unsetenv("GITHUB_REPOSITORY")
+			} else {
+				_ = os.Setenv("GITHUB_REPOSITORY", oldValue)
+			}
+		}()
+
+		// Should return error for invalid format
+		err := service.UpdateMountedRepo()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid GITHUB_REPOSITORY format")
+	})
+
+	t.Run("RepositoryNotFound", func(t *testing.T) {
+		// Set valid format but non-existent path
+		oldValue := os.Getenv("GITHUB_REPOSITORY")
+		_ = os.Setenv("GITHUB_REPOSITORY", "owner/repo")
+		defer func() {
+			if oldValue == "" {
+				_ = os.Unsetenv("GITHUB_REPOSITORY")
+			} else {
+				_ = os.Setenv("GITHUB_REPOSITORY", oldValue)
+			}
+		}()
+
+		// Should return nil (skip) when repository doesn't exist
+		err := service.UpdateMountedRepo()
+		assert.NoError(t, err)
+	})
+
+	t.Run("NotAGitRepository", func(t *testing.T) {
+		// Create a directory that exists but is not a git repo
+		tempDir := t.TempDir()
+		repoDir := filepath.Join(tempDir, "test-repo")
+		err := os.MkdirAll(repoDir, 0755)
+		require.NoError(t, err)
+
+		// Set up environment
+		oldGithubRepo := os.Getenv("GITHUB_REPOSITORY")
+		oldLiveDir := os.Getenv("CATNIP_LIVE_DIR")
+		_ = os.Setenv("GITHUB_REPOSITORY", "owner/test-repo")
+		_ = os.Setenv("CATNIP_LIVE_DIR", tempDir)
+		defer func() {
+			if oldGithubRepo == "" {
+				_ = os.Unsetenv("GITHUB_REPOSITORY")
+			} else {
+				_ = os.Setenv("GITHUB_REPOSITORY", oldGithubRepo)
+			}
+			if oldLiveDir == "" {
+				_ = os.Unsetenv("CATNIP_LIVE_DIR")
+			} else {
+				_ = os.Setenv("CATNIP_LIVE_DIR", oldLiveDir)
+			}
+		}()
+
+		// Should return nil (skip) when path is not a git repository
+		err = service.UpdateMountedRepo()
+		assert.NoError(t, err)
+	})
+}
