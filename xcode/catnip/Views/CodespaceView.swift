@@ -89,6 +89,9 @@ struct CodespaceView: View {
                         phase = .connect
                         errorMessage = ""
 
+                        // Clear background reconnection flag when manually navigating back
+                        wasConnectingBeforeBackground = false
+
                         // Only reset installer if there's an error or not creating
                         if installer.error != nil || !tracker.isCreating {
                             installer.reset()
@@ -593,6 +596,8 @@ struct CodespaceView: View {
 
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we successfully connected
+            wasConnectingBeforeBackground = false
             // Keep phase as .connecting until after navigation to maintain loading state
 
             // Navigate to workspaces after a short delay
@@ -606,12 +611,16 @@ struct CodespaceView: View {
             phase = .error
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we hit an error
+            wasConnectingBeforeBackground = false
 
         case .setup(let message, let nextAction):
             statusMessage = ""
             errorMessage = message
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we're moving to setup flow
+            wasConnectingBeforeBackground = false
 
             NSLog("📋 Setup event received: nextAction=\(nextAction)")
 
@@ -661,6 +670,8 @@ struct CodespaceView: View {
             phase = .selection
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we're moving to selection flow
+            wasConnectingBeforeBackground = false
         }
     }
 
@@ -1128,17 +1139,25 @@ struct CodespaceView: View {
     // MARK: - App Lifecycle Handling
 
     private func handleScenePhaseChange(oldPhase: ScenePhase, newPhase: ScenePhase) {
-        // Track when app goes to background during SSE connection
+        NSLog("🐱 [CodespaceView] ScenePhase: \(oldPhase) → \(newPhase), phase: \(phase), wasConnecting: \(wasConnectingBeforeBackground)")
+
+        // Track when app goes to background during SSE connection and disconnect stale connection
         if newPhase == .background && phase == .connecting {
             wasConnectingBeforeBackground = true
-            NSLog("🐱 [CodespaceView] App backgrounded during SSE connection, will reconnect on foreground")
+            NSLog("🐱 [CodespaceView] App backgrounded during SSE connection, disconnecting and will reconnect on foreground")
+
+            // Explicitly disconnect to avoid zombie connections
+            sseService?.disconnect()
+            sseService = nil
         }
 
-        // Reconnect when app returns to foreground if we were connecting
-        if newPhase == .active && oldPhase == .background && wasConnectingBeforeBackground && phase == .connecting {
-            NSLog("🐱 [CodespaceView] App foregrounded, reconnecting SSE...")
+        // Reconnect when app returns to active if we were connecting
+        // Note: Don't check oldPhase == .background because iOS transitions through .inactive
+        // (background → inactive → active), so oldPhase will be .inactive, not .background
+        if newPhase == .active && wasConnectingBeforeBackground {
+            NSLog("🐱 [CodespaceView] App foregrounded after backgrounding during connection, reconnecting SSE...")
 
-            // Disconnect the old stale connection
+            // Ensure old connection is fully cleaned up
             sseService?.disconnect()
             sseService = nil
 
