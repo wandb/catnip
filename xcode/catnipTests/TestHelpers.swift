@@ -28,6 +28,8 @@ struct MockDataFactory {
         latestSessionTitle: String? = nil,
         latestUserPrompt: String? = nil,
         pullRequestUrl: String? = nil,
+        pullRequestState: String? = nil,
+        hasCommitsAheadOfRemote: Bool? = nil,
         path: String = "/workspaces/test",
         cacheStatus: CacheStatus? = nil
     ) -> WorkspaceInfo {
@@ -45,6 +47,8 @@ struct MockDataFactory {
             latestSessionTitle: latestSessionTitle,
             latestUserPrompt: latestUserPrompt,
             pullRequestUrl: pullRequestUrl,
+            pullRequestState: pullRequestState,
+            hasCommitsAheadOfRemote: hasCommitsAheadOfRemote,
             path: path,
             cacheStatus: cacheStatus
         )
