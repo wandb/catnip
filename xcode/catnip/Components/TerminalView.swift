@@ -608,7 +608,6 @@ class GlassTerminalAccessory: UIInputView {
 
         // Essential keys
         stackView.addArrangedSubview(createGlassButton(title: "esc", action: #selector(escPressed), accessibilityHint: "Send escape key"))
-        stackView.addArrangedSubview(createGlassButton(title: "/", action: #selector(slashPressed), accessibilityHint: "Send slash for commands"))
 
         let bashBtn = createGlassButton(title: "!", action: #selector(bangPressed), accessibilityHint: "Toggle bash mode")
         bashButton = bashBtn
@@ -795,10 +794,6 @@ class GlassTerminalAccessory: UIInputView {
 
     @objc private func newlinePressed() {
         terminalView?.send(txt: "\n") // Line feed
-    }
-
-    @objc private func slashPressed() {
-        terminalView?.send(txt: "/") // Slash for help/search commands
     }
 
     @objc private func upPressed() {
