@@ -112,6 +112,16 @@ func startServer(cmd *cobra.Command) {
 		}()
 	}
 
+	// Auto-update mounted repository if enabled
+	if os.Getenv("CATNIP_UPDATE_DEFAULT_BRANCH") == "true" {
+		go func() {
+			logger.Info("🔄 Auto-updating mounted repository...")
+			if err := gitService.UpdateMountedRepo(); err != nil {
+				logger.Warnf("⚠️  Failed to auto-update repository: %v", err)
+			}
+		}()
+	}
+
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: false,
 		AppName:               "Catnip Container v1.0.0",

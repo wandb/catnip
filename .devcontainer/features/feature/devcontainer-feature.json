@@ -21,6 +21,11 @@
       "type": "boolean",
       "default": false,
       "description": "Enable development mode for internal testing"
+    },
+    "updateDefaultBranch": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically update the default branch of mounted codespace repository on startup"
     }
   },
   "entrypoint": "/usr/local/share/catnip-init.sh",

@@ -245,6 +245,8 @@ export DEBUG=$DEBUG
 export CATNIP_DEV=$CATNIP_DEV
 # Feature metadata
 export CATNIP_FEATURE_VERSION=$FEATURE_VERSION
+# Auto-update default branch
+export CATNIP_UPDATE_DEFAULT_BRANCH=${UPDATEDEFAULTBRANCH:-true}
 # Tell codespaces to not muck with our shell (/etc/profile.d/codespaces.sh)
 export SHELL_LOGGED_IN=true
 
