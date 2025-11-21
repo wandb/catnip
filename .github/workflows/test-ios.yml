@@ -25,6 +25,12 @@ jobs:
       - name: List available simulators
         run: xcrun simctl list devices available iPhone
 
+      - name: Clean up simulator state
+        run: |
+          # Clean up any stuck simulators from previous runs
+          xcrun simctl shutdown all || true
+          xcrun simctl erase all || true
+
       - name: Build and run unit tests
         run: |
           xcodebuild test \
