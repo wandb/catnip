@@ -23,6 +23,13 @@ func GetCheckpointTimeout() time.Duration {
 	return DefaultCheckpointTimeoutSeconds * time.Second
 }
 
+// IsCheckpointEnabled returns whether automatic checkpoint creation is enabled
+// Disabled by default, can be enabled by setting CATNIP_ENABLE_CHECKPOINTS=true
+func IsCheckpointEnabled() bool {
+	value := os.Getenv("CATNIP_ENABLE_CHECKPOINTS")
+	return value == "true" || value == "1"
+}
+
 // CheckpointManager handles checkpoint functionality for sessions
 type CheckpointManager interface {
 	ShouldCreateCheckpoint() bool
