@@ -666,8 +666,8 @@ class GlassTerminalAccessory: UIInputView {
         navPadToggleButton = navPadButton
         stackView.addArrangedSubview(navPadButton)
 
-        // Help toggle
-        let helpBtn = createGlassButton(systemImage: "questionmark", action: #selector(helpPressed), accessibilityLabel: "Help", accessibilityHint: "Show or hide help menu")
+        // Help toggle (smaller icon)
+        let helpBtn = createGlassButton(systemImage: "questionmark", iconSize: 12, action: #selector(helpPressed), accessibilityLabel: "Help", accessibilityHint: "Show or hide help menu")
         helpButton = helpBtn
         stackView.addArrangedSubview(helpBtn)
 
@@ -678,11 +678,11 @@ class GlassTerminalAccessory: UIInputView {
         }
     }
 
-    private func createGlassButton(title: String? = nil, systemImage: String? = nil, action: Selector, accessibilityLabel: String? = nil, accessibilityHint: String? = nil) -> UIButton {
+    private func createGlassButton(title: String? = nil, systemImage: String? = nil, iconSize: CGFloat = 16, action: Selector, accessibilityLabel: String? = nil, accessibilityHint: String? = nil) -> UIButton {
         let button = UIButton(type: .system)
 
         if let imageName = systemImage {
-            let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            let config = UIImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
             let image = UIImage(systemName: imageName, withConfiguration: config)
             button.setImage(image, for: .normal)
         }
@@ -781,7 +781,7 @@ class GlassTerminalAccessory: UIInputView {
             }
             isPlanMode = true
             modeButton?.setTitle("plan", for: .normal)
-            updateButtonTextHighlight(modeButton, active: true, color: .systemBlue)
+            updateButtonTextHighlight(modeButton, active: true, color: .systemCyan)
         }
     }
 
@@ -809,6 +809,44 @@ class GlassTerminalAccessory: UIInputView {
             isBashMode = false
             updateButtonTextHighlight(bashButton, active: false, color: .systemPink)
         }
+    }
+
+    // MARK: - State Synchronization (for reconnection)
+
+    func syncPlanMode(enabled: Bool) {
+        // Sync plan mode state without sending terminal commands
+        // Called after reconnection to match TUI state
+        isPlanMode = enabled
+        if enabled {
+            modeButton?.setTitle("plan", for: .normal)
+            updateButtonTextHighlight(modeButton, active: true, color: .systemCyan)
+        } else {
+            modeButton?.setTitle("code", for: .normal)
+            updateButtonTextHighlight(modeButton, active: false, color: .label)
+        }
+        NSLog("🔄 Synced plan mode state: %@", enabled ? "ON" : "OFF")
+    }
+
+    func syncBashMode(enabled: Bool) {
+        // Sync bash mode state without sending terminal commands
+        isBashMode = enabled
+        if enabled {
+            updateButtonTextHighlight(bashButton, active: true, color: .systemPink)
+        } else {
+            updateButtonTextHighlight(bashButton, active: false, color: .label)
+        }
+        NSLog("🔄 Synced bash mode state: %@", enabled ? "ON" : "OFF")
+    }
+
+    func syncHelpMode(enabled: Bool) {
+        // Sync help mode state without sending terminal commands
+        isHelpActive = enabled
+        if enabled {
+            updateButtonTextHighlight(helpButton, active: true, color: .systemCyan)
+        } else {
+            updateButtonTextHighlight(helpButton, active: false, color: .label)
+        }
+        NSLog("🔄 Synced help mode state: %@", enabled ? "ON" : "OFF")
     }
 
     @objc private func escPressed() {
@@ -1423,12 +1461,26 @@ class TerminalController: NSObject, ObservableObject {
     weak var accessoryView: GlassTerminalAccessory?
 
     // Buffer batching for performance during large buffer replays
+    // Keep buffer on main thread to eliminate queue hopping
     private var pendingDataBuffer: [UInt8] = []
     private var feedTimer: Timer?
-    private let feedQueue = DispatchQueue(label: "com.catnip.terminal.feed", qos: .userInteractive)
 
     // Connection generation tracking to invalidate stale async callbacks
     private var connectionGeneration: Int = 0
+
+    // Connection state tracking for event-based initialization
+    private var hasInitializedTerminal = false
+
+    // Debouncing for status updates to prevent rapid UI changes
+    private var statusUpdateTimer: Timer?
+
+    // Recent PTY output buffer for backspace fix (last 5KB)
+    // Used to detect prompt text after reconnection
+    private var recentOutputBuffer: Data = Data()
+    private let maxBufferSize = 5 * 1024  // 5KB
+
+    // Flag to suppress sending during textInputStorage population
+    private var suppressSendDuringPopulation = false
 
     init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, showDismissButton: Bool = true) {
         // Create terminal view
@@ -1467,6 +1519,11 @@ class TerminalController: NSObject, ObservableObject {
         // Set caret to clear to prevent system caret from rendering
         // The TUI controls its own cursor rendering via escape sequences
         terminalView.caretColor = UIColor.clear
+
+        // TODO: Fix backspace issue after reconnection
+        // SwiftTerm blocks backspace when textInputStorage is empty (line 1127 in iOSTerminalView.swift)
+        // Need to either: 1) Fork SwiftTerm and expose textInputStorage, or
+        // 2) Implement custom text input handling to bypass SwiftTerm's check
     }
 
     private func setupWebSocketCallbacks() {
@@ -1474,26 +1531,30 @@ class TerminalController: NSObject, ObservableObject {
         webSocketManager.onData = { [weak self] data in
             guard let self = self else { return }
 
-
-            // Mark that we've received data (for loading indicator)
-            if !self.hasReceivedData {
-                DispatchQueue.main.async {
+            // Always process on main thread to eliminate queue hopping
+            DispatchQueue.main.async {
+                // Mark that we've received data (for loading indicator)
+                if !self.hasReceivedData {
                     self.hasReceivedData = true
                     self.updateAccessoryStatus()
                 }
-            }
 
-            // During buffer replay, batch data for better performance
-            // After buffer replay, feed immediately for responsive live interaction
-            if self.bufferReplayComplete {
-                // Live mode - feed immediately on main thread
-                DispatchQueue.main.async {
+                // Append to recent output buffer (keep last 5KB for backspace fix)
+                self.recentOutputBuffer.append(data)
+                if self.recentOutputBuffer.count > self.maxBufferSize {
+                    self.recentOutputBuffer = self.recentOutputBuffer.suffix(self.maxBufferSize)
+                }
+
+                // During buffer replay, batch data for better performance
+                // After buffer replay, feed immediately for responsive live interaction
+                if self.bufferReplayComplete {
+                    // Live mode - feed immediately (already on main thread)
                     let bytes = ArraySlice([UInt8](data))
                     self.terminalView.feed(byteArray: bytes)
+                } else {
+                    // Buffer replay mode - batch for performance (on main thread)
+                    self.batchData(data)
                 }
-            } else {
-                // Buffer replay mode - batch for performance
-                self.batchData(data)
             }
         }
 
@@ -1514,6 +1575,27 @@ class TerminalController: NSObject, ObservableObject {
                     self.bufferReplayComplete = true
                     self.updateAccessoryStatus()
 
+                    // Initialize terminal after buffer replay is complete
+                    // Only do this once per connection
+                    if !self.hasInitializedTerminal {
+                        self.hasInitializedTerminal = true
+
+                        // DIAGNOSTIC: Log terminal state after buffer replay
+                        let terminal = self.terminalView.getTerminal()
+                        NSLog("🔍 Terminal state after buffer replay:")
+                        NSLog("  - Terminal size: cols=%d, rows=%d", terminal.cols, terminal.rows)
+
+                        // Detect TUI state from buffer contents
+                        self.detectAndSyncTUIState()
+
+                        // Send resize to ensure TUI is properly sized
+                        self.handleResize()
+
+                        // Now that buffer is complete, show the cursor
+                        // This allows the TUI to control cursor rendering via escape sequences
+                        self.terminalView.showCursor(source: self.terminalView.getTerminal())
+                    }
+
                     // Note: We don't query cursor position for Claude sessions because:
                     // 1. Claude's TUI may not be fully initialized yet, leading to wrong position
                     // 2. SwiftTerm should track cursor correctly from escape sequences
@@ -1531,11 +1613,19 @@ class TerminalController: NSObject, ObservableObject {
             }
         }
 
-        // Monitor connection status
+        // Monitor connection status and send ready signal when connected
         webSocketManager.$isConnected
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateAccessoryStatus()
+            .sink { [weak self] isConnected in
+                guard let self = self else { return }
+
+                // Send ready signal as soon as connected (event-based, not time-based)
+                if isConnected && !self.hasSentReady {
+                    self.hasSentReady = true
+                    self.sendReadySignal()
+                }
+
+                self.updateAccessoryStatus()
             }
             .store(in: &cancellables)
 
@@ -1560,85 +1650,182 @@ class TerminalController: NSObject, ObservableObject {
     // MARK: - Batching for Performance
 
     private func batchData(_ data: Data) {
-        feedQueue.async { [weak self] in
-            guard let self = self else { return }
+        // Already on main thread - no queue hopping needed
+        // Append to pending buffer
+        pendingDataBuffer.append(contentsOf: data)
 
-            // Append to pending buffer
-            self.pendingDataBuffer.append(contentsOf: data)
+        // Cancel existing timer and schedule new one
+        feedTimer?.invalidate()
 
-            // Cancel existing timer on main thread
-            DispatchQueue.main.async {
-                self.feedTimer?.invalidate()
-
-                // Schedule flush after a short delay (allows batching multiple packets)
-                // Use shorter delay during buffer replay for better perceived performance
-                let delay: TimeInterval = 0.016 // ~60fps
-                self.feedTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                    self?.flushPendingData()
-                }
-            }
-
-            // Also flush if buffer gets large (prevents unbounded memory growth)
-            if self.pendingDataBuffer.count > 32768 { // 32KB threshold
-                DispatchQueue.main.async {
-                    self.feedTimer?.invalidate()
-                }
-                self.flushPendingData()
+        // Flush immediately if buffer gets large (prevents unbounded memory growth)
+        if pendingDataBuffer.count > 32768 { // 32KB threshold
+            flushPendingData()
+        } else {
+            // Schedule flush after a short delay (allows batching multiple packets)
+            // Reduced delay for faster initial render
+            let delay: TimeInterval = 0.008 // ~120fps, half the previous delay
+            feedTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                self?.flushPendingData()
             }
         }
     }
 
     private func flushPendingData() {
-        feedQueue.async { [weak self] in
-            guard let self = self else { return }
-            guard !self.pendingDataBuffer.isEmpty else { return }
+        // Already on main thread (SwiftTerm requires it)
+        guard !pendingDataBuffer.isEmpty else { return }
 
-            let dataToFeed = self.pendingDataBuffer
-            self.pendingDataBuffer.removeAll(keepingCapacity: true)
+        let bytes = ArraySlice(pendingDataBuffer)
+        pendingDataBuffer.removeAll(keepingCapacity: true)
 
-            // Feed on main thread (SwiftTerm requires it)
-            DispatchQueue.main.async {
-                let bytes = ArraySlice(dataToFeed)
-                self.terminalView.feed(byteArray: bytes)
+        terminalView.feed(byteArray: bytes)
+    }
+
+    // MARK: - TUI State Detection and Backspace Fix
+
+    private func detectAndSyncTUIState() {
+        // Parse our recentOutputBuffer to detect TUI state and fix backspace issue
+        guard let bufferText = String(data: recentOutputBuffer, encoding: .utf8) else {
+            NSLog("⚠️ Unable to decode recent buffer as UTF-8")
+            return
+        }
+
+        NSLog("🔍 Analyzing recent buffer (%d bytes) for TUI state", recentOutputBuffer.count)
+
+        // Strip ANSI color codes for text matching
+        let cleanedBuffer = stripANSIColorCodes(bufferText)
+
+        // Detect plan mode: "plan mode on (shift+tab to cycle)"
+        if cleanedBuffer.contains("plan mode on") {
+            NSLog("✅ Detected: Plan mode is ON")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncPlanMode(enabled: true)
+            }
+        } else {
+            NSLog("ℹ️ Detected: Plan mode is OFF (code mode)")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncPlanMode(enabled: false)
             }
         }
+
+        // Detect bash mode: "! for bash mode"
+        // When "! for bash mode" is visible → we ARE in bash mode (it's the mode indicator)
+        // When it's not visible → we are NOT in bash mode
+        if cleanedBuffer.contains("! for bash mode") {
+            NSLog("✅ Detected: IN bash mode (indicator visible)")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncBashMode(enabled: true)
+            }
+        } else {
+            NSLog("ℹ️ NOT in bash mode (indicator not visible)")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncBashMode(enabled: false)
+            }
+        }
+
+        // Detect help mode: "For more help: https://docs.claude.com"
+        if cleanedBuffer.contains("For more help:") && cleanedBuffer.contains("docs.claude.com") {
+            NSLog("✅ Detected: Help mode is ACTIVE")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncHelpMode(enabled: true)
+            }
+        }
+
+        // Fix backspace issue: Extract prompt text after ">" and populate SwiftTerm's textInputStorage
+        populateTextInputStorage(from: cleanedBuffer)
+    }
+
+    private func populateTextInputStorage(from bufferText: String) {
+        // Extract text after the last ">" prompt marker
+        // This text is what the user should be able to backspace after reconnection
+
+        let lines = bufferText.components(separatedBy: "\n")
+
+        // Find the last line with a ">" prompt
+        for line in lines.reversed() {
+            if let promptRange = line.range(of: ">") {
+                // Extract text after ">" (still has ANSI codes)
+                let afterPromptWithCodes = String(line[promptRange.upperBound...])
+
+                // Check if this is a placeholder vs actual user input
+                // Method 1: Check for "Try " prefix (most reliable)
+                // Method 2: Check for dim/gray escape codes: ESC[2m or ESC[90m
+                let cleanedText = stripANSIColorCodes(afterPromptWithCodes)
+                if cleanedText.trimmingCharacters(in: .whitespaces).hasPrefix("Try \"") {
+                    NSLog("ℹ️ Skipping placeholder prompt (starts with 'Try \"')")
+                    continue  // Skip placeholders
+                }
+                if afterPromptWithCodes.contains("\u{1B}[2m") || afterPromptWithCodes.contains("\u{1B}[90m") {
+                    NSLog("ℹ️ Skipping placeholder prompt (dim/gray ANSI codes)")
+                    continue  // Skip placeholders
+                }
+
+                // Strip ANSI codes to get clean text
+                let afterPrompt = stripANSIColorCodes(afterPromptWithCodes).trimmingCharacters(in: .whitespaces)
+
+                if !afterPrompt.isEmpty {
+                    NSLog("🔍 Found user prompt text to populate: \"%@\"", afterPrompt)
+
+                    // Populate textInputStorage using insertText with send suppression
+                    populateTextInputStorageViaInsertText(afterPrompt)
+                    return
+                }
+            }
+        }
+
+        NSLog("ℹ️ No user prompt text found to populate")
+    }
+
+    private func populateTextInputStorageViaInsertText(_ text: String) {
+        // Use SwiftTerm's insertText() method to populate textInputStorage
+        // But suppress the send to server by setting a flag
+
+        NSLog("📝 Populating textInputStorage with: \"%@\"", text)
+
+        // Set flag to suppress sending
+        suppressSendDuringPopulation = true
+
+        // Call insertText - this will populate textInputStorage and update selectedTextRange
+        // Our send() delegate method will see the flag and skip sending to server
+        terminalView.insertText(text)
+
+        // Clear flag
+        suppressSendDuringPopulation = false
+
+        NSLog("✅ Successfully populated textInputStorage without sending to server")
+    }
+
+    private func stripANSIColorCodes(_ text: String) -> String {
+        // Strip ANSI escape sequences (color codes, cursor movement, etc.)
+        // Pattern matches:
+        // - ESC[...m (colors, styles)
+        // - ESC[...H (cursor position)
+        // - ESC[...J (clear screen)
+        // - ESC[...K (clear line)
+        // - Other CSI sequences
+        let pattern = "\\u{1B}\\[[0-9;?]*[a-zA-Z]"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
     }
 
     func connect() {
         // Increment generation to invalidate any pending callbacks from previous connection
         connectionGeneration += 1
         let currentGeneration = connectionGeneration
+        hasInitializedTerminal = false
 
         NSLog("🔌 TerminalController.connect() - generation %d", currentGeneration)
 
         webSocketManager.connect()
 
-        // Wait a bit for connection to establish, then send ready signal
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self,
-                  self.connectionGeneration == currentGeneration,
-                  !self.hasSentReady else { return }
-            self.hasSentReady = true
-            self.sendReadySignal()
-        }
+        // Auto-focus terminal immediately to show keyboard with custom accessory
+        // No need to wait - this is UI only and doesn't depend on connection
+        _ = terminalView.becomeFirstResponder()
 
-        // Auto-focus terminal to show keyboard with custom accessory
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self, self.connectionGeneration == currentGeneration else { return }
-            _ = self.terminalView.becomeFirstResponder()
-        }
-
-        // Send another resize after layout settles (helps with orientation changes)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self, self.connectionGeneration == currentGeneration else { return }
-            self.handleResize()
-
-            // Now that everything is settled, show the cursor
-            // This allows the TUI to control cursor rendering via escape sequences
-            if self.bufferReplayComplete {
-                self.terminalView.showCursor(source: self.terminalView.getTerminal())
-            }
-        }
+        // Send ready signal as soon as connected (event-based, not time-based)
+        // We'll monitor the isConnected publisher in setupWebSocketCallbacks
     }
 
     func focusTerminal() {
@@ -1653,17 +1840,23 @@ class TerminalController: NSObject, ObservableObject {
 
         webSocketManager.disconnect()
 
-        // Clean up batching resources
+        // Clean up batching resources (on main thread)
         feedTimer?.invalidate()
         feedTimer = nil
-        feedQueue.async { [weak self] in
-            self?.pendingDataBuffer.removeAll()
-        }
+        pendingDataBuffer.removeAll()
+
+        // Clean up status update timer
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = nil
+
+        // Clear recent output buffer on disconnect
+        recentOutputBuffer = Data()
 
         // Reset state for next connection
         hasReceivedData = false
         bufferReplayComplete = false
         hasSentReady = false
+        hasInitializedTerminal = false
     }
 
     func reconnect() {
@@ -1676,7 +1869,7 @@ class TerminalController: NSObject, ObservableObject {
     }
 
     // Minimum terminal dimensions for TUI rendering
-    private static let minCols: UInt16 = 40
+    private static let minCols: UInt16 = 75
     private static let minRows: UInt16 = 15
 
     private func sendReadySignal() {
@@ -1717,6 +1910,22 @@ class TerminalController: NSObject, ObservableObject {
     // MARK: - Accessory Status Updates
 
     func updateAccessoryStatus() {
+        // Debounce status updates to prevent rapid UI changes
+        // Only debounce during connecting/loading states, not for final states
+        let shouldDebounce = !isConnected || !hasReceivedData || !bufferReplayComplete
+
+        if shouldDebounce {
+            statusUpdateTimer?.invalidate()
+            statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { [weak self] _ in
+                self?.performStatusUpdate()
+            }
+        } else {
+            // For final states (connected and ready), update immediately
+            performStatusUpdate()
+        }
+    }
+
+    private func performStatusUpdate() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -1739,8 +1948,20 @@ class TerminalController: NSObject, ObservableObject {
 
 extension TerminalController: TerminalViewDelegate {
     func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
+        // Check if we're suppressing sends during textInputStorage population
+        if suppressSendDuringPopulation {
+            // Don't send to server - we're just populating the input buffer
+            return
+        }
+
         // User typed input - send to backend
         var string = String(bytes: data, encoding: .utf8) ?? ""
+
+        // DIAGNOSTIC: Log what's being sent, especially backspace/delete
+        let byteArray = Array(data)
+        if byteArray.contains(0x7F) || byteArray.contains(0x08) {
+            NSLog("⌫ Backspace/Delete pressed - sending bytes: %@", byteArray.map { String(format: "0x%02X", $0) }.joined(separator: " "))
+        }
 
         // Apply ctrl modifier if active
         if ctrlModifierActive && !string.isEmpty {
