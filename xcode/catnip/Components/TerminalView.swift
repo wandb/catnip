@@ -248,7 +248,7 @@ class TerminalViewWrapper: UIView {
 
         let size = NavigationPadView.size
         let margin: CGFloat = 16
-        let gapAboveToolbar: CGFloat = 16
+        let gapAboveToolbar: CGFloat = 2  // Very close to toolbar for tight visual grouping
 
         // Position in lower-right corner, above toolbar
         let x = window.bounds.width - size - margin
@@ -435,10 +435,8 @@ class GlassTerminalAccessory: UIInputView {
 
     // Navigation pad state
     weak var navigationPad: NavigationPadView?
-    private var dismissOverlay: UIView?
     private var isNavigationPadVisible = false
     private var navPadToggleButton: UIButton?
-    private var dismissalPolicy: NavigationPadView.NavigationPadDismissalPolicy = .tapOutside
 
     // Glass effect views
     private var glassContainer: UIVisualEffectView?
@@ -879,7 +877,7 @@ class GlassTerminalAccessory: UIInputView {
 
     @objc private func navigationPadPressed() {
         if isNavigationPadVisible {
-            dismissNavigationPad(reason: .toggleButton)
+            hideNavigationPad()
         } else {
             showNavigationPad()
         }
@@ -893,13 +891,15 @@ class GlassTerminalAccessory: UIInputView {
         // Update toggle button state
         updateButtonTextHighlight(navPadToggleButton, active: true, color: .systemBlue)
 
-        // Add dismiss overlay if policy includes tap-outside
-        if dismissalPolicy == .tapOutside || dismissalPolicy == .tapOutsideOrToggle {
-            addDismissOverlay()
+        // Get button position in window coordinates for morph animation
+        var originPoint: CGPoint?
+        if let button = navPadToggleButton, let window = window {
+            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
+            originPoint = buttonCenter
         }
 
-        // Animate navigation pad in
-        navigationPad.show()
+        // Animate navigation pad in from button position
+        navigationPad.show(fromPoint: originPoint)
     }
 
     private func hideNavigationPad() {
@@ -910,52 +910,15 @@ class GlassTerminalAccessory: UIInputView {
         // Update toggle button state
         updateButtonTextHighlight(navPadToggleButton, active: false, color: .label)
 
-        // Remove dismiss overlay
-        removeDismissOverlay()
-
-        // Animate navigation pad out
-        navigationPad?.hide()
-    }
-
-    enum DismissReason {
-        case tapOutside
-        case toggleButton
-        case programmatic
-    }
-
-    private func dismissNavigationPad(reason: DismissReason) {
-        guard isNavigationPadVisible else { return }
-
-        switch dismissalPolicy {
-        case .tapOutside, .tapOutsideOrToggle:
-            hideNavigationPad()
-        case .toggleOnly:
-            if case .toggleButton = reason {
-                hideNavigationPad()
-            }
+        // Get button position in window coordinates for morph animation
+        var targetPoint: CGPoint?
+        if let button = navPadToggleButton, let window = window {
+            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
+            targetPoint = buttonCenter
         }
-    }
 
-    private func addDismissOverlay() {
-        guard let window = window, dismissOverlay == nil else { return }
-
-        let overlay = UIView(frame: window.bounds)
-        overlay.backgroundColor = .clear
-
-        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissOverlayTapped))
-        overlay.addGestureRecognizer(tapGesture)
-
-        dismissOverlay = overlay
-        window.insertSubview(overlay, belowSubview: self)
-    }
-
-    private func removeDismissOverlay() {
-        dismissOverlay?.removeFromSuperview()
-        dismissOverlay = nil
-    }
-
-    @objc private func dismissOverlayTapped() {
-        dismissNavigationPad(reason: .tapOutside)
+        // Animate navigation pad out to button position
+        navigationPad?.hide(toPoint: targetPoint)
     }
 
     // Background color highlight for buttons like bash mode
@@ -1005,15 +968,10 @@ class NavigationPadView: UIView {
 
     private var repeatingTimer: Timer?
     private var currentDirection: ArrowDirection?
+    private var intendedCenter: CGPoint = .zero  // Track proper position for animations
 
     enum ArrowDirection {
         case up, down, left, right
-    }
-
-    enum NavigationPadDismissalPolicy {
-        case tapOutside
-        case toggleOnly
-        case tapOutsideOrToggle
     }
 
     init(terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
@@ -1047,6 +1005,9 @@ class NavigationPadView: UIView {
             glassView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
+        // Add etched X pattern for visual depth
+        addEtchedXPattern(to: glassView)
+
         // Create directional buttons in diamond layout
         createButtons(in: glassView.contentView)
     }
@@ -1075,6 +1036,44 @@ class NavigationPadView: UIView {
         #endif
 
         return effectView
+    }
+
+    private func addEtchedXPattern(to glassView: UIVisualEffectView) {
+        let size = Self.size
+        let inset: CGFloat = 12  // Distance from edges
+
+        // Create path for X pattern - two diagonal lines
+        let xPath = UIBezierPath()
+
+        // Top-left to bottom-right diagonal
+        xPath.move(to: CGPoint(x: inset, y: inset))
+        xPath.addLine(to: CGPoint(x: size - inset, y: size - inset))
+
+        // Top-right to bottom-left diagonal
+        xPath.move(to: CGPoint(x: size - inset, y: inset))
+        xPath.addLine(to: CGPoint(x: inset, y: size - inset))
+
+        // Create shadow layer (darker, slightly offset down-right for depth)
+        let shadowLayer = CAShapeLayer()
+        shadowLayer.path = xPath.cgPath
+        shadowLayer.strokeColor = UIColor.black.withAlphaComponent(0.25).cgColor
+        shadowLayer.lineWidth = 0.75
+        shadowLayer.fillColor = nil
+        shadowLayer.lineCap = .round
+        shadowLayer.frame = CGRect(x: 0.6, y: 0.6, width: size, height: size)
+
+        // Create highlight layer (lighter, etched glass look)
+        let highlightLayer = CAShapeLayer()
+        highlightLayer.path = xPath.cgPath
+        highlightLayer.strokeColor = UIColor.white.withAlphaComponent(0.22).cgColor
+        highlightLayer.lineWidth = 0.75
+        highlightLayer.fillColor = nil
+        highlightLayer.lineCap = .round
+        highlightLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
+
+        // Add to glass view's layer (below content)
+        glassView.layer.insertSublayer(shadowLayer, at: 0)
+        glassView.layer.insertSublayer(highlightLayer, at: 1)
     }
 
     private func createButtons(in container: UIView) {
@@ -1122,13 +1121,19 @@ class NavigationPadView: UIView {
     private func createDirectionButton(systemImage: String, direction: ArrowDirection, x: CGFloat, y: CGFloat) -> UIButton {
         let button = UIButton(type: .system)
 
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        // Use lighter weight for more subtle appearance
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .light)
         let image = UIImage(systemName: systemImage, withConfiguration: config)
         button.setImage(image, for: .normal)
-        button.tintColor = .label
+
+        // Reduce opacity for subtler look that complements the etched glass
+        button.tintColor = UIColor.label.withAlphaComponent(0.65)
         button.backgroundColor = .clear
 
         button.frame = CGRect(x: x, y: y, width: 36, height: 36)
+
+        // Add subtle etched glass effect to button itself
+        addEtchedEffect(to: button)
 
         // Add tap gesture for instant response
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
@@ -1147,6 +1152,49 @@ class NavigationPadView: UIView {
         button.isAccessibilityElement = true
 
         return button
+    }
+
+    private func addEtchedEffect(to button: UIButton) {
+        // Add etched glass effect directly to the arrow icon
+        // This creates a subtle shadow + highlight on the symbol itself
+
+        // Wait for imageView to be created, then add shadow/highlight
+        DispatchQueue.main.async {
+            guard let imageView = button.imageView else { return }
+
+            // Add very subtle drop shadow to the icon for depth (reduced for lighter icons)
+            imageView.layer.shadowColor = UIColor.black.cgColor
+            imageView.layer.shadowOffset = CGSize(width: 0.4, height: 0.4)
+            imageView.layer.shadowOpacity = 0.3  // Reduced from 0.4 to complement lighter icons
+            imageView.layer.shadowRadius = 0.4
+            imageView.layer.masksToBounds = false
+
+            // Create a duplicate image view for the highlight (etched glass effect)
+            if let image = button.image(for: .normal) {
+                let highlightImageView = UIImageView(image: image)
+                highlightImageView.tintColor = UIColor.white.withAlphaComponent(0.2)  // Slightly reduced
+                highlightImageView.frame = imageView.frame
+                highlightImageView.contentMode = imageView.contentMode
+
+                // Offset slightly up-left for etched highlight
+                highlightImageView.center = CGPoint(
+                    x: imageView.center.x - 0.4,
+                    y: imageView.center.y - 0.4
+                )
+
+                // Insert behind the main image
+                button.insertSubview(highlightImageView, belowSubview: imageView)
+
+                // Make highlight move with the main imageView
+                highlightImageView.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    highlightImageView.centerXAnchor.constraint(equalTo: imageView.centerXAnchor, constant: -0.4),
+                    highlightImageView.centerYAnchor.constraint(equalTo: imageView.centerYAnchor, constant: -0.4),
+                    highlightImageView.widthAnchor.constraint(equalTo: imageView.widthAnchor),
+                    highlightImageView.heightAnchor.constraint(equalTo: imageView.heightAnchor)
+                ])
+            }
+        }
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -1229,24 +1277,56 @@ class NavigationPadView: UIView {
         currentDirection = nil
     }
 
-    // MARK: - Show/Hide Animations
+    // MARK: - Show/Hide Animations (Liquid Glass Style)
 
-    func show(completion: (() -> Void)? = nil) {
-        // Starting state: small, transparent, slightly below final position
-        alpha = 0
-        transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
-            .translatedBy(x: 0, y: 20)
+    func show(fromPoint: CGPoint? = nil, completion: (() -> Void)? = nil) {
+        // Store the intended final position BEFORE any modifications
+        // This is where positionNavigationPad() placed us
+        if intendedCenter == .zero {
+            intendedCenter = center
+        }
+        let finalCenter = intendedCenter
 
-        // Animate to final state with spring
+        if let origin = fromPoint {
+            // Morph from button position
+            center = origin
+            transform = CGAffineTransform(scaleX: 0.15, y: 0.15)  // Start very small like a button
+            alpha = 0
+        } else {
+            // Fallback: standard entrance from below
+            transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+                .rotated(by: .pi / 12)
+                .translatedBy(x: 0, y: 20)
+            alpha = 0
+        }
+
+        // Animate glass effect materialization (iOS 26+ feature)
+        #if compiler(>=6.0)
+        if #available(iOS 26.0, *), let glassContainer = glassContainer {
+            glassContainer.effect = nil
+        }
+        #endif
+
+        // Fluid spring animation for liquid glass feel with morph effect
         UIView.animate(
-            withDuration: 0.4,
+            withDuration: 0.55,
             delay: 0,
-            usingSpringWithDamping: 0.7,
-            initialSpringVelocity: 0,
-            options: .curveEaseOut,
+            usingSpringWithDamping: 0.68,  // Slightly higher for smoother morph
+            initialSpringVelocity: 0.6,
+            options: [.curveEaseOut, .allowUserInteraction],
             animations: {
                 self.alpha = 1.0
+                self.center = finalCenter
                 self.transform = .identity
+
+                // Materialize glass effect for liquid glass shimmer
+                #if compiler(>=6.0)
+                if #available(iOS 26.0, *), let glassContainer = self.glassContainer {
+                    let glassEffect = UIGlassEffect(style: .regular)
+                    glassEffect.isInteractive = true
+                    glassContainer.effect = glassEffect
+                }
+                #endif
             },
             completion: { _ in
                 completion?()
@@ -1254,20 +1334,44 @@ class NavigationPadView: UIView {
         )
     }
 
-    func hide(completion: (() -> Void)? = nil) {
-        // Animate out: scale down, fade out, translate down
+    func hide(toPoint: CGPoint? = nil, completion: (() -> Void)? = nil) {
+        // Animate out: morph back to button position or standard exit
         UIView.animate(
             withDuration: 0.4,
             delay: 0,
-            usingSpringWithDamping: 0.7,
-            initialSpringVelocity: 0,
-            options: .curveEaseIn,
+            usingSpringWithDamping: 0.85,  // Higher damping for controlled collapse
+            initialSpringVelocity: 0.3,
+            options: [.curveEaseIn, .allowUserInteraction],
             animations: {
                 self.alpha = 0
-                self.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
-                    .translatedBy(x: 0, y: 20)
+
+                if let target = toPoint {
+                    // Morph back to button position
+                    self.center = target
+                    self.transform = CGAffineTransform(scaleX: 0.15, y: 0.15)  // Collapse to button size
+                } else {
+                    // Fallback: standard exit
+                    self.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+                        .rotated(by: -.pi / 12)
+                        .translatedBy(x: 0, y: 20)
+                }
+
+                // Dematerialize glass effect
+                #if compiler(>=6.0)
+                if #available(iOS 26.0, *), let glassContainer = self.glassContainer {
+                    glassContainer.effect = nil
+                }
+                #endif
             },
-            completion: { _ in
+            completion: { [weak self] _ in
+                guard let self = self else { return }
+
+                // Reset transform for next show
+                self.transform = .identity
+
+                // Reset to intended position for next show animation
+                self.center = self.intendedCenter
+
                 // Clean up any active repeat timers
                 self.cleanup()
                 completion?()
@@ -1360,9 +1464,9 @@ class TerminalController: NSObject, ObservableObject {
         // Inverse video needs opaque colors to properly swap fg/bg
         terminalView.nativeBackgroundColor = UIColor.black
 
-        // Set cursor to white to match TUI cursor appearance
-        // CaretView draws a colored block + character, making the cursor visible
-        terminalView.caretColor = UIColor.white
+        // Set caret to clear to prevent system caret from rendering
+        // The TUI controls its own cursor rendering via escape sequences
+        terminalView.caretColor = UIColor.clear
     }
 
     private func setupWebSocketCallbacks() {
