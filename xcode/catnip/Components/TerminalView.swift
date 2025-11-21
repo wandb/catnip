@@ -150,6 +150,7 @@ class TerminalViewWrapper: UIView {
 
     // Floating glass toolbar
     private var floatingToolbar: GlassTerminalAccessory?
+    private var navigationPad: NavigationPadView?
     private var keyboardHeight: CGFloat = 0
     private var keyboardObservers: [NSObjectProtocol] = []
 
@@ -172,6 +173,9 @@ class TerminalViewWrapper: UIView {
         // Add bottom content inset so terminal content extends behind the glass toolbar
         terminalView.contentInset.bottom = 56
 
+        // Also set scroll indicator insets so they don't appear behind the toolbar
+        terminalView.scrollIndicatorInsets.bottom = 56
+
         // Create floating glass toolbar that overlays the terminal
         // We'll position it manually in layoutSubviews to handle the wider terminal view
         let toolbar = GlassTerminalAccessory(
@@ -181,6 +185,14 @@ class TerminalViewWrapper: UIView {
         )
         floatingToolbar = toolbar
         controller.accessoryView = toolbar
+
+        // Create navigation pad (floating D-pad)
+        let navPad = NavigationPadView(
+            terminalView: terminalView,
+            controller: controller
+        )
+        navigationPad = navPad
+        toolbar.navigationPad = navPad
 
         // Observe keyboard to position toolbar above it
         setupKeyboardObservers()
@@ -197,11 +209,19 @@ class TerminalViewWrapper: UIView {
             window.addSubview(toolbar)
             positionToolbar()
         }
+
+        // Add navigation pad to window (initially hidden)
+        if let window = window, let navPad = navigationPad, navPad.superview == nil {
+            navPad.alpha = 0  // Hidden until toggled
+            window.addSubview(navPad)
+            positionNavigationPad()
+        }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         positionToolbar()
+        positionNavigationPad()
     }
 
     private func positionToolbar() {
@@ -223,9 +243,24 @@ class TerminalViewWrapper: UIView {
         )
     }
 
+    private func positionNavigationPad() {
+        guard let navPad = navigationPad, let window = window else { return }
+
+        let size = NavigationPadView.size
+        let margin: CGFloat = 16
+        let gapAboveToolbar: CGFloat = 16
+
+        // Position in lower-right corner, above toolbar
+        let x = window.bounds.width - size - margin
+        let y = (floatingToolbar?.frame.minY ?? window.bounds.height) - size - gapAboveToolbar
+
+        navPad.frame = CGRect(x: x, y: y, width: size, height: size)
+    }
+
     override func removeFromSuperview() {
-        // Clean up toolbar from window when we're removed
+        // Clean up toolbar and navigation pad from window when we're removed
         floatingToolbar?.removeFromSuperview()
+        navigationPad?.removeFromSuperview()
         super.removeFromSuperview()
     }
 
@@ -397,6 +432,13 @@ class GlassTerminalAccessory: UIInputView {
     // Bash mode toggle state
     private var isBashMode = false
     private var bashButton: UIButton?
+
+    // Navigation pad state
+    weak var navigationPad: NavigationPadView?
+    private var dismissOverlay: UIView?
+    private var isNavigationPadVisible = false
+    private var navPadToggleButton: UIButton?
+    private var dismissalPolicy: NavigationPadView.NavigationPadDismissalPolicy = .tapOutside
 
     // Glass effect views
     private var glassContainer: UIVisualEffectView?
@@ -616,11 +658,15 @@ class GlassTerminalAccessory: UIInputView {
         stackView.addArrangedSubview(createGlassButton(title: "\\n", action: #selector(newlinePressed), accessibilityLabel: "Newline", accessibilityHint: "Send newline character"))
         stackView.addArrangedSubview(createGlassButton(title: "tab", action: #selector(tabPressed), accessibilityHint: "Send tab key for autocomplete"))
 
-        // Arrow keys with SF Symbols
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.up", action: #selector(upPressed), accessibilityLabel: "Up arrow", accessibilityHint: "Navigate up or previous command"))
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.down", action: #selector(downPressed), accessibilityLabel: "Down arrow", accessibilityHint: "Navigate down or next command"))
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.left", action: #selector(leftPressed), accessibilityLabel: "Left arrow", accessibilityHint: "Move cursor left"))
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.right", action: #selector(rightPressed), accessibilityLabel: "Right arrow", accessibilityHint: "Move cursor right"))
+        // Navigation pad toggle (replaces 4 individual arrow buttons)
+        let navPadButton = createGlassButton(
+            systemImage: "dpad",
+            action: #selector(navigationPadPressed),
+            accessibilityLabel: "Navigation pad",
+            accessibilityHint: "Show directional controls"
+        )
+        navPadToggleButton = navPadButton
+        stackView.addArrangedSubview(navPadButton)
 
         // Help toggle
         let helpBtn = createGlassButton(systemImage: "questionmark", action: #selector(helpPressed), accessibilityLabel: "Help", accessibilityHint: "Show or hide help menu")
@@ -829,6 +875,89 @@ class GlassTerminalAccessory: UIInputView {
         }
     }
 
+    // MARK: - Navigation Pad Management
+
+    @objc private func navigationPadPressed() {
+        if isNavigationPadVisible {
+            dismissNavigationPad(reason: .toggleButton)
+        } else {
+            showNavigationPad()
+        }
+    }
+
+    private func showNavigationPad() {
+        guard let navigationPad = navigationPad, !isNavigationPadVisible else { return }
+
+        isNavigationPadVisible = true
+
+        // Update toggle button state
+        updateButtonTextHighlight(navPadToggleButton, active: true, color: .systemBlue)
+
+        // Add dismiss overlay if policy includes tap-outside
+        if dismissalPolicy == .tapOutside || dismissalPolicy == .tapOutsideOrToggle {
+            addDismissOverlay()
+        }
+
+        // Animate navigation pad in
+        navigationPad.show()
+    }
+
+    private func hideNavigationPad() {
+        guard isNavigationPadVisible else { return }
+
+        isNavigationPadVisible = false
+
+        // Update toggle button state
+        updateButtonTextHighlight(navPadToggleButton, active: false, color: .label)
+
+        // Remove dismiss overlay
+        removeDismissOverlay()
+
+        // Animate navigation pad out
+        navigationPad?.hide()
+    }
+
+    enum DismissReason {
+        case tapOutside
+        case toggleButton
+        case programmatic
+    }
+
+    private func dismissNavigationPad(reason: DismissReason) {
+        guard isNavigationPadVisible else { return }
+
+        switch dismissalPolicy {
+        case .tapOutside, .tapOutsideOrToggle:
+            hideNavigationPad()
+        case .toggleOnly:
+            if case .toggleButton = reason {
+                hideNavigationPad()
+            }
+        }
+    }
+
+    private func addDismissOverlay() {
+        guard let window = window, dismissOverlay == nil else { return }
+
+        let overlay = UIView(frame: window.bounds)
+        overlay.backgroundColor = .clear
+
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(dismissOverlayTapped))
+        overlay.addGestureRecognizer(tapGesture)
+
+        dismissOverlay = overlay
+        window.insertSubview(overlay, belowSubview: self)
+    }
+
+    private func removeDismissOverlay() {
+        dismissOverlay?.removeFromSuperview()
+        dismissOverlay = nil
+    }
+
+    @objc private func dismissOverlayTapped() {
+        dismissNavigationPad(reason: .tapOutside)
+    }
+
     // Background color highlight for buttons like bash mode
     private func updateButtonHighlight(_ button: UIButton?, active: Bool, color: UIColor = .clear) {
         guard let button = button else { return }
@@ -856,6 +985,314 @@ class GlassTerminalAccessory: UIInputView {
                 button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
                 button.tintColor = .label
             }
+        }
+    }
+}
+
+// MARK: - Navigation Pad View (Floating D-pad)
+
+class NavigationPadView: UIView {
+    static var size: CGFloat = 80  // Configurable for experimentation
+
+    private weak var terminalView: SwiftTerm.TerminalView?
+    private weak var controller: TerminalController?
+
+    private var glassContainer: UIVisualEffectView?
+    private var upButton: UIButton!
+    private var downButton: UIButton!
+    private var leftButton: UIButton!
+    private var rightButton: UIButton!
+
+    private var repeatingTimer: Timer?
+    private var currentDirection: ArrowDirection?
+
+    enum ArrowDirection {
+        case up, down, left, right
+    }
+
+    enum NavigationPadDismissalPolicy {
+        case tapOutside
+        case toggleOnly
+        case tapOutsideOrToggle
+    }
+
+    init(terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
+        self.terminalView = terminalView
+        self.controller = controller
+
+        super.init(frame: CGRect(x: 0, y: 0, width: Self.size, height: Self.size))
+
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupUI() {
+        // Transparent background
+        backgroundColor = .clear
+        isOpaque = false
+
+        // Create glass container
+        let glassView = createGlassContainer()
+        glassContainer = glassView
+        addSubview(glassView)
+
+        glassView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            glassView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassView.topAnchor.constraint(equalTo: topAnchor),
+            glassView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        // Create directional buttons in diamond layout
+        createButtons(in: glassView.contentView)
+    }
+
+    private func createGlassContainer() -> UIVisualEffectView {
+        let effectView = UIVisualEffectView()
+        effectView.clipsToBounds = true
+
+        // Use compile-time check for iOS 26+ SDK availability
+        #if compiler(>=6.0)
+        if #available(iOS 26.0, *) {
+            let glassEffect = UIGlassEffect(style: .regular)
+            glassEffect.isInteractive = true
+            effectView.cornerConfiguration = .capsule()
+
+            UIView.animate(withDuration: 0.4) {
+                effectView.effect = glassEffect
+            }
+        } else {
+            effectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            effectView.layer.cornerRadius = 22
+        }
+        #else
+        effectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+        effectView.layer.cornerRadius = 22
+        #endif
+
+        return effectView
+    }
+
+    private func createButtons(in container: UIView) {
+        let buttonSize: CGFloat = 36
+        let centerOffset: CGFloat = 20  // Distance from center to button center
+        let center = Self.size / 2
+
+        // Up button (top)
+        upButton = createDirectionButton(
+            systemImage: "arrow.up",
+            direction: .up,
+            x: center - buttonSize/2,
+            y: center - centerOffset - buttonSize/2
+        )
+        container.addSubview(upButton)
+
+        // Down button (bottom)
+        downButton = createDirectionButton(
+            systemImage: "arrow.down",
+            direction: .down,
+            x: center - buttonSize/2,
+            y: center + centerOffset - buttonSize/2
+        )
+        container.addSubview(downButton)
+
+        // Left button
+        leftButton = createDirectionButton(
+            systemImage: "arrow.left",
+            direction: .left,
+            x: center - centerOffset - buttonSize/2,
+            y: center - buttonSize/2
+        )
+        container.addSubview(leftButton)
+
+        // Right button
+        rightButton = createDirectionButton(
+            systemImage: "arrow.right",
+            direction: .right,
+            x: center + centerOffset - buttonSize/2,
+            y: center - buttonSize/2
+        )
+        container.addSubview(rightButton)
+    }
+
+    private func createDirectionButton(systemImage: String, direction: ArrowDirection, x: CGFloat, y: CGFloat) -> UIButton {
+        let button = UIButton(type: .system)
+
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let image = UIImage(systemName: systemImage, withConfiguration: config)
+        button.setImage(image, for: .normal)
+        button.tintColor = .label
+        button.backgroundColor = .clear
+
+        button.frame = CGRect(x: x, y: y, width: 36, height: 36)
+
+        // Add tap gesture for instant response
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        button.addGestureRecognizer(tapGesture)
+
+        // Add long press for repeat mode
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.5
+        button.addGestureRecognizer(longPress)
+
+        // Tag to identify direction
+        button.tag = direction.rawValue
+
+        // Accessibility
+        button.accessibilityLabel = "\(systemImage.replacingOccurrences(of: "arrow.", with: "")) arrow"
+        button.isAccessibilityElement = true
+
+        return button
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        guard let button = gesture.view as? UIButton,
+              let direction = ArrowDirection(rawValue: button.tag) else { return }
+
+        // Visual feedback
+        animateButtonPress(button)
+
+        // Send arrow key
+        sendArrowKey(direction)
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard let button = gesture.view as? UIButton,
+              let direction = ArrowDirection(rawValue: button.tag) else { return }
+
+        switch gesture.state {
+        case .began:
+            // Enter repeat mode
+            currentDirection = direction
+
+            // Highlight button
+            UIView.animate(withDuration: 0.2) {
+                button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
+            }
+
+            // Send first arrow key
+            sendArrowKey(direction)
+
+            // Start repeating timer
+            repeatingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.sendArrowKey(direction)
+            }
+
+        case .ended, .cancelled:
+            // Exit repeat mode
+            currentDirection = nil
+
+            // Clear highlight
+            UIView.animate(withDuration: 0.2) {
+                button.backgroundColor = .clear
+            }
+
+            // Stop timer
+            repeatingTimer?.invalidate()
+            repeatingTimer = nil
+
+        default:
+            break
+        }
+    }
+
+    private func animateButtonPress(_ button: UIButton) {
+        UIView.animate(withDuration: 0.1, animations: {
+            button.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                button.transform = .identity
+            }
+        }
+    }
+
+    private func sendArrowKey(_ direction: ArrowDirection) {
+        switch direction {
+        case .up:
+            terminalView?.send(txt: "\u{1B}[A")
+        case .down:
+            terminalView?.send(txt: "\u{1B}[B")
+        case .left:
+            terminalView?.send(txt: "\u{1B}[D")
+        case .right:
+            terminalView?.send(txt: "\u{1B}[C")
+        }
+    }
+
+    func cleanup() {
+        repeatingTimer?.invalidate()
+        repeatingTimer = nil
+        currentDirection = nil
+    }
+
+    // MARK: - Show/Hide Animations
+
+    func show(completion: (() -> Void)? = nil) {
+        // Starting state: small, transparent, slightly below final position
+        alpha = 0
+        transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+            .translatedBy(x: 0, y: 20)
+
+        // Animate to final state with spring
+        UIView.animate(
+            withDuration: 0.4,
+            delay: 0,
+            usingSpringWithDamping: 0.7,
+            initialSpringVelocity: 0,
+            options: .curveEaseOut,
+            animations: {
+                self.alpha = 1.0
+                self.transform = .identity
+            },
+            completion: { _ in
+                completion?()
+            }
+        )
+    }
+
+    func hide(completion: (() -> Void)? = nil) {
+        // Animate out: scale down, fade out, translate down
+        UIView.animate(
+            withDuration: 0.4,
+            delay: 0,
+            usingSpringWithDamping: 0.7,
+            initialSpringVelocity: 0,
+            options: .curveEaseIn,
+            animations: {
+                self.alpha = 0
+                self.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+                    .translatedBy(x: 0, y: 20)
+            },
+            completion: { _ in
+                // Clean up any active repeat timers
+                self.cleanup()
+                completion?()
+            }
+        )
+    }
+}
+
+extension NavigationPadView.ArrowDirection: RawRepresentable {
+    init?(rawValue: Int) {
+        switch rawValue {
+        case 0: self = .up
+        case 1: self = .down
+        case 2: self = .left
+        case 3: self = .right
+        default: return nil
+        }
+    }
+
+    var rawValue: Int {
+        switch self {
+        case .up: return 0
+        case .down: return 1
+        case .left: return 2
+        case .right: return 3
         }
     }
 }
@@ -918,14 +1355,21 @@ class TerminalController: NSObject, ObservableObject {
         // Configure terminal options
         terminalView.optionAsMetaKey = true
 
-        // Hide the iOS system cursor by making caret invisible
-        terminalView.caretColor = UIColor.clear
+        // CRITICAL: Set nativeBackgroundColor to opaque black (not .clear)
+        // SwiftTerm defaults to .clear on iOS, which breaks inverse video for TUI cursors
+        // Inverse video needs opaque colors to properly swap fg/bg
+        terminalView.nativeBackgroundColor = UIColor.black
+
+        // Set cursor to white to match TUI cursor appearance
+        // CaretView draws a colored block + character, making the cursor visible
+        terminalView.caretColor = UIColor.white
     }
 
     private func setupWebSocketCallbacks() {
         // Handle binary PTY output
         webSocketManager.onData = { [weak self] data in
             guard let self = self else { return }
+
 
             // Mark that we've received data (for loading indicator)
             if !self.hasReceivedData {
@@ -965,6 +1409,11 @@ class TerminalController: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.bufferReplayComplete = true
                     self.updateAccessoryStatus()
+
+                    // Note: We don't query cursor position for Claude sessions because:
+                    // 1. Claude's TUI may not be fully initialized yet, leading to wrong position
+                    // 2. SwiftTerm should track cursor correctly from escape sequences
+                    // 3. The forced resize will trigger a redraw with correct cursor positioning
                 }
 
             case "buffer-size":
@@ -1079,6 +1528,12 @@ class TerminalController: NSObject, ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self = self, self.connectionGeneration == currentGeneration else { return }
             self.handleResize()
+
+            // Now that everything is settled, show the cursor
+            // This allows the TUI to control cursor rendering via escape sequences
+            if self.bufferReplayComplete {
+                self.terminalView.showCursor(source: self.terminalView.getTerminal())
+            }
         }
     }
 
@@ -1126,6 +1581,9 @@ class TerminalController: NSObject, ObservableObject {
         let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
 
         NSLog("📐 Sending ready signal with dimensions: %dx%d (min: %dx%d)", cols, rows, Self.minCols, Self.minRows)
+
+        // Note: Don't call showCursor() - let Claude's TUI control cursor visibility
+        // via escape sequences. Early showCursor() causes cursor to be visible at wrong position.
 
         // Send resize to ensure backend knows our dimensions
         webSocketManager.sendResize(cols: cols, rows: rows)
