@@ -2882,7 +2882,8 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
                   {
                     error: "Codespace unavailable",
                     code: "CODESPACE_SHUTDOWN",
-                    message: `Your codespace is ${state.toLowerCase()}. Reconnect to restart it.`,
+                    message:
+                      "Your codespace has shut down. Reconnect to restart it.",
                     state: state,
                   },
                   502,

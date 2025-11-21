@@ -150,6 +150,7 @@ class TerminalViewWrapper: UIView {
 
     // Floating glass toolbar
     private var floatingToolbar: GlassTerminalAccessory?
+    private var navigationPad: NavigationPadView?
     private var keyboardHeight: CGFloat = 0
     private var keyboardObservers: [NSObjectProtocol] = []
 
@@ -162,15 +163,24 @@ class TerminalViewWrapper: UIView {
         // Add terminal view
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Calculate minimum width needed for minCols
+        let font = terminalView.font ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let minWidth = TerminalController.calculateMinWidth(font: font)
+
+        // Set width to at least minWidth, but remove trailing constraint so it can extend
         NSLayoutConstraint.activate([
             terminalView.topAnchor.constraint(equalTo: topAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: trailingAnchor)
+            terminalView.widthAnchor.constraint(equalToConstant: minWidth)
         ])
 
         // Add bottom content inset so terminal content extends behind the glass toolbar
         terminalView.contentInset.bottom = 56
+
+        // Also set scroll indicator insets so they don't appear behind the toolbar
+        terminalView.scrollIndicatorInsets.bottom = 56
 
         // Create floating glass toolbar that overlays the terminal
         // We'll position it manually in layoutSubviews to handle the wider terminal view
@@ -181,6 +191,14 @@ class TerminalViewWrapper: UIView {
         )
         floatingToolbar = toolbar
         controller.accessoryView = toolbar
+
+        // Create navigation pad (floating D-pad)
+        let navPad = NavigationPadView(
+            terminalView: terminalView,
+            controller: controller
+        )
+        navigationPad = navPad
+        toolbar.navigationPad = navPad
 
         // Observe keyboard to position toolbar above it
         setupKeyboardObservers()
@@ -197,11 +215,19 @@ class TerminalViewWrapper: UIView {
             window.addSubview(toolbar)
             positionToolbar()
         }
+
+        // Add navigation pad to window (initially hidden)
+        if let window = window, let navPad = navigationPad, navPad.superview == nil {
+            navPad.alpha = 0  // Hidden until toggled
+            window.addSubview(navPad)
+            positionNavigationPad()
+        }
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         positionToolbar()
+        positionNavigationPad()
     }
 
     private func positionToolbar() {
@@ -223,9 +249,24 @@ class TerminalViewWrapper: UIView {
         )
     }
 
+    private func positionNavigationPad() {
+        guard let navPad = navigationPad, let window = window else { return }
+
+        let size = NavigationPadView.size
+        let margin: CGFloat = 16
+        let gapAboveToolbar: CGFloat = 2  // Very close to toolbar for tight visual grouping
+
+        // Position in lower-right corner, above toolbar
+        let x = window.bounds.width - size - margin
+        let y = (floatingToolbar?.frame.minY ?? window.bounds.height) - size - gapAboveToolbar
+
+        navPad.frame = CGRect(x: x, y: y, width: size, height: size)
+    }
+
     override func removeFromSuperview() {
-        // Clean up toolbar from window when we're removed
+        // Clean up toolbar and navigation pad from window when we're removed
         floatingToolbar?.removeFromSuperview()
+        navigationPad?.removeFromSuperview()
         super.removeFromSuperview()
     }
 
@@ -397,6 +438,11 @@ class GlassTerminalAccessory: UIInputView {
     // Bash mode toggle state
     private var isBashMode = false
     private var bashButton: UIButton?
+
+    // Navigation pad state
+    weak var navigationPad: NavigationPadView?
+    private var isNavigationPadVisible = false
+    private var navPadToggleButton: UIButton?
 
     // Glass effect views
     private var glassContainer: UIVisualEffectView?
@@ -609,21 +655,27 @@ class GlassTerminalAccessory: UIInputView {
         // Essential keys
         stackView.addArrangedSubview(createGlassButton(title: "esc", action: #selector(escPressed), accessibilityHint: "Send escape key"))
 
-        let bashBtn = createGlassButton(title: "!", action: #selector(bangPressed), accessibilityHint: "Toggle bash mode")
+        // Narrower button for "!"
+        let bashBtn = createGlassButton(title: "!", minWidth: 24, action: #selector(bangPressed), accessibilityHint: "Toggle bash mode")
         bashButton = bashBtn
         stackView.addArrangedSubview(bashBtn)
 
-        stackView.addArrangedSubview(createGlassButton(title: "\\n", action: #selector(newlinePressed), accessibilityLabel: "Newline", accessibilityHint: "Send newline character"))
+        // Narrower button for "\n"
+        stackView.addArrangedSubview(createGlassButton(title: "\\n", minWidth: 24, action: #selector(newlinePressed), accessibilityLabel: "Newline", accessibilityHint: "Send newline character"))
         stackView.addArrangedSubview(createGlassButton(title: "tab", action: #selector(tabPressed), accessibilityHint: "Send tab key for autocomplete"))
 
-        // Arrow keys with SF Symbols
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.up", action: #selector(upPressed), accessibilityLabel: "Up arrow", accessibilityHint: "Navigate up or previous command"))
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.down", action: #selector(downPressed), accessibilityLabel: "Down arrow", accessibilityHint: "Navigate down or next command"))
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.left", action: #selector(leftPressed), accessibilityLabel: "Left arrow", accessibilityHint: "Move cursor left"))
-        stackView.addArrangedSubview(createGlassButton(systemImage: "arrow.right", action: #selector(rightPressed), accessibilityLabel: "Right arrow", accessibilityHint: "Move cursor right"))
+        // Navigation pad toggle (replaces 4 individual arrow buttons)
+        let navPadButton = createGlassButton(
+            systemImage: "dpad",
+            action: #selector(navigationPadPressed),
+            accessibilityLabel: "Navigation pad",
+            accessibilityHint: "Show directional controls"
+        )
+        navPadToggleButton = navPadButton
+        stackView.addArrangedSubview(navPadButton)
 
-        // Help toggle
-        let helpBtn = createGlassButton(systemImage: "questionmark", action: #selector(helpPressed), accessibilityLabel: "Help", accessibilityHint: "Show or hide help menu")
+        // Help toggle (smaller icon and narrower width)
+        let helpBtn = createGlassButton(systemImage: "questionmark", iconSize: 12, minWidth: 24, action: #selector(helpPressed), accessibilityLabel: "Help", accessibilityHint: "Show or hide help menu")
         helpButton = helpBtn
         stackView.addArrangedSubview(helpBtn)
 
@@ -634,11 +686,11 @@ class GlassTerminalAccessory: UIInputView {
         }
     }
 
-    private func createGlassButton(title: String? = nil, systemImage: String? = nil, action: Selector, accessibilityLabel: String? = nil, accessibilityHint: String? = nil) -> UIButton {
+    private func createGlassButton(title: String? = nil, systemImage: String? = nil, iconSize: CGFloat = 16, minWidth: CGFloat = 40, action: Selector, accessibilityLabel: String? = nil, accessibilityHint: String? = nil) -> UIButton {
         let button = UIButton(type: .system)
 
         if let imageName = systemImage {
-            let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            let config = UIImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
             let image = UIImage(systemName: imageName, withConfiguration: config)
             button.setImage(image, for: .normal)
         }
@@ -663,7 +715,7 @@ class GlassTerminalAccessory: UIInputView {
 
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: minWidth),
             button.heightAnchor.constraint(equalToConstant: 36)
         ])
 
@@ -737,7 +789,7 @@ class GlassTerminalAccessory: UIInputView {
             }
             isPlanMode = true
             modeButton?.setTitle("plan", for: .normal)
-            updateButtonTextHighlight(modeButton, active: true, color: .systemBlue)
+            updateButtonTextHighlight(modeButton, active: true, color: .systemCyan)
         }
     }
 
@@ -765,6 +817,44 @@ class GlassTerminalAccessory: UIInputView {
             isBashMode = false
             updateButtonTextHighlight(bashButton, active: false, color: .systemPink)
         }
+    }
+
+    // MARK: - State Synchronization (for reconnection)
+
+    func syncPlanMode(enabled: Bool) {
+        // Sync plan mode state without sending terminal commands
+        // Called after reconnection to match TUI state
+        isPlanMode = enabled
+        if enabled {
+            modeButton?.setTitle("plan", for: .normal)
+            updateButtonTextHighlight(modeButton, active: true, color: .systemCyan)
+        } else {
+            modeButton?.setTitle("code", for: .normal)
+            updateButtonTextHighlight(modeButton, active: false, color: .label)
+        }
+        NSLog("🔄 Synced plan mode state: %@", enabled ? "ON" : "OFF")
+    }
+
+    func syncBashMode(enabled: Bool) {
+        // Sync bash mode state without sending terminal commands
+        isBashMode = enabled
+        if enabled {
+            updateButtonTextHighlight(bashButton, active: true, color: .systemPink)
+        } else {
+            updateButtonTextHighlight(bashButton, active: false, color: .label)
+        }
+        NSLog("🔄 Synced bash mode state: %@", enabled ? "ON" : "OFF")
+    }
+
+    func syncHelpMode(enabled: Bool) {
+        // Sync help mode state without sending terminal commands
+        isHelpActive = enabled
+        if enabled {
+            updateButtonTextHighlight(helpButton, active: true, color: .systemCyan)
+        } else {
+            updateButtonTextHighlight(helpButton, active: false, color: .label)
+        }
+        NSLog("🔄 Synced help mode state: %@", enabled ? "ON" : "OFF")
     }
 
     @objc private func escPressed() {
@@ -829,6 +919,54 @@ class GlassTerminalAccessory: UIInputView {
         }
     }
 
+    // MARK: - Navigation Pad Management
+
+    @objc private func navigationPadPressed() {
+        if isNavigationPadVisible {
+            hideNavigationPad()
+        } else {
+            showNavigationPad()
+        }
+    }
+
+    private func showNavigationPad() {
+        guard let navigationPad = navigationPad, !isNavigationPadVisible else { return }
+
+        isNavigationPadVisible = true
+
+        // Update toggle button state
+        updateButtonTextHighlight(navPadToggleButton, active: true, color: .systemBlue)
+
+        // Get button position in window coordinates for morph animation
+        var originPoint: CGPoint?
+        if let button = navPadToggleButton, let window = window {
+            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
+            originPoint = buttonCenter
+        }
+
+        // Animate navigation pad in from button position
+        navigationPad.show(fromPoint: originPoint)
+    }
+
+    private func hideNavigationPad() {
+        guard isNavigationPadVisible else { return }
+
+        isNavigationPadVisible = false
+
+        // Update toggle button state
+        updateButtonTextHighlight(navPadToggleButton, active: false, color: .label)
+
+        // Get button position in window coordinates for morph animation
+        var targetPoint: CGPoint?
+        if let button = navPadToggleButton, let window = window {
+            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
+            targetPoint = buttonCenter
+        }
+
+        // Animate navigation pad out to button position
+        navigationPad?.hide(toPoint: targetPoint)
+    }
+
     // Background color highlight for buttons like bash mode
     private func updateButtonHighlight(_ button: UIButton?, active: Bool, color: UIColor = .clear) {
         guard let button = button else { return }
@@ -860,6 +998,455 @@ class GlassTerminalAccessory: UIInputView {
     }
 }
 
+// MARK: - Navigation Pad View (Floating D-pad)
+
+class NavigationPadView: UIView {
+    static var size: CGFloat = 80  // Configurable for experimentation
+
+    private weak var terminalView: SwiftTerm.TerminalView?
+    private weak var controller: TerminalController?
+
+    private var glassContainer: UIVisualEffectView?
+    private var upButton: UIButton!
+    private var downButton: UIButton!
+    private var leftButton: UIButton!
+    private var rightButton: UIButton!
+
+    private var repeatingTimer: Timer?
+    private var currentDirection: ArrowDirection?
+    private var intendedCenter: CGPoint = .zero  // Track proper position for animations
+
+    enum ArrowDirection {
+        case up, down, left, right
+    }
+
+    init(terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
+        self.terminalView = terminalView
+        self.controller = controller
+
+        super.init(frame: CGRect(x: 0, y: 0, width: Self.size, height: Self.size))
+
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupUI() {
+        // Transparent background
+        backgroundColor = .clear
+        isOpaque = false
+
+        // Create glass container
+        let glassView = createGlassContainer()
+        glassContainer = glassView
+        addSubview(glassView)
+
+        glassView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            glassView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassView.topAnchor.constraint(equalTo: topAnchor),
+            glassView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        // Add etched X pattern for visual depth
+        addEtchedXPattern(to: glassView)
+
+        // Create directional buttons in diamond layout
+        createButtons(in: glassView.contentView)
+    }
+
+    private func createGlassContainer() -> UIVisualEffectView {
+        let effectView = UIVisualEffectView()
+        effectView.clipsToBounds = true
+
+        // Use compile-time check for iOS 26+ SDK availability
+        #if compiler(>=6.0)
+        if #available(iOS 26.0, *) {
+            let glassEffect = UIGlassEffect(style: .regular)
+            glassEffect.isInteractive = true
+            effectView.cornerConfiguration = .capsule()
+
+            UIView.animate(withDuration: 0.4) {
+                effectView.effect = glassEffect
+            }
+        } else {
+            effectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+            effectView.layer.cornerRadius = 22
+        }
+        #else
+        effectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+        effectView.layer.cornerRadius = 22
+        #endif
+
+        return effectView
+    }
+
+    private func addEtchedXPattern(to glassView: UIVisualEffectView) {
+        let size = Self.size
+        let inset: CGFloat = 12  // Distance from edges
+
+        // Create path for X pattern - two diagonal lines
+        let xPath = UIBezierPath()
+
+        // Top-left to bottom-right diagonal
+        xPath.move(to: CGPoint(x: inset, y: inset))
+        xPath.addLine(to: CGPoint(x: size - inset, y: size - inset))
+
+        // Top-right to bottom-left diagonal
+        xPath.move(to: CGPoint(x: size - inset, y: inset))
+        xPath.addLine(to: CGPoint(x: inset, y: size - inset))
+
+        // Create shadow layer (darker, slightly offset down-right for depth)
+        let shadowLayer = CAShapeLayer()
+        shadowLayer.path = xPath.cgPath
+        shadowLayer.strokeColor = UIColor.black.withAlphaComponent(0.25).cgColor
+        shadowLayer.lineWidth = 0.75
+        shadowLayer.fillColor = nil
+        shadowLayer.lineCap = .round
+        shadowLayer.frame = CGRect(x: 0.6, y: 0.6, width: size, height: size)
+
+        // Create highlight layer (lighter, etched glass look)
+        let highlightLayer = CAShapeLayer()
+        highlightLayer.path = xPath.cgPath
+        highlightLayer.strokeColor = UIColor.white.withAlphaComponent(0.22).cgColor
+        highlightLayer.lineWidth = 0.75
+        highlightLayer.fillColor = nil
+        highlightLayer.lineCap = .round
+        highlightLayer.frame = CGRect(x: 0, y: 0, width: size, height: size)
+
+        // Add to glass view's layer (below content)
+        glassView.layer.insertSublayer(shadowLayer, at: 0)
+        glassView.layer.insertSublayer(highlightLayer, at: 1)
+    }
+
+    private func createButtons(in container: UIView) {
+        let buttonSize: CGFloat = 36
+        let centerOffset: CGFloat = 20  // Distance from center to button center
+        let center = Self.size / 2
+
+        // Up button (top)
+        upButton = createDirectionButton(
+            systemImage: "arrow.up",
+            direction: .up,
+            x: center - buttonSize/2,
+            y: center - centerOffset - buttonSize/2
+        )
+        container.addSubview(upButton)
+
+        // Down button (bottom)
+        downButton = createDirectionButton(
+            systemImage: "arrow.down",
+            direction: .down,
+            x: center - buttonSize/2,
+            y: center + centerOffset - buttonSize/2
+        )
+        container.addSubview(downButton)
+
+        // Left button
+        leftButton = createDirectionButton(
+            systemImage: "arrow.left",
+            direction: .left,
+            x: center - centerOffset - buttonSize/2,
+            y: center - buttonSize/2
+        )
+        container.addSubview(leftButton)
+
+        // Right button
+        rightButton = createDirectionButton(
+            systemImage: "arrow.right",
+            direction: .right,
+            x: center + centerOffset - buttonSize/2,
+            y: center - buttonSize/2
+        )
+        container.addSubview(rightButton)
+    }
+
+    private func createDirectionButton(systemImage: String, direction: ArrowDirection, x: CGFloat, y: CGFloat) -> UIButton {
+        let button = UIButton(type: .system)
+
+        // Use lighter weight for more subtle appearance
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .light)
+        let image = UIImage(systemName: systemImage, withConfiguration: config)
+        button.setImage(image, for: .normal)
+
+        // Reduce opacity for subtler look that complements the etched glass
+        button.tintColor = UIColor.label.withAlphaComponent(0.65)
+        button.backgroundColor = .clear
+
+        button.frame = CGRect(x: x, y: y, width: 36, height: 36)
+
+        // Add subtle etched glass effect to button itself
+        addEtchedEffect(to: button)
+
+        // Add tap gesture for instant response
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        button.addGestureRecognizer(tapGesture)
+
+        // Add long press for repeat mode
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.5
+        button.addGestureRecognizer(longPress)
+
+        // Tag to identify direction
+        button.tag = direction.rawValue
+
+        // Accessibility
+        button.accessibilityLabel = "\(systemImage.replacingOccurrences(of: "arrow.", with: "")) arrow"
+        button.isAccessibilityElement = true
+
+        return button
+    }
+
+    private func addEtchedEffect(to button: UIButton) {
+        // Add etched glass effect directly to the arrow icon
+        // This creates a subtle shadow + highlight on the symbol itself
+
+        // Wait for imageView to be created, then add shadow/highlight
+        DispatchQueue.main.async {
+            guard let imageView = button.imageView else { return }
+
+            // Add very subtle drop shadow to the icon for depth (reduced for lighter icons)
+            imageView.layer.shadowColor = UIColor.black.cgColor
+            imageView.layer.shadowOffset = CGSize(width: 0.4, height: 0.4)
+            imageView.layer.shadowOpacity = 0.3  // Reduced from 0.4 to complement lighter icons
+            imageView.layer.shadowRadius = 0.4
+            imageView.layer.masksToBounds = false
+
+            // Create a duplicate image view for the highlight (etched glass effect)
+            if let image = button.image(for: .normal) {
+                let highlightImageView = UIImageView(image: image)
+                highlightImageView.tintColor = UIColor.white.withAlphaComponent(0.2)  // Slightly reduced
+                highlightImageView.frame = imageView.frame
+                highlightImageView.contentMode = imageView.contentMode
+
+                // Offset slightly up-left for etched highlight
+                highlightImageView.center = CGPoint(
+                    x: imageView.center.x - 0.4,
+                    y: imageView.center.y - 0.4
+                )
+
+                // Insert behind the main image
+                button.insertSubview(highlightImageView, belowSubview: imageView)
+
+                // Make highlight move with the main imageView
+                highlightImageView.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    highlightImageView.centerXAnchor.constraint(equalTo: imageView.centerXAnchor, constant: -0.4),
+                    highlightImageView.centerYAnchor.constraint(equalTo: imageView.centerYAnchor, constant: -0.4),
+                    highlightImageView.widthAnchor.constraint(equalTo: imageView.widthAnchor),
+                    highlightImageView.heightAnchor.constraint(equalTo: imageView.heightAnchor)
+                ])
+            }
+        }
+    }
+
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        guard let button = gesture.view as? UIButton,
+              let direction = ArrowDirection(rawValue: button.tag) else { return }
+
+        // Visual feedback
+        animateButtonPress(button)
+
+        // Send arrow key
+        sendArrowKey(direction)
+    }
+
+    @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard let button = gesture.view as? UIButton,
+              let direction = ArrowDirection(rawValue: button.tag) else { return }
+
+        switch gesture.state {
+        case .began:
+            // Enter repeat mode
+            currentDirection = direction
+
+            // Highlight button
+            UIView.animate(withDuration: 0.2) {
+                button.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.3)
+            }
+
+            // Send first arrow key
+            sendArrowKey(direction)
+
+            // Start repeating timer
+            repeatingTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                self?.sendArrowKey(direction)
+            }
+
+        case .ended, .cancelled:
+            // Exit repeat mode
+            currentDirection = nil
+
+            // Clear highlight
+            UIView.animate(withDuration: 0.2) {
+                button.backgroundColor = .clear
+            }
+
+            // Stop timer
+            repeatingTimer?.invalidate()
+            repeatingTimer = nil
+
+        default:
+            break
+        }
+    }
+
+    private func animateButtonPress(_ button: UIButton) {
+        UIView.animate(withDuration: 0.1, animations: {
+            button.transform = CGAffineTransform(scaleX: 0.95, y: 0.95)
+        }) { _ in
+            UIView.animate(withDuration: 0.1) {
+                button.transform = .identity
+            }
+        }
+    }
+
+    private func sendArrowKey(_ direction: ArrowDirection) {
+        switch direction {
+        case .up:
+            terminalView?.send(txt: "\u{1B}[A")
+        case .down:
+            terminalView?.send(txt: "\u{1B}[B")
+        case .left:
+            terminalView?.send(txt: "\u{1B}[D")
+        case .right:
+            terminalView?.send(txt: "\u{1B}[C")
+        }
+    }
+
+    func cleanup() {
+        repeatingTimer?.invalidate()
+        repeatingTimer = nil
+        currentDirection = nil
+    }
+
+    // MARK: - Show/Hide Animations (Liquid Glass Style)
+
+    func show(fromPoint: CGPoint? = nil, completion: (() -> Void)? = nil) {
+        // Store the intended final position BEFORE any modifications
+        // This is where positionNavigationPad() placed us
+        if intendedCenter == .zero {
+            intendedCenter = center
+        }
+        let finalCenter = intendedCenter
+
+        if let origin = fromPoint {
+            // Morph from button position
+            center = origin
+            transform = CGAffineTransform(scaleX: 0.15, y: 0.15)  // Start very small like a button
+            alpha = 0
+        } else {
+            // Fallback: standard entrance from below
+            transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+                .rotated(by: .pi / 12)
+                .translatedBy(x: 0, y: 20)
+            alpha = 0
+        }
+
+        // Animate glass effect materialization (iOS 26+ feature)
+        #if compiler(>=6.0)
+        if #available(iOS 26.0, *), let glassContainer = glassContainer {
+            glassContainer.effect = nil
+        }
+        #endif
+
+        // Fluid spring animation for liquid glass feel with morph effect
+        UIView.animate(
+            withDuration: 0.55,
+            delay: 0,
+            usingSpringWithDamping: 0.68,  // Slightly higher for smoother morph
+            initialSpringVelocity: 0.6,
+            options: [.curveEaseOut, .allowUserInteraction],
+            animations: {
+                self.alpha = 1.0
+                self.center = finalCenter
+                self.transform = .identity
+
+                // Materialize glass effect for liquid glass shimmer
+                #if compiler(>=6.0)
+                if #available(iOS 26.0, *), let glassContainer = self.glassContainer {
+                    let glassEffect = UIGlassEffect(style: .regular)
+                    glassEffect.isInteractive = true
+                    glassContainer.effect = glassEffect
+                }
+                #endif
+            },
+            completion: { _ in
+                completion?()
+            }
+        )
+    }
+
+    func hide(toPoint: CGPoint? = nil, completion: (() -> Void)? = nil) {
+        // Animate out: morph back to button position or standard exit
+        UIView.animate(
+            withDuration: 0.4,
+            delay: 0,
+            usingSpringWithDamping: 0.85,  // Higher damping for controlled collapse
+            initialSpringVelocity: 0.3,
+            options: [.curveEaseIn, .allowUserInteraction],
+            animations: {
+                self.alpha = 0
+
+                if let target = toPoint {
+                    // Morph back to button position
+                    self.center = target
+                    self.transform = CGAffineTransform(scaleX: 0.15, y: 0.15)  // Collapse to button size
+                } else {
+                    // Fallback: standard exit
+                    self.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
+                        .rotated(by: -.pi / 12)
+                        .translatedBy(x: 0, y: 20)
+                }
+
+                // Dematerialize glass effect
+                #if compiler(>=6.0)
+                if #available(iOS 26.0, *), let glassContainer = self.glassContainer {
+                    glassContainer.effect = nil
+                }
+                #endif
+            },
+            completion: { [weak self] _ in
+                guard let self = self else { return }
+
+                // Reset transform for next show
+                self.transform = .identity
+
+                // Reset to intended position for next show animation
+                self.center = self.intendedCenter
+
+                // Clean up any active repeat timers
+                self.cleanup()
+                completion?()
+            }
+        )
+    }
+}
+
+extension NavigationPadView.ArrowDirection: RawRepresentable {
+    init?(rawValue: Int) {
+        switch rawValue {
+        case 0: self = .up
+        case 1: self = .down
+        case 2: self = .left
+        case 3: self = .right
+        default: return nil
+        }
+    }
+
+    var rawValue: Int {
+        switch self {
+        case .up: return 0
+        case .down: return 1
+        case .left: return 2
+        case .right: return 3
+        }
+    }
+}
+
 // MARK: - Legacy Custom Terminal Accessory View (Fallback)
 
 typealias CustomTerminalAccessory = GlassTerminalAccessory
@@ -882,12 +1469,26 @@ class TerminalController: NSObject, ObservableObject {
     weak var accessoryView: GlassTerminalAccessory?
 
     // Buffer batching for performance during large buffer replays
+    // Keep buffer on main thread to eliminate queue hopping
     private var pendingDataBuffer: [UInt8] = []
     private var feedTimer: Timer?
-    private let feedQueue = DispatchQueue(label: "com.catnip.terminal.feed", qos: .userInteractive)
 
     // Connection generation tracking to invalidate stale async callbacks
     private var connectionGeneration: Int = 0
+
+    // Connection state tracking for event-based initialization
+    private var hasInitializedTerminal = false
+
+    // Debouncing for status updates to prevent rapid UI changes
+    private var statusUpdateTimer: Timer?
+
+    // Recent PTY output buffer for backspace fix (last 5KB)
+    // Used to detect prompt text after reconnection
+    private var recentOutputBuffer: Data = Data()
+    private let maxBufferSize = 5 * 1024  // 5KB
+
+    // Flag to suppress sending during textInputStorage population
+    private var suppressSendDuringPopulation = false
 
     init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, showDismissButton: Bool = true) {
         // Create terminal view
@@ -918,8 +1519,19 @@ class TerminalController: NSObject, ObservableObject {
         // Configure terminal options
         terminalView.optionAsMetaKey = true
 
-        // Hide the iOS system cursor by making caret invisible
+        // CRITICAL: Set nativeBackgroundColor to opaque black (not .clear)
+        // SwiftTerm defaults to .clear on iOS, which breaks inverse video for TUI cursors
+        // Inverse video needs opaque colors to properly swap fg/bg
+        terminalView.nativeBackgroundColor = UIColor.black
+
+        // Set caret to clear to prevent system caret from rendering
+        // The TUI controls its own cursor rendering via escape sequences
         terminalView.caretColor = UIColor.clear
+
+        // TODO: Fix backspace issue after reconnection
+        // SwiftTerm blocks backspace when textInputStorage is empty (line 1127 in iOSTerminalView.swift)
+        // Need to either: 1) Fork SwiftTerm and expose textInputStorage, or
+        // 2) Implement custom text input handling to bypass SwiftTerm's check
     }
 
     private func setupWebSocketCallbacks() {
@@ -927,25 +1539,30 @@ class TerminalController: NSObject, ObservableObject {
         webSocketManager.onData = { [weak self] data in
             guard let self = self else { return }
 
-            // Mark that we've received data (for loading indicator)
-            if !self.hasReceivedData {
-                DispatchQueue.main.async {
+            // Always process on main thread to eliminate queue hopping
+            DispatchQueue.main.async {
+                // Mark that we've received data (for loading indicator)
+                if !self.hasReceivedData {
                     self.hasReceivedData = true
                     self.updateAccessoryStatus()
                 }
-            }
 
-            // During buffer replay, batch data for better performance
-            // After buffer replay, feed immediately for responsive live interaction
-            if self.bufferReplayComplete {
-                // Live mode - feed immediately on main thread
-                DispatchQueue.main.async {
+                // Append to recent output buffer (keep last 5KB for backspace fix)
+                self.recentOutputBuffer.append(data)
+                if self.recentOutputBuffer.count > self.maxBufferSize {
+                    self.recentOutputBuffer = self.recentOutputBuffer.suffix(self.maxBufferSize)
+                }
+
+                // During buffer replay, batch data for better performance
+                // After buffer replay, feed immediately for responsive live interaction
+                if self.bufferReplayComplete {
+                    // Live mode - feed immediately (already on main thread)
                     let bytes = ArraySlice([UInt8](data))
                     self.terminalView.feed(byteArray: bytes)
+                } else {
+                    // Buffer replay mode - batch for performance (on main thread)
+                    self.batchData(data)
                 }
-            } else {
-                // Buffer replay mode - batch for performance
-                self.batchData(data)
             }
         }
 
@@ -965,6 +1582,27 @@ class TerminalController: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self.bufferReplayComplete = true
                     self.updateAccessoryStatus()
+
+                    // Initialize terminal after buffer replay is complete
+                    // Only do this once per connection
+                    if !self.hasInitializedTerminal {
+                        self.hasInitializedTerminal = true
+
+                        // Detect TUI state from buffer contents
+                        self.detectAndSyncTUIState()
+
+                        // Send resize to ensure TUI is properly sized
+                        self.handleResize()
+
+                        // Now that buffer is complete, show the cursor
+                        // This allows the TUI to control cursor rendering via escape sequences
+                        self.terminalView.showCursor(source: self.terminalView.getTerminal())
+                    }
+
+                    // Note: We don't query cursor position for Claude sessions because:
+                    // 1. Claude's TUI may not be fully initialized yet, leading to wrong position
+                    // 2. SwiftTerm should track cursor correctly from escape sequences
+                    // 3. The forced resize will trigger a redraw with correct cursor positioning
                 }
 
             case "buffer-size":
@@ -978,11 +1616,19 @@ class TerminalController: NSObject, ObservableObject {
             }
         }
 
-        // Monitor connection status
+        // Monitor connection status and send ready signal when connected
         webSocketManager.$isConnected
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateAccessoryStatus()
+            .sink { [weak self] isConnected in
+                guard let self = self else { return }
+
+                // Send ready signal as soon as connected (event-based, not time-based)
+                if isConnected && !self.hasSentReady {
+                    self.hasSentReady = true
+                    self.sendReadySignal()
+                }
+
+                self.updateAccessoryStatus()
             }
             .store(in: &cancellables)
 
@@ -1007,79 +1653,182 @@ class TerminalController: NSObject, ObservableObject {
     // MARK: - Batching for Performance
 
     private func batchData(_ data: Data) {
-        feedQueue.async { [weak self] in
-            guard let self = self else { return }
+        // Already on main thread - no queue hopping needed
+        // Append to pending buffer
+        pendingDataBuffer.append(contentsOf: data)
 
-            // Append to pending buffer
-            self.pendingDataBuffer.append(contentsOf: data)
+        // Cancel existing timer and schedule new one
+        feedTimer?.invalidate()
 
-            // Cancel existing timer on main thread
-            DispatchQueue.main.async {
-                self.feedTimer?.invalidate()
-
-                // Schedule flush after a short delay (allows batching multiple packets)
-                // Use shorter delay during buffer replay for better perceived performance
-                let delay: TimeInterval = 0.016 // ~60fps
-                self.feedTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                    self?.flushPendingData()
-                }
-            }
-
-            // Also flush if buffer gets large (prevents unbounded memory growth)
-            if self.pendingDataBuffer.count > 32768 { // 32KB threshold
-                DispatchQueue.main.async {
-                    self.feedTimer?.invalidate()
-                }
-                self.flushPendingData()
+        // Flush immediately if buffer gets large (prevents unbounded memory growth)
+        if pendingDataBuffer.count > 32768 { // 32KB threshold
+            flushPendingData()
+        } else {
+            // Schedule flush after a short delay (allows batching multiple packets)
+            // Reduced delay for faster initial render
+            let delay: TimeInterval = 0.008 // ~120fps, half the previous delay
+            feedTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                self?.flushPendingData()
             }
         }
     }
 
     private func flushPendingData() {
-        feedQueue.async { [weak self] in
-            guard let self = self else { return }
-            guard !self.pendingDataBuffer.isEmpty else { return }
+        // Already on main thread (SwiftTerm requires it)
+        guard !pendingDataBuffer.isEmpty else { return }
 
-            let dataToFeed = self.pendingDataBuffer
-            self.pendingDataBuffer.removeAll(keepingCapacity: true)
+        let bytes = ArraySlice(pendingDataBuffer)
+        pendingDataBuffer.removeAll(keepingCapacity: true)
 
-            // Feed on main thread (SwiftTerm requires it)
-            DispatchQueue.main.async {
-                let bytes = ArraySlice(dataToFeed)
-                self.terminalView.feed(byteArray: bytes)
+        terminalView.feed(byteArray: bytes)
+    }
+
+    // MARK: - TUI State Detection and Backspace Fix
+
+    private func detectAndSyncTUIState() {
+        // Parse our recentOutputBuffer to detect TUI state and fix backspace issue
+        guard let bufferText = String(data: recentOutputBuffer, encoding: .utf8) else {
+            NSLog("⚠️ Unable to decode recent buffer as UTF-8")
+            return
+        }
+
+        NSLog("🔍 Analyzing recent buffer (%d bytes) for TUI state", recentOutputBuffer.count)
+
+        // Strip ANSI color codes for text matching
+        let cleanedBuffer = stripANSIColorCodes(bufferText)
+
+        // Detect plan mode: "plan mode on (shift+tab to cycle)"
+        if cleanedBuffer.contains("plan mode on") {
+            NSLog("✅ Detected: Plan mode is ON")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncPlanMode(enabled: true)
+            }
+        } else {
+            NSLog("ℹ️ Detected: Plan mode is OFF (code mode)")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncPlanMode(enabled: false)
             }
         }
+
+        // Detect bash mode: "! for bash mode"
+        // When "! for bash mode" is visible → we ARE in bash mode (it's the mode indicator)
+        // When it's not visible → we are NOT in bash mode
+        if cleanedBuffer.contains("! for bash mode") {
+            NSLog("✅ Detected: IN bash mode (indicator visible)")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncBashMode(enabled: true)
+            }
+        } else {
+            NSLog("ℹ️ NOT in bash mode (indicator not visible)")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncBashMode(enabled: false)
+            }
+        }
+
+        // Detect help mode: "For more help: https://docs.claude.com"
+        if cleanedBuffer.contains("For more help:") && cleanedBuffer.contains("docs.claude.com") {
+            NSLog("✅ Detected: Help mode is ACTIVE")
+            DispatchQueue.main.async { [weak self] in
+                self?.accessoryView?.syncHelpMode(enabled: true)
+            }
+        }
+
+        // Fix backspace issue: Extract prompt text after ">" and populate SwiftTerm's textInputStorage
+        populateTextInputStorage(from: cleanedBuffer)
+    }
+
+    private func populateTextInputStorage(from bufferText: String) {
+        // Extract text after the last ">" prompt marker
+        // This text is what the user should be able to backspace after reconnection
+
+        let lines = bufferText.components(separatedBy: "\n")
+
+        // Find the last line with a ">" prompt
+        for line in lines.reversed() {
+            if let promptRange = line.range(of: ">") {
+                // Extract text after ">" (still has ANSI codes)
+                let afterPromptWithCodes = String(line[promptRange.upperBound...])
+
+                // Check if this is a placeholder vs actual user input
+                // Method 1: Check for "Try " prefix (most reliable)
+                // Method 2: Check for dim/gray escape codes: ESC[2m or ESC[90m
+                let cleanedText = stripANSIColorCodes(afterPromptWithCodes)
+                if cleanedText.trimmingCharacters(in: .whitespaces).hasPrefix("Try \"") {
+                    NSLog("ℹ️ Skipping placeholder prompt (starts with 'Try \"')")
+                    continue  // Skip placeholders
+                }
+                if afterPromptWithCodes.contains("\u{1B}[2m") || afterPromptWithCodes.contains("\u{1B}[90m") {
+                    NSLog("ℹ️ Skipping placeholder prompt (dim/gray ANSI codes)")
+                    continue  // Skip placeholders
+                }
+
+                // Strip ANSI codes to get clean text
+                let afterPrompt = stripANSIColorCodes(afterPromptWithCodes).trimmingCharacters(in: .whitespaces)
+
+                if !afterPrompt.isEmpty {
+                    NSLog("🔍 Found user prompt text to populate: \"%@\"", afterPrompt)
+
+                    // Populate textInputStorage using insertText with send suppression
+                    populateTextInputStorageViaInsertText(afterPrompt)
+                    return
+                }
+            }
+        }
+
+        NSLog("ℹ️ No user prompt text found to populate")
+    }
+
+    private func populateTextInputStorageViaInsertText(_ text: String) {
+        // Use SwiftTerm's insertText() method to populate textInputStorage
+        // But suppress the send to server by setting a flag
+
+        NSLog("📝 Populating textInputStorage with: \"%@\"", text)
+
+        // Set flag to suppress sending
+        suppressSendDuringPopulation = true
+
+        // Call insertText - this will populate textInputStorage and update selectedTextRange
+        // Our send() delegate method will see the flag and skip sending to server
+        terminalView.insertText(text)
+
+        // Clear flag
+        suppressSendDuringPopulation = false
+
+        NSLog("✅ Successfully populated textInputStorage without sending to server")
+    }
+
+    private func stripANSIColorCodes(_ text: String) -> String {
+        // Strip ANSI escape sequences (color codes, cursor movement, etc.)
+        // Pattern matches:
+        // - ESC[...m (colors, styles)
+        // - ESC[...H (cursor position)
+        // - ESC[...J (clear screen)
+        // - ESC[...K (clear line)
+        // - Other CSI sequences
+        let pattern = "\\u{1B}\\[[0-9;?]*[a-zA-Z]"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
+            return text
+        }
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "")
     }
 
     func connect() {
         // Increment generation to invalidate any pending callbacks from previous connection
         connectionGeneration += 1
         let currentGeneration = connectionGeneration
+        hasInitializedTerminal = false
 
         NSLog("🔌 TerminalController.connect() - generation %d", currentGeneration)
 
         webSocketManager.connect()
 
-        // Wait a bit for connection to establish, then send ready signal
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self,
-                  self.connectionGeneration == currentGeneration,
-                  !self.hasSentReady else { return }
-            self.hasSentReady = true
-            self.sendReadySignal()
-        }
+        // Auto-focus terminal immediately to show keyboard with custom accessory
+        // No need to wait - this is UI only and doesn't depend on connection
+        _ = terminalView.becomeFirstResponder()
 
-        // Auto-focus terminal to show keyboard with custom accessory
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self = self, self.connectionGeneration == currentGeneration else { return }
-            _ = self.terminalView.becomeFirstResponder()
-        }
-
-        // Send another resize after layout settles (helps with orientation changes)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self = self, self.connectionGeneration == currentGeneration else { return }
-            self.handleResize()
-        }
+        // Send ready signal as soon as connected (event-based, not time-based)
+        // We'll monitor the isConnected publisher in setupWebSocketCallbacks
     }
 
     func focusTerminal() {
@@ -1094,17 +1843,23 @@ class TerminalController: NSObject, ObservableObject {
 
         webSocketManager.disconnect()
 
-        // Clean up batching resources
+        // Clean up batching resources (on main thread)
         feedTimer?.invalidate()
         feedTimer = nil
-        feedQueue.async { [weak self] in
-            self?.pendingDataBuffer.removeAll()
-        }
+        pendingDataBuffer.removeAll()
+
+        // Clean up status update timer
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = nil
+
+        // Clear recent output buffer on disconnect
+        recentOutputBuffer = Data()
 
         // Reset state for next connection
         hasReceivedData = false
         bufferReplayComplete = false
         hasSentReady = false
+        hasInitializedTerminal = false
     }
 
     func reconnect() {
@@ -1117,15 +1872,23 @@ class TerminalController: NSObject, ObservableObject {
     }
 
     // Minimum terminal dimensions for TUI rendering
-    private static let minCols: UInt16 = 40
+    static let minCols: UInt16 = 65
     private static let minRows: UInt16 = 15
+
+    // Calculate minimum width for minCols (DRY helper)
+    static func calculateMinWidth(font: UIFont) -> CGFloat {
+        let charWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
+        // Add fudge factor to account for padding/margins/scrollbar
+        return charWidth * CGFloat(minCols + 2)
+    }
 
     private func sendReadySignal() {
         // Get current terminal dimensions with minimums for TUI compatibility
         let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
         let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
 
-        NSLog("📐 Sending ready signal with dimensions: %dx%d (min: %dx%d)", cols, rows, Self.minCols, Self.minRows)
+        // Note: Don't call showCursor() - let Claude's TUI control cursor visibility
+        // via escape sequences. Early showCursor() causes cursor to be visible at wrong position.
 
         // Send resize to ensure backend knows our dimensions
         webSocketManager.sendResize(cols: cols, rows: rows)
@@ -1138,8 +1901,6 @@ class TerminalController: NSObject, ObservableObject {
         // Get current terminal dimensions with minimums for TUI compatibility
         let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
         let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
-
-        NSLog("📐 Resize event: %dx%d (actual: %dx%d)", cols, rows, terminalView.getTerminal().cols, terminalView.getTerminal().rows)
 
         webSocketManager.sendResize(cols: cols, rows: rows)
     }
@@ -1155,6 +1916,22 @@ class TerminalController: NSObject, ObservableObject {
     // MARK: - Accessory Status Updates
 
     func updateAccessoryStatus() {
+        // Debounce status updates to prevent rapid UI changes
+        // Only debounce during connecting/loading states, not for final states
+        let shouldDebounce = !isConnected || !hasReceivedData || !bufferReplayComplete
+
+        if shouldDebounce {
+            statusUpdateTimer?.invalidate()
+            statusUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { [weak self] _ in
+                self?.performStatusUpdate()
+            }
+        } else {
+            // For final states (connected and ready), update immediately
+            performStatusUpdate()
+        }
+    }
+
+    private func performStatusUpdate() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -1177,8 +1954,20 @@ class TerminalController: NSObject, ObservableObject {
 
 extension TerminalController: TerminalViewDelegate {
     func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
+        // Check if we're suppressing sends during textInputStorage population
+        if suppressSendDuringPopulation {
+            // Don't send to server - we're just populating the input buffer
+            return
+        }
+
         // User typed input - send to backend
         var string = String(bytes: data, encoding: .utf8) ?? ""
+
+        // DIAGNOSTIC: Log what's being sent, especially backspace/delete
+        let byteArray = Array(data)
+        if byteArray.contains(0x7F) || byteArray.contains(0x08) {
+            NSLog("⌫ Backspace/Delete pressed - sending bytes: %@", byteArray.map { String(format: "0x%02X", $0) }.joined(separator: " "))
+        }
 
         // Apply ctrl modifier if active
         if ctrlModifierActive && !string.isEmpty {
