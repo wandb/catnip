@@ -163,11 +163,17 @@ class TerminalViewWrapper: UIView {
         // Add terminal view
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Calculate minimum width needed for minCols
+        let font = terminalView.font ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let minWidth = TerminalController.calculateMinWidth(font: font)
+
+        // Set width to at least minWidth, but remove trailing constraint so it can extend
         NSLayoutConstraint.activate([
             terminalView.topAnchor.constraint(equalTo: topAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
             terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: trailingAnchor)
+            terminalView.widthAnchor.constraint(equalToConstant: minWidth)
         ])
 
         // Add bottom content inset so terminal content extends behind the glass toolbar
@@ -649,11 +655,13 @@ class GlassTerminalAccessory: UIInputView {
         // Essential keys
         stackView.addArrangedSubview(createGlassButton(title: "esc", action: #selector(escPressed), accessibilityHint: "Send escape key"))
 
-        let bashBtn = createGlassButton(title: "!", action: #selector(bangPressed), accessibilityHint: "Toggle bash mode")
+        // Narrower button for "!"
+        let bashBtn = createGlassButton(title: "!", minWidth: 24, action: #selector(bangPressed), accessibilityHint: "Toggle bash mode")
         bashButton = bashBtn
         stackView.addArrangedSubview(bashBtn)
 
-        stackView.addArrangedSubview(createGlassButton(title: "\\n", action: #selector(newlinePressed), accessibilityLabel: "Newline", accessibilityHint: "Send newline character"))
+        // Narrower button for "\n"
+        stackView.addArrangedSubview(createGlassButton(title: "\\n", minWidth: 24, action: #selector(newlinePressed), accessibilityLabel: "Newline", accessibilityHint: "Send newline character"))
         stackView.addArrangedSubview(createGlassButton(title: "tab", action: #selector(tabPressed), accessibilityHint: "Send tab key for autocomplete"))
 
         // Navigation pad toggle (replaces 4 individual arrow buttons)
@@ -666,8 +674,8 @@ class GlassTerminalAccessory: UIInputView {
         navPadToggleButton = navPadButton
         stackView.addArrangedSubview(navPadButton)
 
-        // Help toggle (smaller icon)
-        let helpBtn = createGlassButton(systemImage: "questionmark", iconSize: 12, action: #selector(helpPressed), accessibilityLabel: "Help", accessibilityHint: "Show or hide help menu")
+        // Help toggle (smaller icon and narrower width)
+        let helpBtn = createGlassButton(systemImage: "questionmark", iconSize: 12, minWidth: 24, action: #selector(helpPressed), accessibilityLabel: "Help", accessibilityHint: "Show or hide help menu")
         helpButton = helpBtn
         stackView.addArrangedSubview(helpBtn)
 
@@ -678,7 +686,7 @@ class GlassTerminalAccessory: UIInputView {
         }
     }
 
-    private func createGlassButton(title: String? = nil, systemImage: String? = nil, iconSize: CGFloat = 16, action: Selector, accessibilityLabel: String? = nil, accessibilityHint: String? = nil) -> UIButton {
+    private func createGlassButton(title: String? = nil, systemImage: String? = nil, iconSize: CGFloat = 16, minWidth: CGFloat = 40, action: Selector, accessibilityLabel: String? = nil, accessibilityHint: String? = nil) -> UIButton {
         let button = UIButton(type: .system)
 
         if let imageName = systemImage {
@@ -707,7 +715,7 @@ class GlassTerminalAccessory: UIInputView {
 
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: minWidth),
             button.heightAnchor.constraint(equalToConstant: 36)
         ])
 
@@ -1580,11 +1588,6 @@ class TerminalController: NSObject, ObservableObject {
                     if !self.hasInitializedTerminal {
                         self.hasInitializedTerminal = true
 
-                        // DIAGNOSTIC: Log terminal state after buffer replay
-                        let terminal = self.terminalView.getTerminal()
-                        NSLog("🔍 Terminal state after buffer replay:")
-                        NSLog("  - Terminal size: cols=%d, rows=%d", terminal.cols, terminal.rows)
-
                         // Detect TUI state from buffer contents
                         self.detectAndSyncTUIState()
 
@@ -1869,15 +1872,20 @@ class TerminalController: NSObject, ObservableObject {
     }
 
     // Minimum terminal dimensions for TUI rendering
-    private static let minCols: UInt16 = 75
+    static let minCols: UInt16 = 65
     private static let minRows: UInt16 = 15
+
+    // Calculate minimum width for minCols (DRY helper)
+    static func calculateMinWidth(font: UIFont) -> CGFloat {
+        let charWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
+        // Add fudge factor to account for padding/margins/scrollbar
+        return charWidth * CGFloat(minCols + 2)
+    }
 
     private func sendReadySignal() {
         // Get current terminal dimensions with minimums for TUI compatibility
         let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
         let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
-
-        NSLog("📐 Sending ready signal with dimensions: %dx%d (min: %dx%d)", cols, rows, Self.minCols, Self.minRows)
 
         // Note: Don't call showCursor() - let Claude's TUI control cursor visibility
         // via escape sequences. Early showCursor() causes cursor to be visible at wrong position.
@@ -1893,8 +1901,6 @@ class TerminalController: NSObject, ObservableObject {
         // Get current terminal dimensions with minimums for TUI compatibility
         let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
         let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
-
-        NSLog("📐 Resize event: %dx%d (actual: %dx%d)", cols, rows, terminalView.getTerminal().cols, terminalView.getTerminal().rows)
 
         webSocketManager.sendResize(cols: cols, rows: rows)
     }
