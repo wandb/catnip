@@ -30,15 +30,17 @@ type WorktreeStatusCache struct {
 
 // CachedWorktreeStatus represents cached git status for a worktree
 type CachedWorktreeStatus struct {
-	WorktreeID       string    `json:"worktree_id"`
-	IsDirty          *bool     `json:"is_dirty"`       // nil = not cached yet
-	HasConflicts     *bool     `json:"has_conflicts"`  // nil = not cached yet
-	CommitHash       string    `json:"commit_hash"`    // empty = not cached yet
-	CommitCount      *int      `json:"commit_count"`   // nil = not cached yet
-	CommitsBehind    *int      `json:"commits_behind"` // nil = not cached yet
-	Branch           string    `json:"branch"`         // empty = not cached yet
-	LastUpdated      time.Time `json:"last_updated"`
-	UpdateInProgress bool      `json:"update_in_progress"`
+	WorktreeID              string    `json:"worktree_id"`
+	IsDirty                 *bool     `json:"is_dirty"`                    // nil = not cached yet
+	HasConflicts            *bool     `json:"has_conflicts"`               // nil = not cached yet
+	CommitHash              string    `json:"commit_hash"`                 // empty = not cached yet
+	CommitCount             *int      `json:"commit_count"`                // nil = not cached yet
+	CommitsBehind           *int      `json:"commits_behind"`              // nil = not cached yet
+	Branch                  string    `json:"branch"`                      // empty = not cached yet
+	HasCommitsAheadOfRemote *bool     `json:"has_commits_ahead_of_remote"` // nil = not cached yet
+	LastCommitHashChecked   string    `json:"last_commit_hash_checked"`    // CommitHash when HasCommitsAheadOfRemote was last computed
+	LastUpdated             time.Time `json:"last_updated"`
+	UpdateInProgress        bool      `json:"update_in_progress"`
 }
 
 // NewWorktreeStatusCache creates a new worktree status cache
@@ -106,6 +108,11 @@ func (c *WorktreeStatusCache) EnhanceWorktreeWithCache(worktree *models.Worktree
 	// If renamed, Branch field shows nice name for UI, don't overwrite with actual git ref
 	if cached.Branch != "" && !worktree.HasBeenRenamed {
 		worktree.Branch = cached.Branch
+	}
+	// Apply cached HasCommitsAheadOfRemote if available and still valid
+	// The cache is valid if: 1) we have a cached value, AND 2) CommitHash hasn't changed since we computed it
+	if cached.HasCommitsAheadOfRemote != nil && cached.LastCommitHashChecked == cached.CommitHash {
+		worktree.HasCommitsAheadOfRemote = *cached.HasCommitsAheadOfRemote
 	}
 }
 
@@ -462,6 +469,31 @@ func (c *WorktreeStatusCache) updateWorktreeStatusInternal(worktreeID string, ca
 		// Count commits behind
 		if count, err := c.operations.GetCommitCount(worktreePath, "HEAD", sourceRef); err == nil {
 			cached.CommitsBehind = &count
+		}
+	}
+
+	// Compute HasCommitsAheadOfRemote for worktrees with PRs
+	// Only recompute if: 1) not cached yet, OR 2) CommitHash changed since last check
+	if worktree.PullRequestURL != "" {
+		needsUpdate := cached.HasCommitsAheadOfRemote == nil || cached.LastCommitHashChecked != cached.CommitHash
+		if needsUpdate {
+			// Check if we have commits ahead of remote branch (uses fetch throttling internally)
+			remoteRef := "origin/" + worktree.Branch
+			if _, err := c.operations.ExecuteGit(worktreePath, "rev-parse", "--verify", remoteRef); err == nil {
+				// Remote branch exists - count commits ahead
+				if output, err := c.operations.ExecuteGit(worktreePath, "rev-list", "--count", remoteRef+"..HEAD"); err == nil {
+					if count, err := strconv.Atoi(strings.TrimSpace(string(output))); err == nil {
+						hasCommitsAhead := count > 0
+						cached.HasCommitsAheadOfRemote = &hasCommitsAhead
+						cached.LastCommitHashChecked = cached.CommitHash
+					}
+				}
+			} else {
+				// Remote branch doesn't exist - if we have any commits, we're ahead
+				hasCommitsAhead := cached.CommitCount != nil && *cached.CommitCount > 0
+				cached.HasCommitsAheadOfRemote = &hasCommitsAhead
+				cached.LastCommitHashChecked = cached.CommitHash
+			}
 		}
 	}
 

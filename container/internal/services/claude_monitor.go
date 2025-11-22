@@ -74,7 +74,6 @@ type WorktreeTodoMonitor struct {
 	sessionService  *SessionService
 	ticker          *time.Ticker
 	stopCh          chan struct{}
-	lastModTime     time.Time
 	lastTodos       []models.Todo
 	lastTodosJSON   string // JSON representation for comparison
 	lastMessage     string // Last Claude message content for comparison
@@ -1202,22 +1201,30 @@ func (m *WorktreeTodoMonitor) Stop() {
 
 // checkForTodoUpdates checks for todo updates in the most recent session file
 func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
-	// Find the most recently modified JSONL file
-	latestFile, modTime, err := m.findLatestSessionFile()
-	if err != nil {
-		return // No session files yet
+	// Optimization 1: Skip inactive worktrees to save CPU
+	// Only check worktrees that have active or running Claude sessions
+	if m.sessionService != nil {
+		activityState := m.sessionService.GetClaudeActivityState(m.workDir)
+		if activityState != models.ClaudeActive && activityState != models.ClaudeRunning {
+			return // Don't waste CPU on inactive worktrees
+		}
 	}
 
-	// Check if file has been modified since last check
-	if !modTime.After(m.lastModTime) {
-		return // No changes
-	}
-
-	// Read todos from the end of the file
-	todos, err := m.readTodosFromEnd(latestFile)
-	if err != nil {
-		logger.Warnf("⚠️  Failed to read todos from %s: %v", latestFile, err)
+	// Optimization 2: Use parser directly - it already knows which session file to watch
+	// This eliminates redundant os.ReadDir() calls every second
+	if m.parserService == nil {
 		return
+	}
+
+	reader, err := m.parserService.GetOrCreateParser(m.workDir)
+	if err != nil {
+		return // No session file available yet
+	}
+
+	// Read todos directly from parser's cached state
+	todos := reader.GetTodos()
+	if todos == nil {
+		todos = []models.Todo{} // Ensure non-nil
 	}
 
 	// Convert todos to JSON for comparison
@@ -1230,8 +1237,7 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 
 	// Check if todos have changed
 	if todosJSONStr == m.lastTodosJSON {
-		m.lastModTime = modTime // Update mod time even if content is same
-		return                  // No change in todos
+		return // No change in todos
 	}
 
 	// Todos have changed!
@@ -1248,7 +1254,6 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	// is passive and should not prevent workspaces from transitioning to inactive
 
 	// Update state
-	m.lastModTime = modTime
 	m.lastTodos = todos
 	m.lastTodosJSON = todosJSONStr
 
@@ -1264,57 +1269,8 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 		logger.Warnf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
 	}
 
-	// Also check for latest Claude message changes
-	m.checkForMessageUpdates(worktreeID, latestFile)
-}
-
-// findLatestSessionFile finds the best session file in the project directory
-// Uses SessionService's size-based logic to avoid warmup/small sessions
-func (m *WorktreeTodoMonitor) findLatestSessionFile() (string, time.Time, error) {
-	// Use SessionService's proven logic that filters by size (>10KB) and prefers largest sessions
-	if m.sessionService != nil {
-		sessionFile := m.sessionService.FindBestSessionFile(m.projectDir)
-		if sessionFile != "" {
-			info, err := os.Stat(sessionFile)
-			if err != nil {
-				return "", time.Time{}, err
-			}
-			return sessionFile, info.ModTime(), nil
-		}
-		// SessionService didn't find a valid session file (likely warmup-only or too small) - fallback to manual search
-	} else {
-		// Fallback if SessionService not available (shouldn't happen in normal operation)
-		logger.Warn("⚠️ SessionService not set in WorktreeTodoMonitor, using fallback session selection")
-	}
-
-	entries, err := os.ReadDir(m.projectDir)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-
-	var latestFile string
-	var latestModTime time.Time
-
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
-			filePath := filepath.Join(m.projectDir, entry.Name())
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-
-			if info.ModTime().After(latestModTime) {
-				latestFile = filePath
-				latestModTime = info.ModTime()
-			}
-		}
-	}
-
-	if latestFile == "" {
-		return "", time.Time{}, fmt.Errorf("no session files found")
-	}
-
-	return latestFile, latestModTime, nil
+	// Also check for latest Claude message changes from parser
+	m.checkForMessageUpdates(worktreeID, reader)
 }
 
 // readTodosFromEnd reads todos using the parser service
@@ -1430,16 +1386,9 @@ func (m *WorktreeTodoMonitor) isCurrentBranchCatnip() bool {
 }
 
 // checkForMessageUpdates checks for new Claude messages and emits SSE events
-func (m *WorktreeTodoMonitor) checkForMessageUpdates(worktreeID, sessionFile string) {
-	// Get or create parser for this session file
-	sessionParser, err := m.parserService.GetOrCreateParser(sessionFile)
-	if err != nil {
-		logger.Debugf("⚠️  Failed to get parser for %s: %v", sessionFile, err)
-		return
-	}
-
+func (m *WorktreeTodoMonitor) checkForMessageUpdates(worktreeID string, reader *parser.SessionFileReader) {
 	// Get the latest message from the parser
-	latestMsg := sessionParser.GetLatestMessage()
+	latestMsg := reader.GetLatestMessage()
 	if latestMsg == nil {
 		return // No messages yet
 	}

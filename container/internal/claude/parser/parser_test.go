@@ -588,3 +588,118 @@ func TestThinkingOnlyMessage(t *testing.T) {
 		t.Errorf("Expected 1 thinking block in stats, got %d", stats.ThinkingBlockCount)
 	}
 }
+
+func TestGetAllMessages_NoFilter(t *testing.T) {
+	reader := NewSessionFileReader("testdata/automated_prompts.jsonl")
+
+	messages, err := reader.GetAllMessages(MessageFilter{})
+	if err != nil {
+		t.Fatalf("GetAllMessages failed: %v", err)
+	}
+
+	// Without filter, should get all messages
+	if len(messages) != 6 {
+		t.Errorf("Expected 6 messages without filter, got %d", len(messages))
+	}
+
+	// Verify order is chronological
+	if messages[0].Uuid != "msg-auto-user-001" {
+		t.Errorf("Expected first message UUID 'msg-auto-user-001', got %s", messages[0].Uuid)
+	}
+	if messages[len(messages)-1].Uuid != "msg-auto-assistant-003" {
+		t.Errorf("Expected last message UUID 'msg-auto-assistant-003', got %s", messages[len(messages)-1].Uuid)
+	}
+}
+
+func TestGetAllMessages_DefaultFilter(t *testing.T) {
+	reader := NewSessionFileReader("testdata/automated_prompts.jsonl")
+
+	messages, err := reader.GetAllMessages(DefaultFilter)
+	if err != nil {
+		t.Fatalf("GetAllMessages failed: %v", err)
+	}
+
+	// With DefaultFilter, should skip assistant responses to automated prompts
+	// Note: The automated user prompts themselves are NOT filtered, only assistant responses
+	// Expected: user-001, assistant-001, user-002 (automated), user-003, assistant-003 = 5 messages
+	if len(messages) != 5 {
+		t.Errorf("Expected 5 messages with DefaultFilter, got %d", len(messages))
+	}
+
+	// Verify the automated assistant response is filtered out
+	for _, msg := range messages {
+		if msg.Uuid == "msg-auto-assistant-002" {
+			t.Errorf("Unexpected message %s in filtered results (should be filtered)", msg.Uuid)
+		}
+	}
+
+	// Verify the automated user prompt IS present (only responses are filtered)
+	foundAutomatedUserPrompt := false
+	for _, msg := range messages {
+		if msg.Uuid == "msg-auto-user-002" {
+			foundAutomatedUserPrompt = true
+			break
+		}
+	}
+	if !foundAutomatedUserPrompt {
+		t.Error("Expected automated user prompt msg-auto-user-002 to be present (only responses are filtered)")
+	}
+}
+
+func TestGetAllMessages_OnlyAssistant(t *testing.T) {
+	reader := NewSessionFileReader("testdata/automated_prompts.jsonl")
+
+	filter := MessageFilter{
+		OnlyType: "assistant",
+	}
+	messages, err := reader.GetAllMessages(filter)
+	if err != nil {
+		t.Fatalf("GetAllMessages failed: %v", err)
+	}
+
+	// Should only get assistant messages
+	if len(messages) != 3 {
+		t.Errorf("Expected 3 assistant messages, got %d", len(messages))
+	}
+
+	for _, msg := range messages {
+		if msg.Type != "assistant" {
+			t.Errorf("Expected only assistant messages, got type %s", msg.Type)
+		}
+	}
+}
+
+func TestGetAllMessages_WithWarmup(t *testing.T) {
+	reader := NewSessionFileReader("testdata/warmup.jsonl")
+
+	// Without warmup filter
+	messages, err := reader.GetAllMessages(MessageFilter{})
+	if err != nil {
+		t.Fatalf("GetAllMessages failed: %v", err)
+	}
+	totalMessages := len(messages)
+
+	// With warmup filter
+	messagesFiltered, err := reader.GetAllMessages(MessageFilter{SkipWarmup: true})
+	if err != nil {
+		t.Fatalf("GetAllMessages failed: %v", err)
+	}
+
+	// Should have fewer messages when filtering warmup
+	if len(messagesFiltered) >= totalMessages {
+		t.Errorf("Expected fewer messages with warmup filter, got %d vs %d", len(messagesFiltered), totalMessages)
+	}
+}
+
+func TestGetAllMessages_NonexistentFile(t *testing.T) {
+	reader := NewSessionFileReader("testdata/nonexistent.jsonl")
+
+	messages, err := reader.GetAllMessages(DefaultFilter)
+	if err != nil {
+		t.Fatalf("Expected no error for nonexistent file, got: %v", err)
+	}
+
+	if messages != nil {
+		t.Errorf("Expected nil messages for nonexistent file, got %d messages", len(messages))
+	}
+}

@@ -17,8 +17,9 @@ import (
 type ParserService struct {
 	parsers       map[string]*parserInstance // key: session file path
 	parsersMutex  sync.RWMutex
-	claudeService *ClaudeService // For finding project directories
-	maxParsers    int            // Maximum number of parsers to keep in memory (LRU eviction)
+	claudeService *ClaudeService        // For finding project directories
+	historyReader *parser.HistoryReader // Singleton history reader for user prompts
+	maxParsers    int                   // Maximum number of parsers to keep in memory (LRU eviction)
 	stopCh        chan struct{}
 }
 
@@ -32,10 +33,12 @@ type parserInstance struct {
 
 // NewParserService creates a new parser service
 func NewParserService() *ParserService {
+	homeDir := config.Runtime.HomeDir
 	return &ParserService{
-		parsers:    make(map[string]*parserInstance),
-		maxParsers: 100, // Reasonable default: support 100 concurrent worktrees
-		stopCh:     make(chan struct{}),
+		parsers:       make(map[string]*parserInstance),
+		historyReader: parser.NewHistoryReader(homeDir),
+		maxParsers:    100, // Reasonable default: support 100 concurrent worktrees
+		stopCh:        make(chan struct{}),
 	}
 }
 
@@ -87,6 +90,10 @@ func (s *ParserService) GetOrCreateParser(worktreePath string) (*parser.SessionF
 	// Create new parser
 	reader := parser.NewSessionFileReader(sessionFile)
 
+	// Inject worktree path and history reader
+	reader.SetWorktreePath(worktreePath)
+	reader.SetHistoryReader(s.historyReader)
+
 	// Do initial read to populate cache
 	if _, err := reader.ReadIncremental(); err != nil {
 		logger.Warnf("⚠️  Failed initial read for parser %s: %v", sessionFile, err)
@@ -101,7 +108,7 @@ func (s *ParserService) GetOrCreateParser(worktreePath string) (*parser.SessionF
 	}
 
 	s.parsers[sessionFile] = instance
-	logger.Debugf("📖 Created parser for session file: %s", sessionFile)
+	logger.Debugf("📖 Created parser for session file: %s (worktree: %s)", sessionFile, worktreePath)
 
 	// Check if we need to evict old parsers (LRU)
 	s.evictIfNeeded()

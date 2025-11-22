@@ -915,12 +915,17 @@ func (s *GitService) enhanceWorktreeWithPRState(wt *models.Worktree) {
 		}
 	}
 
-	// Check if we have commits ahead of the remote branch (without fetching)
-	// Note: checkHasCommitsAheadOfRemote does fetch, but that's okay for worktree enhancement
-	// since we want accurate data. For the PR endpoint, we use it after fetching anyway.
-	if ahead, err := s.checkHasCommitsAheadOfRemote(wt); err == nil {
-		wt.HasCommitsAheadOfRemote = ahead
+	// Check if we have commits ahead of the remote branch
+	// Only compute if not already cached - the cache is populated by background workers
+	// and is invalidated when CommitHash changes (indicating new local commits or push)
+	if !wt.HasCommitsAheadOfRemote {
+		// Not cached or cached as false - only recompute for false case if we might have new commits
+		// This avoids expensive git operations on every list request
+		if ahead, err := s.checkHasCommitsAheadOfRemote(wt); err == nil {
+			wt.HasCommitsAheadOfRemote = ahead
+		}
 	}
+	// If HasCommitsAheadOfRemote is true (from cache), trust it - it remains true until CommitHash changes
 }
 
 // GetStatus returns the current Git status

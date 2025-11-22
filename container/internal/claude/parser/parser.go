@@ -12,9 +12,10 @@ import (
 
 // SessionFileReader reads and parses Claude session files incrementally
 type SessionFileReader struct {
-	filePath    string
-	lastOffset  int64
-	lastModTime time.Time
+	filePath     string
+	worktreePath string // Associated worktree for this session
+	lastOffset   int64
+	lastModTime  time.Time
 
 	// Cached state (updated incrementally)
 	todos          []models.Todo
@@ -23,6 +24,9 @@ type SessionFileReader struct {
 	thinking       []ThinkingBlock
 	subAgents      map[string]*SubAgentInfo
 	userMessageMap map[string]string // For automated prompt detection
+
+	// Shared resources (injected, not owned)
+	historyReader *HistoryReader // Optional: for accessing user prompt history
 
 	// Thread safety
 	mu sync.RWMutex
@@ -240,6 +244,71 @@ func (r *SessionFileReader) GetLatestMessage() *models.ClaudeSessionMessage {
 	return &msgCopy
 }
 
+// GetAllMessages returns all messages that pass the given filter
+// This reads the file on-demand and streams filtered messages without storing all in memory
+func (r *SessionFileReader) GetAllMessages(filter MessageFilter) ([]models.ClaudeSessionMessage, error) {
+	r.mu.RLock()
+	filePath := r.filePath
+	r.mu.RUnlock()
+
+	// Open file for reading
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // File doesn't exist yet, return empty
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	// Build user message map for filtering (first pass)
+	userMsgMap := make(map[string]string)
+	decoder := json.NewDecoder(file)
+
+	for {
+		var msg models.ClaudeSessionMessage
+		if err := decoder.Decode(&msg); err == io.EOF {
+			break
+		} else if err != nil {
+			// Skip invalid JSON lines
+			continue
+		}
+
+		if msg.Type == "user" && msg.Message != nil {
+			if content, exists := msg.Message["content"]; exists {
+				if contentStr, ok := content.(string); ok {
+					userMsgMap[msg.Uuid] = contentStr
+				}
+			}
+		}
+	}
+
+	// Reset file to beginning for second pass
+	if _, err := file.Seek(0, 0); err != nil {
+		return nil, err
+	}
+
+	// Second pass: collect filtered messages
+	var filtered []models.ClaudeSessionMessage
+	decoder = json.NewDecoder(file)
+
+	for {
+		var msg models.ClaudeSessionMessage
+		if err := decoder.Decode(&msg); err == io.EOF {
+			break
+		} else if err != nil {
+			// Skip invalid JSON lines
+			continue
+		}
+
+		if !ShouldSkipMessage(msg, filter, userMsgMap) {
+			filtered = append(filtered, msg)
+		}
+	}
+
+	return filtered, nil
+}
+
 // GetStats returns the current session statistics
 func (r *SessionFileReader) GetStats() SessionStats {
 	r.mu.RLock()
@@ -297,4 +366,57 @@ func (r *SessionFileReader) GetLastModTime() time.Time {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.lastModTime
+}
+
+// SetWorktreePath sets the worktree path associated with this session
+// This enables history lookup for this specific workspace
+func (r *SessionFileReader) SetWorktreePath(worktreePath string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.worktreePath = worktreePath
+}
+
+// SetHistoryReader injects the shared history reader for accessing user prompts
+func (r *SessionFileReader) SetHistoryReader(historyReader *HistoryReader) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.historyReader = historyReader
+}
+
+// GetUserPrompts returns all user prompts for this session's worktree
+// Returns empty slice if no history reader is set or worktree path is unknown
+func (r *SessionFileReader) GetUserPrompts() ([]models.ClaudeHistoryEntry, error) {
+	r.mu.RLock()
+	historyReader := r.historyReader
+	worktreePath := r.worktreePath
+	r.mu.RUnlock()
+
+	if historyReader == nil {
+		return []models.ClaudeHistoryEntry{}, nil
+	}
+
+	if worktreePath == "" {
+		return []models.ClaudeHistoryEntry{}, nil
+	}
+
+	return historyReader.GetUserPrompts(worktreePath)
+}
+
+// GetLatestUserPrompt returns the most recent user prompt for this session's worktree
+// Returns empty string if no history reader is set or worktree path is unknown
+func (r *SessionFileReader) GetLatestUserPrompt() (string, error) {
+	r.mu.RLock()
+	historyReader := r.historyReader
+	worktreePath := r.worktreePath
+	r.mu.RUnlock()
+
+	if historyReader == nil {
+		return "", nil
+	}
+
+	if worktreePath == "" {
+		return "", nil
+	}
+
+	return historyReader.GetLatestUserPrompt(worktreePath)
 }

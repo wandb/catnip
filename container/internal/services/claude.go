@@ -46,50 +46,6 @@ type ClaudeService struct {
 	suppressEventsUntil map[string]time.Time // Map of worktree path to suppression expiry time
 }
 
-// readJSONLines reads a JSONL file line by line, handling arbitrarily large lines
-// This is used instead of bufio.Scanner to avoid "token too long" errors with large base64 images
-func readJSONLines(filePath string, handler func([]byte) error) error {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
-
-	reader := bufio.NewReader(file)
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF && len(line) > 0 {
-				// Handle last line without newline
-			} else if err == io.EOF {
-				break // Normal end of file
-			} else {
-				return fmt.Errorf("error reading file: %w", err)
-			}
-		}
-
-		// Trim newline character
-		line = strings.TrimSuffix(line, "\n")
-		line = strings.TrimSuffix(line, "\r") // Handle Windows line endings
-
-		if len(line) == 0 {
-			continue // Skip empty lines
-		}
-
-		if err := handler([]byte(line)); err != nil {
-			// Handler can return an error to stop processing
-			return err
-		}
-
-		// If we hit EOF while processing the last line, break
-		if err == io.EOF {
-			break
-		}
-	}
-
-	return nil
-}
-
 func WorktreePathToProjectDir(worktreePath string) string {
 	// Claude replaces both "/" and "." with "-"
 	projectDirName := strings.ReplaceAll(worktreePath, "/", "-")
@@ -353,50 +309,25 @@ func (s *ClaudeService) findLatestSessionFile(projectDir string) (string, error)
 
 // readSessionTiming reads the first and last timestamps from a session file
 func (s *ClaudeService) readSessionTiming(sessionFilePath string) (*SessionTiming, error) {
-	var firstTimestamp, lastTimestamp *time.Time
+	// Use parser to get timing from stats
+	reader := parser.NewSessionFileReader(sessionFilePath)
+	if err := reader.ReadFull(); err != nil {
+		return nil, fmt.Errorf("failed to read session file: %w", err)
+	}
 
-	err := readJSONLines(sessionFilePath, func(line []byte) error {
-		// Parse each line as a map to get timestamp
-		var lineData map[string]interface{}
-		if err := json.Unmarshal(line, &lineData); err != nil {
-			return nil // Skip invalid JSON lines, don't stop processing
-		}
+	stats := reader.GetStats()
 
-		// Get timestamp from the map
-		timestampValue, exists := lineData["timestamp"]
-		if !exists {
-			return nil // Skip lines without timestamps
-		}
-
-		// Convert to string and skip null/empty values
-		timestampStr, ok := timestampValue.(string)
-		if !ok || timestampStr == "" {
-			return nil // Skip invalid timestamp values
-		}
-
-		// Parse the timestamp
-		timestamp, err := time.Parse(time.RFC3339, timestampStr)
-		if err != nil {
-			return nil // Skip invalid timestamps
-		}
-
-		// Set first timestamp if not set
-		if firstTimestamp == nil {
-			firstTimestamp = &timestamp
-		}
-		// Always update last timestamp
-		lastTimestamp = &timestamp
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to read session timing: %w", err)
+	var startTime, endTime *time.Time
+	if !stats.FirstMessageTime.IsZero() {
+		startTime = &stats.FirstMessageTime
+	}
+	if !stats.LastMessageTime.IsZero() {
+		endTime = &stats.LastMessageTime
 	}
 
 	return &SessionTiming{
-		StartTime: firstTimestamp,
-		EndTime:   lastTimestamp,
+		StartTime: startTime,
+		EndTime:   endTime,
 	}, nil
 }
 
@@ -429,62 +360,9 @@ func (s *ClaudeService) readClaudeConfig() (map[string]*models.ClaudeProjectMeta
 		project.Path = path
 	}
 
-	// Read history from ~/.claude/history.jsonl (Claude Code moved history out of .claude.json)
-	if err := s.loadHistoryFromJSONL(config.Projects); err != nil {
-		logger.Warnf("Failed to load history from history.jsonl: %v (continuing with empty history)", err)
-		// Don't fail - continue with empty history arrays
-	}
-
+	// Note: History is no longer loaded here - use parser.HistoryReader via parserService instead
+	// This keeps project metadata separate from user prompt history
 	return config.Projects, nil
-}
-
-// loadHistoryFromJSONL reads ~/.claude/history.jsonl and populates the History field for each project
-func (s *ClaudeService) loadHistoryFromJSONL(projects map[string]*models.ClaudeProjectMetadata) error {
-	homeDir := config.Runtime.HomeDir
-	historyPath := filepath.Join(homeDir, ".claude", "history.jsonl")
-
-	// Read the history file
-	data, err := os.ReadFile(historyPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No history file is fine - all projects will have empty history
-			return nil
-		}
-		return fmt.Errorf("failed to read history file: %w", err)
-	}
-
-	// Parse each line as a history entry
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		var entry struct {
-			Display        string         `json:"display"`
-			PastedContents map[string]any `json:"pastedContents"`
-			Project        string         `json:"project"`
-			SessionID      string         `json:"sessionId"`
-			Timestamp      int64          `json:"timestamp"`
-		}
-
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			logger.Warnf("Failed to parse history entry: %v (skipping)", err)
-			continue
-		}
-
-		// Find the project and add this history entry
-		if project, exists := projects[entry.Project]; exists {
-			historyEntry := models.ClaudeHistoryEntry{
-				Display:        entry.Display,
-				PastedContents: entry.PastedContents,
-			}
-			project.History = append(project.History, historyEntry)
-		}
-	}
-
-	return nil
 }
 
 // GetFullSessionData gets complete session data for a workspace including all messages
@@ -614,82 +492,29 @@ func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]mo
 
 	sessionFile := filepath.Join(projectDir, sessionID+".jsonl")
 
-	var messages []models.ClaudeSessionMessage
-	userMsgMap := make(map[string]string)
-
-	// First pass: Build user message map
-	err := readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil
-		}
-
-		if message.Type == "user" && message.Message != nil {
-			if content, exists := message.Message["content"]; exists {
-				if contentStr, ok := content.(string); ok {
-					userMsgMap[message.Uuid] = contentStr
-				}
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to read user messages: %w", err)
-	}
-
-	// Second pass: Collect filtered messages using parser's filtering logic
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil
-		}
-
-		// Use parser's centralized filtering logic
-		if !parser.ShouldSkipMessage(message, parser.DefaultFilter, userMsgMap) {
-			messages = append(messages, message)
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to read session messages: %w", err)
-	}
-
-	return messages, nil
+	// Use parser to read and filter messages
+	reader := parser.NewSessionFileReader(sessionFile)
+	return reader.GetAllMessages(parser.DefaultFilter)
 }
 
-// GetUserPrompts reads user prompts from claude.json for a specific workspace
+// GetUserPrompts reads user prompts for a specific workspace
+// Uses the parser service which reads from both ~/.claude/history.jsonl and ~/.claude.json
 func (s *ClaudeService) GetUserPrompts(worktreePath string) ([]models.ClaudeHistoryEntry, error) {
-	claudeConfig, err := s.readClaudeConfig()
+	reader, err := s.parserService.GetOrCreateParser(worktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read claude config: %w", err)
+		return nil, fmt.Errorf("failed to get parser: %w", err)
 	}
-
-	projectMeta, exists := claudeConfig[worktreePath]
-	if !exists {
-		return []models.ClaudeHistoryEntry{}, nil
-	}
-
-	return projectMeta.History, nil
+	return reader.GetUserPrompts()
 }
 
-// GetLatestUserPrompt gets the latest user prompt from ~/.claude.json history for a specific workspace
+// GetLatestUserPrompt gets the latest user prompt for a specific workspace
+// Uses the parser service which reads from both ~/.claude/history.jsonl and ~/.claude.json
 func (s *ClaudeService) GetLatestUserPrompt(worktreePath string) (string, error) {
-	userPrompts, err := s.GetUserPrompts(worktreePath)
+	reader, err := s.parserService.GetOrCreateParser(worktreePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to get user prompts: %w", err)
+		return "", fmt.Errorf("failed to get parser: %w", err)
 	}
-
-	if len(userPrompts) == 0 {
-		return "", nil // No prompts yet
-	}
-
-	// Get the most recent prompt (last in history)
-	latestPrompt := userPrompts[len(userPrompts)-1]
-	return latestPrompt.Display, nil
+	return reader.GetLatestUserPrompt()
 }
 
 // GetSessionByID gets complete session data for a specific session ID
@@ -1124,47 +949,23 @@ func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWrit
 
 	logger.Debugf("📜 Streaming historical events from %s", sessionFile)
 
-	userMsgMap := make(map[string]string)
-
-	// First pass: Build user message map
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil
-		}
-
-		if message.Type == "user" && message.Message != nil {
-			if content, exists := message.Message["content"]; exists {
-				if contentStr, ok := content.(string); ok {
-					userMsgMap[message.Uuid] = contentStr
-				}
-			}
-		}
-
-		return nil
-	})
-
+	// Use parser to read and filter messages
+	reader := parser.NewSessionFileReader(sessionFile)
+	filter := parser.MessageFilter{
+		SkipWarmup:    true,
+		SkipAutomated: true,
+		OnlyType:      "assistant", // Only stream assistant messages for historical context
+	}
+	messages, err := reader.GetAllMessages(filter)
 	if err != nil {
-		return fmt.Errorf("failed to read user messages: %w", err)
+		return fmt.Errorf("failed to read session file: %w", err)
 	}
 
-	// Second pass: Stream filtered assistant messages
+	// Extract text content and convert to response format
 	var recentMessages [][]byte
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil
-		}
-
-		// Use parser's centralized filtering logic
-		if parser.ShouldSkipMessage(message, parser.DefaultFilter, userMsgMap) {
-			return nil
-		}
-
-		// Only stream assistant messages for historical context
-		if message.Type == "assistant" && message.Message != nil {
-			messageData := message.Message
-			if content, exists := messageData["content"]; exists {
+	for _, message := range messages {
+		if message.Message != nil {
+			if content, exists := message.Message["content"]; exists {
 				if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
 					if textBlock, ok := contentArray[0].(map[string]interface{}); ok {
 						if text, ok := textBlock["text"].(string); ok {
@@ -1182,11 +983,6 @@ func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWrit
 				}
 			}
 		}
-		return nil
-	})
-
-	if err != nil {
-		return fmt.Errorf("failed to read session file: %w", err)
 	}
 
 	// Send the recent messages (limit to last 3 for performance)

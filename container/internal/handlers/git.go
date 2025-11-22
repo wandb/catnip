@@ -241,17 +241,20 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 		// Set backward compatibility flag
 		worktree.HasActiveClaudeSession = (claudeActivityState == models.ClaudeActive || claudeActivityState == models.ClaudeRunning)
 
-		// Get todos for this worktree
-		if todos, err := h.claudeMonitor.GetTodos(worktree.Path); err == nil {
-			worktree.Todos = todos
+		// Get todos for this worktree - only fetch fresh if cache is empty
+		// This reduces redundant lookups from N to only worktrees without cached todos
+		if len(worktree.Todos) == 0 {
+			if todos, err := h.claudeMonitor.GetTodos(worktree.Path); err == nil && len(todos) > 0 {
+				worktree.Todos = todos
+			}
 		}
-		// If there's an error getting todos, we'll leave Todos as nil (which is fine)
 
-		// Get latest Claude message for this worktree
-		if message, messageType, _ := h.claudeMonitor.GetLatestClaudeMessage(worktree.Path); message != "" {
-			worktree.LatestClaudeMessage = message
-			worktree.LatestClaudeMessageType = messageType
-			// Note: We don't have timestamp stored yet, can add later if needed
+		// Get latest Claude message - only fetch if not already cached
+		if worktree.LatestClaudeMessage == "" {
+			if message, messageType, _ := h.claudeMonitor.GetLatestClaudeMessage(worktree.Path); message != "" {
+				worktree.LatestClaudeMessage = message
+				worktree.LatestClaudeMessageType = messageType
+			}
 		}
 
 		// Create enhanced worktree with cache status
