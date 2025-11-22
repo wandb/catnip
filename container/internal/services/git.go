@@ -2758,9 +2758,8 @@ func (s *GitService) checkHasCommitsAheadOfRemote(worktree *models.Worktree) (bo
 			// In that case, we'll fall back to checking if we have any commits at all.
 			logger.Debugf("⚠️ Could not fetch remote branch %s: %v", worktree.Branch, err)
 		}
-	} else {
-		logger.Debugf("⏭️ Skipping fetch for %s (last fetched %v ago)", worktree.Path, time.Since(lastFetch))
 	}
+	// Removed noisy "Skipping fetch" debug log
 
 	remoteRef := fmt.Sprintf("origin/%s", worktree.Branch)
 

@@ -703,3 +703,28 @@ func TestGetAllMessages_NonexistentFile(t *testing.T) {
 		t.Errorf("Expected nil messages for nonexistent file, got %d messages", len(messages))
 	}
 }
+
+func TestGetLatestMessage_CyrillicLoki(t *testing.T) {
+	reader := NewSessionFileReader("testdata/cyrillic_loki.jsonl")
+
+	_, err := reader.ReadIncremental()
+	if err != nil {
+		t.Fatalf("ReadIncremental failed: %v", err)
+	}
+
+	latestMsg := reader.GetLatestMessage()
+	if latestMsg == nil {
+		t.Fatal("Expected latest assistant message from cyrillic_loki session, got nil")
+	}
+
+	// GetLatestMessage should return the latest assistant message
+	// (not user messages or summary messages)
+	if latestMsg.Type != "assistant" {
+		t.Errorf("Expected latest message type 'assistant', got %s (uuid: %s)", latestMsg.Type, latestMsg.Uuid)
+	}
+
+	// Verify it has a UUID (summary messages don't have UUIDs)
+	if latestMsg.Uuid == "" {
+		t.Error("Expected latest message to have a UUID")
+	}
+}

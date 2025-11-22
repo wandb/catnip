@@ -1978,6 +1978,10 @@ const docTemplate = `{
                 "sessionId": {
                     "type": "string"
                 },
+                "summary": {
+                    "description": "Summary text for summary-type messages",
+                    "type": "string"
+                },
                 "timestamp": {
                     "type": "string"
                 },

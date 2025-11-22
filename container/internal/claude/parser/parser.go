@@ -178,11 +178,14 @@ func (r *SessionFileReader) processMessage(msg *models.ClaudeSessionMessage) {
 		r.todos = todos
 	}
 
-	// Update latest message (if not filtered)
+	// Update latest message (if not filtered and is assistant)
+	// Note: Summary messages are skipped because they don't have UUIDs
 	if !ShouldSkipMessage(*msg, DefaultFilter, r.userMessageMap) {
-		// Make a copy of the message
-		msgCopy := *msg
-		r.latestMessage = &msgCopy
+		// Only track assistant messages as "latest message"
+		if msg.Type == "assistant" {
+			msgCopy := *msg
+			r.latestMessage = &msgCopy
+		}
 	}
 
 	// Update statistics

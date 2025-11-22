@@ -99,6 +99,9 @@ definitions:
         type: string
       sessionId:
         type: string
+      summary:
+        description: Summary text for summary-type messages
+        type: string
       timestamp:
         type: string
       type:

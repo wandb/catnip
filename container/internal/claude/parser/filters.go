@@ -240,6 +240,11 @@ func ExtractThinking(msg models.ClaudeSessionMessage) []ThinkingBlock {
 
 // ExtractTextContent extracts all text content from a message
 func ExtractTextContent(msg models.ClaudeSessionMessage) string {
+	// Handle summary messages (they have a "summary" field at the top level)
+	if msg.Type == "summary" && msg.Summary != "" {
+		return msg.Summary
+	}
+
 	if msg.Message == nil {
 		return ""
 	}
