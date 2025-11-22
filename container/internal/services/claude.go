@@ -727,37 +727,51 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 // GetLatestTodos gets the most recent Todo structure from the session history
 // Now uses the centralized parser service for efficient, cached access
 func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, error) {
+	logger.Debugf("📝 GetLatestTodos called for worktree: %s", worktreePath)
+
 	if s.parserService == nil {
+		logger.Warnf("❌ GetLatestTodos: parser service not initialized")
 		return nil, fmt.Errorf("parser service not initialized")
 	}
 
 	// Get or create parser for this worktree (handles finding session file)
 	reader, err := s.parserService.GetOrCreateParser(worktreePath)
 	if err != nil {
+		logger.Warnf("❌ GetLatestTodos failed to get parser for %s: %v", worktreePath, err)
 		return nil, fmt.Errorf("failed to get parser for worktree %s: %w", worktreePath, err)
 	}
 
 	// Parser maintains cached todos, updated incrementally
-	return reader.GetTodos(), nil
+	todos := reader.GetTodos()
+	logger.Debugf("✅ GetLatestTodos returning %d todos for %s", len(todos), worktreePath)
+	return todos, nil
 }
 
 // GetLatestAssistantMessage gets the most recent assistant message from the session history
 func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, error) {
+	logger.Debugf("💬 GetLatestAssistantMessage called for worktree: %s", worktreePath)
+
 	if s.parserService == nil {
+		logger.Warnf("❌ GetLatestAssistantMessage: parser service not initialized")
 		return "", fmt.Errorf("parser service not initialized")
 	}
 
 	reader, err := s.parserService.GetOrCreateParser(worktreePath)
 	if err != nil {
+		logger.Warnf("❌ GetLatestAssistantMessage failed to get parser for %s: %v", worktreePath, err)
 		return "", fmt.Errorf("failed to get parser for worktree %s: %w", worktreePath, err)
 	}
 
 	latestMsg := reader.GetLatestMessage()
 	if latestMsg == nil {
+		logger.Debugf("⚠️  GetLatestAssistantMessage: no latest message for %s", worktreePath)
 		return "", nil
 	}
 
-	return parser.ExtractTextContent(*latestMsg), nil
+	logger.Debugf("📧 GetLatestAssistantMessage: latest message type=%s for %s", latestMsg.Type, worktreePath)
+	content := parser.ExtractTextContent(*latestMsg)
+	logger.Debugf("✅ GetLatestAssistantMessage returning %d chars for %s", len(content), worktreePath)
+	return content, nil
 }
 
 // GetLatestAssistantMessageOrError gets the most recent assistant message OR error from the session history

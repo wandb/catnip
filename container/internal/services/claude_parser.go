@@ -161,19 +161,24 @@ func (s *ParserService) findSessionFile(worktreePath string) (string, error) {
 	// Check local directory first
 	homeDir := config.Runtime.HomeDir
 	localDir := filepath.Join(homeDir, ".claude", "projects", projectDirName)
+	logger.Debugf("🔍 Looking for session file in: %s", localDir)
 
 	if sessionFile := s.findBestSessionInDir(localDir); sessionFile != "" {
+		logger.Debugf("✅ Found session file: %s", sessionFile)
 		return sessionFile, nil
 	}
 
 	// Check volume directory
 	volumeDir := config.Runtime.VolumeDir
 	volumeProjectDir := filepath.Join(volumeDir, ".claude", ".claude", "projects", projectDirName)
+	logger.Debugf("🔍 Looking for session file in volume dir: %s", volumeProjectDir)
 
 	if sessionFile := s.findBestSessionInDir(volumeProjectDir); sessionFile != "" {
+		logger.Debugf("✅ Found session file in volume: %s", sessionFile)
 		return sessionFile, nil
 	}
 
+	logger.Warnf("❌ No session file found for worktree: %s (checked: %s, %s)", worktreePath, localDir, volumeProjectDir)
 	return "", fmt.Errorf("no session file found for worktree: %s", worktreePath)
 }
 
@@ -181,22 +186,27 @@ func (s *ParserService) findSessionFile(worktreePath string) (string, error) {
 func (s *ParserService) findBestSessionInDir(dir string) string {
 	// Check if directory exists
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		logger.Debugf("📁 Directory does not exist: %s", dir)
 		return ""
 	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		logger.Debugf("❌ Failed to read directory %s: %v", dir, err)
 		return ""
 	}
 
 	var bestFile string
 	var bestSize int64
 	var bestModTime time.Time
+	var skippedCount int
+	var jsonlCount int
 
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
 			continue
 		}
+		jsonlCount++
 
 		filePath := filepath.Join(dir, entry.Name())
 		info, err := os.Stat(filePath)
@@ -206,6 +216,7 @@ func (s *ParserService) findBestSessionInDir(dir string) string {
 
 		// Skip very small files (likely warmup-only sessions)
 		if info.Size() < 10000 {
+			skippedCount++
 			continue
 		}
 
@@ -216,6 +227,9 @@ func (s *ParserService) findBestSessionInDir(dir string) string {
 			bestModTime = info.ModTime()
 		}
 	}
+
+	logger.Debugf("📊 Scanned %d .jsonl files in %s, skipped %d small files, best file: %s (%d bytes)",
+		jsonlCount, dir, skippedCount, bestFile, bestSize)
 
 	return bestFile
 }
