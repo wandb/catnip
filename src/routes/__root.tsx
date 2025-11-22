@@ -19,11 +19,25 @@ import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { NotificationProvider } from "@/components/NotificationProvider";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { CodespaceAccess } from "@/components/CodespaceAccess";
+import { LandingPage } from "@/components/LandingPage";
 import { shouldShowCodespaceAccess } from "@/lib/utils/codespace-access";
 
 function CodespaceAccessLayout() {
   const { isAuthenticated, isLoading } = useAuth();
 
+  // Show landing page when not authenticated
+  if (!isAuthenticated && !isLoading) {
+    return (
+      <>
+        <LandingPage
+          onLogin={() => (window.location.href = "/v1/auth/github")}
+        />
+        <Toaster />
+      </>
+    );
+  }
+
+  // Show codespace access when authenticated
   return (
     <>
       <CodespaceAccess

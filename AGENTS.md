@@ -28,13 +28,18 @@ Path aliases are configured so the frontend imports from `@/*` (e.g. `import { c
 ## Core Commands
 
 - `pnpm dev`: Vite dev server at `http://localhost:5173`
+- `pnpm dev:mock`: Dev server with mock backend (no container needed)
 - `pnpm dev:cf:vite`: SPA dev server with Cloudflare integration flag
 - `pnpm dev:cf`: Build SPA then run `wrangler dev` (worker + assets); logs stream to `/tmp/wrangler.log`
 - `pnpm build`: Type-check then Vite build to `dist/`
+- `pnpm build:fast`: Vite build without type-check (faster iteration)
 - `pnpm preview`: Serve the built bundle locally
 - `pnpm typecheck` / `pnpm typecheck:worker`: Strict TypeScript validation for app/worker
 - `pnpm lint`: Run ESLint over the repo
 - `pnpm format:changed`: Prettier on staged or changed files
+- `pnpm test`: Run vitest tests
+- `pnpm test:ui`: Run vitest with interactive UI
+- `pnpm deploy:prod`: Build and deploy to production
 - `just build-dev` then `just run-dev`: Containerized Go + frontend development flow
 
 ## Coding & Styling Guidelines
@@ -48,9 +53,11 @@ Path aliases are configured so the frontend imports from `@/*` (e.g. `import { c
 
 ## Testing Expectations
 
-- No unit test runner is configured yet; rely on `pnpm typecheck` and `pnpm lint`
-- Add colocated tests as `*.test.ts(x)` if needed, kept fast and isolated
+- Run tests with `pnpm test`; use `pnpm test:ui` for interactive debugging
+- Colocate tests as `*.test.ts(x)` next to the code they cover
+- Keep tests fast and isolated; mock external dependencies
 - Validate end-to-end flows via `pnpm dev` or `pnpm dev:cf`
+- Always run `pnpm typecheck` and `pnpm lint` before committing
 
 ## Development Environment Notes
 
