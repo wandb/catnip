@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/creack/pty"
+	"github.com/vanpelt/catnip/internal/claude/parser"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
@@ -29,6 +30,7 @@ type ClaudeService struct {
 	settingsPath      string // Path to volume settings.json
 	subprocessWrapper ClaudeSubprocessInterface
 	sessionService    *SessionService // For best session file selection
+	parserService     *ParserService  // Centralized session file parser management
 	// Process registry for persistent streaming processes
 	processRegistry *ClaudeProcessRegistry
 	// Activity tracking for PTY sessions
@@ -142,6 +144,11 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 // SetSessionService sets the session service for best session file selection
 func (s *ClaudeService) SetSessionService(sessionService *SessionService) {
 	s.sessionService = sessionService
+}
+
+// SetParserService sets the parser service for centralized session file parsing
+func (s *ClaudeService) SetParserService(parserService *ParserService) {
+	s.parserService = parserService
 }
 
 // findProjectDirectory returns the path to the project directory if it exists in either location
@@ -342,101 +349,6 @@ func (s *ClaudeService) findLatestSessionFile(projectDir string) (string, error)
 
 	// Return the most recent file
 	return filepath.Join(projectDir, sessionFiles[0].Name()), nil
-}
-
-// findLatestSessionFileWithContent finds the most recent session file that contains assistant messages
-func (s *ClaudeService) findLatestSessionFileWithContent(projectDir string) (string, error) {
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("project directory does not exist: %s", projectDir)
-		}
-		return "", fmt.Errorf("failed to read project directory: %w", err)
-	}
-
-	var sessionFiles []fs.DirEntry
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
-			sessionFiles = append(sessionFiles, entry)
-		}
-	}
-
-	if len(sessionFiles) == 0 {
-		return "", fmt.Errorf("no session files found in %s", projectDir)
-	}
-
-	// Sort by modification time (most recent first)
-	sort.Slice(sessionFiles, func(i, j int) bool {
-		infoI, _ := sessionFiles[i].Info()
-		infoJ, _ := sessionFiles[j].Info()
-		return infoI.ModTime().After(infoJ.ModTime())
-	})
-
-	// Check each file (starting with most recent) to see if it has assistant content
-	for _, entry := range sessionFiles {
-		filePath := filepath.Join(projectDir, entry.Name())
-		if s.fileHasAssistantContent(filePath) {
-			return filePath, nil
-		}
-	}
-
-	// If no files have assistant content, return the most recent one anyway (fallback)
-	return filepath.Join(projectDir, sessionFiles[0].Name()), nil
-}
-
-// fileHasAssistantContent checks if a session file contains at least one assistant message with text content
-func (s *ClaudeService) fileHasAssistantContent(filePath string) bool {
-	hasContent := false
-
-	err := readJSONLines(filePath, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
-		}
-
-		// Skip only warmup sidechain messages, not all sidechain messages (agent results count as content)
-		if message.IsSidechain {
-			// Skip warmup messages
-			if message.Type == "user" && message.Message != nil {
-				if content, exists := message.Message["content"]; exists {
-					if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
-						return nil
-					}
-				}
-			}
-			// For warmup assistant responses, we'll let them through but they won't have meaningful content
-			// so they won't affect the hasContent check below
-		}
-
-		// Check if this is an assistant message with text content
-		if message.Type == "assistant" && message.Message != nil {
-			messageData := message.Message
-			if content, exists := messageData["content"]; exists {
-				if contentArray, ok := content.([]interface{}); ok {
-					for _, contentItem := range contentArray {
-						if contentMap, ok := contentItem.(map[string]interface{}); ok {
-							if contentType, exists := contentMap["type"]; exists && contentType == "text" {
-								if text, exists := contentMap["text"]; exists {
-									if textStr, ok := text.(string); ok && len(strings.TrimSpace(textStr)) > 0 {
-										hasContent = true
-										return fmt.Errorf("found content") // Use error to exit early
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		return nil
-	})
-
-	// If we got an error because we found content, return true
-	if err != nil && err.Error() == "found content" {
-		return true
-	}
-
-	return hasContent
 }
 
 // readSessionTiming reads the first and last timestamps from a session file
@@ -648,20 +560,19 @@ func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]mo
 	sessionFile := filepath.Join(projectDir, sessionID+".jsonl")
 
 	var messages []models.ClaudeSessionMessage
+	userMsgMap := make(map[string]string)
 
-	// First pass: Build a map of user messages by UUID to check for automated prompts
-	userMessages := make(map[string]string)
+	// First pass: Build user message map
 	err := readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
+			return nil
 		}
 
-		// Collect user messages
 		if message.Type == "user" && message.Message != nil {
 			if content, exists := message.Message["content"]; exists {
 				if contentStr, ok := content.(string); ok {
-					userMessages[message.Uuid] = contentStr
+					userMsgMap[message.Uuid] = contentStr
 				}
 			}
 		}
@@ -673,19 +584,18 @@ func (s *ClaudeService) GetSessionMessages(worktreePath, sessionID string) ([]mo
 		return nil, fmt.Errorf("failed to read user messages: %w", err)
 	}
 
-	// Second pass: Collect all non-skipped messages
+	// Second pass: Collect filtered messages using parser's filtering logic
 	err = readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines, don't stop processing
-		}
-
-		// Skip messages using centralized helper
-		if shouldSkipAssistantMessage(message, userMessages) {
 			return nil
 		}
 
-		messages = append(messages, message)
+		// Use parser's centralized filtering logic
+		if !parser.ShouldSkipMessage(message, parser.DefaultFilter, userMsgMap) {
+			messages = append(messages, message)
+		}
+
 		return nil
 	})
 
@@ -815,168 +725,85 @@ func (s *ClaudeService) GetSessionByUUID(sessionUUID string) (*models.FullSessio
 }
 
 // GetLatestTodos gets the most recent Todo structure from the session history
+// Now uses the centralized parser service for efficient, cached access
 func (s *ClaudeService) GetLatestTodos(worktreePath string) ([]models.Todo, error) {
-	projectDirName := WorktreePathToProjectDir(worktreePath)
-	projectDir := s.findProjectDirectory(projectDirName)
-
-	if projectDir == "" {
-		return nil, fmt.Errorf("project directory not found for worktree: %s", worktreePath)
+	if s.parserService == nil {
+		return nil, fmt.Errorf("parser service not initialized")
 	}
 
-	// Find the most recent session file
-	sessionFile, err := s.findLatestSessionFile(projectDir)
+	// Get or create parser for this worktree (handles finding session file)
+	reader, err := s.parserService.GetOrCreateParser(worktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find latest session file: %w", err)
+		return nil, fmt.Errorf("failed to get parser for worktree %s: %w", worktreePath, err)
 	}
 
-	// Look for the most recent TodoWrite tool call in the session
-	var latestTodos []models.Todo
-
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
-		}
-
-		// Skip only warmup sidechain messages (agent todos are valid)
-		if message.IsSidechain {
-			// Skip warmup messages
-			if message.Type == "user" && message.Message != nil {
-				if content, exists := message.Message["content"]; exists {
-					if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
-						return nil
-					}
-				}
-			}
-		}
-
-		// Check if this is an assistant message that might contain TodoWrite
-		if message.Type == "assistant" && message.Message != nil {
-			messageData := message.Message
-			if content, exists := messageData["content"]; exists {
-				if contentArray, ok := content.([]interface{}); ok {
-					for _, contentItem := range contentArray {
-						if contentMap, ok := contentItem.(map[string]interface{}); ok {
-							if contentType, exists := contentMap["type"]; exists && contentType == "tool_use" {
-								if name, exists := contentMap["name"]; exists && name == "TodoWrite" {
-									if input, exists := contentMap["input"]; exists {
-										if inputMap, ok := input.(map[string]interface{}); ok {
-											if todos, exists := inputMap["todos"]; exists {
-												if todosArray, ok := todos.([]interface{}); ok {
-													var parsedTodos []models.Todo
-													for _, todoItem := range todosArray {
-														if todoMap, ok := todoItem.(map[string]interface{}); ok {
-															todo := models.Todo{}
-															if id, exists := todoMap["id"]; exists {
-																if idStr, ok := id.(string); ok {
-																	todo.ID = idStr
-																}
-															}
-															if content, exists := todoMap["content"]; exists {
-																if contentStr, ok := content.(string); ok {
-																	todo.Content = contentStr
-																}
-															}
-															if status, exists := todoMap["status"]; exists {
-																if statusStr, ok := status.(string); ok {
-																	todo.Status = statusStr
-																}
-															}
-															if priority, exists := todoMap["priority"]; exists {
-																if priorityStr, ok := priority.(string); ok {
-																	todo.Priority = priorityStr
-																}
-															}
-															parsedTodos = append(parsedTodos, todo)
-														}
-													}
-													// Update latestTodos with the most recent one found
-													latestTodos = parsedTodos
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to read session file: %w", err)
-	}
-
-	return latestTodos, nil
+	// Parser maintains cached todos, updated incrementally
+	return reader.GetTodos(), nil
 }
 
 // GetLatestAssistantMessage gets the most recent assistant message from the session history
 func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, error) {
-	projectDirName := WorktreePathToProjectDir(worktreePath)
-	projectDir := s.findProjectDirectory(projectDirName)
-
-	if projectDir == "" {
-		return "", fmt.Errorf("project directory not found for worktree: %s", worktreePath)
+	if s.parserService == nil {
+		return "", fmt.Errorf("parser service not initialized")
 	}
 
-	// Find the most recent session file with actual assistant content
-	sessionFile, err := s.findLatestSessionFileWithContent(projectDir)
+	reader, err := s.parserService.GetOrCreateParser(worktreePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to find latest session file with content: %w", err)
+		return "", fmt.Errorf("failed to get parser for worktree %s: %w", worktreePath, err)
 	}
 
-	// Look for the most recent assistant message in the session
-	var latestAssistantMessage string
+	latestMsg := reader.GetLatestMessage()
+	if latestMsg == nil {
+		return "", nil
+	}
 
-	// First pass: Build a map of user messages by UUID to check for automated prompts
-	userMessages := make(map[string]string)
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
-		}
+	return parser.ExtractTextContent(*latestMsg), nil
+}
 
-		// Collect user messages
-		if message.Type == "user" && message.Message != nil {
-			if content, exists := message.Message["content"]; exists {
-				if contentStr, ok := content.(string); ok {
-					userMessages[message.Uuid] = contentStr
-				}
+// GetLatestAssistantMessageOrError gets the most recent assistant message OR error from the session history
+func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (content string, isError bool, err error) {
+	if s.parserService == nil {
+		return "", false, fmt.Errorf("parser service not initialized")
+	}
+
+	reader, err := s.parserService.GetOrCreateParser(worktreePath)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to get parser for worktree %s: %w", worktreePath, err)
+	}
+
+	latestMsg := reader.GetLatestMessage()
+	if latestMsg == nil {
+		return "", false, nil
+	}
+
+	// Check if this is an error message
+	if latestMsg.Type == "error" && latestMsg.Message != nil {
+		if contentVal, exists := latestMsg.Message["content"]; exists {
+			if contentStr, ok := contentVal.(string); ok {
+				return contentStr, true, nil
 			}
 		}
-
-		return nil
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("failed to read user messages: %w", err)
 	}
 
-	// Second pass: Find the latest assistant message, skipping automated responses
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
-		}
+	// Check for assistant message with error content blocks
+	if latestMsg.Type == "assistant" && latestMsg.Message != nil {
+		if contentVal, exists := latestMsg.Message["content"]; exists {
+			if contentArray, ok := contentVal.([]interface{}); ok {
+				var textContent strings.Builder
+				var foundError bool
 
-		// Skip messages using centralized helper
-		if shouldSkipAssistantMessage(message, userMessages) {
-			return nil
-		}
-
-		// Check if this is an assistant message
-		if message.Type == "assistant" && message.Message != nil {
-			messageData := message.Message
-			if content, exists := messageData["content"]; exists {
-				if contentArray, ok := content.([]interface{}); ok {
-					var textContent strings.Builder
-					for _, contentItem := range contentArray {
-						if contentMap, ok := contentItem.(map[string]interface{}); ok {
-							if contentType, exists := contentMap["type"]; exists && contentType == "text" {
+				for _, contentItem := range contentArray {
+					if contentMap, ok := contentItem.(map[string]interface{}); ok {
+						if contentType, exists := contentMap["type"]; exists {
+							switch contentType {
+							case "error":
+								if text, exists := contentMap["text"]; exists {
+									if textStr, ok := text.(string); ok {
+										textContent.WriteString(textStr)
+										foundError = true
+									}
+								}
+							case "text":
 								if text, exists := contentMap["text"]; exists {
 									if textStr, ok := text.(string); ok {
 										textContent.WriteString(textStr)
@@ -985,228 +812,22 @@ func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, 
 							}
 						}
 					}
-					if textContent.Len() > 0 {
-						latestAssistantMessage = textContent.String()
-					}
+				}
+
+				if textContent.Len() > 0 {
+					return textContent.String(), foundError, nil
 				}
 			}
 		}
-
-		return nil
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("failed to read session file: %w", err)
 	}
 
-	return latestAssistantMessage, nil
-}
-
-// isAutomatedPrompt checks if a user message is one of our known automated prompts
-// that should be filtered out from the "latest message" display
-func isAutomatedPrompt(userMessage string) bool {
-	// Known automated prompt patterns we send
-	automatedMarkers := []string{
-		"Warmup",                                              // Agent warmup messages
-		"Generate a git branch name that:",                    // Branch renaming
-		"Based on this coding session title:",                 // Branch renaming alternative
-		"Generate a pull request title and description that:", // PR generation (future)
-		"Create a commit message that:",                       // Commit message generation (future)
+	// Only return content for assistant or error messages, not user messages
+	if latestMsg.Type == "assistant" || latestMsg.Type == "error" {
+		return parser.ExtractTextContent(*latestMsg), false, nil
 	}
 
-	for _, marker := range automatedMarkers {
-		if strings.Contains(userMessage, marker) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// shouldSkipAssistantMessage checks if an assistant message should be skipped when displaying
-// to users (filters both sidechain messages and responses to automated prompts)
-func shouldSkipAssistantMessage(message models.ClaudeSessionMessage, userMessages map[string]string) bool {
-	// Skip warmup-related sidechain messages, but keep other sidechain messages (agent results)
-	if message.IsSidechain {
-		// For sidechain messages, check if they're warmup-related
-		if message.Type == "assistant" && message.ParentUuid != "" {
-			if parentContent, exists := userMessages[message.ParentUuid]; exists {
-				// Only skip if parent is "Warmup" prompt
-				if parentContent == "Warmup" {
-					return true
-				}
-			}
-		}
-		// For sidechain user messages, skip if it's "Warmup"
-		if message.Type == "user" && message.Message != nil {
-			if content, exists := message.Message["content"]; exists {
-				if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
-					return true
-				}
-			}
-		}
-		// Don't skip other sidechain messages (like agent results)
-		return false
-	}
-
-	// Skip assistant messages that are responses to automated prompts
-	if message.Type == "assistant" && message.ParentUuid != "" {
-		if parentContent, exists := userMessages[message.ParentUuid]; exists {
-			if isAutomatedPrompt(parentContent) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// GetLatestAssistantMessageOrError gets the most recent assistant message OR error from the session history
-func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (content string, isError bool, err error) {
-	projectDirName := WorktreePathToProjectDir(worktreePath)
-	projectDir := s.findProjectDirectory(projectDirName)
-
-	if projectDir == "" {
-		return "", false, fmt.Errorf("project directory not found for worktree: %s", worktreePath)
-	}
-
-	// Find the most recent session file with actual content
-	sessionFile, err := s.findLatestSessionFile(projectDir)
-	if err != nil {
-		return "", false, fmt.Errorf("failed to find latest session file: %w", err)
-	}
-
-	// Look for the most recent assistant message or error in the session
-	var latestContent string
-	var latestIsError bool
-	var hasFoundContent bool
-
-	// First pass: Build a map of user messages by UUID to check for automated prompts
-	userMessages := make(map[string]string)
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
-		}
-
-		// Collect user messages
-		if message.Type == "user" && message.Message != nil {
-			if content, exists := message.Message["content"]; exists {
-				if contentStr, ok := content.(string); ok {
-					userMessages[message.Uuid] = contentStr
-				}
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return "", false, fmt.Errorf("failed to read user messages: %w", err)
-	}
-
-	// Second pass: Find the latest assistant message, skipping automated responses
-	err = readJSONLines(sessionFile, func(line []byte) error {
-		var message models.ClaudeSessionMessage
-		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
-		}
-
-		// Skip only warmup sidechain messages, not all sidechain messages (agent results are valid)
-		if message.IsSidechain {
-			// Skip warmup messages
-			if message.Type == "user" && message.Message != nil {
-				if content, exists := message.Message["content"]; exists {
-					if contentStr, ok := content.(string); ok && contentStr == "Warmup" {
-						return nil
-					}
-				}
-			}
-			// Skip assistant responses to warmup
-			if message.Type == "assistant" && message.ParentUuid != "" {
-				if parentContent, exists := userMessages[message.ParentUuid]; exists {
-					if parentContent == "Warmup" {
-						return nil
-					}
-				}
-			}
-		}
-
-		// Skip assistant messages that are responses to automated prompts
-		if message.Type == "assistant" && message.ParentUuid != "" {
-			if parentContent, exists := userMessages[message.ParentUuid]; exists {
-				// Check if parent is an automated prompt we send
-				if isAutomatedPrompt(parentContent) {
-					return nil // Skip this assistant message
-				}
-			}
-		}
-
-		// Check for error messages first (highest priority)
-		if message.Type == "error" && message.Message != nil {
-			if content, exists := message.Message["content"]; exists {
-				if contentStr, ok := content.(string); ok && contentStr != "" {
-					latestContent = contentStr
-					latestIsError = true
-					hasFoundContent = true
-					return nil
-				}
-			}
-		}
-
-		// Check for assistant messages with errors in content
-		if message.Type == "assistant" && message.Message != nil {
-			messageData := message.Message
-			if content, exists := messageData["content"]; exists {
-				if contentArray, ok := content.([]interface{}); ok {
-					var textContent strings.Builder
-					var foundError bool
-
-					for _, contentItem := range contentArray {
-						if contentMap, ok := contentItem.(map[string]interface{}); ok {
-							// Check for error content type
-							if contentType, exists := contentMap["type"]; exists {
-								if contentType == "error" { //nolint:staticcheck
-									if text, exists := contentMap["text"]; exists {
-										if textStr, ok := text.(string); ok {
-											textContent.WriteString(textStr)
-											foundError = true
-										}
-									}
-								} else if contentType == "text" {
-									if text, exists := contentMap["text"]; exists {
-										if textStr, ok := text.(string); ok {
-											textContent.WriteString(textStr)
-											// Don't use text pattern matching for errors - only actual error types count
-											// Text like "I found 3 files that handle error processing" should not be flagged as an error
-										}
-									}
-								}
-							}
-						}
-					}
-
-					if textContent.Len() > 0 {
-						latestContent = textContent.String()
-						latestIsError = foundError
-						hasFoundContent = true
-					}
-				}
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return "", false, fmt.Errorf("failed to read session file: %w", err)
-	}
-
-	if !hasFoundContent {
-		return "", false, nil // No content found, but not an error
-	}
-
-	return latestContent, latestIsError, nil
+	// No assistant message found
+	return "", false, nil
 }
 
 // CreateCompletion creates a completion using the claude CLI subprocess
@@ -1431,19 +1052,19 @@ func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWrit
 
 	logger.Debugf("📜 Streaming historical events from %s", sessionFile)
 
-	// First pass: Build a map of user messages by UUID to check for automated prompts
-	userMessages := make(map[string]string)
+	userMsgMap := make(map[string]string)
+
+	// First pass: Build user message map
 	err = readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
+			return nil
 		}
 
-		// Collect user messages
 		if message.Type == "user" && message.Message != nil {
 			if content, exists := message.Message["content"]; exists {
 				if contentStr, ok := content.(string); ok {
-					userMessages[message.Uuid] = contentStr
+					userMsgMap[message.Uuid] = contentStr
 				}
 			}
 		}
@@ -1455,28 +1076,26 @@ func (s *ClaudeService) StreamHistoricalEvents(worktreePath string, responseWrit
 		return fmt.Errorf("failed to read user messages: %w", err)
 	}
 
-	// Second pass: Stream the last few assistant messages from the session file
+	// Second pass: Stream filtered assistant messages
 	var recentMessages [][]byte
 	err = readJSONLines(sessionFile, func(line []byte) error {
 		var message models.ClaudeSessionMessage
 		if err := json.Unmarshal(line, &message); err != nil {
-			return nil // Skip invalid JSON lines
+			return nil
 		}
 
-		// Skip messages using centralized helper
-		if shouldSkipAssistantMessage(message, userMessages) {
+		// Use parser's centralized filtering logic
+		if parser.ShouldSkipMessage(message, parser.DefaultFilter, userMsgMap) {
 			return nil
 		}
 
 		// Only stream assistant messages for historical context
 		if message.Type == "assistant" && message.Message != nil {
-			// Convert to streaming format
 			messageData := message.Message
 			if content, exists := messageData["content"]; exists {
 				if contentArray, ok := content.([]interface{}); ok && len(contentArray) > 0 {
 					if textBlock, ok := contentArray[0].(map[string]interface{}); ok {
 						if text, ok := textBlock["text"].(string); ok {
-							// Create streaming response format
 							response := &models.CreateCompletionResponse{
 								Response: text,
 								IsChunk:  true,
