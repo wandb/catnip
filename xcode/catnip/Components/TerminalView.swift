@@ -24,6 +24,10 @@ struct TerminalView: View {
     // Codespace shutdown detection
     @State private var showShutdownAlert = false
     @State private var shutdownMessage: String?
+    @Environment(\.dismiss) private var dismiss
+
+    // CatnipInstaller for status refresh
+    @StateObject private var installer = CatnipInstaller.shared
 
     init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true, showExitButton: Bool = true, showDismissButton: Bool = true) {
         self.workspaceId = workspaceId
