@@ -91,9 +91,27 @@ struct TerminalView: View {
         }
         .alert("Codespace Unavailable", isPresented: $showShutdownAlert) {
             Button("Reconnect") {
-                // Reset shutdown state and reconnect
-                HealthCheckService.shared.resetShutdownState()
-                terminalController.reconnect()
+                Task {
+                    // CRITICAL: Refresh user status BEFORE navigation
+                    // This triggers worker verification with ?refresh=true
+                    // Rate-limited to prevent abuse (10s server, 10s client)
+                    do {
+                        try await installer.fetchUserStatus(forceRefresh: true)
+                        NSLog("✅ Refreshed user status before reconnect")
+                    } catch {
+                        NSLog("⚠️ Failed to refresh status: \(error)")
+                        // Continue anyway - user will see current state
+                        // Graceful degradation if network fails
+                    }
+
+                    // Reset health check state
+                    await MainActor.run {
+                        HealthCheckService.shared.resetShutdownState()
+                        // Dismiss this view to go back to CodespaceView with fresh data
+                        // CodespaceView will auto-reconnect via SSE
+                        dismiss()
+                    }
+                }
             }
             Button("Cancel", role: .cancel) {
                 // Just dismiss the alert
