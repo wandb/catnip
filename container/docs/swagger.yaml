@@ -84,6 +84,8 @@ definitions:
     type: object
   github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage:
     properties:
+      agentId:
+        type: string
       cwd:
         type: string
       isMeta:

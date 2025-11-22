@@ -1956,6 +1956,9 @@ const docTemplate = `{
         "github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage": {
             "type": "object",
             "properties": {
+                "agentId": {
+                    "type": "string"
+                },
                 "cwd": {
                     "type": "string"
                 },

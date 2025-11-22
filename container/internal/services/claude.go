@@ -769,9 +769,17 @@ func (s *ClaudeService) GetLatestAssistantMessage(worktreePath string) (string, 
 	}
 
 	logger.Debugf("📧 GetLatestAssistantMessage: latest message type=%s for %s", latestMsg.Type, worktreePath)
-	content := parser.ExtractTextContent(*latestMsg)
-	logger.Debugf("✅ GetLatestAssistantMessage returning %d chars for %s", len(content), worktreePath)
-	return content, nil
+
+	// Only return content for assistant, summary, or error messages (not user messages)
+	if latestMsg.Type == "assistant" || latestMsg.Type == "summary" || latestMsg.Type == "error" {
+		content := parser.ExtractTextContent(*latestMsg)
+		logger.Debugf("✅ GetLatestAssistantMessage returning %d chars for %s", len(content), worktreePath)
+		return content, nil
+	}
+
+	// Latest message is a user message, return empty
+	logger.Debugf("⚠️  GetLatestAssistantMessage: latest message type=%s is not assistant/summary/error, returning empty", latestMsg.Type)
+	return "", nil
 }
 
 // GetLatestAssistantMessageOrError gets the most recent assistant message OR error from the session history
@@ -835,8 +843,8 @@ func (s *ClaudeService) GetLatestAssistantMessageOrError(worktreePath string) (c
 		}
 	}
 
-	// Only return content for assistant or error messages, not user messages
-	if latestMsg.Type == "assistant" || latestMsg.Type == "error" {
+	// Only return content for assistant, summary, or error messages (not user messages)
+	if latestMsg.Type == "assistant" || latestMsg.Type == "summary" || latestMsg.Type == "error" {
 		return parser.ExtractTextContent(*latestMsg), false, nil
 	}
 
