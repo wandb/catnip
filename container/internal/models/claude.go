@@ -57,6 +57,7 @@ type ClaudeSessionMessage struct {
 	UserType    string         `json:"userType"`
 	Uuid        string         `json:"uuid"`
 	Version     string         `json:"version"`
+	AgentID     string         `json:"agentId,omitempty"`
 }
 
 // ClaudeSessionSummary represents aggregated session information
