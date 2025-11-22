@@ -1956,6 +1956,9 @@ const docTemplate = `{
         "github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage": {
             "type": "object",
             "properties": {
+                "agentId": {
+                    "type": "string"
+                },
                 "cwd": {
                     "type": "string"
                 },
@@ -2545,6 +2548,14 @@ const docTemplate = `{
                     "type": "string",
                     "example": "2024-01-15T16:30:00Z"
                 },
+                "latest_claude_message": {
+                    "description": "Latest Claude message from the current session",
+                    "type": "string"
+                },
+                "latest_claude_message_type": {
+                    "description": "Type of the latest Claude message (\"assistant\" or \"user\")",
+                    "type": "string"
+                },
                 "latest_session_title": {
                     "description": "Latest session title from the current session (simplified string version)",
                     "type": "string"
@@ -2979,6 +2990,14 @@ const docTemplate = `{
                     "description": "When this worktree was last accessed",
                     "type": "string",
                     "example": "2024-01-15T16:30:00Z"
+                },
+                "latest_claude_message": {
+                    "description": "Latest Claude message from the current session",
+                    "type": "string"
+                },
+                "latest_claude_message_type": {
+                    "description": "Type of the latest Claude message (\"assistant\" or \"user\")",
+                    "type": "string"
                 },
                 "latest_session_title": {
                     "description": "Latest session title from the current session (simplified string version)",

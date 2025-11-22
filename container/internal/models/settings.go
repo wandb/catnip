@@ -135,6 +135,7 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 	}{
 		{volumeClaudeNestedDir, ".credentials.json", filepath.Join(s.homePath, ".claude", ".credentials.json")},
 		{volumeClaudeDir, "claude.json", filepath.Join(s.homePath, ".claude.json")},
+		{volumeClaudeNestedDir, "history.jsonl", filepath.Join(s.homePath, ".claude", "history.jsonl")},
 		{volumeGitHubDir, "config.yml", filepath.Join(s.homePath, ".config", "gh", "config.yml")},
 		{volumeGitHubDir, "hosts.yml", filepath.Join(s.homePath, ".config", "gh", "hosts.yml")},
 	}
@@ -501,6 +502,7 @@ func (s *Settings) checkAndSyncFiles() {
 	}{
 		{filepath.Join(s.homePath, ".claude", ".credentials.json"), filepath.Join(s.volumePath, ".claude", ".claude"), ".credentials.json", true},
 		{filepath.Join(s.homePath, ".claude.json"), filepath.Join(s.volumePath, ".claude"), "claude.json", true},
+		{filepath.Join(s.homePath, ".claude", "history.jsonl"), filepath.Join(s.volumePath, ".claude", ".claude"), "history.jsonl", false},
 		{filepath.Join(s.homePath, ".config", "gh", "config.yml"), filepath.Join(s.volumePath, ".github"), "config.yml", false},
 		{filepath.Join(s.homePath, ".config", "gh", "hosts.yml"), filepath.Join(s.volumePath, ".github"), "hosts.yml", false},
 	}

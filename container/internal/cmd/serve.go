@@ -181,12 +181,18 @@ func startServer(cmd *cobra.Command) {
 	// Initialize services
 	claudeService := services.NewClaudeService()
 	sessionService := services.NewSessionService()
+	parserService := services.NewParserService()
 
-	// Wire up SessionService to ClaudeService for best session file selection
-	claudeService.SetSessionService(sessionService)
+	// Wire up services
+	claudeService.SetSessionService(sessionService) // For best session file selection
+	claudeService.SetParserService(parserService)   // For centralized session parsing
+	parserService.SetClaudeService(claudeService)   // For finding project directories
+
+	// Start parser service
+	parserService.Start()
 
 	// Initialize and start Claude monitor service
-	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
+	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, parserService, gitService.GetStateManager())
 
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService, portMonitor)
