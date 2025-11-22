@@ -148,15 +148,25 @@ func (s *ClaudeService) GetWorktreeSessionSummary(worktreePath string) (*models.
 
 	summary := &models.ClaudeSessionSummary{
 		WorktreePath: worktreePath,
-		TurnCount:    len(projectMeta.History),
 	}
 
-	// Extract header from the most recent history entry
-	if len(projectMeta.History) > 0 {
-		// Get the most recent history entry
-		latestHistory := projectMeta.History[len(projectMeta.History)-1]
-		if latestHistory.Display != "" {
-			summary.Header = &latestHistory.Display
+	// Get user prompts and header from parser (reads from history.jsonl or .claude.json)
+	userPrompts, err := s.GetUserPrompts(worktreePath)
+	if err == nil {
+		summary.TurnCount = len(userPrompts)
+		// Use the latest user prompt as the header
+		if len(userPrompts) > 0 {
+			latestPrompt := userPrompts[len(userPrompts)-1].Display
+			summary.Header = &latestPrompt
+		}
+	} else {
+		// Fallback to old logic if parser fails
+		summary.TurnCount = len(projectMeta.History)
+		if len(projectMeta.History) > 0 {
+			latestHistory := projectMeta.History[len(projectMeta.History)-1]
+			if latestHistory.Display != "" {
+				summary.Header = &latestHistory.Display
+			}
 		}
 	}
 
