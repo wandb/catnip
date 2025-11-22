@@ -404,6 +404,7 @@ type EventsEmitter interface {
 	EmitWorktreeDeleted(worktreeID, worktreeName string)
 	EmitWorktreeTodosUpdated(worktreeID string, todos []models.Todo)
 	EmitSessionTitleUpdated(workspaceDir, worktreeID string, sessionTitle *models.TitleEntry, sessionTitleHistory []models.TitleEntry)
+	EmitClaudeMessage(workspaceDir, worktreeID, message, messageType string)
 }
 
 type GitService struct {

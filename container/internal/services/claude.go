@@ -429,7 +429,62 @@ func (s *ClaudeService) readClaudeConfig() (map[string]*models.ClaudeProjectMeta
 		project.Path = path
 	}
 
+	// Read history from ~/.claude/history.jsonl (Claude Code moved history out of .claude.json)
+	if err := s.loadHistoryFromJSONL(config.Projects); err != nil {
+		logger.Warnf("Failed to load history from history.jsonl: %v (continuing with empty history)", err)
+		// Don't fail - continue with empty history arrays
+	}
+
 	return config.Projects, nil
+}
+
+// loadHistoryFromJSONL reads ~/.claude/history.jsonl and populates the History field for each project
+func (s *ClaudeService) loadHistoryFromJSONL(projects map[string]*models.ClaudeProjectMetadata) error {
+	homeDir := config.Runtime.HomeDir
+	historyPath := filepath.Join(homeDir, ".claude", "history.jsonl")
+
+	// Read the history file
+	data, err := os.ReadFile(historyPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No history file is fine - all projects will have empty history
+			return nil
+		}
+		return fmt.Errorf("failed to read history file: %w", err)
+	}
+
+	// Parse each line as a history entry
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var entry struct {
+			Display        string         `json:"display"`
+			PastedContents map[string]any `json:"pastedContents"`
+			Project        string         `json:"project"`
+			SessionID      string         `json:"sessionId"`
+			Timestamp      int64          `json:"timestamp"`
+		}
+
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			logger.Warnf("Failed to parse history entry: %v (skipping)", err)
+			continue
+		}
+
+		// Find the project and add this history entry
+		if project, exists := projects[entry.Project]; exists {
+			historyEntry := models.ClaudeHistoryEntry{
+				Display:        entry.Display,
+				PastedContents: entry.PastedContents,
+			}
+			project.History = append(project.History, historyEntry)
+		}
+	}
+
+	return nil
 }
 
 // GetFullSessionData gets complete session data for a workspace including all messages

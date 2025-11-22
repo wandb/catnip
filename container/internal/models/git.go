@@ -118,6 +118,10 @@ type Worktree struct {
 	LatestUserPrompt string `json:"latest_user_prompt,omitempty"`
 	// Latest session title from the current session (simplified string version)
 	LatestSessionTitle string `json:"latest_session_title,omitempty"`
+	// Latest Claude message from the current session
+	LatestClaudeMessage string `json:"latest_claude_message,omitempty"`
+	// Type of the latest Claude message ("assistant" or "user")
+	LatestClaudeMessageType string `json:"latest_claude_message_type,omitempty"`
 }
 
 // WorktreeCreateRequest represents a request to create a new worktree

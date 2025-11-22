@@ -540,6 +540,12 @@ definitions:
         description: When this worktree was last accessed
         example: "2024-01-15T16:30:00Z"
         type: string
+      latest_claude_message:
+        description: Latest Claude message from the current session
+        type: string
+      latest_claude_message_type:
+        description: Type of the latest Claude message ("assistant" or "user")
+        type: string
       latest_session_title:
         description: Latest session title from the current session (simplified string
           version)
@@ -860,6 +866,12 @@ definitions:
       last_accessed:
         description: When this worktree was last accessed
         example: "2024-01-15T16:30:00Z"
+        type: string
+      latest_claude_message:
+        description: Latest Claude message from the current session
+        type: string
+      latest_claude_message_type:
+        description: Type of the latest Claude message ("assistant" or "user")
         type: string
       latest_session_title:
         description: Latest session title from the current session (simplified string

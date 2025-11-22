@@ -537,3 +537,54 @@ func TestGetLastModTime(t *testing.T) {
 		t.Error("Expected non-zero mod time after reading")
 	}
 }
+
+func TestThinkingOnlyMessage(t *testing.T) {
+	// Create a temporary file with a thinking-only assistant message
+	tmpFile := filepath.Join(t.TempDir(), "thinking_only.jsonl")
+
+	content := `{"type":"user","message":{"role":"user","content":"What is 2+2?"},"uuid":"msg-001","timestamp":"2025-11-21T10:00:00.000Z","sessionId":"session-123"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Let me calculate 2+2..."}]},"uuid":"msg-002","timestamp":"2025-11-21T10:00:01.000Z","sessionId":"session-123"}
+`
+	err := os.WriteFile(tmpFile, []byte(content), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write temp file: %v", err)
+	}
+
+	reader := NewSessionFileReader(tmpFile)
+
+	messages, err := reader.ReadIncremental()
+	if err != nil {
+		t.Fatalf("ReadIncremental failed: %v", err)
+	}
+
+	if len(messages) != 2 {
+		t.Fatalf("Expected 2 messages, got %d", len(messages))
+	}
+
+	// GetLatestMessage should return the thinking-only assistant message
+	latestMsg := reader.GetLatestMessage()
+	if latestMsg == nil {
+		t.Fatal("Expected non-nil latest message")
+	}
+
+	// Verify it's the assistant message
+	if latestMsg.Type != "assistant" {
+		t.Errorf("Expected latest message type 'assistant', got '%s'", latestMsg.Type)
+	}
+
+	// ExtractTextContent should return empty string for thinking-only messages
+	// but the message itself should still be stored as the latest message
+	textContent := ExtractTextContent(*latestMsg)
+	if textContent != "" {
+		t.Errorf("Expected empty text content for thinking-only message, got '%s'", textContent)
+	}
+
+	// Verify stats show the assistant message was counted
+	stats := reader.GetStats()
+	if stats.AssistantMessages != 1 {
+		t.Errorf("Expected 1 assistant message in stats, got %d", stats.AssistantMessages)
+	}
+	if stats.ThinkingBlockCount != 1 {
+		t.Errorf("Expected 1 thinking block in stats, got %d", stats.ThinkingBlockCount)
+	}
+}

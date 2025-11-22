@@ -247,6 +247,13 @@ func (h *GitHandler) ListWorktrees(c *fiber.Ctx) error {
 		}
 		// If there's an error getting todos, we'll leave Todos as nil (which is fine)
 
+		// Get latest Claude message for this worktree
+		if message, messageType, _ := h.claudeMonitor.GetLatestClaudeMessage(worktree.Path); message != "" {
+			worktree.LatestClaudeMessage = message
+			worktree.LatestClaudeMessageType = messageType
+			// Note: We don't have timestamp stored yet, can add later if needed
+		}
+
 		// Create enhanced worktree with cache status
 		enhanced := &EnhancedWorktree{
 			Worktree: worktree,

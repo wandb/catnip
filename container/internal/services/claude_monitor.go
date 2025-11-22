@@ -13,6 +13,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/google/uuid"
+	"github.com/vanpelt/catnip/internal/claude/parser"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/logger"
@@ -62,20 +63,23 @@ type WorktreeCheckpointManager struct {
 	renamingInProgress bool // Track if a rename is currently in progress
 }
 
-// WorktreeTodoMonitor monitors Todo updates for a single worktree
+// WorktreeTodoMonitor monitors Todo updates and latest Claude messages for a single worktree
 type WorktreeTodoMonitor struct {
-	workDir        string
-	projectDir     string
-	claudeService  *ClaudeService
-	parserService  *ParserService
-	claudeMonitor  *ClaudeMonitorService
-	gitService     *GitService
-	sessionService *SessionService
-	ticker         *time.Ticker
-	stopCh         chan struct{}
-	lastModTime    time.Time
-	lastTodos      []models.Todo
-	lastTodosJSON  string // JSON representation for comparison
+	workDir         string
+	projectDir      string
+	claudeService   *ClaudeService
+	parserService   *ParserService
+	claudeMonitor   *ClaudeMonitorService
+	gitService      *GitService
+	sessionService  *SessionService
+	ticker          *time.Ticker
+	stopCh          chan struct{}
+	lastModTime     time.Time
+	lastTodos       []models.Todo
+	lastTodosJSON   string // JSON representation for comparison
+	lastMessage     string // Last Claude message content for comparison
+	lastMessageType string // "assistant" or "user"
+	lastMessageUUID string // UUID of the last message to detect changes
 }
 
 // NewClaudeMonitorService creates a new Claude monitor service
@@ -1259,6 +1263,9 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	if err := m.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
 		logger.Warnf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
 	}
+
+	// Also check for latest Claude message changes
+	m.checkForMessageUpdates(worktreeID, latestFile)
 }
 
 // findLatestSessionFile finds the best session file in the project directory
@@ -1422,6 +1429,48 @@ func (m *WorktreeTodoMonitor) isCurrentBranchCatnip() bool {
 	return git.IsCatnipBranch(currentBranch)
 }
 
+// checkForMessageUpdates checks for new Claude messages and emits SSE events
+func (m *WorktreeTodoMonitor) checkForMessageUpdates(worktreeID, sessionFile string) {
+	// Get or create parser for this session file
+	sessionParser, err := m.parserService.GetOrCreateParser(sessionFile)
+	if err != nil {
+		logger.Debugf("⚠️  Failed to get parser for %s: %v", sessionFile, err)
+		return
+	}
+
+	// Get the latest message from the parser
+	latestMsg := sessionParser.GetLatestMessage()
+	if latestMsg == nil {
+		return // No messages yet
+	}
+
+	// Extract message content and metadata
+	messageType := latestMsg.Type
+	messageUUID := latestMsg.Uuid
+
+	// Extract text content from the message using parser package function
+	messageContent := parser.ExtractTextContent(*latestMsg)
+
+	// Check if message has changed (compare UUIDs for efficiency)
+	if messageUUID == m.lastMessageUUID {
+		return // Same message as before
+	}
+
+	// Message has changed!
+	logger.Debugf("💬 New Claude message detected for worktree %s (type: %s, length: %d)", m.workDir, messageType, len(messageContent))
+
+	// Update tracking
+	m.lastMessage = messageContent
+	m.lastMessageType = messageType
+	m.lastMessageUUID = messageUUID
+
+	// Emit SSE event for the new message via the state manager
+	if m.gitService != nil && m.gitService.stateManager != nil {
+		m.gitService.stateManager.EmitClaudeMessage(m.workDir, worktreeID, messageContent, messageType)
+		logger.Debugf("📡 Emitted claude:message SSE event for worktree %s", worktreeID)
+	}
+}
+
 // getClaudeMonitorService returns the Claude monitor service instance
 func (m *WorktreeTodoMonitor) getClaudeMonitorService() *ClaudeMonitorService {
 	return m.claudeMonitor
@@ -1446,6 +1495,19 @@ func (s *ClaudeMonitorService) GetTodos(worktreePath string) ([]models.Todo, err
 
 	// Fallback to direct read if monitor doesn't exist
 	return s.claudeService.GetLatestTodos(worktreePath)
+}
+
+// GetLatestClaudeMessage returns the latest Claude message for a worktree path
+func (s *ClaudeMonitorService) GetLatestClaudeMessage(worktreePath string) (message, messageType, uuid string) {
+	s.todoMonitorsMutex.RLock()
+	monitor, exists := s.todoMonitors[worktreePath]
+	s.todoMonitorsMutex.RUnlock()
+
+	if exists && monitor.lastMessageUUID != "" {
+		return monitor.lastMessage, monitor.lastMessageType, monitor.lastMessageUUID
+	}
+
+	return "", "", ""
 }
 
 // OnWorktreeCreated handles when a new worktree is created
