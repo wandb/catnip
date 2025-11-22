@@ -6,7 +6,6 @@ import {
   X,
   Github,
   Smartphone,
-  Code,
   Zap,
   Cloud,
   Terminal,
