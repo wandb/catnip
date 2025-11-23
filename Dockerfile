@@ -1,5 +1,5 @@
 # Stage 1: Build the Go binary
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
 
@@ -101,7 +101,7 @@ FROM ubuntu:24.04
 # Build arguments for language versions
 ARG NODE_VERSION=22.17.0
 ARG PYTHON_VERSION=3.13.5
-ARG GO_VERSION=1.24.4
+ARG GO_VERSION=1.25.4
 ARG NVM_VERSION=0.40.3
 
 # Multi-arch support
@@ -217,7 +217,7 @@ RUN mkdir -p ${CATNIP_ROOT}/pnpm && \
     nvm use ${NODE_VERSION} && \
     nvm alias default ${NODE_VERSION} && \
     corepack enable && \
-    corepack install -g yarn pnpm npm && \
+    corepack install -g yarn@stable pnpm@latest npm@latest && \
     pnpm config set global-dir ${CATNIP_ROOT}/pnpm && \
     pnpm config set global-bin-dir ${CATNIP_ROOT}/pnpm'
 
