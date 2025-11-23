@@ -72,16 +72,16 @@ export function LandingPage({ onLogin }: LandingPageProps) {
               <img src="/logo@2x.png" alt="Catnip Logo" className="w-24 h-24" />
             </div>
             <h1 className="text-5xl md:text-6xl font-bold text-white mb-6">
-              Your Development Environment,
+              Claude Code
               <br />
               <span className="bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
-                Anywhere
+                Everywhere
               </span>
             </h1>
             <p className="text-xl text-gray-400 mb-8 max-w-2xl mx-auto">
-              Catnip brings your GitHub Codespaces to life with a powerful,
-              agent-friendly development environment. Code on the go with our
-              native mobile app or access from any browser.
+              Catnip let's you access the full Claude Code TUI from anywhere.
+              Code on the go with our native mobile app or access from any
+              browser. Powered by GitHub Codespaces.
             </p>
             <Button
               onClick={onLogin}
@@ -104,7 +104,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                   Mobile First
                 </h3>
                 <p className="text-gray-400">
-                  Native iOS app brings the full power of your codespace to your
+                  Native iOS app brings the full power of Claude Code to your
                   iPhone or iPad. Code anywhere, anytime.
                 </p>
               </CardContent>
@@ -131,11 +131,17 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                   <Zap className="w-6 h-6 text-green-400" />
                 </div>
                 <h3 className="text-xl font-semibold text-white mb-2">
-                  Lightning Fast
+                  Open Source
                 </h3>
                 <p className="text-gray-400">
-                  Optimized for performance with instant reconnection and
-                  efficient resource usage.
+                  Everything is{" "}
+                  <a
+                    href="https://github.com/wandb/catnip"
+                    className="text-blue-400 underline"
+                  >
+                    open source
+                  </a>{" "}
+                  and free to use. No hidden fees or subscriptions.
                 </p>
               </CardContent>
             </Card>
@@ -144,6 +150,16 @@ export function LandingPage({ onLogin }: LandingPageProps) {
           {/* How It Works */}
           <div className="max-w-4xl mx-auto text-center mb-16">
             <h2 className="text-3xl font-bold text-white mb-8">How It Works</h2>
+            <p className="text-gray-400 mb-8 italic">
+              Don't worry about doing these steps yourself. Our{" "}
+              <a
+                href="https://testflight.apple.com/join/3gSY17tf"
+                className="text-blue-400 underline"
+              >
+                mobile app
+              </a>{" "}
+              can do it for any of your existing repositories!
+            </p>
             <div className="space-y-6 text-left">
               <div className="flex gap-4">
                 <div className="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white font-bold">
@@ -163,7 +179,8 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                   <pre className="bg-gray-900 p-3 rounded-lg mt-2 text-sm overflow-x-auto text-gray-300">
                     {`"features": {
   "ghcr.io/wandb/catnip/feature:1": {}
-}`}
+},
+"forwardPorts": [6369],`}
                   </pre>
                 </div>
               </div>
@@ -229,9 +246,12 @@ export function LandingPage({ onLogin }: LandingPageProps) {
       <footer className="border-t border-gray-800 py-8">
         <div className="container mx-auto px-4 text-center text-gray-500 text-sm">
           <p>
-            Built with{" "}
-            <span className="text-purple-400">React + TypeScript</span> •
-            Powered by <span className="text-blue-400">Cloudflare Workers</span>
+            Built by{" "}
+            <a href="https://wandb.ai" className="text-purple-400">
+              Weights & Biases
+            </a>{" "}
+            • Powered by{" "}
+            <span className="text-blue-400">GitHub Codespaces</span>
           </p>
         </div>
       </footer>
