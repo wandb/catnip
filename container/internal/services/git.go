@@ -407,18 +407,21 @@ type EventsEmitter interface {
 }
 
 type GitService struct {
-	stateManager       *WorktreeStateManager // Centralized state management
-	operations         git.Operations        // All git operations through this interface
-	gitWorktreeManager *git.WorktreeManager  // Git layer worktree operations
-	conflictResolver   *git.ConflictResolver // Handles conflict detection/resolution
-	githubManager      *git.GitHubManager    // Handles all GitHub CLI operations
-	localRepoManager   *LocalRepoManager     // Handles local repository detection
-	commitSync         *CommitSyncService    // Handles automatic checkpointing and commit sync
-	setupExecutor      SetupExecutor         // Handles setup.sh execution in PTY sessions
-	worktreeCache      *WorktreeStatusCache  // Handles worktree status caching with event updates
-	eventsEmitter      EventsEmitter         // Handles emitting events to connected clients
-	claudeMonitor      *ClaudeMonitorService // Handles Claude session monitoring
-	mu                 sync.RWMutex
+	stateManager        *WorktreeStateManager // Centralized state management
+	operations          git.Operations        // All git operations through this interface
+	gitWorktreeManager  *git.WorktreeManager  // Git layer worktree operations
+	conflictResolver    *git.ConflictResolver // Handles conflict detection/resolution
+	githubManager       *git.GitHubManager    // Handles all GitHub CLI operations
+	localRepoManager    *LocalRepoManager     // Handles local repository detection
+	commitSync          *CommitSyncService    // Handles automatic checkpointing and commit sync
+	setupExecutor       SetupExecutor         // Handles setup.sh execution in PTY sessions
+	worktreeCache       *WorktreeStatusCache  // Handles worktree status caching with event updates
+	eventsEmitter       EventsEmitter         // Handles emitting events to connected clients
+	claudeMonitor       *ClaudeMonitorService // Handles Claude session monitoring
+	mu                  sync.RWMutex
+	lastFetchTimes      map[string]time.Time // Track last fetch time per repo path
+	lastFetchMu         sync.RWMutex         // Protect lastFetchTimes map
+	fetchThrottlePeriod time.Duration        // How long to wait between fetches for same repo
 }
 
 // Helper functions for standardized command execution
@@ -599,12 +602,14 @@ func NewGitServiceWithStateDir(operations git.Operations, stateDir string) *GitS
 	stateManager := NewWorktreeStateManager(stateDir, nil)
 
 	s := &GitService{
-		stateManager:       stateManager,
-		operations:         operations,
-		gitWorktreeManager: git.NewWorktreeManager(operations),
-		conflictResolver:   git.NewConflictResolver(operations),
-		githubManager:      git.NewGitHubManager(operations),
-		localRepoManager:   NewLocalRepoManager(operations),
+		stateManager:        stateManager,
+		operations:          operations,
+		gitWorktreeManager:  git.NewWorktreeManager(operations),
+		conflictResolver:    git.NewConflictResolver(operations),
+		githubManager:       git.NewGitHubManager(operations),
+		localRepoManager:    NewLocalRepoManager(operations),
+		lastFetchTimes:      make(map[string]time.Time),
+		fetchThrottlePeriod: 5 * time.Second, // Throttle fetches to once per 5 seconds per repo
 	}
 
 	// Initialize CommitSync service
@@ -907,6 +912,13 @@ func (s *GitService) enhanceWorktreeWithPRState(wt *models.Worktree) {
 			wt.PullRequestState = prState.State
 			wt.PullRequestLastSynced = &prState.LastSynced
 		}
+	}
+
+	// Check if we have commits ahead of the remote branch (without fetching)
+	// Note: checkHasCommitsAheadOfRemote does fetch, but that's okay for worktree enhancement
+	// since we want accurate data. For the PR endpoint, we use it after fetching anyway.
+	if ahead, err := s.checkHasCommitsAheadOfRemote(wt); err == nil {
+		wt.HasCommitsAheadOfRemote = ahead
 	}
 }
 
@@ -2662,6 +2674,15 @@ func (s *GitService) GetPullRequestInfo(worktreeID string) (*models.PullRequestI
 		logger.Warnf("⚠️ Could not check for existing PR: %v", err)
 	} else {
 		prInfo = ghPrInfo
+		// Override HasCommitsAhead with our more specific check (local vs remote branch)
+		// GitHubManager just checks if commit count > 0 (ahead of base)
+		if ahead, err := s.checkHasCommitsAheadOfRemote(worktree); err == nil {
+			prInfo.HasCommitsAhead = ahead
+		} else {
+			logger.Warnf("⚠️ Failed to check commits ahead of remote: %v", err)
+			// Fallback to generic check if remote check fails
+			prInfo.HasCommitsAhead = hasCommitsAhead
+		}
 	}
 
 	// Override with persisted PR data if available (gives precedence to locally stored data)
@@ -2700,6 +2721,59 @@ func (s *GitService) checkHasCommitsAhead(worktree *models.Worktree) (bool, erro
 	output, err := s.runGitCommand(worktree.Path, "rev-list", "--count", fmt.Sprintf("%s..HEAD", baseRef))
 	if err != nil {
 		return false, fmt.Errorf("failed to count commits ahead: %v", err)
+	}
+
+	commitCount, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	if err != nil {
+		return false, fmt.Errorf("failed to parse commit count: %v", err)
+	}
+
+	return commitCount > 0, nil
+}
+
+// checkHasCommitsAheadOfRemote checks if the worktree branch has commits ahead of the remote branch
+func (s *GitService) checkHasCommitsAheadOfRemote(worktree *models.Worktree) (bool, error) {
+	// We want to check if we have commits that are not yet on the remote branch
+	// This is effectively: git rev-list --count origin/<branch>..HEAD
+
+	// Throttle fetches: only fetch if we haven't fetched this repo recently
+	s.lastFetchMu.Lock()
+	lastFetch, exists := s.lastFetchTimes[worktree.Path]
+	shouldFetch := !exists || time.Since(lastFetch) > s.fetchThrottlePeriod
+	if shouldFetch {
+		s.lastFetchTimes[worktree.Path] = time.Now()
+	}
+	s.lastFetchMu.Unlock()
+
+	// First, fetch origin/<branch> to be sure we have the latest state (if not throttled)
+	if shouldFetch {
+		if _, err := s.runGitCommand(worktree.Path, "fetch", "origin", worktree.Branch); err != nil {
+			// If fetch fails, it might be because the remote branch doesn't exist yet.
+			// In that case, we'll fall back to checking if we have any commits at all.
+			logger.Debugf("⚠️ Could not fetch remote branch %s: %v", worktree.Branch, err)
+		}
+	} else {
+		logger.Debugf("⏭️ Skipping fetch for %s (last fetched %v ago)", worktree.Path, time.Since(lastFetch))
+	}
+
+	remoteRef := fmt.Sprintf("origin/%s", worktree.Branch)
+
+	// Check if remote ref exists
+	if !s.branchExists(worktree.Path, remoteRef, true) {
+		// Remote branch doesn't exist.
+		// If we have any commits, we are technically "ahead" (all commits are new).
+		// However, for "Update PR", we usually care about updating an EXISTING PR.
+		// If the PR exists, the remote branch SHOULD exist.
+		// If we return true here, the UI might show "Update PR" but the push might fail if PR doesn't exist?
+		// Actually, if PR doesn't exist, GetPullRequestInfo will return Exists=false anyway.
+		// So returning true here is safe/correct: we have unpushed commits.
+		return worktree.CommitCount > 0, nil
+	}
+
+	// Count commits ahead of remote branch
+	output, err := s.runGitCommand(worktree.Path, "rev-list", "--count", fmt.Sprintf("%s..HEAD", remoteRef))
+	if err != nil {
+		return false, fmt.Errorf("failed to count commits ahead of remote: %v", err)
 	}
 
 	commitCount, err := strconv.Atoi(strings.TrimSpace(string(output)))
@@ -3266,4 +3340,125 @@ func (s *GitService) isTemporaryPath(path string) bool {
 	}
 
 	return false
+}
+
+// UpdateMountedRepo updates the mounted codespace repository to the latest default branch
+// It handles various scenarios: dirty working tree, being on a feature branch, etc.
+func (s *GitService) UpdateMountedRepo() error {
+	// 1. Detect repository path from GITHUB_REPOSITORY env var
+	githubRepo := os.Getenv("GITHUB_REPOSITORY")
+	if githubRepo == "" {
+		logger.Warn("CATNIP_UPDATE_DEFAULT_BRANCH enabled but GITHUB_REPOSITORY not set, skipping")
+		return nil
+	}
+
+	// Extract repo name from "owner/repo" format
+	parts := strings.Split(githubRepo, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid GITHUB_REPOSITORY format: %s", githubRepo)
+	}
+	repoName := parts[1]
+
+	// Construct repository path
+	liveDir := config.Runtime.LiveDir
+	if liveDir == "" {
+		liveDir = "/workspaces"
+	}
+	repoPath := filepath.Join(liveDir, repoName)
+
+	// 2. Validate repository exists and is a git repo
+	if _, err := os.Stat(repoPath); os.IsNotExist(err) {
+		logger.Warnf("Repository not found at %s, skipping update", repoPath)
+		return nil
+	}
+
+	if !s.operations.IsGitRepository(repoPath) {
+		logger.Warnf("Path %s is not a git repository, skipping update", repoPath)
+		return nil
+	}
+
+	logger.Infof("🔄 Updating mounted repository: %s", repoPath)
+
+	// 3. Get the remote default branch
+	defaultBranch, err := s.operations.GetRemoteDefaultBranch(repoPath)
+	if err != nil {
+		return fmt.Errorf("failed to detect default branch: %v", err)
+	}
+	logger.Infof("   Default branch: %s", defaultBranch)
+
+	// 4. Get current branch
+	currentBranchBytes, err := s.operations.ExecuteGit(repoPath, "branch", "--show-current")
+	if err != nil {
+		return fmt.Errorf("failed to get current branch: %v", err)
+	}
+	currentBranch := strings.TrimSpace(string(currentBranchBytes))
+	logger.Infof("   Current branch: %s", currentBranch)
+
+	// 5. Check if working tree is dirty
+	isDirty := s.operations.IsDirty(repoPath)
+
+	// 6. Execute update based on current state
+	var stashed bool
+
+	// If on default branch
+	if currentBranch == defaultBranch {
+		// Stash changes if dirty
+		if isDirty {
+			logger.Info("   Working tree has changes, stashing...")
+			if err := s.operations.Stash(repoPath); err != nil {
+				return fmt.Errorf("failed to stash changes: %v", err)
+			}
+			stashed = true
+		}
+
+		// Pull with --ff-only
+		logger.Infof("   Pulling latest changes from origin/%s...", defaultBranch)
+		_, err := s.operations.ExecuteGit(repoPath, "pull", "--ff-only", "origin", defaultBranch)
+		if err != nil {
+			// If pull failed and we stashed, try to pop
+			if stashed {
+				logger.Warn("   Pull failed, restoring stashed changes...")
+				_ = s.operations.StashPop(repoPath)
+			}
+			return fmt.Errorf("failed to pull (cannot fast-forward): %v", err)
+		}
+
+		// Pop stash if we stashed
+		if stashed {
+			logger.Info("   Restoring stashed changes...")
+			if err := s.operations.StashPop(repoPath); err != nil {
+				logger.Warn("   Stash pop resulted in conflicts - manual resolution required")
+				logger.Infof("✅ Repository updated successfully (with stash conflicts)")
+				return nil
+			}
+		}
+
+		logger.Info("✅ Repository updated successfully")
+		return nil
+	}
+
+	// If on a different branch, switch to default, update, then switch back
+	logger.Infof("   Switching from %s to %s...", currentBranch, defaultBranch)
+
+	// Checkout default branch
+	if _, err := s.operations.ExecuteGit(repoPath, "checkout", defaultBranch); err != nil {
+		return fmt.Errorf("failed to checkout %s: %v", defaultBranch, err)
+	}
+
+	// Pull latest changes
+	logger.Infof("   Pulling latest changes from origin/%s...", defaultBranch)
+	if _, err := s.operations.ExecuteGit(repoPath, "pull", "--ff-only", "origin", defaultBranch); err != nil {
+		// Try to switch back to original branch
+		_, _ = s.operations.ExecuteGit(repoPath, "checkout", currentBranch)
+		return fmt.Errorf("failed to pull (cannot fast-forward): %v", err)
+	}
+
+	// Switch back to original branch
+	logger.Infof("   Switching back to %s...", currentBranch)
+	if _, err := s.operations.ExecuteGit(repoPath, "checkout", currentBranch); err != nil {
+		return fmt.Errorf("updated %s but failed to return to %s: %v", defaultBranch, currentBranch, err)
+	}
+
+	logger.Info("✅ Repository updated successfully")
+	return nil
 }

@@ -110,6 +110,8 @@ type Worktree struct {
 	PullRequestState string `json:"pull_request_state,omitempty" example:"open"`
 	// Last time the PR state was synced
 	PullRequestLastSynced *time.Time `json:"pull_request_last_synced,omitempty"`
+	// Whether the branch has commits ahead of the remote branch (calculated on list)
+	HasCommitsAheadOfRemote bool `json:"has_commits_ahead_of_remote"`
 	// Current todos from the most recent TodoWrite in Claude session
 	Todos []Todo `json:"todos,omitempty"`
 	// Latest user prompt from ~/.claude.json history
