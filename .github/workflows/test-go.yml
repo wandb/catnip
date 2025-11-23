@@ -12,7 +12,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest] # TODO: windows-latest fails tests for some reason, one day maybe...
-        go-version: ["1.24"]
+        go-version: ["1.25"]
 
     runs-on: ${{ matrix.os }}
 
@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
-        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.24'
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.25'
         with:
           files: container/coverage.out
           flags: unittests
@@ -111,7 +111,7 @@ jobs:
 
       - name: Coverage Badge
         uses: tj-actions/coverage-badge-go@v2
-        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.24'
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.25'
         with:
           filename: container/coverage.out
 
@@ -133,7 +133,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache-dependency-path: container/go.sum
 
       - name: golangci-lint
@@ -155,7 +155,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version: "1.25"
           cache-dependency-path: container/go.sum
 
       - name: Check GoReleaser config
