@@ -181,6 +181,7 @@ type ClaudeSubprocessOptions struct {
 	MaxTurns         int
 	WorkingDirectory string
 	Resume           bool
+	Fork             bool   // When true with Resume, adds --fork-session flag (creates new session ID, doesn't pollute original)
 	SessionID        string // Optional: specific session ID to resume (uses --resume). If empty with Resume=true, uses --continue
 	SuppressEvents   bool
 }
@@ -223,6 +224,12 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 			// Fallback to --continue which auto-detects session
 			args = append(args, "--continue")
 			logger.Debug("🔄 Using --continue for auto-resume")
+		}
+
+		// Add --fork-session when forking (creates new session ID, doesn't pollute original)
+		if opts.Fork {
+			args = append(args, "--fork-session")
+			logger.Debug("🔀 Adding --fork-session to create forked session")
 		}
 	}
 
@@ -435,6 +442,12 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 			// Fallback to --continue which auto-detects session
 			args = append(args, "--continue")
 			logger.Debug("🔄 Using --continue for auto-resume")
+		}
+
+		// Add --fork-session when forking (creates new session ID, doesn't pollute original)
+		if opts.Fork {
+			args = append(args, "--fork-session")
+			logger.Debug("🔀 Adding --fork-session to create forked session")
 		}
 	}
 

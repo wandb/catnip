@@ -143,6 +143,9 @@ type CreateCompletionRequest struct {
 	WorkingDirectory string `json:"working_directory,omitempty" example:"/workspace/my-project"`
 	// Whether to resume the most recent session for this working directory
 	Resume bool `json:"resume,omitempty" example:"true"`
+	// Whether to fork the session instead of resuming (doesn't pollute original session history)
+	// Defaults to true when resuming unless explicitly set to false
+	Fork *bool `json:"fork,omitempty" example:"true"`
 	// Whether to suppress stop events for this automated operation
 	SuppressEvents bool `json:"suppress_events,omitempty" example:"true"`
 }

@@ -690,7 +690,7 @@ Avoid overly lengthy explanations or step-by-step implementation details.
         let requestBody: [String: Any] = [
             "prompt": prompt,
             "working_directory": workspacePath,
-            "resume": true,
+            "resume": true,  // Resume session to get context (backend defaults to fork=true and haiku model)
             "max_turns": 1,
             "suppress_events": true
         ]

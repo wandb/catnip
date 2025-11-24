@@ -157,6 +157,22 @@ func (h *ClaudeHandler) CreateCompletion(c *fiber.Ctx) error {
 		})
 	}
 
+	// Default fork=true when resuming (unless explicitly set to false)
+	// This ensures forked sessions don't pollute original session history
+	if req.Resume && req.Fork == nil {
+		forkTrue := true
+		req.Fork = &forkTrue
+		logger.Debug("🔀 Resuming session, defaulting to fork=true")
+	}
+
+	// When fork is requested, automatically use haiku model for fast, cheap responses
+	// Fork is used for automated operations (PR summaries, branch names) that don't need
+	// the full power of larger models
+	if req.Fork != nil && *req.Fork && req.Model == "" {
+		req.Model = "claude-haiku-4-5"
+		logger.Debugf("🔀 Fork requested, auto-selecting haiku model for fast response")
+	}
+
 	// Create context for the request
 	ctx := c.Context()
 

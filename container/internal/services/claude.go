@@ -744,6 +744,22 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		return nil, fmt.Errorf("prompt is required")
 	}
 
+	// Default fork=true when resuming (unless explicitly set to false)
+	// This ensures forked sessions don't pollute original session history
+	if req.Resume && req.Fork == nil {
+		forkTrue := true
+		req.Fork = &forkTrue
+		logger.Debug("🔀 Resuming session, defaulting to fork=true")
+	}
+
+	// When fork is requested, automatically use haiku model for fast, cheap responses
+	// Fork is used for automated operations (PR summaries, branch names) that don't need
+	// the full power of larger models
+	if req.Fork != nil && *req.Fork && req.Model == "" {
+		req.Model = "claude-haiku-4-5"
+		logger.Debugf("🔀 Fork requested, auto-selecting haiku model for fast response")
+	}
+
 	// Set default working directory if not provided
 	workingDir := req.WorkingDirectory
 	if workingDir == "" {
@@ -762,7 +778,7 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 	// so they'll use the default of true. External API calls can explicitly set it to false
 	// if they want notifications.
 
-	// Get the best session ID if resuming
+	// Get the best session ID if resuming (needed for both resume and fork since fork uses --resume too)
 	var sessionID string
 	if req.Resume && s.sessionService != nil {
 		if existingState, err := s.sessionService.FindSessionByDirectory(workingDir); err == nil && existingState != nil {
@@ -773,6 +789,9 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		}
 	}
 
+	// Determine fork value (default false if not set)
+	fork := req.Fork != nil && *req.Fork
+
 	// Set up subprocess options
 	opts := &ClaudeSubprocessOptions{
 		Prompt:           req.Prompt,
@@ -781,6 +800,7 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
+		Fork:             fork,
 		SessionID:        sessionID,
 		SuppressEvents:   suppressEvents,
 	}
@@ -823,6 +843,7 @@ func (s *ClaudeService) CreateStreamingCompletionPTY(ctx context.Context, req *m
 	}
 
 	// Create PTY session manager for this request
+	// Note: PTY sessions are for interactive use, so fork is not relevant here
 	ptyManager := &ClaudePTYManager{
 		workingDir:     workingDir,
 		prompt:         req.Prompt,
@@ -860,7 +881,10 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 	// For internal calls, this should be true to prevent duplicate notifications
 	suppressEvents := req.SuppressEvents
 
-	// Get the best session ID if resuming
+	// Determine fork value (default false if not set)
+	fork := req.Fork != nil && *req.Fork
+
+	// Get the best session ID if resuming (needed for both resume and fork since fork uses --resume too)
 	var sessionID string
 	if req.Resume && s.sessionService != nil {
 		if existingState, err := s.sessionService.FindSessionByDirectory(workingDir); err == nil && existingState != nil {
@@ -879,6 +903,7 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		MaxTurns:         req.MaxTurns,
 		WorkingDirectory: workingDir,
 		Resume:           req.Resume,
+		Fork:             fork,
 		SessionID:        sessionID,
 		SuppressEvents:   suppressEvents,
 	}
@@ -1616,18 +1641,18 @@ func (m *ClaudePTYManager) createPTY() error {
 	args := []string{"--dangerously-skip-permissions"}
 
 	if m.resume {
-		// Try to find the best session ID using SessionService
-		var resumeSessionID string
+		// Try to find the best session ID for resume
+		var sessionID string
 		if m.claudeService.sessionService != nil {
 			if existingState, err := m.claudeService.sessionService.FindSessionByDirectory(m.workingDir); err == nil && existingState != nil {
-				resumeSessionID = existingState.ClaudeSessionID
+				sessionID = existingState.ClaudeSessionID
 			}
 		}
 
-		if resumeSessionID != "" {
+		if sessionID != "" {
 			// Use --resume with specific session ID for precise session selection
-			args = append(args, "--resume", resumeSessionID)
-			logger.Infof("🔄 Starting Claude Code with --resume %s for PTY streaming", resumeSessionID)
+			args = append(args, "--resume", sessionID)
+			logger.Infof("🔄 Starting Claude Code with --resume %s for PTY streaming", sessionID)
 		} else {
 			// Fallback to --continue which auto-detects session
 			args = append(args, "--continue")
