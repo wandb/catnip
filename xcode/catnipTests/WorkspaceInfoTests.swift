@@ -28,6 +28,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -50,6 +52,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -74,6 +78,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -96,6 +102,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -118,6 +126,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -140,6 +150,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -162,6 +174,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -186,6 +200,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -208,6 +224,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -230,6 +248,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -252,6 +272,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -283,6 +305,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -313,6 +337,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -335,6 +361,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -359,6 +387,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: "Implementing new feature",
             latestUserPrompt: "Write some code",
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -381,6 +411,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: "Fix the bug",
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -403,6 +435,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: "",
             latestUserPrompt: "Do something",
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )
@@ -425,6 +459,8 @@ struct WorkspaceInfoTests {
             latestSessionTitle: nil,
             latestUserPrompt: nil,
             pullRequestUrl: nil,
+            pullRequestState: nil,
+            hasCommitsAheadOfRemote: nil,
             path: "/path/to/workspace",
             cacheStatus: nil
         )

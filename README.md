@@ -28,8 +28,8 @@ Catnip is a web service that automates git worktree creation and runs in a conta
 
 **The Solution:** Catnip runs in a container, manages worktrees for you, and exposes API's and UI's to interact with it:
 
-- **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new [Container SDK]
-  (https://github.com/apple/container). We can use --dangerously-skip-permissions without fear!
+- **🔒 Isolated Sandbox**: All code runs containerized environment using either Docker or Apple's new
+  [Container SDK](https://github.com/apple/container). We can use `--dangerously-skip-permissions` without fear!
 - **🧑‍💻 Worktree Management**: Worktree's let you spawn multiple agents in parallel. Catnip keeps everything organized.
 - **📱 Mobile Interface**: Catnip has a native mobile interface. You can even interact with the Claude Code terminal interface on your phone!
 - **💻 Full Terminal Access**: The Claude Code terminal interface is 🔥. Open multiple terminals via the web interface, CLI, or directly via SSH.
@@ -37,6 +37,10 @@ Catnip is a web service that automates git worktree creation and runs in a conta
 - **🌐 Universal Access**: Still a big fan of Cursor or VS Code? No problem, full remote development directly in your IDE is supported.
 
 ## ⚡ Quick Start
+
+### Mobile App
+
+Our iOS native interface is currently in beta. You can join the [TestFlight group](https://testflight.apple.com/join/3gSY17tf) to try the app today. The app will help you configure an existing GitHub repository with catnip as described below. Once setup you can fire up claude code on the go! Please share any bug reports or feedback.
 
 ### Github Codespaces / Devcontainers
 

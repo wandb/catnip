@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,11 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"bytes"
-	"encoding/json"
-
 	"github.com/fsnotify/fsnotify"
 	"github.com/google/uuid"
+	"github.com/vanpelt/catnip/internal/claude/parser"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/logger"
@@ -26,6 +25,7 @@ type ClaudeMonitorService struct {
 	gitService         *GitService
 	sessionService     *SessionService
 	claudeService      *ClaudeService
+	parserService      *ParserService
 	stateManager       *WorktreeStateManager                 // Centralized state management
 	checkpointManagers map[string]*WorktreeCheckpointManager // Map of worktree path to checkpoint manager
 	managersMutex      sync.RWMutex
@@ -63,23 +63,26 @@ type WorktreeCheckpointManager struct {
 	renamingInProgress bool // Track if a rename is currently in progress
 }
 
-// WorktreeTodoMonitor monitors Todo updates for a single worktree
+// WorktreeTodoMonitor monitors Todo updates and latest Claude messages for a single worktree
 type WorktreeTodoMonitor struct {
-	workDir        string
-	projectDir     string
-	claudeService  *ClaudeService
-	claudeMonitor  *ClaudeMonitorService
-	gitService     *GitService
-	sessionService *SessionService
-	ticker         *time.Ticker
-	stopCh         chan struct{}
-	lastModTime    time.Time
-	lastTodos      []models.Todo
-	lastTodosJSON  string // JSON representation for comparison
+	workDir         string
+	projectDir      string
+	claudeService   *ClaudeService
+	parserService   *ParserService
+	claudeMonitor   *ClaudeMonitorService
+	gitService      *GitService
+	sessionService  *SessionService
+	ticker          *time.Ticker
+	stopCh          chan struct{}
+	lastTodos       []models.Todo
+	lastTodosJSON   string // JSON representation for comparison
+	lastMessage     string // Last Claude message content for comparison
+	lastMessageType string // "assistant" or "user"
+	lastMessageUUID string // UUID of the last message to detect changes
 }
 
 // NewClaudeMonitorService creates a new Claude monitor service
-func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService, stateManager *WorktreeStateManager) *ClaudeMonitorService {
+func NewClaudeMonitorService(gitService *GitService, sessionService *SessionService, claudeService *ClaudeService, parserService *ParserService, stateManager *WorktreeStateManager) *ClaudeMonitorService {
 	// Get log path from environment or use runtime-appropriate default
 	titlesLogPath := os.Getenv("CATNIP_TITLE_LOG")
 	if titlesLogPath == "" {
@@ -90,6 +93,7 @@ func NewClaudeMonitorService(gitService *GitService, sessionService *SessionServ
 		gitService:         gitService,
 		sessionService:     sessionService,
 		claudeService:      claudeService,
+		parserService:      parserService,
 		stateManager:       stateManager,
 		checkpointManagers: make(map[string]*WorktreeCheckpointManager),
 		stopCh:             make(chan struct{}),
@@ -1144,6 +1148,7 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 		workDir:        worktreePath,
 		projectDir:     projectDir,
 		claudeService:  s.claudeService,
+		parserService:  s.parserService,
 		claudeMonitor:  s,
 		gitService:     s.gitService,
 		sessionService: s.sessionService,
@@ -1196,22 +1201,30 @@ func (m *WorktreeTodoMonitor) Stop() {
 
 // checkForTodoUpdates checks for todo updates in the most recent session file
 func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
-	// Find the most recently modified JSONL file
-	latestFile, modTime, err := m.findLatestSessionFile()
-	if err != nil {
-		return // No session files yet
+	// Optimization 1: Skip inactive worktrees to save CPU
+	// Only check worktrees that have active or running Claude sessions
+	if m.sessionService != nil {
+		activityState := m.sessionService.GetClaudeActivityState(m.workDir)
+		if activityState != models.ClaudeActive && activityState != models.ClaudeRunning {
+			return // Don't waste CPU on inactive worktrees
+		}
 	}
 
-	// Check if file has been modified since last check
-	if !modTime.After(m.lastModTime) {
-		return // No changes
-	}
-
-	// Read todos from the end of the file
-	todos, err := m.readTodosFromEnd(latestFile)
-	if err != nil {
-		logger.Warnf("⚠️  Failed to read todos from %s: %v", latestFile, err)
+	// Optimization 2: Use parser directly - it already knows which session file to watch
+	// This eliminates redundant os.ReadDir() calls every second
+	if m.parserService == nil {
 		return
+	}
+
+	reader, err := m.parserService.GetOrCreateParser(m.workDir)
+	if err != nil {
+		return // No session file available yet
+	}
+
+	// Read todos directly from parser's cached state
+	todos := reader.GetTodos()
+	if todos == nil {
+		todos = []models.Todo{} // Ensure non-nil
 	}
 
 	// Convert todos to JSON for comparison
@@ -1224,8 +1237,7 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 
 	// Check if todos have changed
 	if todosJSONStr == m.lastTodosJSON {
-		m.lastModTime = modTime // Update mod time even if content is same
-		return                  // No change in todos
+		return // No change in todos
 	}
 
 	// Todos have changed!
@@ -1242,7 +1254,6 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	// is passive and should not prevent workspaces from transitioning to inactive
 
 	// Update state
-	m.lastModTime = modTime
 	m.lastTodos = todos
 	m.lastTodosJSON = todosJSONStr
 
@@ -1257,215 +1268,24 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	if err := m.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
 		logger.Warnf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
 	}
+
+	// Also check for latest Claude message changes from parser
+	m.checkForMessageUpdates(worktreeID, reader)
 }
 
-// findLatestSessionFile finds the best session file in the project directory
-// Uses SessionService's size-based logic to avoid warmup/small sessions
-func (m *WorktreeTodoMonitor) findLatestSessionFile() (string, time.Time, error) {
-	// Use SessionService's proven logic that filters by size (>10KB) and prefers largest sessions
-	if m.sessionService != nil {
-		sessionFile := m.sessionService.FindBestSessionFile(m.projectDir)
-		if sessionFile != "" {
-			info, err := os.Stat(sessionFile)
-			if err != nil {
-				return "", time.Time{}, err
-			}
-			return sessionFile, info.ModTime(), nil
-		}
-		// SessionService didn't find a valid session file (likely warmup-only or too small) - fallback to manual search
-	} else {
-		// Fallback if SessionService not available (shouldn't happen in normal operation)
-		logger.Warn("⚠️ SessionService not set in WorktreeTodoMonitor, using fallback session selection")
-	}
-
-	entries, err := os.ReadDir(m.projectDir)
-	if err != nil {
-		return "", time.Time{}, err
-	}
-
-	var latestFile string
-	var latestModTime time.Time
-
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
-			filePath := filepath.Join(m.projectDir, entry.Name())
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-
-			if info.ModTime().After(latestModTime) {
-				latestFile = filePath
-				latestModTime = info.ModTime()
-			}
-		}
-	}
-
-	if latestFile == "" {
-		return "", time.Time{}, fmt.Errorf("no session files found")
-	}
-
-	return latestFile, latestModTime, nil
-}
-
-// readTodosFromEnd reads todos from the end of a JSONL file efficiently
+// readTodosFromEnd reads todos using the parser service
+// Note: filePath parameter is ignored, we use m.workDir to find the parser
 func (m *WorktreeTodoMonitor) readTodosFromEnd(filePath string) ([]models.Todo, error) {
-	file, err := os.Open(filePath)
+	if m.parserService == nil {
+		return nil, fmt.Errorf("parser service not initialized")
+	}
+
+	reader, err := m.parserService.GetOrCreateParser(m.workDir)
 	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	// Get file size
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-	fileSize := stat.Size()
-
-	// Read from the end in chunks
-	const chunkSize = 64 * 1024 // 64KB chunks
-	var todos []models.Todo
-	var foundTodos bool
-
-	// Start from the end and work backwards
-	for offset := fileSize; offset > 0 && !foundTodos; {
-		// Calculate chunk boundaries
-		readSize := int64(chunkSize)
-		if offset < chunkSize {
-			readSize = offset
-		}
-		offset -= readSize
-
-		// Seek to position
-		if _, err := file.Seek(offset, 0); err != nil {
-			return nil, err
-		}
-
-		// Read chunk
-		chunk := make([]byte, int(readSize))
-		if _, err := file.Read(chunk); err != nil {
-			return nil, err
-		}
-
-		// Find line boundaries
-		lines := m.extractCompleteLines(chunk, offset == 0)
-
-		// Process lines in reverse order (newest first)
-		for i := len(lines) - 1; i >= 0 && !foundTodos; i-- {
-			line := lines[i]
-			if len(line) == 0 {
-				continue
-			}
-
-			// Try to parse as Claude message
-			var message models.ClaudeSessionMessage
-			if err := json.Unmarshal(line, &message); err != nil {
-				continue
-			}
-
-			// Skip sidechain messages (warmup prompts, etc.)
-			if message.IsSidechain {
-				continue
-			}
-
-			// Check if this contains TodoWrite
-			if message.Type == "assistant" && message.Message != nil {
-				if todosFound := m.extractTodosFromMessage(message.Message); todosFound != nil {
-					todos = todosFound
-					foundTodos = true
-					break
-				}
-			}
-		}
+		return nil, fmt.Errorf("failed to get parser for worktree %s: %w", m.workDir, err)
 	}
 
-	return todos, nil
-}
-
-// extractCompleteLines extracts complete JSON lines from a chunk
-func (m *WorktreeTodoMonitor) extractCompleteLines(chunk []byte, isStart bool) [][]byte {
-	var lines [][]byte
-
-	// Split by newlines
-	rawLines := bytes.Split(chunk, []byte("\n"))
-
-	for i, line := range rawLines {
-		// Skip incomplete lines unless it's the start of file
-		if i == 0 && !isStart {
-			continue // First line might be incomplete
-		}
-		if i == len(rawLines)-1 && len(line) == 0 {
-			continue // Last empty line
-		}
-
-		lines = append(lines, line)
-	}
-
-	return lines
-}
-
-// extractTodosFromMessage extracts todos from a Claude message
-func (m *WorktreeTodoMonitor) extractTodosFromMessage(messageData map[string]interface{}) []models.Todo {
-	content, exists := messageData["content"]
-	if !exists {
-		return nil
-	}
-
-	contentArray, ok := content.([]interface{})
-	if !ok {
-		return nil
-	}
-
-	for _, contentItem := range contentArray {
-		contentMap, ok := contentItem.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		if contentType, exists := contentMap["type"]; exists && contentType == "tool_use" {
-			if name, exists := contentMap["name"]; exists && name == "TodoWrite" {
-				if input, exists := contentMap["input"]; exists {
-					if inputMap, ok := input.(map[string]interface{}); ok {
-						if todos, exists := inputMap["todos"]; exists {
-							if todosArray, ok := todos.([]interface{}); ok {
-								var parsedTodos []models.Todo
-								for _, todoItem := range todosArray {
-									if todoMap, ok := todoItem.(map[string]interface{}); ok {
-										todo := models.Todo{}
-										if id, exists := todoMap["id"]; exists {
-											if idStr, ok := id.(string); ok {
-												todo.ID = idStr
-											}
-										}
-										if content, exists := todoMap["content"]; exists {
-											if contentStr, ok := content.(string); ok {
-												todo.Content = contentStr
-											}
-										}
-										if status, exists := todoMap["status"]; exists {
-											if statusStr, ok := status.(string); ok {
-												todo.Status = statusStr
-											}
-										}
-										if priority, exists := todoMap["priority"]; exists {
-											if priorityStr, ok := priority.(string); ok {
-												todo.Priority = priorityStr
-											}
-										}
-										parsedTodos = append(parsedTodos, todo)
-									}
-								}
-								return parsedTodos
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return nil
+	return reader.GetTodos(), nil
 }
 
 // checkTodoBasedBranchRenaming checks if we should trigger branch renaming based on todos
@@ -1565,6 +1385,41 @@ func (m *WorktreeTodoMonitor) isCurrentBranchCatnip() bool {
 	return git.IsCatnipBranch(currentBranch)
 }
 
+// checkForMessageUpdates checks for new Claude messages and emits SSE events
+func (m *WorktreeTodoMonitor) checkForMessageUpdates(worktreeID string, reader *parser.SessionFileReader) {
+	// Get the latest message from the parser
+	latestMsg := reader.GetLatestMessage()
+	if latestMsg == nil {
+		return // No messages yet
+	}
+
+	// Extract message content and metadata
+	messageType := latestMsg.Type
+	messageUUID := latestMsg.Uuid
+
+	// Extract text content from the message using parser package function
+	messageContent := parser.ExtractTextContent(*latestMsg)
+
+	// Check if message has changed (compare UUIDs for efficiency)
+	if messageUUID == m.lastMessageUUID {
+		return // Same message as before
+	}
+
+	// Message has changed!
+	logger.Debugf("💬 New Claude message detected for worktree %s (type: %s, length: %d)", m.workDir, messageType, len(messageContent))
+
+	// Update tracking
+	m.lastMessage = messageContent
+	m.lastMessageType = messageType
+	m.lastMessageUUID = messageUUID
+
+	// Emit SSE event for the new message via the state manager
+	if m.gitService != nil && m.gitService.stateManager != nil {
+		m.gitService.stateManager.EmitClaudeMessage(m.workDir, worktreeID, messageContent, messageType)
+		logger.Debugf("📡 Emitted claude:message SSE event for worktree %s", worktreeID)
+	}
+}
+
 // getClaudeMonitorService returns the Claude monitor service instance
 func (m *WorktreeTodoMonitor) getClaudeMonitorService() *ClaudeMonitorService {
 	return m.claudeMonitor
@@ -1589,6 +1444,19 @@ func (s *ClaudeMonitorService) GetTodos(worktreePath string) ([]models.Todo, err
 
 	// Fallback to direct read if monitor doesn't exist
 	return s.claudeService.GetLatestTodos(worktreePath)
+}
+
+// GetLatestClaudeMessage returns the latest Claude message for a worktree path
+func (s *ClaudeMonitorService) GetLatestClaudeMessage(worktreePath string) (message, messageType, uuid string) {
+	s.todoMonitorsMutex.RLock()
+	monitor, exists := s.todoMonitors[worktreePath]
+	s.todoMonitorsMutex.RUnlock()
+
+	if exists && monitor.lastMessageUUID != "" {
+		return monitor.lastMessage, monitor.lastMessageType, monitor.lastMessageUUID
+	}
+
+	return "", "", ""
 }
 
 // OnWorktreeCreated handles when a new worktree is created

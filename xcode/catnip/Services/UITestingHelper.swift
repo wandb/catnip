@@ -28,8 +28,11 @@ struct UITestingHelper {
         ProcessInfo.processInfo.arguments.contains("-SkipAuthentication")
     }
 
+    // Preview mode flag - set by AuthManager
+    static var isInPreviewMode: Bool = false
+
     static var shouldUseMockData: Bool {
-        ProcessInfo.processInfo.arguments.contains("-UseMockData")
+        ProcessInfo.processInfo.arguments.contains("-UseMockData") || isInPreviewMode
     }
 
     static var shouldShowWorkspacesList: Bool {
@@ -101,6 +104,8 @@ struct UITestingHelper {
                 latestSessionTitle: "Implementing GitHub OAuth",
                 latestUserPrompt: "Add GitHub authentication",
                 pullRequestUrl: "https://github.com/wandb/catnip/pull/123",
+                pullRequestState: "OPEN",
+                hasCommitsAheadOfRemote: nil,
                 path: "/workspaces/feature-auth",
                 cacheStatus: nil
             ),
@@ -118,6 +123,8 @@ struct UITestingHelper {
                 latestSessionTitle: "Fixed API error handling",
                 latestUserPrompt: "Fix API errors",
                 pullRequestUrl: nil,
+                pullRequestState: nil,
+                hasCommitsAheadOfRemote: nil,
                 path: "/workspaces/bugfix-api",
                 cacheStatus: nil
             ),
@@ -135,6 +142,8 @@ struct UITestingHelper {
                 latestSessionTitle: nil,
                 latestUserPrompt: nil,
                 pullRequestUrl: nil,
+                pullRequestState: nil,
+                hasCommitsAheadOfRemote: nil,
                 path: "/workspaces/refactor",
                 cacheStatus: nil
             )
@@ -158,27 +167,31 @@ struct UITestingHelper {
     }
 
     static func getMockWorkspaceDiff(id: String) -> WorktreeDiffResponse {
-        let jsonData = """
-        {
-            "summary": "Mock diff for workspace",
-            "file_diffs": [{
-                "file_path": "src/auth.swift",
-                "change_type": "modified",
-                "old_content": null,
-                "new_content": null,
-                "diff_text": "@@ -10,6 +10,7 @@\\n func authenticate() {\\n+    // Added mock authentication\\n     return true\\n }",
-                "is_expanded": true
-            }],
-            "total_files": 1,
-            "worktree_id": "\(id)",
-            "worktree_name": "mock-workspace",
-            "source_branch": "main",
-            "fork_commit": "abc123"
-        }
-        """.data(using: .utf8)!
-
-        let decoder = JSONDecoder()
-        return try! decoder.decode(WorktreeDiffResponse.self, from: jsonData)
+        // Return simple mock diff directly without JSON parsing
+        return WorktreeDiffResponse(
+            summary: "Mock diff for workspace",
+            fileDiffs: [
+                FileDiff(
+                    filePath: "src/auth.swift",
+                    changeType: "modified",
+                    oldContent: nil,
+                    newContent: nil,
+                    diffText: """
+@@ -10,6 +10,7 @@
+ func authenticate() {
++    // Added mock authentication
+     return true
+ }
+""",
+                    isExpanded: true
+                )
+            ],
+            totalFiles: 1,
+            worktreeId: id,
+            worktreeName: "mock-workspace",
+            sourceBranch: "main",
+            forkCommit: "abc123"
+        )
     }
 
     static func getMockBranches(repoId: String) -> [String] {
@@ -190,7 +203,7 @@ struct UITestingHelper {
         {
             "theme": "dark",
             "notificationsEnabled": true,
-            "authenticated": true,
+            "isAuthenticated": true,
             "hasCompletedOnboarding": true,
             "numStartups": 5,
             "version": "1.0.0"
@@ -283,6 +296,22 @@ struct UITestingHelper {
             ]
         }
 
+        // Preview mode: return repository matching mock workspaces
+        if isInPreviewMode {
+            return [
+                Repository(
+                    id: 1,
+                    name: "mobile-app",
+                    fullName: "acme/mobile-app",
+                    defaultBranch: "main",
+                    isPrivate: false,
+                    isFork: false,
+                    hasDevcontainer: true,
+                    hasCatnipFeature: true
+                )
+            ]
+        }
+
         // Default: empty
         return []
     }
@@ -295,6 +324,11 @@ struct UITestingHelper {
 
         // Scenario 3: Has codespaces
         if hasCodespaces {
+            return UserStatus(hasAnyCodespaces: true)
+        }
+
+        // Preview mode: show that user has codespaces
+        if isInPreviewMode {
             return UserStatus(hasAnyCodespaces: true)
         }
 

@@ -11,7 +11,8 @@ import MarkdownUI
 enum CodespacePhase {
     case connect
     case connecting
-    case setup
+    case setup  // Deprecated - rarely used, fallback only
+    case createRepository  // NEW - friendly onboarding for zero repos
     case selection
     case repositorySelection
     case installing
@@ -25,6 +26,7 @@ enum RepositoryListMode {
 }
 
 struct CodespaceView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var authManager: AuthManager
     @StateObject private var installer = CatnipInstaller.shared
     @StateObject private var tracker = CodespaceCreationTracker.shared
@@ -39,6 +41,8 @@ struct CodespaceView: View {
     @State private var createdCodespace: CodespaceCreationResult.CodespaceInfo?
     @State private var repositoryListMode: RepositoryListMode = .installation
     @State private var pendingRepository: String?
+    @State private var pendingCodespaceName: String?
+    @State private var wasConnectingBeforeBackground = false
 
     private let catFacts = [
         "Cats can rotate their ears 180 degrees.",
@@ -55,7 +59,9 @@ struct CodespaceView: View {
 
     var body: some View {
         ZStack {
-            if phase == .setup {
+            if phase == .createRepository {
+                createRepositoryView
+            } else if phase == .setup {
                 setupView
             } else if phase == .selection {
                 selectionView
@@ -73,7 +79,7 @@ struct CodespaceView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                if phase == .setup || phase == .selection || phase == .repositorySelection || phase == .creatingCodespace {
+                if phase == .createRepository || phase == .setup || phase == .selection || phase == .repositorySelection || phase == .creatingCodespace {
                     Button {
                         // If creating, keep it running in background
                         if tracker.isCreating {
@@ -82,6 +88,9 @@ struct CodespaceView: View {
 
                         phase = .connect
                         errorMessage = ""
+
+                        // Clear background reconnection flag when manually navigating back
+                        wasConnectingBeforeBackground = false
 
                         // Only reset installer if there's an error or not creating
                         if installer.error != nil || !tracker.isCreating {
@@ -95,27 +104,37 @@ struct CodespaceView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button {
-                        repositoryListMode = .installation
-                        phase = .repositorySelection
-                        Task {
-                            do {
-                                try await installer.fetchRepositories()
-                            } catch {
-                                errorMessage = "Failed to load repositories: \(error.localizedDescription)"
-                                phase = .connect
+                    if !authManager.isPreviewMode {
+                        Button {
+                            repositoryListMode = .installation
+                            phase = .repositorySelection
+                            Task {
+                                do {
+                                    try await installer.fetchRepositories()
+                                } catch {
+                                    errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                                    phase = .connect
+                                }
                             }
+                        } label: {
+                            Label("Install Catnip", systemImage: "plus.rectangle.on.folder")
                         }
-                    } label: {
-                        Label("Install Catnip", systemImage: "plus.rectangle.on.folder")
                     }
 
-                    Button(role: .destructive) {
-                        Task { await authManager.logout() }
-                    } label: {
-                        Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                    if authManager.isPreviewMode {
+                        Button(role: .destructive) {
+                            authManager.exitPreviewMode()
+                        } label: {
+                            Label("Exit Preview", systemImage: "xmark.circle")
+                        }
+                    } else {
+                        Button(role: .destructive) {
+                            Task { await authManager.logout() }
+                        } label: {
+                            Label("Logout", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                        .disabled(phase == .connecting)
                     }
-                    .disabled(phase == .connecting)
                 } label: {
                     Image(systemName: "ellipsis")
                         .imageScale(.large)
@@ -149,7 +168,7 @@ struct CodespaceView: View {
             }
         }
         .onChange(of: phase) {
-            // Refresh user status when returning to connect screen from other flows (skip in UI testing)
+            // Refresh user status and repositories when returning to connect screen from other flows (skip in UI testing)
             if phase == .connect && !UITestingHelper.isUITesting {
                 Task {
                     do {
@@ -157,6 +176,16 @@ struct CodespaceView: View {
                         NSLog("🐱 [CodespaceView] Refreshed user status on phase change to connect")
                     } catch {
                         NSLog("🐱 [CodespaceView] Failed to refresh user status: \(error)")
+                    }
+                }
+
+                // Reload repositories to ensure cache is populated after reset()
+                Task {
+                    do {
+                        try await installer.fetchRepositories()
+                        NSLog("🐱 [CodespaceView] Refreshed repositories on phase change to connect")
+                    } catch {
+                        NSLog("🐱 [CodespaceView] Failed to refresh repositories: \(error)")
                     }
                 }
 
@@ -204,6 +233,10 @@ struct CodespaceView: View {
                     NSLog("🐱 [CodespaceView] Failed to preload repositories: \(error)")
                 }
             }
+
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            handleScenePhaseChange(oldPhase: oldPhase, newPhase: newPhase)
         }
     }
 
@@ -487,9 +520,21 @@ struct CodespaceView: View {
         statusMessage = ""
         statusMessage = "Finding your codespace..."
 
+        // Store codespace name for potential reconnection after backgrounding
+        pendingCodespaceName = codespaceName
+
         // Mock connection for UI tests
         if UITestingHelper.isUITesting {
             UserDefaults.standard.set("mock-codespace", forKey: "codespace_name")
+            phase = .connect
+            statusMessage = "Connected."
+            navigateToWorkspaces = true
+            return
+        }
+
+        // Mock connection for preview mode
+        if authManager.isPreviewMode {
+            UserDefaults.standard.set("preview-codespace", forKey: "codespace_name")
             phase = .connect
             statusMessage = "Connected."
             navigateToWorkspaces = true
@@ -551,6 +596,8 @@ struct CodespaceView: View {
 
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we successfully connected
+            wasConnectingBeforeBackground = false
             // Keep phase as .connecting until after navigation to maintain loading state
 
             // Navigate to workspaces after a short delay
@@ -564,19 +611,67 @@ struct CodespaceView: View {
             phase = .error
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we hit an error
+            wasConnectingBeforeBackground = false
 
-        case .setup(let message):
+        case .setup(let message, let nextAction):
             statusMessage = ""
             errorMessage = message
-            phase = .setup
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we're moving to setup flow
+            wasConnectingBeforeBackground = false
+
+            NSLog("📋 Setup event received: nextAction=\(nextAction)")
+
+            // Route based on worker's determination of next action
+            switch nextAction {
+            case "create_repo":
+                // User has no repositories - show creation guidance
+                NSLog("🆕 Routing to create repository flow")
+                phase = .createRepository
+
+            case "launch":
+                // User has repos with Catnip - show launch flow
+                NSLog("🚀 Routing to launch codespace flow")
+                repositoryListMode = .launch
+                phase = .repositorySelection
+                Task {
+                    do {
+                        try await installer.fetchRepositories()
+                    } catch {
+                        errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                        phase = .connect
+                    }
+                }
+
+            case "install":
+                // User has repos but needs to install Catnip
+                NSLog("📦 Routing to install Catnip flow")
+                repositoryListMode = .installation
+                phase = .repositorySelection
+                Task {
+                    do {
+                        try await installer.fetchRepositories()
+                    } catch {
+                        errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                        phase = .connect
+                    }
+                }
+
+            default:
+                // Unknown action - fallback to old setup view
+                NSLog("⚠️ Unknown setup next_action: \(nextAction), falling back to setup view")
+                phase = .setup
+            }
 
         case .multiple(let foundCodespaces):
             codespaces = foundCodespaces
             phase = .selection
             sseService?.disconnect()
             sseService = nil
+            // Clear background reconnection flag since we're moving to selection flow
+            wasConnectingBeforeBackground = false
         }
     }
 
@@ -1038,6 +1133,136 @@ struct CodespaceView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    // MARK: - App Lifecycle Handling
+
+    private func handleScenePhaseChange(oldPhase: ScenePhase, newPhase: ScenePhase) {
+        NSLog("🐱 [CodespaceView] ScenePhase: \(oldPhase) → \(newPhase), phase: \(phase), wasConnecting: \(wasConnectingBeforeBackground)")
+
+        // Track when app goes to background during SSE connection and disconnect stale connection
+        if newPhase == .background && phase == .connecting {
+            wasConnectingBeforeBackground = true
+            NSLog("🐱 [CodespaceView] App backgrounded during SSE connection, disconnecting and will reconnect on foreground")
+
+            // Explicitly disconnect to avoid zombie connections
+            sseService?.disconnect()
+            sseService = nil
+        }
+
+        // Reconnect when app returns to active if we were connecting
+        // Note: Don't check oldPhase == .background because iOS transitions through .inactive
+        // (background → inactive → active), so oldPhase will be .inactive, not .background
+        if newPhase == .active && wasConnectingBeforeBackground {
+            NSLog("🐱 [CodespaceView] App foregrounded after backgrounding during connection, reconnecting SSE...")
+
+            // Ensure old connection is fully cleaned up
+            sseService?.disconnect()
+            sseService = nil
+
+            // Restart the connection with the same codespace name
+            handleConnect(codespaceName: pendingCodespaceName)
+
+            // Reset the flag
+            wasConnectingBeforeBackground = false
+        }
+    }
+
+    private var createRepositoryView: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                Spacer()
+
+                // Welcoming icon
+                Image(systemName: "plus.rectangle.on.folder")
+                    .font(.system(size: 60))
+                    .foregroundStyle(Color.accentColor)
+
+                VStack(spacing: 12) {
+                    Text("Create Your First Repository")
+                        .font(.title2.weight(.semibold))
+                        .multilineTextAlignment(.center)
+
+                    Text("Catnip needs a GitHub repository to work with. Create one to get started with agentic coding on your mobile device.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                }
+
+                Spacer()
+
+                VStack(spacing: 12) {
+                    // Primary action - Create on GitHub
+                    Button {
+                        if let url = URL(string: "https://github.com/new") {
+                            UIApplication.shared.open(url)
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                            Text("Create Repository on GitHub")
+                        }
+                    }
+                    .buttonStyle(ProminentButtonStyle(isDisabled: false))
+
+                    // Secondary action - Refresh to check
+                    Button {
+                        Task {
+                            do {
+                                // Force refresh both user status and repositories
+                                // This will re-check GitHub state after user creates repo
+                                try await installer.fetchUserStatus(forceRefresh: true)
+                                try await installer.fetchRepositories(forceRefresh: true)
+
+                                // After refresh, determine next flow
+                                await MainActor.run {
+                                    if installer.repositories.isEmpty {
+                                        // Still no repos - show error
+                                        errorMessage = "No repositories found yet. Create one on GitHub and try again."
+                                    } else {
+                                        // Success! Navigate to install flow
+                                        NSLog("✅ User now has \(installer.repositories.count) repositories")
+                                        repositoryListMode = .installation
+                                        phase = .repositorySelection
+                                    }
+                                }
+                            } catch {
+                                await MainActor.run {
+                                    errorMessage = "Failed to check repositories: \(error.localizedDescription)"
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.clockwise")
+                            Text("I Created a Repository")
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle(isDisabled: false))
+                }
+                .padding(.horizontal, 20)
+
+                // Show error if refresh found no repos
+                if !errorMessage.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(Color.orange)
+                        Text(errorMessage)
+                            .font(.subheadline)
+                        Spacer()
+                    }
+                    .foregroundStyle(Color.orange)
+                    .padding(12)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, 20)
+                }
+            }
+            .padding()
+        }
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color(uiColor: .systemGroupedBackground))
     }
 }

@@ -224,8 +224,10 @@ install_init_service() {
   cp "$(dirname $0)/catnip-init" "$init_script"
   run_as_root chmod +x "$init_script"
 
-  # Update the script to use correct user paths
+  # Update the script to use correct user paths, username, and group
   run_as_root sed -i "s|/home/vscode|$USERHOME|g" "$init_script"
+  run_as_root sed -i "s|CATNIP_USER|$USERNAME|g" "$init_script"
+  run_as_root sed -i "s|CATNIP_GROUP|$USERGROUP|g" "$init_script"
 
   # Create /etc/default/catnip template (will be populated by post-start)
   log "Creating /etc/default/catnip template..."
@@ -243,6 +245,8 @@ export DEBUG=$DEBUG
 export CATNIP_DEV=$CATNIP_DEV
 # Feature metadata
 export CATNIP_FEATURE_VERSION=$FEATURE_VERSION
+# Auto-update default branch
+export CATNIP_UPDATE_DEFAULT_BRANCH=${UPDATEDEFAULTBRANCH:-true}
 # Tell codespaces to not muck with our shell (/etc/profile.d/codespaces.sh)
 export SHELL_LOGGED_IN=true
 

@@ -961,3 +961,10 @@ func (wsm *WorktreeStateManager) ShouldRenameBranch(worktreeID string) bool {
 	logger.Debugf("🔍 ShouldRenameBranch: %s Branch=%s (not catnip format), checking if already processed", worktreeID, worktree.Branch)
 	return false
 }
+
+// EmitClaudeMessage emits a Claude message SSE event to all connected clients
+func (wsm *WorktreeStateManager) EmitClaudeMessage(workspaceDir, worktreeID, message, messageType string) {
+	if wsm.eventsEmitter != nil {
+		wsm.eventsEmitter.EmitClaudeMessage(workspaceDir, worktreeID, message, messageType)
+	}
+}

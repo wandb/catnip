@@ -1,6 +1,6 @@
 {
   "id": "feature",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "name": "catnip",
   "description": "Ensures SSH, installs catnip, Claude CLI, GitHub CLI, and Catnip VS Code sidebar extension.",
   "options": {
@@ -21,6 +21,11 @@
       "type": "boolean",
       "default": false,
       "description": "Enable development mode for internal testing"
+    },
+    "updateDefaultBranch": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically update the default branch of mounted codespace repository on startup"
     }
   },
   "entrypoint": "/usr/local/share/catnip-init.sh",
