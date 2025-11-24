@@ -8,21 +8,26 @@ import (
 
 // SessionStats contains aggregated statistics about a Claude session
 type SessionStats struct {
-	TotalMessages       int
-	UserMessages        int
-	AssistantMessages   int
-	ToolCallCount       int
-	TotalInputTokens    int64
-	TotalOutputTokens   int64
-	CacheReadTokens     int64
-	CacheCreationTokens int64
-	APICallCount        int
-	SessionDuration     time.Duration
-	ThinkingBlockCount  int
-	SubAgentCount       int
-	FirstMessageTime    time.Time
-	LastMessageTime     time.Time
-	ActiveToolNames     map[string]int // Tool name -> count
+	TotalMessages         int
+	UserMessages          int
+	AssistantMessages     int
+	HumanPromptCount      int // User messages with text content (not tool results)
+	ToolCallCount         int
+	TotalInputTokens      int64
+	TotalOutputTokens     int64
+	CacheReadTokens       int64
+	CacheCreationTokens   int64
+	LastContextSizeTokens int64 // Last message's cache_read (actual context size)
+	APICallCount          int
+	SessionDuration       time.Duration // Wall-clock time: last message - first message
+	ActiveDuration        time.Duration // Active time: sum of time from each user prompt to Claude's last response
+	ThinkingBlockCount    int
+	SubAgentCount         int
+	CompactionCount       int // Number of times conversation was compacted
+	ImageCount            int // Number of images in the conversation
+	FirstMessageTime      time.Time
+	LastMessageTime       time.Time
+	ActiveToolNames       map[string]int // Tool name -> count
 }
 
 // ThinkingBlock represents a thinking content block from Claude's response
@@ -45,6 +50,8 @@ type ThinkingTrigger struct {
 type SubAgentInfo struct {
 	AgentID      string
 	SessionID    string
+	SubagentType string // e.g., "Explore", "superpowers:code-reviewer", etc.
+	Description  string // Description of the sub-agent's task
 	MessageCount int
 	FirstSeen    time.Time
 	LastSeen     time.Time

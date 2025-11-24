@@ -339,3 +339,96 @@ func ExtractTodos(msg models.ClaudeSessionMessage) []models.Todo {
 
 	return todos
 }
+
+// HasDisplayableContent checks if a message has content that can be displayed
+// (text blocks or thinking blocks, but not just tool_use blocks)
+func HasDisplayableContent(msg models.ClaudeSessionMessage) bool {
+	// Summary messages are displayable
+	if msg.Type == "summary" && msg.Summary != "" {
+		return true
+	}
+
+	if msg.Message == nil {
+		return false
+	}
+
+	content, exists := msg.Message["content"]
+	if !exists {
+		return false
+	}
+
+	// Handle string content
+	if contentStr, ok := content.(string); ok {
+		return contentStr != ""
+	}
+
+	// Handle array content
+	contentArray, ok := content.([]interface{})
+	if !ok {
+		return false
+	}
+
+	// Check if there are any text or thinking blocks
+	for _, contentItem := range contentArray {
+		contentMap, ok := contentItem.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		contentType, exists := contentMap["type"]
+		if !exists {
+			continue
+		}
+
+		// Text or thinking blocks are displayable
+		if contentType == "text" || contentType == "thinking" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// ExtractTaskAgents extracts Task tool calls with subagent information
+func ExtractTaskAgents(msg models.ClaudeSessionMessage) []SubAgentInfo {
+	var taskAgents []SubAgentInfo
+	timestamp := parseTimestamp(msg.Timestamp)
+
+	toolCalls := ExtractToolCalls(msg)
+	for _, toolCall := range toolCalls {
+		if toolCall.Name != "Task" {
+			continue
+		}
+
+		subagentType := ""
+		description := ""
+
+		if typeData, exists := toolCall.Input["subagent_type"]; exists {
+			if typeStr, ok := typeData.(string); ok {
+				subagentType = typeStr
+			}
+		}
+
+		if descData, exists := toolCall.Input["description"]; exists {
+			if descStr, ok := descData.(string); ok {
+				description = descStr
+			}
+		}
+
+		// Only add if we found a subagent_type
+		if subagentType != "" {
+			taskAgent := SubAgentInfo{
+				AgentID:      toolCall.ID, // Use tool call ID as agent identifier
+				SessionID:    msg.SessionId,
+				SubagentType: subagentType,
+				Description:  description,
+				MessageCount: 1,
+				FirstSeen:    timestamp,
+				LastSeen:     timestamp,
+			}
+			taskAgents = append(taskAgents, taskAgent)
+		}
+	}
+
+	return taskAgents
+}

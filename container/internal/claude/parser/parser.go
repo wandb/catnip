@@ -20,6 +20,7 @@ type SessionFileReader struct {
 	// Cached state (updated incrementally)
 	todos          []models.Todo
 	latestMessage  *models.ClaudeSessionMessage
+	latestThought  *models.ClaudeSessionMessage // Latest assistant message with thinking blocks
 	statsAgg       *StatsAggregator
 	thinking       []ThinkingBlock
 	subAgents      map[string]*SubAgentInfo
@@ -180,11 +181,18 @@ func (r *SessionFileReader) processMessage(msg *models.ClaudeSessionMessage) {
 
 	// Update latest message (if not filtered and is assistant)
 	// Note: Summary messages are skipped because they don't have UUIDs
+	// LatestMessage should ONLY track messages with TEXT content (not thinking-only or tool-only)
+	// Use LatestThought for thinking-only messages
 	if !ShouldSkipMessage(*msg, DefaultFilter, r.userMessageMap) {
 		// Only track assistant messages as "latest message"
+		// AND only if they have TEXT content (not just thinking or tool_use blocks)
 		if msg.Type == "assistant" {
-			msgCopy := *msg
-			r.latestMessage = &msgCopy
+			// Check if message has non-empty TEXT content
+			textContent := ExtractTextContent(*msg)
+			if textContent != "" {
+				msgCopy := *msg
+				r.latestMessage = &msgCopy
+			}
 		}
 	}
 
@@ -199,9 +207,15 @@ func (r *SessionFileReader) processMessage(msg *models.ClaudeSessionMessage) {
 		if len(r.thinking) > 10 {
 			r.thinking = r.thinking[len(r.thinking)-10:]
 		}
+
+		// Track latest thought (assistant message with thinking blocks)
+		if msg.Type == "assistant" && !ShouldSkipMessage(*msg, DefaultFilter, r.userMessageMap) {
+			msgCopy := *msg
+			r.latestThought = &msgCopy
+		}
 	}
 
-	// Track sub-agents
+	// Track sub-agents from sidechain messages (e.g., warmup)
 	if msg.IsSidechain && msg.AgentID != "" {
 		timestamp := parseTimestamp(msg.Timestamp)
 		if agent, exists := r.subAgents[msg.AgentID]; exists {
@@ -211,10 +225,21 @@ func (r *SessionFileReader) processMessage(msg *models.ClaudeSessionMessage) {
 			r.subAgents[msg.AgentID] = &SubAgentInfo{
 				AgentID:      msg.AgentID,
 				SessionID:    msg.SessionId,
+				SubagentType: "sidechain",
 				MessageCount: 1,
 				FirstSeen:    timestamp,
 				LastSeen:     timestamp,
 			}
+		}
+	}
+
+	// Track sub-agents from Task tool calls
+	taskAgents := ExtractTaskAgents(*msg)
+	for _, taskAgent := range taskAgents {
+		// Use AgentID (which is the tool call ID) as the key
+		if _, exists := r.subAgents[taskAgent.AgentID]; !exists {
+			taskAgentCopy := taskAgent
+			r.subAgents[taskAgent.AgentID] = &taskAgentCopy
 		}
 	}
 
@@ -244,6 +269,20 @@ func (r *SessionFileReader) GetLatestMessage() *models.ClaudeSessionMessage {
 
 	// Return a copy to prevent external modification
 	msgCopy := *r.latestMessage
+	return &msgCopy
+}
+
+// GetLatestThought returns the latest assistant message with thinking blocks
+func (r *SessionFileReader) GetLatestThought() *models.ClaudeSessionMessage {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.latestThought == nil {
+		return nil
+	}
+
+	// Return a copy to prevent external modification
+	msgCopy := *r.latestThought
 	return &msgCopy
 }
 

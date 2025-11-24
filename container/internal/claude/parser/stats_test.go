@@ -256,6 +256,48 @@ func TestProcessMessage_SessionDuration(t *testing.T) {
 	}
 }
 
+func TestProcessMessage_ActiveDuration(t *testing.T) {
+	agg := NewStatsAggregator()
+
+	// Turn 1: User at 10:00:00
+	agg.ProcessMessage(models.ClaudeSessionMessage{
+		Type:      "user",
+		Timestamp: "2025-11-21T10:00:00.000Z",
+	})
+
+	// Turn 1: Assistant responds at 10:00:05 (5 seconds of work)
+	agg.ProcessMessage(models.ClaudeSessionMessage{
+		Type:      "assistant",
+		Timestamp: "2025-11-21T10:00:05.000Z",
+	})
+
+	// Turn 2: User at 10:02:00 (after 115 seconds of idle time)
+	agg.ProcessMessage(models.ClaudeSessionMessage{
+		Type:      "user",
+		Timestamp: "2025-11-21T10:02:00.000Z",
+	})
+
+	// Turn 2: Assistant responds at 10:02:08 (8 seconds of work)
+	agg.ProcessMessage(models.ClaudeSessionMessage{
+		Type:      "assistant",
+		Timestamp: "2025-11-21T10:02:08.000Z",
+	})
+
+	stats := agg.GetStats()
+
+	// Wall-clock time: 128 seconds (10:00:00 to 10:02:08)
+	expectedSessionDuration := 128 * time.Second
+	if stats.SessionDuration != expectedSessionDuration {
+		t.Errorf("Expected session duration %v, got %v", expectedSessionDuration, stats.SessionDuration)
+	}
+
+	// Active time: 5 + 8 = 13 seconds (excludes the 115 seconds idle)
+	expectedActiveDuration := 13 * time.Second
+	if stats.ActiveDuration != expectedActiveDuration {
+		t.Errorf("Expected active duration %v, got %v", expectedActiveDuration, stats.ActiveDuration)
+	}
+}
+
 func TestProcessMessage_FirstAndLastMessageTime(t *testing.T) {
 	agg := NewStatsAggregator()
 
@@ -337,6 +379,48 @@ func TestSetSubAgentCount(t *testing.T) {
 	stats := agg.GetStats()
 	if stats.SubAgentCount != 5 {
 		t.Errorf("Expected 5 sub-agents, got %d", stats.SubAgentCount)
+	}
+}
+
+func TestProcessMessage_CompactionCount(t *testing.T) {
+	agg := NewStatsAggregator()
+
+	// Non-compaction system message
+	agg.ProcessMessage(models.ClaudeSessionMessage{
+		Type:      "system",
+		Subtype:   "other",
+		Timestamp: "2025-11-21T10:00:00.000Z",
+	})
+
+	stats := agg.GetStats()
+	if stats.CompactionCount != 0 {
+		t.Errorf("Expected 0 compactions, got %d", stats.CompactionCount)
+	}
+
+	// Compaction message
+	agg.ProcessMessage(models.ClaudeSessionMessage{
+		Type:      "system",
+		Subtype:   "compact_boundary",
+		Content:   "Conversation compacted",
+		Timestamp: "2025-11-21T10:00:01.000Z",
+	})
+
+	stats = agg.GetStats()
+	if stats.CompactionCount != 1 {
+		t.Errorf("Expected 1 compaction, got %d", stats.CompactionCount)
+	}
+
+	// Another compaction
+	agg.ProcessMessage(models.ClaudeSessionMessage{
+		Type:      "system",
+		Subtype:   "compact_boundary",
+		Content:   "Conversation compacted",
+		Timestamp: "2025-11-21T10:05:00.000Z",
+	})
+
+	stats = agg.GetStats()
+	if stats.CompactionCount != 2 {
+		t.Errorf("Expected 2 compactions, got %d", stats.CompactionCount)
 	}
 }
 

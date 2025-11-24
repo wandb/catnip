@@ -1959,6 +1959,10 @@ const docTemplate = `{
                 "agentId": {
                     "type": "string"
                 },
+                "content": {
+                    "description": "Content for system messages",
+                    "type": "string"
+                },
                 "cwd": {
                     "type": "string"
                 },
@@ -1976,6 +1980,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sessionId": {
+                    "type": "string"
+                },
+                "subtype": {
+                    "description": "Subtype for system messages (e.g., \"compact_boundary\")",
                     "type": "string"
                 },
                 "summary": {

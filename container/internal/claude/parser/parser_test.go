@@ -338,6 +338,56 @@ func TestGetSubAgents(t *testing.T) {
 	}
 }
 
+func TestGetSubAgents_TaskAgents(t *testing.T) {
+	reader := NewSessionFileReader("testdata/task_agents.jsonl")
+
+	_, err := reader.ReadIncremental()
+	if err != nil {
+		t.Fatalf("ReadIncremental failed: %v", err)
+	}
+
+	subAgents := reader.GetSubAgents()
+	if len(subAgents) != 2 {
+		t.Fatalf("Expected 2 sub-agents from Task tool calls, got %d", len(subAgents))
+	}
+
+	// Check first Task agent (Explore)
+	found := false
+	for _, agent := range subAgents {
+		if agent.SubagentType == "Explore" && agent.Description == "Find bugs in codebase" {
+			found = true
+			if agent.AgentID != "toolu_task_001" {
+				t.Errorf("Expected agent ID 'toolu_task_001', got %s", agent.AgentID)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected to find Explore sub-agent")
+	}
+
+	// Check second Task agent (code-reviewer)
+	found = false
+	for _, agent := range subAgents {
+		if agent.SubagentType == "superpowers:code-reviewer" && agent.Description == "Review pending changes" {
+			found = true
+			if agent.AgentID != "toolu_task_002" {
+				t.Errorf("Expected agent ID 'toolu_task_002', got %s", agent.AgentID)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("Expected to find superpowers:code-reviewer sub-agent")
+	}
+
+	// Verify stats reflect the count
+	stats := reader.GetStats()
+	if stats.SubAgentCount != 2 {
+		t.Errorf("Expected SubAgentCount to be 2, got %d", stats.SubAgentCount)
+	}
+}
+
 func TestIncrementalParsing(t *testing.T) {
 	// Create a temporary file for this test
 	tmpFile := filepath.Join(t.TempDir(), "incremental.jsonl")
@@ -561,22 +611,33 @@ func TestThinkingOnlyMessage(t *testing.T) {
 		t.Fatalf("Expected 2 messages, got %d", len(messages))
 	}
 
-	// GetLatestMessage should return the thinking-only assistant message
+	// GetLatestMessage should NOT return thinking-only messages (they have no text content)
+	// Now that we have GetLatestThought(), LatestMessage should only track TEXT messages
 	latestMsg := reader.GetLatestMessage()
-	if latestMsg == nil {
-		t.Fatal("Expected non-nil latest message")
+	if latestMsg != nil {
+		t.Errorf("Expected nil latest message for thinking-only session, got UUID %s", latestMsg.Uuid)
 	}
 
-	// Verify it's the assistant message
-	if latestMsg.Type != "assistant" {
-		t.Errorf("Expected latest message type 'assistant', got '%s'", latestMsg.Type)
+	// GetLatestThought SHOULD return the thinking-only assistant message
+	latestThought := reader.GetLatestThought()
+	if latestThought == nil {
+		t.Fatal("Expected non-nil latest thought")
 	}
 
-	// ExtractTextContent should return empty string for thinking-only messages
-	// but the message itself should still be stored as the latest message
-	textContent := ExtractTextContent(*latestMsg)
+	// Verify it's the assistant message with thinking
+	if latestThought.Type != "assistant" {
+		t.Errorf("Expected latest thought type 'assistant', got '%s'", latestThought.Type)
+	}
+
+	// Verify it has no text content but has thinking
+	textContent := ExtractTextContent(*latestThought)
 	if textContent != "" {
 		t.Errorf("Expected empty text content for thinking-only message, got '%s'", textContent)
+	}
+
+	thinkingBlocks := ExtractThinking(*latestThought)
+	if len(thinkingBlocks) == 0 {
+		t.Error("Expected thinking blocks in latest thought")
 	}
 
 	// Verify stats show the assistant message was counted
@@ -727,4 +788,125 @@ func TestGetLatestMessage_CyrillicLoki(t *testing.T) {
 	if latestMsg.Uuid == "" {
 		t.Error("Expected latest message to have a UUID")
 	}
+}
+
+func TestGetLatestThought(t *testing.T) {
+	reader := NewSessionFileReader("testdata/thinking.jsonl")
+
+	_, err := reader.ReadIncremental()
+	if err != nil {
+		t.Fatalf("ReadIncremental failed: %v", err)
+	}
+
+	latestThought := reader.GetLatestThought()
+	if latestThought == nil {
+		t.Fatal("Expected latest thought message from thinking session, got nil")
+	}
+
+	// Verify it's an assistant message
+	if latestThought.Type != "assistant" {
+		t.Errorf("Expected latest thought type 'assistant', got %s", latestThought.Type)
+	}
+
+	// Verify it has thinking blocks
+	thinkingBlocks := ExtractThinking(*latestThought)
+	if len(thinkingBlocks) == 0 {
+		t.Error("Expected latest thought to have thinking blocks")
+	}
+
+	// Verify it's the correct message (msg_assistant_think_001)
+	if latestThought.Message == nil {
+		t.Fatal("Expected message to have Message map")
+	}
+	if id, exists := latestThought.Message["id"]; exists {
+		if idStr, ok := id.(string); ok {
+			if idStr != "msg_assistant_think_001" {
+				t.Errorf("Expected latest thought message ID 'msg_assistant_think_001', got %s", idStr)
+			}
+		}
+	}
+}
+
+func TestIncrementalReplay_LatestMessageSkipsToolOnly(t *testing.T) {
+	// This test simulates reading a session file incrementally (like during an active session)
+	// and verifies that tool-only messages don't replace text messages as "latest"
+
+	// Read line by line to simulate incremental updates
+	lines := []string{
+		// Line 1-2: User + Assistant with text
+		`{"parentUuid":null,"isSidechain":false,"userType":"external","cwd":"/workspace","sessionId":"test-incremental","version":"2.0.45","type":"user","message":{"role":"user","content":"Help me analyze this code"},"uuid":"user-001","timestamp":"2025-11-21T10:00:00.000Z"}`,
+		`{"parentUuid":"user-001","isSidechain":false,"userType":"external","cwd":"/workspace","sessionId":"test-incremental","version":"2.0.45","type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll analyze the code for you. Let me read it first."}],"id":"asst-001"},"uuid":"asst-001","timestamp":"2025-11-21T10:00:01.000Z"}`,
+	}
+
+	// Create temp file with first 2 lines
+	tmpFile := filepath.Join(t.TempDir(), "replay.jsonl")
+	if err := os.WriteFile(tmpFile, []byte(lines[0]+"\n"+lines[1]+"\n"), 0600); err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+
+	reader := NewSessionFileReader(tmpFile)
+	_, err := reader.ReadIncremental()
+	if err != nil {
+		t.Fatalf("ReadIncremental failed: %v", err)
+	}
+
+	// After 2 lines, latest message should be asst-001 with text
+	latestMsg := reader.GetLatestMessage()
+	if latestMsg == nil {
+		t.Fatal("Expected latest message after 2 lines")
+	}
+	if latestMsg.Uuid != "asst-001" {
+		t.Errorf("After 2 lines, expected latest UUID 'asst-001', got %s", latestMsg.Uuid)
+	}
+	textContent := ExtractTextContent(*latestMsg)
+	if textContent == "" {
+		t.Error("After 2 lines, expected non-empty text content")
+	}
+
+	// Add line 3: Assistant with ONLY tool_use (no text)
+	toolOnlyLine := `{"parentUuid":"asst-001","isSidechain":false,"userType":"external","cwd":"/workspace","sessionId":"test-incremental","version":"2.0.45","type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_read_001","name":"Read","input":{"file_path":"/workspace/code.js"}}],"id":"asst-002"},"uuid":"asst-002","timestamp":"2025-11-21T10:00:02.000Z"}` + "\n"
+	f, err := os.OpenFile(tmpFile, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("Failed to open file: %v", err)
+	}
+	if _, err := f.WriteString(toolOnlyLine); err != nil {
+		f.Close()
+		t.Fatalf("Failed to append line: %v", err)
+	}
+	f.Close()
+
+	// Read incrementally again
+	_, err = reader.ReadIncremental()
+	if err != nil {
+		t.Fatalf("ReadIncremental failed on line 3: %v", err)
+	}
+
+	// After tool-only message, latest should STILL be asst-001 (with text)
+	latestMsg = reader.GetLatestMessage()
+	if latestMsg == nil {
+		t.Fatal("Expected latest message after tool-only message")
+	}
+	if latestMsg.Uuid != "asst-001" {
+		t.Errorf("After tool-only message, expected latest UUID 'asst-001', got %s", latestMsg.Uuid)
+	}
+	textContent = ExtractTextContent(*latestMsg)
+	if textContent == "" {
+		t.Error("After tool-only message, expected latest to still have text content")
+	}
+	if !contains(textContent, "I'll analyze the code") {
+		t.Errorf("After tool-only message, expected text 'I'll analyze the code...', got %q", textContent)
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
+}
+
+func containsMiddle(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

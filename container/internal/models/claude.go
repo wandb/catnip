@@ -54,6 +54,8 @@ type ClaudeSessionMessage struct {
 	SessionId   string         `json:"sessionId"`
 	Timestamp   string         `json:"timestamp"`
 	Type        string         `json:"type"`
+	Subtype     string         `json:"subtype,omitempty"` // Subtype for system messages (e.g., "compact_boundary")
+	Content     string         `json:"content,omitempty"` // Content for system messages
 	UserType    string         `json:"userType"`
 	Uuid        string         `json:"uuid"`
 	Version     string         `json:"version"`

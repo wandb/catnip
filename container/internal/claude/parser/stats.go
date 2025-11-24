@@ -1,12 +1,16 @@
 package parser
 
 import (
+	"time"
+
 	"github.com/vanpelt/catnip/internal/models"
 )
 
 // StatsAggregator aggregates statistics from session messages
 type StatsAggregator struct {
-	stats *SessionStats
+	stats             *SessionStats
+	lastUserTime      time.Time // Track last user message time for active duration
+	lastAssistantTime time.Time // Track last assistant message time for active duration
 }
 
 // NewStatsAggregator creates a new statistics aggregator
@@ -26,8 +30,22 @@ func (a *StatsAggregator) ProcessMessage(msg models.ClaudeSessionMessage) {
 	switch msg.Type {
 	case "user":
 		a.stats.UserMessages++
+		// Count human prompts (user messages with string content, not tool results)
+		if msg.Message != nil {
+			if content, exists := msg.Message["content"]; exists {
+				// Tool results have array content, human prompts have string content
+				if _, isString := content.(string); isString {
+					a.stats.HumanPromptCount++
+				}
+			}
+		}
 	case "assistant":
 		a.stats.AssistantMessages++
+	case "system":
+		// Check for compaction messages
+		if msg.Subtype == "compact_boundary" {
+			a.stats.CompactionCount++
+		}
 	}
 
 	// Parse timestamp
@@ -41,6 +59,23 @@ func (a *StatsAggregator) ProcessMessage(msg models.ClaudeSessionMessage) {
 		// Update last message time
 		if timestamp.After(a.stats.LastMessageTime) {
 			a.stats.LastMessageTime = timestamp
+		}
+
+		// Calculate active duration (time spent working, excluding idle time)
+		switch msg.Type {
+		case "user":
+			// If there was a previous turn (user -> assistant), add that duration
+			if !a.lastUserTime.IsZero() && !a.lastAssistantTime.IsZero() {
+				turnDuration := a.lastAssistantTime.Sub(a.lastUserTime)
+				if turnDuration > 0 {
+					a.stats.ActiveDuration += turnDuration
+				}
+			}
+			// Start new turn
+			a.lastUserTime = timestamp
+		case "assistant":
+			// Track the latest assistant response
+			a.lastAssistantTime = timestamp
 		}
 	}
 
@@ -68,6 +103,19 @@ func (a *StatsAggregator) ProcessMessage(msg models.ClaudeSessionMessage) {
 		// Count thinking blocks
 		thinkingBlocks := ExtractThinking(msg)
 		a.stats.ThinkingBlockCount += len(thinkingBlocks)
+
+		// Count images in content blocks
+		if content, exists := msg.Message["content"]; exists {
+			if contentArray, ok := content.([]interface{}); ok {
+				for _, block := range contentArray {
+					if blockMap, ok := block.(map[string]interface{}); ok {
+						if blockType, _ := blockMap["type"].(string); blockType == "image" {
+							a.stats.ImageCount++
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Update session duration
@@ -96,9 +144,19 @@ func (a *StatsAggregator) processTokenUsage(usageMap map[string]interface{}) {
 
 	if cacheReadTokens, exists := usageMap["cache_read_input_tokens"]; exists {
 		if tokensFloat, ok := cacheReadTokens.(float64); ok {
-			a.stats.CacheReadTokens += int64(tokensFloat)
+			cacheRead := int64(tokensFloat)
+			a.stats.CacheReadTokens += cacheRead
+			// Track last cache_read as context size (non-zero values only)
+			if cacheRead > 0 {
+				a.stats.LastContextSizeTokens = cacheRead
+			}
 		} else if tokensInt, ok := cacheReadTokens.(int); ok {
-			a.stats.CacheReadTokens += int64(tokensInt)
+			cacheRead := int64(tokensInt)
+			a.stats.CacheReadTokens += cacheRead
+			// Track last cache_read as context size (non-zero values only)
+			if cacheRead > 0 {
+				a.stats.LastContextSizeTokens = cacheRead
+			}
 		}
 	}
 
@@ -119,22 +177,40 @@ func (a *StatsAggregator) GetStats() SessionStats {
 		toolNamesCopy[k] = v
 	}
 
+	// Calculate final active duration (include the last turn if it hasn't been counted)
+	activeDuration := a.stats.ActiveDuration
+	if !a.lastUserTime.IsZero() && !a.lastAssistantTime.IsZero() {
+		// Check if the last turn needs to be added
+		// (if lastAssistantTime is after the last calculated turn)
+		if a.lastAssistantTime.After(a.lastUserTime) {
+			finalTurnDuration := a.lastAssistantTime.Sub(a.lastUserTime)
+			if finalTurnDuration > 0 {
+				activeDuration += finalTurnDuration
+			}
+		}
+	}
+
 	return SessionStats{
-		TotalMessages:       a.stats.TotalMessages,
-		UserMessages:        a.stats.UserMessages,
-		AssistantMessages:   a.stats.AssistantMessages,
-		ToolCallCount:       a.stats.ToolCallCount,
-		TotalInputTokens:    a.stats.TotalInputTokens,
-		TotalOutputTokens:   a.stats.TotalOutputTokens,
-		CacheReadTokens:     a.stats.CacheReadTokens,
-		CacheCreationTokens: a.stats.CacheCreationTokens,
-		APICallCount:        a.stats.APICallCount,
-		SessionDuration:     a.stats.SessionDuration,
-		ThinkingBlockCount:  a.stats.ThinkingBlockCount,
-		SubAgentCount:       a.stats.SubAgentCount,
-		FirstMessageTime:    a.stats.FirstMessageTime,
-		LastMessageTime:     a.stats.LastMessageTime,
-		ActiveToolNames:     toolNamesCopy,
+		TotalMessages:         a.stats.TotalMessages,
+		UserMessages:          a.stats.UserMessages,
+		AssistantMessages:     a.stats.AssistantMessages,
+		HumanPromptCount:      a.stats.HumanPromptCount,
+		ToolCallCount:         a.stats.ToolCallCount,
+		TotalInputTokens:      a.stats.TotalInputTokens,
+		TotalOutputTokens:     a.stats.TotalOutputTokens,
+		CacheReadTokens:       a.stats.CacheReadTokens,
+		CacheCreationTokens:   a.stats.CacheCreationTokens,
+		LastContextSizeTokens: a.stats.LastContextSizeTokens,
+		APICallCount:          a.stats.APICallCount,
+		SessionDuration:       a.stats.SessionDuration,
+		ActiveDuration:        activeDuration,
+		ThinkingBlockCount:    a.stats.ThinkingBlockCount,
+		SubAgentCount:         a.stats.SubAgentCount,
+		CompactionCount:       a.stats.CompactionCount,
+		ImageCount:            a.stats.ImageCount,
+		FirstMessageTime:      a.stats.FirstMessageTime,
+		LastMessageTime:       a.stats.LastMessageTime,
+		ActiveToolNames:       toolNamesCopy,
 	}
 }
 
