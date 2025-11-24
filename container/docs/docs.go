@@ -2032,6 +2032,13 @@ const docTemplate = `{
         "github_com_vanpelt_catnip_internal_models.ClaudeSessionMessage": {
             "type": "object",
             "properties": {
+                "agentId": {
+                    "type": "string"
+                },
+                "content": {
+                    "description": "Content for system messages",
+                    "type": "string"
+                },
                 "cwd": {
                     "type": "string"
                 },
@@ -2049,6 +2056,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "sessionId": {
+                    "type": "string"
+                },
+                "subtype": {
+                    "description": "Subtype for system messages (e.g., \"compact_boundary\")",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "Summary text for summary-type messages",
                     "type": "string"
                 },
                 "timestamp": {
@@ -2597,6 +2612,10 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "has_commits_ahead_of_remote": {
+                    "description": "Whether the branch has commits ahead of the remote branch (calculated on list)",
+                    "type": "boolean"
+                },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
                     "type": "boolean",
@@ -2616,6 +2635,14 @@ const docTemplate = `{
                     "description": "When this worktree was last accessed",
                     "type": "string",
                     "example": "2024-01-15T16:30:00Z"
+                },
+                "latest_claude_message": {
+                    "description": "Latest Claude message from the current session",
+                    "type": "string"
+                },
+                "latest_claude_message_type": {
+                    "description": "Type of the latest Claude message (\"assistant\" or \"user\")",
+                    "type": "string"
                 },
                 "latest_session_title": {
                     "description": "Latest session title from the current session (simplified string version)",
@@ -3028,6 +3055,10 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "has_commits_ahead_of_remote": {
+                    "description": "Whether the branch has commits ahead of the remote branch (calculated on list)",
+                    "type": "boolean"
+                },
                 "has_conflicts": {
                     "description": "Whether the worktree is in a conflicted state (rebase/merge conflicts)",
                     "type": "boolean",
@@ -3047,6 +3078,14 @@ const docTemplate = `{
                     "description": "When this worktree was last accessed",
                     "type": "string",
                     "example": "2024-01-15T16:30:00Z"
+                },
+                "latest_claude_message": {
+                    "description": "Latest Claude message from the current session",
+                    "type": "string"
+                },
+                "latest_claude_message_type": {
+                    "description": "Type of the latest Claude message (\"assistant\" or \"user\")",
+                    "type": "string"
                 },
                 "latest_session_title": {
                     "description": "Latest session title from the current session (simplified string version)",

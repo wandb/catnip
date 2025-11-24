@@ -29,11 +29,11 @@ struct WorkspaceDetailView: View {
     @State private var latestMessage: String?
     @State private var cachedDiff: WorktreeDiffResponse?
     @State private var pendingUserPrompt: String? // Store prompt we just sent before backend updates
-    @State private var showPRSheet = false
     @State private var isCreatingPR = false
-
-    // Terminal / Orientation tracking
+    @State private var isUpdatingPR = false
+    @State private var showingPRCreationSheet = false
     @State private var isLandscape = false
+    @State private var showPortraitTerminal = false  // Show terminal in portrait mode
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @EnvironmentObject var authManager: AuthManager
@@ -69,14 +69,13 @@ struct WorkspaceDetailView: View {
         return workspace?.displayName ?? "Workspace"
     }
 
-    var body: some View {
-        ZStack {
-            Color(uiColor: .systemBackground)
-                .ignoresSafeArea()
-
-            // Show terminal in landscape, normal UI in portrait
+    private var mainContentView: some View {
+        Group {
+            // Show terminal in landscape or portrait terminal mode, normal UI otherwise
             if isLandscape {
                 terminalView
+            } else if showPortraitTerminal {
+                portraitTerminalView
             } else {
                 if phase == .loading {
                     loadingView
@@ -87,119 +86,133 @@ struct WorkspaceDetailView: View {
                 }
             }
         }
-        .navigationTitle(navigationTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // Show terminal/fullscreen button when in portrait mode
-            if !isLandscape {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        rotateToLandscape()
-                    } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.body)
-                    }
-                }
-            }
-        }
-        .task {
-            await loadWorkspace()
-            poller.start()
+    }
 
-            // Start PTY after workspace is loaded
-            if let workspace = workspace {
-                Task {
-                    do {
-                        try await CatnipAPI.shared.startPTY(workspacePath: workspace.name, agent: "claude")
-                        NSLog("✅ Started PTY for workspace: \(workspace.name)")
-                    } catch {
-                        NSLog("⚠️ Failed to start PTY: \(error)")
-                        // Non-fatal - PTY will be created on-demand if needed
-                    }
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        // Show terminal button when in portrait mode (not showing terminal)
+        if !isLandscape && !showPortraitTerminal {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showPortraitTerminal = true
+                } label: {
+                    Image(systemName: "terminal")
+                        .font(.body)
                 }
             }
         }
-        .onDisappear {
-            poller.stop()
-        }
-        .onChange(of: horizontalSizeClass) {
-            updateOrientation()
-        }
-        .onChange(of: verticalSizeClass) {
-            updateOrientation()
-        }
-        .onAppear {
-            updateOrientation()
-        }
-        .onChange(of: poller.workspace) {
-            if let newWorkspace = poller.workspace {
-                NSLog("🔄 Workspace updated - activity: \(newWorkspace.claudeActivityState?.rawValue ?? "nil"), title: \(newWorkspace.latestSessionTitle?.prefix(30) ?? "nil")")
-                determinePhase(for: newWorkspace)
-            } else {
-                NSLog("⚠️ Workspace updated to nil")
-            }
-        }
-        .onChange(of: poller.error) {
-            if let newError = poller.error {
-                // Filter out "cancelled" errors (Code -999) - these are normal when requests are cancelled
-                // to make new ones and are not actionable for users
-                if !newError.lowercased().contains("cancelled") {
-                    error = newError
-                }
-            }
-        }
-        .sheet(isPresented: $showPromptSheet) {
-            PromptSheet(
-                isPresented: $showPromptSheet,
-                prompt: $prompt,
-                mode: .askForChanges,
-                isSubmitting: isSubmitting,
-                onSubmit: {
-                    Task { await sendPrompt() }
-                }
-            )
-        }
-        .sheet(isPresented: $showFullDiff) {
-            NavigationStack {
-                WorkspaceDiffViewer(
-                    workspaceId: workspaceId,
-                    selectedFile: nil,
-                    onClose: {
-                        showFullDiff = false
-                    },
-                    onExpand: nil,
-                    preloadedDiff: cachedDiff,
-                    onDiffLoaded: { diff in
-                        cachedDiff = diff
-                    }
-                )
-                .navigationTitle("Diff")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showFullDiff = false
-                        } label: {
-                            Text("Done")
+    }
+
+    var body: some View {
+        mainView
+            .task {
+                await loadWorkspace()
+                poller.start()
+
+                // Start PTY after workspace is loaded
+                if let workspace = workspace {
+                    Task {
+                        do {
+                            try await CatnipAPI.shared.startPTY(workspacePath: workspace.name, agent: "claude")
+                            NSLog("✅ Started PTY for workspace: \(workspace.name)")
+                        } catch {
+                            NSLog("⚠️ Failed to start PTY: \(error)")
+                            // Non-fatal - PTY will be created on-demand if needed
                         }
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showPRSheet) {
-            if let workspace = workspace {
-                PRCreationSheet(
-                    isPresented: $showPRSheet,
-                    workspace: workspace,
-                    isCreating: $isCreatingPR
+            .onDisappear {
+                poller.stop()
+            }
+            .onChange(of: horizontalSizeClass) {
+                updateOrientation()
+            }
+            .onChange(of: verticalSizeClass) {
+                updateOrientation()
+            }
+            .onAppear {
+                updateOrientation()
+            }
+            .onChange(of: poller.workspace) {
+                if let newWorkspace = poller.workspace {
+                    NSLog("🔄 Workspace updated - activity: \(newWorkspace.claudeActivityState?.rawValue ?? "nil"), title: \(newWorkspace.latestSessionTitle?.prefix(30) ?? "nil")")
+                    determinePhase(for: newWorkspace)
+                } else {
+                    NSLog("⚠️ Workspace updated to nil")
+                }
+            }
+            .onChange(of: poller.error) {
+                if let newError = poller.error {
+                    // Filter out "cancelled" errors (Code -999) - these are normal when requests are cancelled
+                    // to make new ones and are not actionable for users
+                    if !newError.lowercased().contains("cancelled") {
+                        error = newError
+                    }
+                }
+            }
+            .sheet(isPresented: $showPromptSheet) {
+                PromptSheet(
+                    isPresented: $showPromptSheet,
+                    prompt: $prompt,
+                    mode: .askForChanges,
+                    isSubmitting: isSubmitting,
+                    onSubmit: {
+                        Task { await sendPrompt() }
+                    }
                 )
             }
-        }
-        .onAppear {
-            // Auto-show sheet if no history
-            if phase == .input {
-                showPromptSheet = true
+            .sheet(isPresented: $showFullDiff) {
+                NavigationStack {
+                    WorkspaceDiffViewer(
+                        workspaceId: workspaceId,
+                        selectedFile: nil,
+                        onClose: {
+                            showFullDiff = false
+                        },
+                        onExpand: nil,
+                        preloadedDiff: cachedDiff,
+                        onDiffLoaded: { diff in
+                            cachedDiff = diff
+                        }
+                    )
+                    .navigationTitle("Diff")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                showFullDiff = false
+                            } label: {
+                                Text("Done")
+                            }
+                        }
+                    }
+                }
             }
+            .sheet(isPresented: $showingPRCreationSheet) {
+                if let workspace = workspace {
+                    PRCreationSheet(isPresented: $showingPRCreationSheet, workspace: workspace, isCreating: $isCreatingPR)
+                }
+            }
+            .onAppear {
+                // Auto-show sheet if no history
+                if phase == .input {
+                    showPromptSheet = true
+                }
+            }
+    }
+
+    private var mainView: some View {
+        ZStack {
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea()
+
+            mainContentView
+        }
+        .navigationTitle(navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            toolbarContent
         }
     }
 
@@ -503,19 +516,66 @@ struct WorkspaceDetailView: View {
                     Button {
                         handlePRAction()
                     } label: {
+                // Show "Update PR" if we have a PR URL and commits ahead
+            // AND the PR is not closed or merged
+            // For backward compatibility: if hasCommitsAheadOfRemote is nil (older backend),
+            // assume true if we have commits (existing behavior)
+            if let _ = workspace?.pullRequestUrl,
+               workspace?.pullRequestState != "CLOSED",
+               workspace?.pullRequestState != "MERGED" {
+                
+                let hasCommitsAhead = workspace?.hasCommitsAheadOfRemote ?? ((workspace?.commitCount ?? 0) > 0)
+                
+                if hasCommitsAhead {
+                    Button(action: {
+                        Task {
+                            await updatePR()
+                        }
+                    }) {
                         HStack(spacing: 6) {
-                            if workspace?.pullRequestUrl != nil {
-                                Image(systemName: "arrow.up.right.square")
-                                Text("View PR")
+                            if isUpdatingPR {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("Updating...")
                             } else {
-                                Image(systemName: "arrow.triangle.merge")
-                                Text("Create PR")
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                Text("Update PR")
                             }
                         }
                     }
+                } else {
+                    Button(action: {
+                        handlePRAction()
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.right.square")
+                            Text("View PR")
+                        }
+                    }
+                }
+            } else if let _ = workspace?.pullRequestUrl {
+                Button(action: {
+                    handlePRAction()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.up.right.square")
+                        Text("View PR")
+                    }
+                }
+            } else {
+                Button(action: {
+                    handlePRAction()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.triangle.merge")
+                        Text("Create PR")
+                    }
+                }
+            }
+                    }
                     .buttonStyle(ProminentButtonStyle())
-                    .disabled((workspace?.commitCount ?? 0) == 0)
-                    .opacity((workspace?.commitCount ?? 0) == 0 ? 0.5 : 1.0)
+                    .disabled((workspace?.commitCount ?? 0) == 0 || isUpdatingPR)
+                    .opacity(((workspace?.commitCount ?? 0) == 0 || isUpdatingPR) ? 0.5 : 1.0)
                 }
                 .padding(16)
                 .background(.ultraThinMaterial)
@@ -735,15 +795,57 @@ struct WorkspaceDetailView: View {
 
     private func handlePRAction() {
         guard let workspace = workspace else { return }
-
-        if let prUrl = workspace.pullRequestUrl, let url = URL(string: prUrl) {
-            // Open existing PR in Safari
-            NSLog("🔗 Opening existing PR: \(prUrl)")
-            UIApplication.shared.open(url)
+        
+        if let urlString = workspace.pullRequestUrl, let url = URL(string: urlString) {
+            // If we have commits ahead and PR is open, show update confirmation
+            // Otherwise just open the URL
+            if let hasCommitsAhead = workspace.hasCommitsAheadOfRemote, 
+               hasCommitsAhead,
+               workspace.pullRequestState != "CLOSED",
+               workspace.pullRequestState != "MERGED" {
+                Task {
+                    await updatePR()
+                }
+            } else {
+                #if os(macOS)
+                NSWorkspace.shared.open(url)
+                #else
+                UIApplication.shared.open(url)
+                #endif
+            }
         } else if (workspace.commitCount ?? 0) > 0 {
-            // Show PR creation sheet
-            NSLog("📝 Showing PR creation sheet")
-            showPRSheet = true
+            showingPRCreationSheet = true
+        }
+    }
+
+    private func updatePR() async {
+        guard let workspace = workspace else { return }
+        
+        NSLog("🔄 Updating PR for workspace: \(workspace.id)")
+        isUpdatingPR = true
+        error = ""
+        
+        do {
+            let prUrl = try await CatnipAPI.shared.updatePullRequest(workspaceId: workspace.id)
+            
+            await MainActor.run {
+                NSLog("✅ Successfully updated PR: \(prUrl)")
+                isUpdatingPR = false
+                
+                // Open the updated PR
+                if let url = URL(string: prUrl) {
+                    UIApplication.shared.open(url)
+                }
+                
+                // Trigger refresh to update state (clear dirty flag etc if backend handles it)
+                poller.refresh()
+            }
+        } catch {
+            NSLog("❌ Failed to update PR: \(error)")
+            await MainActor.run {
+                self.error = "Failed to update PR: \(error.localizedDescription)"
+                isUpdatingPR = false
+            }
         }
     }
 
@@ -781,6 +883,43 @@ struct WorkspaceDetailView: View {
         return "wss://catnip.run"
     }
 
+    // MARK: - Portrait Terminal View
+
+    private var portraitTerminalView: some View {
+        let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "nil"
+        let worktreeName = workspace?.name ?? "unknown"
+
+        NSLog("🐱 Portrait terminal - Codespace: \(codespaceName), Worktree: \(worktreeName)")
+
+        // Terminal fills available space - glass accessory overlays it
+        // Add ~60 points width for approximately 7-8 extra columns at 12pt mono font
+        return GeometryReader { geometry in
+            ScrollView(.horizontal, showsIndicators: false) {
+                TerminalView(
+                    workspaceId: worktreeName,
+                    baseURL: websocketBaseURL,
+                    codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
+                    authToken: authManager.sessionToken,
+                    shouldConnect: showPortraitTerminal,
+                    showExitButton: false,
+                    showDismissButton: false
+                )
+                .frame(width: geometry.size.width + 60)
+            }
+        }
+        .background(Color.black)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showPortraitTerminal = false
+                } label: {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.body)
+                }
+            }
+        }
+    }
+
     private func updateOrientation() {
         // Detect landscape: compact height OR regular width + compact height
         // This works for both iPhone landscape and iPad landscape
@@ -790,6 +929,11 @@ struct WorkspaceDetailView: View {
         if newIsLandscape != isLandscape {
             isLandscape = newIsLandscape
             NSLog("📱 Orientation changed - isLandscape: \(isLandscape)")
+
+            // Close portrait terminal when rotating to landscape
+            if newIsLandscape && showPortraitTerminal {
+                showPortraitTerminal = false
+            }
         }
     }
 
@@ -884,6 +1028,8 @@ private struct WorkspaceDetailPreview: View {
                 latestSessionTitle: nil,
                 latestUserPrompt: nil,
                 pullRequestUrl: nil,
+                pullRequestState: nil,
+                hasCommitsAheadOfRemote: nil,
                 path: workspace.path,
                 cacheStatus: workspace.cacheStatus
             )
@@ -902,6 +1048,8 @@ private struct WorkspaceDetailPreview: View {
                 latestSessionTitle: "Implementing new feature",
                 latestUserPrompt: nil,
                 pullRequestUrl: nil,
+                pullRequestState: nil,
+                hasCommitsAheadOfRemote: workspace.hasCommitsAheadOfRemote,
                 path: workspace.path,
                 cacheStatus: workspace.cacheStatus
             )

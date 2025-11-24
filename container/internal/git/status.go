@@ -19,8 +19,18 @@ func NewStatusChecker(executor executor.CommandExecutor) *StatusChecker {
 }
 
 // IsDirty checks if a worktree has uncommitted changes
+// Uses fast git operations instead of full status --porcelain which is slow due to gitignore matching
 func (s *StatusChecker) IsDirty(worktreePath string) bool {
-	output, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "status", "--porcelain")
+	// Check for staged or unstaged changes using diff-index (very fast)
+	// Returns exit code 1 if there are changes
+	_, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "diff-index", "--quiet", "HEAD", "--")
+	if err != nil {
+		// Non-zero exit code means there are changes
+		return true
+	}
+
+	// Check for untracked files
+	output, err := s.executor.ExecuteGitWithWorkingDir(worktreePath, "ls-files", "--others", "--exclude-standard")
 	if err != nil {
 		return false
 	}

@@ -83,11 +83,8 @@ class CatnipAPI: ObservableObject {
     /// Fetch workspaces with optional ETag support for efficient polling
     /// Returns nil if server returns 304 Not Modified (content unchanged)
     func getWorkspaces(ifNoneMatch: String? = nil) async throws -> (workspaces: [WorkspaceInfo], etag: String?)? {
-        NSLog("🐱 [getWorkspaces] Fetching workspaces...")
-
         // Return mock data in UI testing mode
         if UITestingHelper.shouldUseMockData {
-            NSLog("🐱 [getWorkspaces] Using mock data")
             let mockWorkspaces = UITestingHelper.getMockWorkspaces()
             return (workspaces: mockWorkspaces, etag: "mock-etag")
         }
@@ -99,15 +96,7 @@ class CatnipAPI: ObservableObject {
             headers["If-None-Match"] = etag
         }
 
-        // Log the codespace name being used
-        if let codespaceName = getCodespaceName() {
-            NSLog("🐱 [getWorkspaces] Using codespace: \(codespaceName)")
-        } else {
-            NSLog("🐱 [getWorkspaces] No codespace name set")
-        }
-
         guard let url = URL(string: "\(baseURL)/v1/git/worktrees") else {
-            NSLog("🐱 [getWorkspaces] ❌ Invalid URL")
             throw APIError.invalidURL
         }
 
@@ -115,56 +104,38 @@ class CatnipAPI: ObservableObject {
         request.allHTTPHeaderFields = headers
 
         do {
-            NSLog("🐱 [getWorkspaces] Making request to \(url)")
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                NSLog("🐱 [getWorkspaces] ❌ Invalid response type")
                 throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
             }
 
-            NSLog("🐱 [getWorkspaces] Got response with status: \(httpResponse.statusCode)")
-
             // Handle 304 Not Modified - content unchanged
             if httpResponse.statusCode == 304 {
-                NSLog("🐱 [getWorkspaces] Workspaces not modified (304)")
                 return nil
             }
 
             if httpResponse.statusCode != 200 {
                 let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-                NSLog("🐱 [getWorkspaces] ❌ Server error \(httpResponse.statusCode): \(errorMessage)")
                 throw APIError.serverError(httpResponse.statusCode, errorMessage)
             }
 
             if data.isEmpty {
-                NSLog("🐱 [getWorkspaces] Empty response data")
                 let etag = httpResponse.value(forHTTPHeaderField: "ETag")
                 return (workspaces: [], etag: etag)
             }
 
-            NSLog("🐱 [getWorkspaces] Received \(data.count) bytes of data")
-
-            // Log first 200 bytes of response for debugging
-            if let preview = String(data: data.prefix(200), encoding: .utf8) {
-                NSLog("🐱 [getWorkspaces] Response preview: \(preview)")
-            }
-
             let workspaces = try decoder.decode([WorkspaceInfo].self, from: data)
-            NSLog("🐱 [getWorkspaces] ✅ Successfully decoded \(workspaces.count) workspaces")
 
             // Extract ETag from response headers
             let etag = httpResponse.value(forHTTPHeaderField: "ETag")
 
             return (workspaces: workspaces, etag: etag)
         } catch let error as DecodingError {
-            NSLog("🐱 [getWorkspaces] ❌ Decoding error: \(error)")
             throw APIError.decodingError(error)
         } catch let error as APIError {
-            NSLog("🐱 [getWorkspaces] ❌ API error: \(error)")
             throw error
         } catch {
-            NSLog("🐱 [getWorkspaces] ❌ Network error: \(error)")
             throw APIError.networkError(error)
         }
     }
@@ -840,6 +811,60 @@ Avoid overly lengthy explanations or step-by-step implementation details.
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let prUrl = json["url"] as? String {
             NSLog("🐱 [createPullRequest] ✅ Successfully created PR: \(prUrl)")
+            return prUrl
+        }
+
+        throw APIError.decodingError(NSError(domain: "Failed to parse PR URL from response", code: -1))
+    }
+
+    func updatePullRequest(workspaceId: String) async throws -> String {
+        NSLog("🐱 [updatePullRequest] Updating PR for workspace: \(workspaceId)")
+
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return "https://github.com/mock/repo/pull/123"
+        }
+
+        let headers = try await getHeaders(includeCodespace: true)
+
+        guard let url = URL(string: "\(baseURL)/v1/git/worktrees/\(workspaceId)/pr") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        // For updates, we just need force_push: true
+        // The backend will handle updating the branch
+        let body: [String: Any] = [
+            "force_push": true
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            NSLog("🐱 [updatePullRequest] ❌ Network error: \(error)")
+            throw APIError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode != 200 {
+            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+            NSLog("🐱 [updatePullRequest] ❌ Server error \(httpResponse.statusCode): \(errorMessage)")
+            throw APIError.serverError(httpResponse.statusCode, errorMessage)
+        }
+
+        // Parse the response to get the PR URL
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let prUrl = json["url"] as? String {
+            NSLog("🐱 [updatePullRequest] ✅ Successfully updated PR: \(prUrl)")
             return prUrl
         }
 

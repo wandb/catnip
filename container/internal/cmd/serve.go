@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"net/http/pprof"
 	"os"
 	goruntime "runtime"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/swagger"
@@ -111,6 +113,16 @@ func startServer(cmd *cobra.Command) {
 		}()
 	}
 
+	// Auto-update mounted repository if enabled
+	if os.Getenv("CATNIP_UPDATE_DEFAULT_BRANCH") == "true" {
+		go func() {
+			logger.Info("🔄 Auto-updating mounted repository...")
+			if err := gitService.UpdateMountedRepo(); err != nil {
+				logger.Warnf("⚠️  Failed to auto-update repository: %v", err)
+			}
+		}()
+	}
+
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: false,
 		AppName:               "Catnip Container v1.0.0",
@@ -128,6 +140,23 @@ func startServer(cmd *cobra.Command) {
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
+
+	// pprof endpoints for profiling (dev mode or DEBUG=true)
+	enablePprof := isDevMode || os.Getenv("DEBUG") == "true"
+	if enablePprof {
+		logger.Infof("🔧 Enabling pprof at /debug/pprof")
+		app.Get("/debug/pprof/", adaptor.HTTPHandlerFunc(pprof.Index))
+		app.Get("/debug/pprof/cmdline", adaptor.HTTPHandlerFunc(pprof.Cmdline))
+		app.Get("/debug/pprof/profile", adaptor.HTTPHandlerFunc(pprof.Profile))
+		app.Get("/debug/pprof/symbol", adaptor.HTTPHandlerFunc(pprof.Symbol))
+		app.Get("/debug/pprof/trace", adaptor.HTTPHandlerFunc(pprof.Trace))
+		app.Get("/debug/pprof/allocs", adaptor.HTTPHandler(pprof.Handler("allocs")))
+		app.Get("/debug/pprof/block", adaptor.HTTPHandler(pprof.Handler("block")))
+		app.Get("/debug/pprof/goroutine", adaptor.HTTPHandler(pprof.Handler("goroutine")))
+		app.Get("/debug/pprof/heap", adaptor.HTTPHandler(pprof.Handler("heap")))
+		app.Get("/debug/pprof/mutex", adaptor.HTTPHandler(pprof.Handler("mutex")))
+		app.Get("/debug/pprof/threadcreate", adaptor.HTTPHandler(pprof.Handler("threadcreate")))
+	}
 
 	// Settings endpoint - returns environment configuration
 	app.Get("/v1/settings", func(c *fiber.Ctx) error {
@@ -153,6 +182,12 @@ func startServer(cmd *cobra.Command) {
 	// Initialize services
 	claudeService := services.NewClaudeService()
 	sessionService := services.NewSessionService()
+	parserService := services.NewParserService()
+
+	// Wire up services
+	claudeService.SetSessionService(sessionService) // For best session file selection
+	claudeService.SetParserService(parserService)   // For centralized session parsing
+	parserService.SetClaudeService(claudeService)   // For finding project directories
 
 	// Initialize inference service if enabled via CATNIP_INFERENCE=1
 	var inferenceService *services.InferenceService
@@ -173,9 +208,11 @@ func startServer(cmd *cobra.Command) {
 
 	// Wire up SessionService to ClaudeService for best session file selection
 	claudeService.SetSessionService(sessionService)
+	// Start parser service
+	parserService.Start()
 
 	// Initialize and start Claude monitor service
-	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, gitService.GetStateManager())
+	claudeMonitor := services.NewClaudeMonitorService(gitService, sessionService, claudeService, parserService, gitService.GetStateManager())
 
 	// Initialize handlers
 	ptyHandler := handlers.NewPTYHandler(gitService, claudeMonitor, sessionService, portMonitor)

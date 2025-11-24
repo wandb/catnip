@@ -11,6 +11,8 @@
       "Bash(find:*)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)"
+      "Skill(superpowers:brainstorming)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

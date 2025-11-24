@@ -33,11 +33,13 @@ type ServiceInfo struct {
 
 // PortMonitor monitors /proc/net/tcp for port changes and manages service registry
 type PortMonitor struct {
-	services     map[int]*ServiceInfo
-	mutex        sync.RWMutex
-	lastTcpState map[int]bool
-	stopChan     chan bool
-	stopped      bool
+	services       map[int]*ServiceInfo
+	mutex          sync.RWMutex
+	lastTcpState   map[int]bool
+	inodeToPID     map[int]int // Cached inode→PID mapping
+	inodeCacheTime time.Time   // When the inode cache was last fully rebuilt
+	stopChan       chan bool
+	stopped        bool
 }
 
 // NewPortMonitor creates a new port monitor instance
@@ -45,6 +47,7 @@ func NewPortMonitor() *PortMonitor {
 	pm := &PortMonitor{
 		services:     make(map[int]*ServiceInfo),
 		lastTcpState: make(map[int]bool),
+		inodeToPID:   make(map[int]int),
 		stopChan:     make(chan bool),
 	}
 
@@ -204,6 +207,8 @@ func (pm *PortMonitor) parseProcNetTcp() (map[int]*PortWithPID, error) {
 	// Skip header line
 	scanner.Scan()
 
+	// First pass: collect all listening ports and their inodes
+	var hasNewPorts bool
 	for scanner.Scan() {
 		line := scanner.Text()
 		fields := strings.Fields(line)
@@ -242,19 +247,41 @@ func (pm *PortMonitor) parseProcNetTcp() (map[int]*PortWithPID, error) {
 					continue
 				}
 
-				// Resolve PID from inode
-				pid := pm.resolvePIDFromInode(inode)
+				// Check if this is a new port
+				if !pm.lastTcpState[portInt] {
+					hasNewPorts = true
+				}
 
 				listeningPorts[portInt] = &PortWithPID{
 					Port:  portInt,
-					PID:   pid,
+					PID:   0, // Will be resolved from cache
 					Inode: inode,
 				}
 			}
 		}
 	}
 
-	return listeningPorts, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	// Rebuild inode→PID cache if:
+	// 1. New ports were detected (need PID for new ports)
+	// 2. Cache is older than 60 seconds (periodic refresh)
+	// 3. Cache is empty (first run)
+	cacheAge := time.Since(pm.inodeCacheTime)
+	needsRebuild := hasNewPorts || cacheAge > 60*time.Second || len(pm.inodeToPID) == 0
+
+	if needsRebuild {
+		pm.buildInodeToPIDMap()
+	}
+
+	// Second pass: resolve PIDs from cached map
+	for _, portInfo := range listeningPorts {
+		portInfo.PID = pm.lookupPIDFromInode(portInfo.Inode)
+	}
+
+	return listeningPorts, nil
 }
 
 // parseNetstatPorts parses netstat output for macOS/other Unix systems
@@ -499,14 +526,15 @@ func (pm *PortMonitor) checkTCPHealth(service *ServiceInfo) bool {
 	return true
 }
 
-// resolvePIDFromInode finds the PID that owns a socket inode by scanning /proc/*/fd/*
-func (pm *PortMonitor) resolvePIDFromInode(inode int) int {
-	inodeStr := fmt.Sprintf("socket:[%d]", inode)
+// buildInodeToPIDMap scans /proc once and builds a complete inode→PID mapping
+// This is much more efficient than calling resolvePIDFromInode for each port
+func (pm *PortMonitor) buildInodeToPIDMap() {
+	newMap := make(map[int]int)
 
 	// Walk through all PIDs in /proc
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return 0
+		return
 	}
 
 	for _, entry := range entries {
@@ -536,14 +564,26 @@ func (pm *PortMonitor) resolvePIDFromInode(inode int) int {
 				continue
 			}
 
-			// Check if this fd points to our socket inode
-			if target == inodeStr {
-				return pid
+			// Check if this is a socket and extract the inode
+			if strings.HasPrefix(target, "socket:[") && strings.HasSuffix(target, "]") {
+				inodeStr := target[8 : len(target)-1] // Extract number from "socket:[12345]"
+				if inode, err := strconv.Atoi(inodeStr); err == nil {
+					newMap[inode] = pid
+				}
 			}
 		}
 	}
 
-	return 0 // PID not found
+	pm.inodeToPID = newMap
+	pm.inodeCacheTime = time.Now()
+}
+
+// lookupPIDFromInode looks up a PID from the cached inode→PID map
+func (pm *PortMonitor) lookupPIDFromInode(inode int) int {
+	if pid, exists := pm.inodeToPID[inode]; exists {
+		return pid
+	}
+	return 0
 }
 
 // getCommandFromPID extracts the command name from a PID (cross-platform)

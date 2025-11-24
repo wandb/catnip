@@ -30,6 +30,7 @@ class PTYWebSocketManager: NSObject, ObservableObject {
     private var session: URLSession?
     private var reconnectAttempts = 0
     private let maxReconnectAttempts = 5
+    private var isManuallyDisconnected = false  // Prevents auto-reconnect after manual disconnect
 
     // Callbacks for handling data
     var onData: ((Data) -> Void)?
@@ -61,6 +62,12 @@ class PTYWebSocketManager: NSObject, ObservableObject {
             NSLog("🔌 PTY WebSocket already connected")
             return
         }
+
+        // Clear previous error and reset manual disconnect flag
+        DispatchQueue.main.async {
+            self.error = nil
+        }
+        isManuallyDisconnected = false
 
         // Skip real connection in UI testing mode - just mark as connected
         if UITestingHelper.shouldUseMockData {
@@ -107,16 +114,13 @@ class PTYWebSocketManager: NSObject, ObservableObject {
         webSocketTask?.resume()
 
         // Start receiving messages
+        // Note: isConnected will be set to true by the delegate when connection opens
         receiveMessage()
-
-        DispatchQueue.main.async {
-            self.isConnected = true
-            self.reconnectAttempts = 0
-        }
     }
 
     func disconnect() {
         NSLog("🔌 Disconnecting PTY WebSocket")
+        isManuallyDisconnected = true  // Prevent auto-reconnect
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
 
@@ -222,7 +226,7 @@ class PTYWebSocketManager: NSObject, ObservableObject {
                 NSLog("❌ WebSocket receive error: %@", error.localizedDescription)
                 DispatchQueue.main.async {
                     self.isConnected = false
-                    self.error = error.localizedDescription
+                    self.error = "Reconnecting..."
                 }
 
                 // Attempt reconnection
@@ -233,6 +237,12 @@ class PTYWebSocketManager: NSObject, ObservableObject {
 
     // Private: Reconnection logic
     private func attemptReconnect() {
+        // Don't auto-reconnect if manually disconnected
+        guard !isManuallyDisconnected else {
+            NSLog("🔌 Skipping auto-reconnect (manually disconnected)")
+            return
+        }
+
         guard reconnectAttempts < maxReconnectAttempts else {
             NSLog("❌ Max reconnection attempts reached")
             return
@@ -244,8 +254,28 @@ class PTYWebSocketManager: NSObject, ObservableObject {
         NSLog("🔄 Reconnecting in %.0f seconds (attempt %d/%d)", delay, reconnectAttempts, maxReconnectAttempts)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.webSocketTask = nil
-            self?.connect()
+            guard let self = self, !self.isManuallyDisconnected else { return }
+
+            // Check health before reconnecting to detect codespace shutdown
+            Task {
+                let isHealthy = await HealthCheckService.shared.checkHealth()
+
+                await MainActor.run {
+                    if isHealthy {
+                        // Codespace is available, proceed with reconnection
+                        self.webSocketTask = nil
+                        self.connect()
+                    } else if HealthCheckService.shared.shutdownDetected {
+                        // Shutdown was detected - notification already posted by HealthCheckService
+                        NSLog("🔌 Skipping reconnect - codespace shutdown detected")
+                        self.error = "Codespace unavailable"
+                    } else {
+                        // Other health check failure - try reconnecting anyway
+                        self.webSocketTask = nil
+                        self.connect()
+                    }
+                }
+            }
         }
     }
 

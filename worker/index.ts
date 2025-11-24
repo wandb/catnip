@@ -2329,10 +2329,11 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
           let credentialsRefreshed = false;
 
           // If we don't have credentials or codespace was just started, retry credential refresh multiple times
+          // Increase to 20 attempts (~100s) to handle slow cold starts/compilations
           const maxRefreshAttempts =
             !selectedCodespace.githubToken ||
             targetCodespace.state !== "Available"
-              ? 7
+              ? 20
               : 1;
 
           for (let attempt = 1; attempt <= maxRefreshAttempts; attempt++) {
@@ -2430,11 +2431,13 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
               message: "Waiting for fresh credentials to propagate",
               step: "initializing",
             });
-            // Reduced wait: 3s if already running, 5s if just started
-            const propagationWait = codespaceWasAlreadyRunning ? 3000 : 5000;
-            await new Promise((resolve) =>
-              setTimeout(resolve, propagationWait),
-            );
+            // Reduced wait: 0s if already running (fast reconnect), 3s if just started (cold start delay)
+            const propagationWait = codespaceWasAlreadyRunning ? 0 : 3000;
+            if (propagationWait > 0) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, propagationWait),
+              );
+            }
           } else {
             console.log("Using original stored credentials for health check");
             // Give catnip a moment to be ready for health check
@@ -2442,9 +2445,11 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
               message: "Waiting for catnip to be ready",
               step: "initializing",
             });
-            // Minimal wait if already running, short wait if just started
-            const readyWait = codespaceWasAlreadyRunning ? 500 : 2000;
-            await new Promise((resolve) => setTimeout(resolve, readyWait));
+            // Minimal wait if already running, 3s wait if just started (cold start delay)
+            const readyWait = codespaceWasAlreadyRunning ? 0 : 3000;
+            if (readyWait > 0) {
+              await new Promise((resolve) => setTimeout(resolve, readyWait));
+            }
           }
 
           sendEvent("status", {
@@ -2877,7 +2882,8 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
                   {
                     error: "Codespace unavailable",
                     code: "CODESPACE_SHUTDOWN",
-                    message: `Your codespace is ${state.toLowerCase()}. Reconnect to restart it.`,
+                    message:
+                      "Your codespace has shut down. Reconnect to restart it.",
                     state: state,
                   },
                   502,
