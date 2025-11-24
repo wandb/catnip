@@ -235,6 +235,12 @@ definitions:
   github_com_vanpelt_catnip_internal_models.CreateCompletionRequest:
     description: Request payload for Claude Code completion using claude CLI subprocess
     properties:
+      fork:
+        description: |-
+          Whether to fork the session instead of resuming (doesn't pollute original session history)
+          Defaults to true when resuming unless explicitly set to false
+        example: true
+        type: boolean
       max_turns:
         description: Maximum number of turns in the conversation
         example: 10
