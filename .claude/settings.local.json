@@ -8,6 +8,9 @@
       "Bash(git commit:*)",
       "WebFetch(domain:expo.dev)",
       "WebSearch",
+      "Bash(find:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
       "Skill(superpowers:brainstorming)",
       "Bash(python3:*)"
     ],
