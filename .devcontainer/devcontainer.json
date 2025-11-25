@@ -1,6 +1,6 @@
 {
   "name": "Catnip Dev Container",
-  "image": "mcr.microsoft.com/devcontainers/go:1-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/go:1.25-bookworm",
   "remoteEnv": {},
   "customizations": {
     "vscode": {

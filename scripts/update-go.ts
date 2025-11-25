@@ -12,6 +12,7 @@
  * - FROM golang: image tags in Dockerfiles
  * - go.mod go directive
  * - GitHub Actions workflow go-version matrix and setup-go
+ * - Devcontainer Go image tag
  */
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
@@ -151,6 +152,28 @@ function updateGitHubWorkflow(
   }
 }
 
+function updateDevcontainer(
+  filePath: string,
+  version: { full: string; major: string; minor: string },
+) {
+  if (!existsSync(filePath)) {
+    console.warn(`⚠️  File not found: ${filePath}`);
+    return;
+  }
+
+  let content = readFileSync(filePath, "utf-8");
+  const shortVersion = `${version.major}.${version.minor}`;
+
+  // Update devcontainer Go image tag (e.g., go:1.25-bookworm or go:1-bookworm)
+  const imagePattern =
+    /(mcr\.microsoft\.com\/devcontainers\/go:)[\d.]+([-\w]*)/g;
+  if (imagePattern.test(content)) {
+    content = content.replace(imagePattern, `$1${shortVersion}$2`);
+    writeFileSync(filePath, content, "utf-8");
+    console.log(`  ✓ Updated devcontainer Go image to ${shortVersion}`);
+  }
+}
+
 function main() {
   const providedVersion = process.argv[2];
   const version = getVersion(providedVersion);
@@ -207,6 +230,12 @@ function main() {
     console.log(`  ${workflow}:`);
     updateGitHubWorkflow(workflow, version);
   }
+  console.log();
+
+  // Update devcontainer
+  console.log("📝 Updating devcontainer:");
+  console.log("  .devcontainer/devcontainer.json:");
+  updateDevcontainer(".devcontainer/devcontainer.json", version);
   console.log();
 
   console.log(`✅ Go version updated successfully!`);
