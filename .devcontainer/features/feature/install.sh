@@ -280,7 +280,7 @@ install_claude() {
   ensure_base_tools
   # Per vendor docs: curl -fsSL https://claude.ai/install.sh | bash
   # Redirect stdin from /dev/null to ensure non-interactive installation during container build
-  run_as_user "curl -fsSL https://claude.ai/install.sh | bash </dev/null"
+  run_as_user "curl -fsSL https://claude.ai/install.sh | bash"
   # After installation, wrap with purr interceptor
   wrap_claude_with_purr
   # Install catnip Claude hooks for activity tracking
