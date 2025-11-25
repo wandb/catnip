@@ -16,9 +16,21 @@ if [[ -z "${CATNIP_VOLUME_DIR:-}" ]]; then
 fi
 
 # Create CATNIP_VOLUME_DIR if it doesn't exist
+# Use sudo for /workspaces paths (may have different ownership locally vs Codespaces)
+# then fix ownership to ensure current user can write to it
 if [[ ! -d "$CATNIP_VOLUME_DIR" ]]; then
   log "creating CATNIP_VOLUME_DIR: $CATNIP_VOLUME_DIR"
-  mkdir -p "$CATNIP_VOLUME_DIR"
+  if [[ "$CATNIP_VOLUME_DIR" == /workspaces/* ]]; then
+    sudo mkdir -p "$CATNIP_VOLUME_DIR"
+    sudo chown -R "$(id -u):$(id -g)" "$CATNIP_VOLUME_DIR"
+    # Also fix parent .catnip dir if we created it
+    CATNIP_PARENT="$(dirname "$CATNIP_VOLUME_DIR")"
+    if [[ -d "$CATNIP_PARENT" ]]; then
+      sudo chown "$(id -u):$(id -g)" "$CATNIP_PARENT"
+    fi
+  else
+    mkdir -p "$CATNIP_VOLUME_DIR"
+  fi
 fi
 
 # Use /opt/catnip for log/pid
