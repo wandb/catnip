@@ -555,8 +555,8 @@ func (h *PTYHandler) HandlePTYPrompt(c *fiber.Ctx) error {
 		})
 	}
 
-	// Wait 500ms before sending carriage return to ensure PTY is ready to process it
-	time.Sleep(500 * time.Millisecond)
+	// Wait 1 second before sending carriage return to ensure PTY is ready to process it
+	time.Sleep(1 * time.Second)
 
 	// Send carriage return to submit the prompt
 	if _, err := session.PTY.Write([]byte("\r")); err != nil {
@@ -952,7 +952,7 @@ func (h *PTYHandler) handleConnection(conn PTYConnection, sessionID, agent strin
 					if controlMsg.Submit {
 						go func() {
 							// Delay to let the TUI process the prompt text before submitting
-							time.Sleep(500 * time.Millisecond)
+							time.Sleep(1 * time.Second)
 							logger.Infof("↩️ Sending carriage return (\\r) to execute prompt")
 							if _, err := session.PTY.Write([]byte("\r")); err != nil {
 								logger.Warnf("❌ Failed to write carriage return to PTY: %v", err)
