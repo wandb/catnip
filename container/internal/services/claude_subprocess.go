@@ -184,6 +184,7 @@ type ClaudeSubprocessOptions struct {
 	Fork             bool   // When true with Resume, adds --fork-session flag (creates new session ID, doesn't pollute original)
 	SessionID        string // Optional: specific session ID to resume (uses --resume). If empty with Resume=true, uses --continue
 	SuppressEvents   bool
+	DisableTools     bool // When true, disables all tools (Claude will only use context, no tool calls)
 }
 
 // CreateCompletion executes claude CLI and returns the response (always uses streaming internally)
@@ -231,6 +232,12 @@ func (w *ClaudeSubprocessWrapper) CreateStreamingCompletion(ctx context.Context,
 			args = append(args, "--fork-session")
 			logger.Debug("🔀 Adding --fork-session to create forked session")
 		}
+	}
+
+	// Disable all tools when requested (Claude will only use context)
+	if opts.DisableTools {
+		args = append(args, "--tools", "")
+		logger.Debug("🚫 Disabling all tools")
 	}
 
 	// Note: Prompt is sent via stdin, not as command argument
@@ -449,6 +456,12 @@ func (w *ClaudeSubprocessWrapper) createSyncCompletion(ctx context.Context, opts
 			args = append(args, "--fork-session")
 			logger.Debug("🔀 Adding --fork-session to create forked session")
 		}
+	}
+
+	// Disable all tools when requested (Claude will only use context)
+	if opts.DisableTools {
+		args = append(args, "--tools", "")
+		logger.Debug("🚫 Disabling all tools")
 	}
 
 	// Note: Prompt is sent via stdin, not as command argument

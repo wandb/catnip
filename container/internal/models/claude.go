@@ -148,6 +148,8 @@ type CreateCompletionRequest struct {
 	Fork *bool `json:"fork,omitempty" example:"true"`
 	// Whether to suppress stop events for this automated operation
 	SuppressEvents bool `json:"suppress_events,omitempty" example:"true"`
+	// Whether to disable all tools (Claude will only use context, no tool calls)
+	DisableTools bool `json:"disable_tools,omitempty" example:"true"`
 }
 
 // CreateCompletionResponse represents a response from claude CLI completion

@@ -803,6 +803,7 @@ func (s *ClaudeService) CreateCompletion(ctx context.Context, req *models.Create
 		Fork:             fork,
 		SessionID:        sessionID,
 		SuppressEvents:   suppressEvents,
+		DisableTools:     req.DisableTools,
 	}
 
 	// Enable event suppression for automated operations
@@ -906,6 +907,7 @@ func (s *ClaudeService) CreateStreamingCompletion(ctx context.Context, req *mode
 		Fork:             fork,
 		SessionID:        sessionID,
 		SuppressEvents:   suppressEvents,
+		DisableTools:     req.DisableTools,
 	}
 
 	// Enable event suppression for automated operations

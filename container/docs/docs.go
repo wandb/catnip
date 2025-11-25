@@ -2152,6 +2152,11 @@ const docTemplate = `{
             "description": "Request payload for Claude Code completion using claude CLI subprocess",
             "type": "object",
             "properties": {
+                "disable_tools": {
+                    "description": "Whether to disable all tools (Claude will only use context, no tool calls)",
+                    "type": "boolean",
+                    "example": true
+                },
                 "fork": {
                     "description": "Whether to fork the session instead of resuming (doesn't pollute original session history)\nDefaults to true when resuming unless explicitly set to false",
                     "type": "boolean",

@@ -235,6 +235,11 @@ definitions:
   github_com_vanpelt_catnip_internal_models.CreateCompletionRequest:
     description: Request payload for Claude Code completion using claude CLI subprocess
     properties:
+      disable_tools:
+        description: Whether to disable all tools (Claude will only use context, no
+          tool calls)
+        example: true
+        type: boolean
       fork:
         description: |-
           Whether to fork the session instead of resuming (doesn't pollute original session history)

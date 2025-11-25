@@ -692,7 +692,8 @@ Avoid overly lengthy explanations or step-by-step implementation details.
             "working_directory": workspacePath,
             "resume": true,  // Resume session to get context (backend defaults to fork=true and haiku model)
             "max_turns": 1,
-            "suppress_events": true
+            "suppress_events": true,
+            "disable_tools": true  // Don't use tools, just rely on session context
         ]
 
         var request = URLRequest(url: url)
