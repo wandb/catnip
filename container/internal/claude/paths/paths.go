@@ -114,7 +114,9 @@ func FindBestSessionFile(projectDir string) (string, error) {
 
 // hasConversationContent checks if a session file contains actual conversation messages
 // (user, assistant) rather than just file-history-snapshot or summary entries.
-// Returns true if the file has conversation content.
+// It also filters out forked/sidechain sessions that were created for automated tasks
+// (like branch naming or PR generation) which start with queue-operation.
+// Returns true if the file has conversation content and is not a forked session.
 func hasConversationContent(filePath string) bool {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -125,19 +127,26 @@ func hasConversationContent(filePath string) bool {
 	scanner := bufio.NewScanner(file)
 	// Check first 50 lines to determine if this is a real conversation
 	lineCount := 0
+	foundConversation := false
 	for scanner.Scan() && lineCount < 50 {
 		line := scanner.Text()
 		lineCount++
+
+		// Skip forked/sidechain sessions that start with queue-operation
+		// These are automated sessions created by --fork-session for branch naming, PR generation, etc.
+		if lineCount == 1 && strings.Contains(line, `"type":"queue-operation"`) {
+			return false
+		}
 
 		// Look for conversation message types
 		// These indicate actual user interaction, not just snapshots
 		if strings.Contains(line, `"type":"user"`) ||
 			strings.Contains(line, `"type":"assistant"`) {
-			return true
+			foundConversation = true
 		}
 	}
 
-	return false
+	return foundConversation
 }
 
 // findAnyValidSessionFile is a fallback that finds any valid UUID jsonl file by modification time
