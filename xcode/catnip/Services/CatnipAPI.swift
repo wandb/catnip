@@ -226,20 +226,16 @@ class CatnipAPI: ObservableObject {
     /// Fetch session data for a specific workspace - lightweight polling endpoint
     /// This endpoint returns latest user prompt, latest message, latest thought, and session stats
     /// Use this for polling during active sessions instead of the heavier /v1/git/worktrees endpoint
-    func getSessionData(workspacePath: String) async throws -> SessionData? {
+    func getSessionData(workspaceId: String) async throws -> SessionData? {
         // Return mock data in UI testing mode
         if UITestingHelper.shouldUseMockData {
-            return UITestingHelper.getMockSessionData(workspacePath: workspacePath)
+            return UITestingHelper.getMockSessionData(workspacePath: workspaceId)
         }
 
         let headers = try await getHeaders(includeCodespace: true)
 
-        // Use query parameter for workspace path (handles slashes correctly)
-        guard var components = URLComponents(string: "\(baseURL)/v1/sessions/workspace") else {
-            throw APIError.invalidURL
-        }
-        components.queryItems = [URLQueryItem(name: "workspace", value: workspacePath)]
-        guard let url = components.url else {
+        // Use workspace ID (UUID) in URL path - simple and clean
+        guard let url = URL(string: "\(baseURL)/v1/sessions/workspace/\(workspaceId)") else {
             throw APIError.invalidURL
         }
 

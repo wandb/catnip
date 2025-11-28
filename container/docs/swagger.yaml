@@ -2409,30 +2409,6 @@ paths:
       summary: Get active sessions
       tags:
       - sessions
-  /v1/sessions/workspace:
-    get:
-      description: Returns session information for a specific workspace directory.
-        Use ?full=true for complete session data including messages.
-      parameters:
-      - description: Workspace directory path (e.g., /worktrees/catnip/ruby)
-        in: query
-        name: workspace
-        required: true
-        type: string
-      - description: Include full session data with messages and user prompts
-        in: query
-        name: full
-        type: boolean
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Basic session info when full=false
-          schema:
-            $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
-      summary: Get session by workspace
-      tags:
-      - sessions
   /v1/sessions/workspace/{workspace}:
     delete:
       description: Removes a session from the active sessions mapping
@@ -2450,6 +2426,29 @@ paths:
           schema:
             $ref: '#/definitions/internal_handlers.DeleteSessionResponse'
       summary: Delete session
+      tags:
+      - sessions
+    get:
+      description: Returns session information for a specific workspace. Accepts workspace
+        ID (UUID) or path. Use ?full=true for complete session data including messages.
+      parameters:
+      - description: Workspace ID (UUID) or directory path
+        in: path
+        name: workspace
+        required: true
+        type: string
+      - description: Include full session data with messages and user prompts
+        in: query
+        name: full
+        type: boolean
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Basic session info when full=false
+          schema:
+            $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
+      summary: Get session by workspace
       tags:
       - sessions
   /v1/sessions/workspace/{workspace}/session/{sessionId}:

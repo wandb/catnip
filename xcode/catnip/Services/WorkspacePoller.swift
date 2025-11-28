@@ -51,7 +51,6 @@ class WorkspacePoller: ObservableObject {
 
     // MARK: - Private Properties
     private let workspaceId: String
-    private let workspacePath: String
     private var pollingTask: Task<Void, Never>?
     private var appStateObserver: NSObjectProtocol?
     private var lastETag: String?
@@ -62,14 +61,13 @@ class WorkspacePoller: ObservableObject {
 
     init(workspaceId: String, initialWorkspace: WorkspaceInfo? = nil) {
         self.workspaceId = workspaceId
-        self.workspacePath = initialWorkspace?.path ?? ""
 
         // Initialize with provided workspace if available
         if let initialWorkspace = initialWorkspace {
             self.workspace = initialWorkspace
             self.lastActivityStateChange = Date()
             self.previousActivityState = initialWorkspace.claudeActivityState
-            NSLog("📊 Initialized poller with existing workspace data, path: \(initialWorkspace.path)")
+            NSLog("📊 Initialized poller with existing workspace data, id: \(workspaceId)")
         }
 
         setupAppStateObservers()
@@ -171,7 +169,7 @@ class WorkspacePoller: ObservableObject {
         let isActiveSession = workspace?.claudeActivityState == .active ||
             Date().timeIntervalSince(lastActivityStateChange) < 120
 
-        if isActiveSession && !workspacePath.isEmpty {
+        if isActiveSession {
             await pollSessionData()
         } else {
             await pollFullWorkspace()
@@ -181,7 +179,7 @@ class WorkspacePoller: ObservableObject {
     /// Poll the lightweight session endpoint for active sessions
     private func pollSessionData() async {
         do {
-            let newSessionData = try await CatnipAPI.shared.getSessionData(workspacePath: workspacePath)
+            let newSessionData = try await CatnipAPI.shared.getSessionData(workspaceId: workspaceId)
 
             if let sessionData = newSessionData {
                 self.sessionData = sessionData
