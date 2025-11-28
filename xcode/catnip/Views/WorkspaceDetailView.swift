@@ -84,6 +84,28 @@ struct WorkspaceDetailView: View {
         poller.sessionData?.stats
     }
 
+    /// Check if we have any session content to display
+    /// Used to determine if we should show empty state vs completed state
+    private var hasSessionContent: Bool {
+        // Has user prompt
+        if let prompt = effectiveLatestUserPrompt, !prompt.isEmpty {
+            return true
+        }
+        // Has Claude message
+        if let msg = effectiveLatestMessage, !msg.isEmpty {
+            return true
+        }
+        // Has session title
+        if let title = workspace?.latestSessionTitle, !title.isEmpty {
+            return true
+        }
+        // Has todos
+        if let todos = workspace?.todos, !todos.isEmpty {
+            return true
+        }
+        return false
+    }
+
     private var navigationTitle: String {
         // Show session title if available (in both working and completed phases)
         if let title = workspace?.latestSessionTitle, !title.isEmpty {
@@ -276,7 +298,9 @@ struct WorkspaceDetailView: View {
     private var contentView: some View {
         ScrollView {
             VStack(spacing: 20) {
-                if phase == .input {
+                if phase == .input || (phase == .completed && !hasSessionContent) {
+                    // Show empty state for input phase OR completed phase with no content
+                    // (e.g., new workspace with commits but no Claude session)
                     emptyStateView
                         .padding(.horizontal, 16)
                 } else if phase == .working {
@@ -529,7 +553,8 @@ struct WorkspaceDetailView: View {
 
     private var footerView: some View {
         Group {
-            if phase == .completed {
+            if phase == .completed && hasSessionContent {
+                // Only show footer buttons if we have actual session content to show
                 HStack(spacing: 12) {
                     Button {
                         showPromptSheet = true
