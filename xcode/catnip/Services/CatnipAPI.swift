@@ -234,10 +234,9 @@ class CatnipAPI: ObservableObject {
 
         let headers = try await getHeaders(includeCodespace: true)
 
-        // The workspace path needs to be the workspace name (e.g., "vanpelt-catnip")
-        // not the full path, as it's passed in the URL path
-        let workspaceName = workspacePath.components(separatedBy: "/").last ?? workspacePath
-        guard let encodedPath = workspaceName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+        // URL-encode the full workspace path for the path parameter
+        // The backend expects the full path (e.g., "/worktrees/catnip/ruby")
+        guard let encodedPath = workspacePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "\(baseURL)/v1/sessions/workspace/\(encodedPath)") else {
             throw APIError.invalidURL
         }

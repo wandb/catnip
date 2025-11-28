@@ -105,13 +105,9 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 
 		return c.JSON(fullData)
 	} else {
-		// Try session service first (for active PTY sessions)
-		session, exists := h.sessionService.GetActiveSession(workspace)
-		if exists {
-			return c.JSON(session)
-		}
-
-		// Fallback to Claude service for basic info (without full data)
+		// Return session data with latest prompt/message/stats but without full message history
+		// The full=false mode still includes latestUserPrompt, latestMessage, latestThought, stats
+		// It just omits the Messages and UserPrompts arrays
 		fullData, err := h.claudeService.GetFullSessionData(workspace, false)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
@@ -126,8 +122,7 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 			})
 		}
 
-		// Return just the session info part for basic requests
-		return c.JSON(fullData.SessionInfo)
+		return c.JSON(fullData)
 	}
 }
 
