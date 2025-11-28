@@ -46,10 +46,12 @@ class WorkspacePoller: ObservableObject {
     @Published private(set) var currentInterval: PollingInterval = .idle
     @Published private(set) var lastUpdate: Date?
     @Published private(set) var workspace: WorkspaceInfo?
+    @Published private(set) var sessionData: SessionData?
     @Published private(set) var error: String?
 
     // MARK: - Private Properties
     private let workspaceId: String
+    private let workspacePath: String
     private var pollingTask: Task<Void, Never>?
     private var appStateObserver: NSObjectProtocol?
     private var lastETag: String?
@@ -60,13 +62,14 @@ class WorkspacePoller: ObservableObject {
 
     init(workspaceId: String, initialWorkspace: WorkspaceInfo? = nil) {
         self.workspaceId = workspaceId
+        self.workspacePath = initialWorkspace?.path ?? ""
 
         // Initialize with provided workspace if available
         if let initialWorkspace = initialWorkspace {
             self.workspace = initialWorkspace
             self.lastActivityStateChange = Date()
             self.previousActivityState = initialWorkspace.claudeActivityState
-            NSLog("📊 Initialized poller with existing workspace data")
+            NSLog("📊 Initialized poller with existing workspace data, path: \(initialWorkspace.path)")
         }
 
         setupAppStateObservers()
@@ -164,6 +167,49 @@ class WorkspacePoller: ObservableObject {
     }
 
     private func pollWorkspace() async {
+        // For active or recently active sessions, use the lightweight session endpoint
+        let isActiveSession = workspace?.claudeActivityState == .active ||
+            Date().timeIntervalSince(lastActivityStateChange) < 120
+
+        if isActiveSession && !workspacePath.isEmpty {
+            await pollSessionData()
+        } else {
+            await pollFullWorkspace()
+        }
+    }
+
+    /// Poll the lightweight session endpoint for active sessions
+    private func pollSessionData() async {
+        do {
+            let newSessionData = try await CatnipAPI.shared.getSessionData(workspacePath: workspacePath)
+
+            if let sessionData = newSessionData {
+                self.sessionData = sessionData
+                lastUpdate = Date()
+                error = nil
+
+                // Check if session is still active based on session info
+                let isActive = sessionData.sessionInfo?.isActive ?? false
+                let previousState = workspace?.claudeActivityState
+
+                // Track activity state changes for polling interval adaptation
+                if !isActive && previousState == .active {
+                    lastActivityStateChange = Date()
+                    NSLog("📊 Session became inactive, will switch to full polling soon")
+                }
+
+                NSLog("📊 Session data updated - Active: \(isActive), Prompt: \(sessionData.latestUserPrompt?.prefix(30) ?? "nil")...")
+            }
+
+        } catch {
+            // Fall back to full workspace polling on error
+            NSLog("⚠️ Session polling failed, falling back to full workspace: \(error.localizedDescription)")
+            await pollFullWorkspace()
+        }
+    }
+
+    /// Poll the full workspace endpoint (heavier, used for idle workspaces)
+    private func pollFullWorkspace() async {
         do {
             let result = try await CatnipAPI.shared.getWorkspace(
                 id: workspaceId,

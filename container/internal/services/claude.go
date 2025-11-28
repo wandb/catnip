@@ -398,6 +398,9 @@ func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData 
 	}
 	fullData.AllSessions = allSessions
 
+	// Always populate latest data from parser (lightweight - uses cached state)
+	s.populateLatestDataFromParser(worktreePath, fullData)
+
 	// Only include full message data if requested
 	if includeFullData {
 		// Get messages from current/latest session
@@ -424,6 +427,63 @@ func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData 
 	}
 
 	return fullData, nil
+}
+
+// populateLatestDataFromParser populates latest user prompt, message, thought and stats from the parser
+func (s *ClaudeService) populateLatestDataFromParser(worktreePath string, fullData *models.FullSessionData) {
+	if s.parserService == nil {
+		return
+	}
+
+	reader, err := s.parserService.GetOrCreateParser(worktreePath)
+	if err != nil {
+		return // Parser not available yet
+	}
+
+	// Get latest user prompt from history
+	latestUserPrompt, err := reader.GetLatestUserPrompt()
+	if err == nil && latestUserPrompt != "" {
+		fullData.LatestUserPrompt = latestUserPrompt
+	}
+
+	// Get latest assistant message
+	latestMsg := reader.GetLatestMessage()
+	if latestMsg != nil {
+		fullData.LatestMessage = parser.ExtractTextContent(*latestMsg)
+	}
+
+	// Get latest thought/thinking
+	latestThought := reader.GetLatestThought()
+	if latestThought != nil {
+		thinkingBlocks := parser.ExtractThinking(*latestThought)
+		if len(thinkingBlocks) > 0 {
+			// Get the last thinking block
+			fullData.LatestThought = thinkingBlocks[len(thinkingBlocks)-1].Content
+		}
+	}
+
+	// Get session stats
+	parserStats := reader.GetStats()
+	fullData.Stats = &models.SessionStats{
+		TotalMessages:          parserStats.TotalMessages,
+		UserMessages:           parserStats.UserMessages,
+		AssistantMessages:      parserStats.AssistantMessages,
+		HumanPromptCount:       parserStats.HumanPromptCount,
+		ToolCallCount:          parserStats.ToolCallCount,
+		TotalInputTokens:       parserStats.TotalInputTokens,
+		TotalOutputTokens:      parserStats.TotalOutputTokens,
+		CacheReadTokens:        parserStats.CacheReadTokens,
+		CacheCreationTokens:    parserStats.CacheCreationTokens,
+		LastContextSizeTokens:  parserStats.LastContextSizeTokens,
+		APICallCount:           parserStats.APICallCount,
+		SessionDurationSeconds: parserStats.SessionDuration.Seconds(),
+		ActiveDurationSeconds:  parserStats.ActiveDuration.Seconds(),
+		ThinkingBlockCount:     parserStats.ThinkingBlockCount,
+		SubAgentCount:          parserStats.SubAgentCount,
+		CompactionCount:        parserStats.CompactionCount,
+		ImageCount:             parserStats.ImageCount,
+		ActiveToolNames:        parserStats.ActiveToolNames,
+	}
 }
 
 // GetAllSessionsForWorkspace returns all session IDs for a workspace with metadata

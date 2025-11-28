@@ -59,6 +59,31 @@ struct WorkspaceDetailView: View {
         poller.workspace
     }
 
+    /// Get the latest user prompt, preferring session data over workspace data
+    private var effectiveLatestUserPrompt: String? {
+        // First check session data (more up-to-date during active polling)
+        if let prompt = poller.sessionData?.latestUserPrompt, !prompt.isEmpty {
+            return prompt
+        }
+        // Fall back to workspace data
+        return workspace?.latestUserPrompt
+    }
+
+    /// Get the latest Claude message, preferring session data over workspace data
+    private var effectiveLatestMessage: String? {
+        // First check session data (more up-to-date during active polling)
+        if let msg = poller.sessionData?.latestMessage, !msg.isEmpty {
+            return msg
+        }
+        // Fall back to latestMessage state
+        return latestMessage
+    }
+
+    /// Get session stats from session data
+    private var sessionStats: SessionStats? {
+        poller.sessionData?.stats
+    }
+
     private var navigationTitle: String {
         // Show session title if available (in both working and completed phases)
         if let title = workspace?.latestSessionTitle, !title.isEmpty {
@@ -312,8 +337,8 @@ struct WorkspaceDetailView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Show the user's prompt (either pending or from workspace)
-                if let userPrompt = pendingUserPrompt ?? workspace?.latestUserPrompt, !userPrompt.isEmpty {
+                // Show the user's prompt (either pending or from session/workspace)
+                if let userPrompt = pendingUserPrompt ?? effectiveLatestUserPrompt, !userPrompt.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("You asked:")
                             .font(.caption.weight(.semibold))
@@ -330,7 +355,7 @@ struct WorkspaceDetailView: View {
                 }
 
                 // Show Claude's latest message while working
-                if let claudeMessage = latestMessage, !claudeMessage.isEmpty {
+                if let claudeMessage = effectiveLatestMessage, !claudeMessage.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude is saying:")
                             .font(.caption.weight(.semibold))
@@ -403,7 +428,7 @@ struct WorkspaceDetailView: View {
             // Session content with padding
             VStack(alignment: .leading, spacing: 8) {
                 // User prompt
-                if let userPrompt = workspace?.latestUserPrompt, !userPrompt.isEmpty {
+                if let userPrompt = effectiveLatestUserPrompt, !userPrompt.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("You asked:")
                             .font(.caption.weight(.semibold))
@@ -420,7 +445,7 @@ struct WorkspaceDetailView: View {
                 }
 
                 // Claude's response
-                if let claudeMessage = latestMessage, !claudeMessage.isEmpty {
+                if let claudeMessage = effectiveLatestMessage, !claudeMessage.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude responded:")
                             .font(.caption.weight(.semibold))

@@ -223,6 +223,46 @@ class CatnipAPI: ObservableObject {
         }
     }
 
+    /// Fetch session data for a specific workspace - lightweight polling endpoint
+    /// This endpoint returns latest user prompt, latest message, latest thought, and session stats
+    /// Use this for polling during active sessions instead of the heavier /v1/git/worktrees endpoint
+    func getSessionData(workspacePath: String) async throws -> SessionData? {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockSessionData(workspacePath: workspacePath)
+        }
+
+        let headers = try await getHeaders(includeCodespace: true)
+
+        // The workspace path needs to be the workspace name (e.g., "vanpelt-catnip")
+        // not the full path, as it's passed in the URL path
+        let workspaceName = workspacePath.components(separatedBy: "/").last ?? workspacePath
+        guard let encodedPath = workspaceName.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "\(baseURL)/v1/sessions/workspace/\(encodedPath)") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.allHTTPHeaderFields = headers
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode == 404 {
+            // No session data yet - this is normal for new workspaces
+            return nil
+        }
+
+        if httpResponse.statusCode != 200 {
+            throw APIError.serverError(httpResponse.statusCode, "Failed to fetch session data")
+        }
+
+        return try decoder.decode(SessionData.self, from: data)
+    }
+
     func startPTY(workspacePath: String, agent: String = "claude") async throws {
         NSLog("🚀 [CatnipAPI] startPTY called with workspacePath: \(workspacePath), agent: \(agent)")
 

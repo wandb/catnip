@@ -169,3 +169,74 @@ struct PRSummary: Codable {
     let title: String
     let description: String
 }
+
+// MARK: - Session Data Models
+
+/// Full session data returned by /v1/sessions/workspace/{path} endpoint
+/// This is a lightweight endpoint for polling during active sessions
+struct SessionData: Codable {
+    let sessionInfo: SessionSummary?
+    let allSessions: [SessionListEntry]?
+    let latestUserPrompt: String?
+    let latestMessage: String?
+    let latestThought: String?
+    let stats: SessionStats?
+    // Messages and userPrompts are only included when full=true
+    // We don't include them here as we're using this for lightweight polling
+}
+
+/// Session summary information
+struct SessionSummary: Codable {
+    let worktreePath: String?
+    let sessionStartTime: String?
+    let sessionEndTime: String?
+    let turnCount: Int?
+    let isActive: Bool?
+    let lastSessionId: String?
+    let currentSessionId: String?
+    let header: String?
+    let lastCost: Double?
+    let lastDuration: Int?
+    let lastTotalInputTokens: Int?
+    let lastTotalOutputTokens: Int?
+}
+
+/// Entry in the sessions list
+struct SessionListEntry: Codable {
+    let sessionId: String
+    let lastModified: String?
+    let startTime: String?
+    let endTime: String?
+    let isActive: Bool?
+}
+
+/// Session statistics including token counts and activity metrics
+struct SessionStats: Codable, Hashable {
+    let totalMessages: Int?
+    let userMessages: Int?
+    let assistantMessages: Int?
+    let humanPromptCount: Int?
+    let toolCallCount: Int?
+    let totalInputTokens: Int64?
+    let totalOutputTokens: Int64?
+    let cacheReadTokens: Int64?
+    let cacheCreationTokens: Int64?
+    let lastContextSizeTokens: Int64?
+    let apiCallCount: Int?
+    let sessionDurationSeconds: Double?
+    let activeDurationSeconds: Double?
+    let thinkingBlockCount: Int?
+    let subAgentCount: Int?
+    let compactionCount: Int?
+    let imageCount: Int?
+    let activeToolNames: [String: Int]?
+
+    /// Returns the context size in a human-readable format (e.g., "125K tokens")
+    var contextSizeDisplay: String? {
+        guard let tokens = lastContextSizeTokens, tokens > 0 else { return nil }
+        if tokens >= 1000 {
+            return "\(tokens / 1000)K tokens"
+        }
+        return "\(tokens) tokens"
+    }
+}
