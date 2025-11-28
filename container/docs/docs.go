@@ -1702,7 +1702,7 @@ const docTemplate = `{
                 }
             }
         },
-        "/v1/sessions/workspace/{workspace}": {
+        "/v1/sessions/workspace": {
             "get": {
                 "description": "Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.",
                 "produces": [
@@ -1715,9 +1715,9 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Workspace directory path",
+                        "description": "Workspace directory path (e.g., /worktrees/catnip/ruby)",
                         "name": "workspace",
-                        "in": "path",
+                        "in": "query",
                         "required": true
                     },
                     {
@@ -1735,7 +1735,9 @@ const docTemplate = `{
                         }
                     }
                 }
-            },
+            }
+        },
+        "/v1/sessions/workspace/{workspace}": {
             "delete": {
                 "description": "Removes a session from the active sessions mapping",
                 "produces": [

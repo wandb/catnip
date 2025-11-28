@@ -78,12 +78,21 @@ func (h *SessionsHandler) GetAllSessions(c *fiber.Ctx) error {
 // @Description Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.
 // @Tags sessions
 // @Produce json
-// @Param workspace path string true "Workspace directory path"
+// @Param workspace query string true "Workspace directory path (e.g., /worktrees/catnip/ruby)"
 // @Param full query boolean false "Include full session data with messages and user prompts"
 // @Success 200 {object} ActiveSessionInfo "Basic session info when full=false"
-// @Router /v1/sessions/workspace/{workspace} [get]
+// @Router /v1/sessions/workspace [get]
 func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
-	workspace := c.Params("workspace")
+	// Get workspace from query parameter (preferred) or path parameter (legacy)
+	workspace := c.Query("workspace")
+	if workspace == "" {
+		workspace = c.Params("workspace")
+	}
+	if workspace == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "workspace query parameter is required",
+		})
+	}
 	fullParam := c.Query("full", "false")
 	includeFull := fullParam == "true"
 

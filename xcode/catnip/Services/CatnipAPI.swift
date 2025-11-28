@@ -234,12 +234,16 @@ class CatnipAPI: ObservableObject {
 
         let headers = try await getHeaders(includeCodespace: true)
 
-        // URL-encode the full workspace path for the path parameter
-        // The backend expects the full path (e.g., "/worktrees/catnip/ruby")
-        guard let encodedPath = workspacePath.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "\(baseURL)/v1/sessions/workspace/\(encodedPath)") else {
+        // Use query parameter for workspace path (handles slashes correctly)
+        guard var components = URLComponents(string: "\(baseURL)/v1/sessions/workspace") else {
             throw APIError.invalidURL
         }
+        components.queryItems = [URLQueryItem(name: "workspace", value: workspacePath)]
+        guard let url = components.url else {
+            throw APIError.invalidURL
+        }
+
+        NSLog("📊 [CatnipAPI] Fetching session data from: \(url.absoluteString)")
 
         var request = URLRequest(url: url)
         request.allHTTPHeaderFields = headers
@@ -259,7 +263,17 @@ class CatnipAPI: ObservableObject {
             throw APIError.serverError(httpResponse.statusCode, "Failed to fetch session data")
         }
 
-        return try decoder.decode(SessionData.self, from: data)
+        // Debug: log the raw JSON response
+        if let jsonString = String(data: data, encoding: .utf8) {
+            NSLog("📊 [CatnipAPI] Session data response: \(jsonString.prefix(500))...")
+        }
+
+        do {
+            return try decoder.decode(SessionData.self, from: data)
+        } catch {
+            NSLog("❌ [CatnipAPI] Failed to decode SessionData: \(error)")
+            throw error
+        }
     }
 
     func startPTY(workspacePath: String, agent: String = "claude") async throws {
