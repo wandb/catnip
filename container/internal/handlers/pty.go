@@ -24,6 +24,7 @@ import (
 	"github.com/creack/pty"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
+	"github.com/vanpelt/catnip/internal/claude/paths"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/git"
 	"github.com/vanpelt/catnip/internal/models"
@@ -2333,50 +2334,18 @@ func (h *PTYHandler) getClaudeSessionLogModTime(workDir string) time.Time {
 	return newestTime
 }
 
-// findNewestClaudeSession finds the newest JSONL file in .claude/projects directory
+// findNewestClaudeSession finds the best JSONL file in .claude/projects directory
+// Uses paths.FindBestSessionFile which validates UUIDs, checks conversation content,
+// and filters out forked sessions
 func (h *PTYHandler) findNewestClaudeSession(claudeProjectsDir string) string {
-	// Check if .claude/projects directory exists
-	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
+	sessionFile, err := paths.FindBestSessionFile(claudeProjectsDir)
+	if err != nil || sessionFile == "" {
 		return ""
 	}
 
-	files, err := os.ReadDir(claudeProjectsDir)
-	if err != nil {
-		logger.Infof("⚠️  Failed to read .claude/projects directory: %v", err)
-		return ""
-	}
-
-	var newestFile string
-	var newestTime time.Time
-
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
-			continue
-		}
-
-		// Extract session ID from filename (remove .jsonl extension)
-		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
-
-		// Validate that it looks like a UUID
-		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
-			continue
-		}
-
-		// Get file modification time
-		filePath := filepath.Join(claudeProjectsDir, file.Name())
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			continue
-		}
-
-		// Track the newest file
-		if fileInfo.ModTime().After(newestTime) {
-			newestTime = fileInfo.ModTime()
-			newestFile = sessionID
-		}
-	}
-
-	return newestFile
+	// Extract session ID from the full path (remove directory and .jsonl extension)
+	sessionID := strings.TrimSuffix(filepath.Base(sessionFile), ".jsonl")
+	return sessionID
 }
 
 // handleTitleUpdate processes a new terminal title, committing previous work and updating session state

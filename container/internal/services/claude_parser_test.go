@@ -42,8 +42,9 @@ func copyTestFile(t *testing.T, testdataFile, destDir string) string {
 	data, err := os.ReadFile(srcPath)
 	require.NoError(t, err, "Failed to read test file: %s", srcPath)
 
-	// Write to destination
-	destPath := filepath.Join(destDir, testdataFile)
+	// Write to destination with a valid UUID filename
+	// paths.FindBestSessionFile validates that filenames are valid UUIDs (36 chars, 4 dashes)
+	destPath := filepath.Join(destDir, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa.jsonl")
 	err = os.WriteFile(destPath, data, 0644)
 	require.NoError(t, err)
 
