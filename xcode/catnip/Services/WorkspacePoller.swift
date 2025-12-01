@@ -149,8 +149,9 @@ class WorkspacePoller: ObservableObject {
 
         let timeSinceLastChange = Date().timeIntervalSince(lastActivityStateChange)
 
-        // Active: Claude is actively working
-        if workspace.claudeActivityState == .active {
+        // Active session: Poll frequently when Claude is actively working (.active) or session is running
+        // .running means session exists but Claude may start working soon
+        if workspace.claudeActivityState == .active || workspace.claudeActivityState == .running {
             return .active
         }
 
@@ -166,7 +167,8 @@ class WorkspacePoller: ObservableObject {
 
     private func pollWorkspace() async {
         // For active or recently active sessions, use the lightweight session endpoint
-        let isActiveSession = workspace?.claudeActivityState == .active ||
+        let activityState = workspace?.claudeActivityState
+        let isActiveSession = activityState == .active || activityState == .running ||
             Date().timeIntervalSince(lastActivityStateChange) < 120
 
         if isActiveSession {
@@ -191,7 +193,8 @@ class WorkspacePoller: ObservableObject {
                 let previousState = workspace?.claudeActivityState
 
                 // Track activity state changes for polling interval adaptation
-                if !isActive && previousState == .active {
+                let wasActive = previousState == .active || previousState == .running
+                if !isActive && wasActive {
                     lastActivityStateChange = Date()
                     NSLog("📊 Session became inactive, will switch to full polling soon")
                 }

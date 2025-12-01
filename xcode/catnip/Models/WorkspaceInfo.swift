@@ -20,6 +20,7 @@ struct WorkspaceInfo: Codable, Identifiable, Hashable {
     let todos: [Todo]?
     let latestSessionTitle: String?
     let latestUserPrompt: String?
+    let latestClaudeMessage: String?
     let pullRequestUrl: String?
     let pullRequestState: String?
     let hasCommitsAheadOfRemote: Bool?
@@ -36,6 +37,7 @@ struct WorkspaceInfo: Codable, Identifiable, Hashable {
         case createdAt = "created_at"
         case latestSessionTitle = "latest_session_title"
         case latestUserPrompt = "latest_user_prompt"
+        case latestClaudeMessage = "latest_claude_message"
         case pullRequestUrl = "pull_request_url"
         case pullRequestState = "pull_request_state"
         case hasCommitsAheadOfRemote = "has_commits_ahead_of_remote"

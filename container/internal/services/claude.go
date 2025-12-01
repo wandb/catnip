@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/creack/pty"
 	"github.com/vanpelt/catnip/internal/claude/parser"
+	"github.com/vanpelt/catnip/internal/claude/paths"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
@@ -53,6 +53,14 @@ func WorktreePathToProjectDir(worktreePath string) string {
 	projectDirName = strings.TrimPrefix(projectDirName, "-")
 	projectDirName = "-" + projectDirName
 	return projectDirName
+}
+
+// truncate returns the first n characters of a string, adding "..." if truncated
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // NewClaudeService creates a new Claude service
@@ -274,47 +282,13 @@ func (s *ClaudeService) getSessionTiming(worktreePath string) (*SessionTimingWit
 }
 
 // findLatestSessionFile finds the best session file with content
-// Uses SessionService's size-based logic to avoid warmup/small sessions
+// Uses the same logic as `catnip reflect` via paths.FindBestSessionFile:
+// - Validates UUID format (filters out agent-*.jsonl)
+// - Checks for conversation content (filters out snapshot-only files)
+// - Filters out forked sessions (queue-operation)
+// - Prioritizes most recently modified, then largest size
 func (s *ClaudeService) findLatestSessionFile(projectDir string) (string, error) {
-	// Use SessionService's proven logic that filters by size (>10KB) and prefers largest sessions
-	if s.sessionService != nil {
-		sessionFile := s.sessionService.FindBestSessionFile(projectDir)
-		if sessionFile != "" {
-			return sessionFile, nil
-		}
-	}
-
-	// Fallback to old logic if SessionService not available (shouldn't happen in production)
-	logger.Warn("⚠️ SessionService not set in ClaudeService, using fallback session selection")
-
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("project directory does not exist: %s", projectDir)
-		}
-		return "", fmt.Errorf("failed to read project directory: %w", err)
-	}
-
-	var sessionFiles []fs.DirEntry
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jsonl") {
-			sessionFiles = append(sessionFiles, entry)
-		}
-	}
-
-	if len(sessionFiles) == 0 {
-		return "", fmt.Errorf("no session files found in %s", projectDir)
-	}
-
-	// Sort by modification time (most recent first)
-	sort.Slice(sessionFiles, func(i, j int) bool {
-		infoI, _ := sessionFiles[i].Info()
-		infoJ, _ := sessionFiles[j].Info()
-		return infoI.ModTime().After(infoJ.ModTime())
-	})
-
-	// Return the most recent file
-	return filepath.Join(projectDir, sessionFiles[0].Name()), nil
+	return paths.FindBestSessionFile(projectDir)
 }
 
 // readSessionTiming reads the first and last timestamps from a session file
@@ -432,24 +406,33 @@ func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData 
 // populateLatestDataFromParser populates latest user prompt, message, thought and stats from the parser
 func (s *ClaudeService) populateLatestDataFromParser(worktreePath string, fullData *models.FullSessionData) {
 	if s.parserService == nil {
+		logger.Debugf("📊 populateLatestDataFromParser: parserService is nil for %s", worktreePath)
 		return
 	}
 
 	reader, err := s.parserService.GetOrCreateParser(worktreePath)
 	if err != nil {
+		logger.Debugf("📊 populateLatestDataFromParser: failed to get parser for %s: %v", worktreePath, err)
 		return // Parser not available yet
 	}
+	logger.Debugf("📊 populateLatestDataFromParser: got parser for %s", worktreePath)
 
 	// Get latest user prompt from history
 	latestUserPrompt, err := reader.GetLatestUserPrompt()
 	if err == nil && latestUserPrompt != "" {
 		fullData.LatestUserPrompt = latestUserPrompt
+		logger.Debugf("📊 populateLatestDataFromParser: got user prompt: %s...", truncate(latestUserPrompt, 50))
+	} else {
+		logger.Debugf("📊 populateLatestDataFromParser: no user prompt (err=%v)", err)
 	}
 
 	// Get latest assistant message
 	latestMsg := reader.GetLatestMessage()
 	if latestMsg != nil {
 		fullData.LatestMessage = parser.ExtractTextContent(*latestMsg)
+		logger.Debugf("📊 populateLatestDataFromParser: got latest message: %s...", truncate(fullData.LatestMessage, 50))
+	} else {
+		logger.Debugf("📊 populateLatestDataFromParser: no latest message")
 	}
 
 	// Get latest thought/thinking

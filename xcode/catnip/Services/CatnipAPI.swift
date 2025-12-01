@@ -63,7 +63,7 @@ class CatnipAPI: ObservableObject {
 
     private func getHeaders(includeCodespace: Bool = false) async throws -> [String: String] {
         let token = try await getSessionToken()
-
+        NSLog("🐱 [CatnipAPI] Session Token: \(token)")
         var headers = [
             "Content-Type": "application/json",
             "Authorization": "Bearer \(token)"

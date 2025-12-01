@@ -75,7 +75,11 @@ struct WorkspaceDetailView: View {
         if let msg = poller.sessionData?.latestMessage, !msg.isEmpty {
             return msg
         }
-        // Fall back to latestMessage state
+        // Fall back to workspace's latestClaudeMessage (from worktrees endpoint)
+        if let msg = workspace?.latestClaudeMessage, !msg.isEmpty {
+            return msg
+        }
+        // Final fallback to latestMessage state
         return latestMessage
     }
 
@@ -708,8 +712,9 @@ struct WorkspaceDetailView: View {
         }
 
         // Show "working" phase when:
-        // 1. Claude is ACTIVE (actively working), OR
+        // 1. Claude is ACTIVE (actively processing), OR
         // 2. We have a pending prompt (just sent a prompt but backend hasn't updated yet)
+        // Note: .running means session exists but Claude isn't actively working - show completed phase
         if workspace.claudeActivityState == .active || pendingUserPrompt != nil {
             phase = .working
 
@@ -822,7 +827,8 @@ struct WorkspaceDetailView: View {
         // Skip if we already have a cached diff and Claude is still actively working
         // We want to refetch periodically during active work, but avoid spamming requests
         // When work completes, we'll refetch one final time from the completed phase
-        if cachedDiff != nil && workspace.claudeActivityState == .active {
+        let isActive = workspace.claudeActivityState == .active
+        if cachedDiff != nil && isActive {
             NSLog("📊 Diff already cached and workspace still active, skipping fetch to avoid spam")
             return
         }
@@ -830,7 +836,7 @@ struct WorkspaceDetailView: View {
         NSLog("📊 Fetching diff for workspace with changes (dirty: %@, commits: %d, active: %@)",
               workspace.isDirty.map { "\($0)" } ?? "nil",
               workspace.commitCount ?? 0,
-              workspace.claudeActivityState == .active ? "yes" : "no")
+              isActive ? "yes" : "no")
 
         do {
             let diff = try await CatnipAPI.shared.getWorkspaceDiff(id: workspace.id)
@@ -1077,6 +1083,7 @@ private struct WorkspaceDetailPreview: View {
                 todos: nil,
                 latestSessionTitle: nil,
                 latestUserPrompt: nil,
+                latestClaudeMessage: nil,
                 pullRequestUrl: nil,
                 pullRequestState: nil,
                 hasCommitsAheadOfRemote: nil,
@@ -1097,6 +1104,7 @@ private struct WorkspaceDetailPreview: View {
                 todos: Todo.previewList,
                 latestSessionTitle: "Implementing new feature",
                 latestUserPrompt: nil,
+                latestClaudeMessage: "Working on the new feature...",
                 pullRequestUrl: nil,
                 pullRequestState: nil,
                 hasCommitsAheadOfRemote: workspace.hasCommitsAheadOfRemote,

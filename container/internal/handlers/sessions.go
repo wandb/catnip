@@ -99,6 +99,9 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 	if h.gitService != nil && !containsSlash(workspace) {
 		if worktree, exists := h.gitService.GetWorktree(workspace); exists && worktree != nil {
 			worktreePath = worktree.Path
+			// Debug: log the resolution
+			c.Set("X-Debug-Workspace-ID", workspace)
+			c.Set("X-Debug-Worktree-Path", worktreePath)
 		}
 	}
 
