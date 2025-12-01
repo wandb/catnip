@@ -241,55 +241,6 @@ func TestParserService_GetStats(t *testing.T) {
 	assert.Equal(t, 100, stats["max_parsers"])
 }
 
-// Test findBestSessionInDir with multiple files
-func TestParserService_FindBestSessionInDir(t *testing.T) {
-	service := setupTestParserService(t)
-
-	testDir := t.TempDir()
-
-	// Create multiple session files with different sizes
-	smallFile := filepath.Join(testDir, "small.jsonl")
-	err := os.WriteFile(smallFile, []byte("small"), 0644)
-	require.NoError(t, err)
-
-	largeFile := filepath.Join(testDir, "large.jsonl")
-	largeData := make([]byte, 20000)
-	err = os.WriteFile(largeFile, largeData, 0644)
-	require.NoError(t, err)
-
-	// findBestSessionInDir should return the larger file
-	bestFile := service.findBestSessionInDir(testDir)
-
-	assert.Equal(t, largeFile, bestFile)
-}
-
-// Test findBestSessionInDir with no valid files
-func TestParserService_FindBestSessionInDir_NoFiles(t *testing.T) {
-	service := setupTestParserService(t)
-
-	testDir := t.TempDir()
-
-	bestFile := service.findBestSessionInDir(testDir)
-
-	assert.Empty(t, bestFile)
-}
-
-// Test findBestSessionInDir skips small files
-func TestParserService_FindBestSessionInDir_SkipsSmallFiles(t *testing.T) {
-	service := setupTestParserService(t)
-
-	testDir := t.TempDir()
-
-	// Create only small files (< 10KB)
-	smallFile := filepath.Join(testDir, "small.jsonl")
-	err := os.WriteFile(smallFile, []byte("tiny"), 0644)
-	require.NoError(t, err)
-
-	bestFile := service.findBestSessionInDir(testDir)
-
-	assert.Empty(t, bestFile)
-}
-
 // Test ClaudeService.GetLatestTodos integration
 func TestClaudeService_GetLatestTodos_Integration(t *testing.T) {
 	// Setup
