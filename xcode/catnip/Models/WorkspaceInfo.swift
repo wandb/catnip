@@ -183,6 +183,8 @@ struct SessionData: Codable {
     let latestMessage: String?
     let latestThought: String?
     let stats: SessionStats?
+    let todos: [Todo]?
+    let latestSessionTitle: String?
     // Messages and userPrompts are only included when full=true
     // We don't include them here as we're using this for lightweight polling
 }

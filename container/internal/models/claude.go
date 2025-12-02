@@ -132,6 +132,10 @@ type FullSessionData struct {
 	LatestThought string `json:"latestThought,omitempty"`
 	// Session statistics (token counts, tool usage, etc.)
 	Stats *SessionStats `json:"stats,omitempty"`
+	// Current todo items from the session
+	Todos []Todo `json:"todos,omitempty"`
+	// Latest session title (from PTY escape sequences or session history)
+	LatestSessionTitle string `json:"latestSessionTitle,omitempty"`
 }
 
 // SessionStats contains aggregated statistics about a Claude session

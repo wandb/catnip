@@ -267,7 +267,13 @@ struct UITestingHelper {
                     compactionCount: 0,
                     imageCount: 0,
                     activeToolNames: ["Read": 8, "Edit": 5, "Bash": 2]
-                )
+                ),
+                todos: [
+                    Todo(content: "Implement OAuth callback handler", status: .completed, activeForm: "Implementing OAuth callback handler"),
+                    Todo(content: "Add token refresh logic", status: .inProgress, activeForm: "Adding token refresh logic"),
+                    Todo(content: "Write unit tests for auth flow", status: .pending, activeForm: "Writing unit tests for auth flow")
+                ],
+                latestSessionTitle: "Implementing GitHub OAuth"
             )
         }
 

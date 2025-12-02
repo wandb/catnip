@@ -471,6 +471,30 @@ func (s *ClaudeService) populateLatestDataFromParser(worktreePath string, fullDa
 		ImageCount:             parserStats.ImageCount,
 		ActiveToolNames:        parserStats.ActiveToolNames,
 	}
+
+	// Get todos from parser
+	todos := reader.GetTodos()
+	if len(todos) > 0 {
+		fullData.Todos = make([]models.Todo, len(todos))
+		for i, t := range todos {
+			fullData.Todos[i] = models.Todo{
+				ID:       t.ID,
+				Content:  t.Content,
+				Status:   t.Status,
+				Priority: t.Priority,
+			}
+		}
+		logger.Debugf("📊 populateLatestDataFromParser: got %d todos", len(todos))
+	}
+
+	// Get session title from session service (PTY escape sequences/title tracking)
+	if s.sessionService != nil {
+		title := s.sessionService.GetPreviousTitle(worktreePath)
+		if title != "" {
+			fullData.LatestSessionTitle = title
+			logger.Debugf("📊 populateLatestDataFromParser: got session title: %s", truncate(title, 50))
+		}
+	}
 }
 
 // GetAllSessionsForWorkspace returns all session IDs for a workspace with metadata

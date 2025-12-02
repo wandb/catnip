@@ -2244,6 +2244,10 @@ const docTemplate = `{
                     "description": "Latest assistant message text (always populated when available)",
                     "type": "string"
                 },
+                "latestSessionTitle": {
+                    "description": "Latest session title (from PTY escape sequences or session history)",
+                    "type": "string"
+                },
                 "latestThought": {
                     "description": "Latest thinking/reasoning content (always populated when available)",
                     "type": "string"
@@ -2278,6 +2282,13 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionStats"
                         }
                     ]
+                },
+                "todos": {
+                    "description": "Current todo items from the session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                    }
                 },
                 "userPrompts": {
                     "description": "User prompts from ~/.claude.json (only when full=true)",

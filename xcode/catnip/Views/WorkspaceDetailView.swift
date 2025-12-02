@@ -88,6 +88,26 @@ struct WorkspaceDetailView: View {
         poller.sessionData?.stats
     }
 
+    /// Get the effective session title, preferring session data over workspace data
+    private var effectiveSessionTitle: String? {
+        // First check session data (more up-to-date during active polling)
+        if let title = poller.sessionData?.latestSessionTitle, !title.isEmpty {
+            return title
+        }
+        // Fall back to workspace data
+        return workspace?.latestSessionTitle
+    }
+
+    /// Get effective todos, preferring session data over workspace data
+    private var effectiveTodos: [Todo]? {
+        // First check session data (more up-to-date during active polling)
+        if let todos = poller.sessionData?.todos, !todos.isEmpty {
+            return todos
+        }
+        // Fall back to workspace data
+        return workspace?.todos
+    }
+
     /// Check if we have any session content to display
     /// Used to determine if we should show empty state vs completed state
     private var hasSessionContent: Bool {
@@ -100,11 +120,11 @@ struct WorkspaceDetailView: View {
             return true
         }
         // Has session title
-        if let title = workspace?.latestSessionTitle, !title.isEmpty {
+        if let title = effectiveSessionTitle, !title.isEmpty {
             return true
         }
         // Has todos
-        if let todos = workspace?.todos, !todos.isEmpty {
+        if let todos = effectiveTodos, !todos.isEmpty {
             return true
         }
         return false
@@ -112,7 +132,7 @@ struct WorkspaceDetailView: View {
 
     private var navigationTitle: String {
         // Show session title if available (in both working and completed phases)
-        if let title = workspace?.latestSessionTitle, !title.isEmpty {
+        if let title = effectiveSessionTitle, !title.isEmpty {
             // Truncate to first line or 50 chars
             let firstLine = title.components(separatedBy: .newlines).first ?? title
             return firstLine.count > 50 ? String(firstLine.prefix(50)) + "..." : firstLine
@@ -395,7 +415,7 @@ struct WorkspaceDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(uiColor: .tertiarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                } else if workspace?.latestSessionTitle != nil {
+                } else if effectiveSessionTitle != nil {
                     // Show loading state while fetching message
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude is saying:")
@@ -416,7 +436,7 @@ struct WorkspaceDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
-                if let todos = workspace?.todos, !todos.isEmpty {
+                if let todos = effectiveTodos, !todos.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Progress:")
                             .font(.callout.weight(.semibold))
@@ -485,7 +505,7 @@ struct WorkspaceDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(uiColor: .tertiarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                } else if workspace?.latestSessionTitle != nil {
+                } else if effectiveSessionTitle != nil {
                     // Show loading state while fetching message
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude responded:")
@@ -506,7 +526,7 @@ struct WorkspaceDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
-                if let todos = workspace?.todos, !todos.isEmpty {
+                if let todos = effectiveTodos, !todos.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Tasks:")
                             .font(.callout.weight(.semibold))
@@ -686,10 +706,14 @@ struct WorkspaceDetailView: View {
     }
 
     private func determinePhase(for workspace: WorkspaceInfo) {
+        // Use effective values that prefer session data over workspace data
+        let currentTitle = effectiveSessionTitle
+        let currentTodos = effectiveTodos
+
         NSLog("📊 determinePhase - claudeActivityState: %@, latestSessionTitle: %@, todos: %d, isDirty: %@, commits: %d, pendingPrompt: %@",
               workspace.claudeActivityState.map { "\($0)" } ?? "nil",
-              workspace.latestSessionTitle ?? "nil",
-              workspace.todos?.count ?? 0,
+              currentTitle ?? "nil",
+              currentTodos?.count ?? 0,
               workspace.isDirty.map { "\($0)" } ?? "nil",
               workspace.commitCount ?? 0,
               pendingUserPrompt != nil ? "yes" : "no")
@@ -705,7 +729,7 @@ struct WorkspaceDetailView: View {
                 pendingUserPrompt = nil
             }
             // Backend completed the session
-            else if workspace.latestSessionTitle != nil {
+            else if currentTitle != nil {
                 NSLog("📊 Session created - clearing pending prompt")
                 pendingUserPrompt = nil
             }
@@ -723,7 +747,7 @@ struct WorkspaceDetailView: View {
                 await fetchLatestMessage(for: workspace)
                 await fetchDiffIfNeeded(for: workspace)
             }
-        } else if workspace.latestSessionTitle != nil || workspace.todos?.isEmpty == false {
+        } else if currentTitle != nil || currentTodos?.isEmpty == false {
             // Has a session title or todos - definitely completed
             phase = .completed
 
