@@ -456,7 +456,10 @@ export function createApp(env: Env) {
   // Temporarily force OAuth App mode by not passing GitHub App credentials
   app.use("/v1/auth/github", async (c, next) => {
     const currentUrl = new URL(c.req.url);
-    const redirectUri = `${currentUrl.protocol}//${currentUrl.host}/v1/auth/github`;
+
+    // Preserve query parameters in redirect_uri for mobile OAuth flow
+    // This ensures mobile=1, app_redirect, and app_state survive the OAuth flow
+    const redirectUri = currentUrl.toString();
 
     return githubAuth({
       client_id: env.GITHUB_CLIENT_ID,
@@ -538,12 +541,13 @@ export function createApp(env: Env) {
       body: JSON.stringify(sessionData),
     });
 
-    // Check if this is a mobile OAuth flow
-    const mobileState = getCookie(c, "mobile-oauth-state");
-    if (mobileState) {
-      try {
-        const { redirectUri, state } = JSON.parse(mobileState);
+    // Check if this is a mobile OAuth flow (via URL parameters instead of cookie)
+    const isMobileFlow = c.req.query("mobile") === "1";
+    const appRedirect = c.req.query("app_redirect");
+    const appState = c.req.query("app_state");
 
+    if (isMobileFlow && appRedirect) {
+      try {
         // Generate a mobile session token
         const mobileToken = generateMobileToken();
 
@@ -561,20 +565,17 @@ export function createApp(env: Env) {
           },
         );
 
-        // Clear the mobile OAuth state cookie
-        setCookie(c, "mobile-oauth-state", "", {
-          httpOnly: true,
-          secure: true,
-          sameSite: "Lax",
-          maxAge: 0,
-          path: "/",
-        });
-
         // Redirect to mobile app with token
-        const redirectUrl = new URL(redirectUri);
+        const redirectUrl = new URL(appRedirect);
         redirectUrl.searchParams.set("token", mobileToken);
-        redirectUrl.searchParams.set("state", state);
+        if (appState) {
+          redirectUrl.searchParams.set("state", appState);
+        }
         redirectUrl.searchParams.set("username", sessionData.username);
+
+        console.log(
+          `Mobile OAuth success: redirecting to ${redirectUrl.toString()}`,
+        );
 
         return c.redirect(redirectUrl.toString());
       } catch (error) {
@@ -646,29 +647,18 @@ export function createApp(env: Env) {
     const redirectUri = c.req.query("redirect_uri") || "catnip://auth";
     const state = c.req.query("state") || crypto.randomUUID();
 
-    // Store mobile OAuth state in cookie
-    setCookie(
-      c,
-      "mobile-oauth-state",
-      JSON.stringify({
-        redirectUri,
-        state,
-        initiated: Date.now(),
-      }),
-      {
-        httpOnly: true,
-        secure: true,
-        sameSite: "Lax",
-        maxAge: 10 * 60, // 10 minutes
-        path: "/",
-      },
-    );
-
-    // Redirect to standard OAuth flow
+    // Instead of relying on cookies (which can be lost during long OAuth flows),
+    // encode the mobile OAuth state directly in the callback URL parameters.
+    // This is more reliable as OAuth providers preserve redirect_uri parameters.
     const currentUrl = new URL(c.req.url);
-    const githubAuthUrl = `${currentUrl.protocol}//${currentUrl.host}/v1/auth/github`;
+    const githubAuthUrl = new URL(
+      `${currentUrl.protocol}//${currentUrl.host}/v1/auth/github`,
+    );
+    githubAuthUrl.searchParams.set("mobile", "1");
+    githubAuthUrl.searchParams.set("app_redirect", redirectUri);
+    githubAuthUrl.searchParams.set("app_state", state);
 
-    return c.redirect(githubAuthUrl);
+    return c.redirect(githubAuthUrl.toString());
   });
 
   // Mobile logout endpoint
