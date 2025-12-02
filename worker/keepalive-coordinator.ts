@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { getContainer } from "@cloudflare/containers";
+import type { KeepAliveContainer } from "./index";
 
 /**
  * KeepAliveCoordinator
@@ -22,13 +23,13 @@ interface CodespaceActivity {
 }
 
 export class KeepAliveCoordinator extends DurableObject<{
-  KEEPALIVE_CONTAINER: DurableObjectNamespace;
+  KEEPALIVE_CONTAINER: DurableObjectNamespace<KeepAliveContainer>;
 }> {
   private sql: SqlStorage;
 
   constructor(
     ctx: DurableObjectState,
-    env: { KEEPALIVE_CONTAINER: DurableObjectNamespace },
+    env: { KEEPALIVE_CONTAINER: DurableObjectNamespace<KeepAliveContainer> },
   ) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
