@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -203,10 +204,5 @@ func (h *SessionsHandler) GetSessionById(c *fiber.Ctx) error {
 // containsSlash checks if a string contains a forward slash
 // Used to distinguish between workspace IDs (UUIDs) and paths
 func containsSlash(s string) bool {
-	for _, c := range s {
-		if c == '/' {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, "/")
 }

@@ -114,6 +114,30 @@ struct WorkspaceInfo: Codable, Identifiable, Hashable {
         }
         return nil
     }
+
+    /// Create a copy with a different activity state
+    func with(claudeActivityState: ClaudeActivityState) -> WorkspaceInfo {
+        WorkspaceInfo(
+            id: id,
+            name: name,
+            branch: branch,
+            repoId: repoId,
+            claudeActivityState: claudeActivityState,
+            commitCount: commitCount,
+            isDirty: isDirty,
+            lastAccessed: lastAccessed,
+            createdAt: createdAt,
+            todos: todos,
+            latestSessionTitle: latestSessionTitle,
+            latestUserPrompt: latestUserPrompt,
+            latestClaudeMessage: latestClaudeMessage,
+            pullRequestUrl: pullRequestUrl,
+            pullRequestState: pullRequestState,
+            hasCommitsAheadOfRemote: hasCommitsAheadOfRemote,
+            path: path,
+            cacheStatus: cacheStatus
+        )
+    }
 }
 
 enum ClaudeActivityState: String, Codable {

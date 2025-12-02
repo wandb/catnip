@@ -420,7 +420,9 @@ func (s *ClaudeService) populateLatestDataFromParser(worktreePath string, fullDa
 
 	// Refresh parser to get latest data from session file
 	// This is critical - without it we return stale cached data
-	_, _ = reader.ReadIncremental() // Ignore errors - use cached data if refresh fails
+	if _, err := reader.ReadIncremental(); err != nil {
+		logger.Debugf("⚠️ populateLatestDataFromParser: ReadIncremental failed for %s: %v (using cached data)", worktreePath, err)
+	}
 
 	// Get latest user prompt from history
 	latestUserPrompt, err := reader.GetLatestUserPrompt()

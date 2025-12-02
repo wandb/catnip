@@ -149,15 +149,15 @@ class WorkspacePoller: ObservableObject {
 
         let timeSinceLastChange = Date().timeIntervalSince(lastActivityStateChange)
 
-        // Active session: Poll frequently when Claude is actively working (.active) or session is running
-        // .running means session exists but Claude may start working soon
-        if workspace.claudeActivityState == .active || workspace.claudeActivityState == .running {
+        // .running = Claude is actively working → fast polling
+        if workspace.claudeActivityState == .running {
             return .active
         }
 
+        // .active = PTY exists but Claude not actively working
         // Recent work: Work finished less than 2 minutes ago
         // Keep polling at medium rate to catch final TODO updates and messages
-        if timeSinceLastChange < 120 { // 2 minutes
+        if workspace.claudeActivityState == .active || timeSinceLastChange < 120 {
             return .recentWork
         }
 
@@ -193,10 +193,15 @@ class WorkspacePoller: ObservableObject {
                 let previousState = workspace?.claudeActivityState
 
                 // Track activity state changes for polling interval adaptation
-                let wasActive = previousState == .active || previousState == .running
-                if !isActive && wasActive {
+                // .running means Claude is actively working, .active means PTY exists but idle
+                let wasWorking = previousState == .running
+                if !isActive && wasWorking {
                     lastActivityStateChange = Date()
-                    NSLog("📊 Session became inactive, will switch to full polling soon")
+                    NSLog("📊 Session stopped working, transitioning to idle polling")
+
+                    // Update workspace to .active (PTY still exists, just not working)
+                    // This ensures determinePollingInterval() sees the correct state
+                    workspace = workspace?.with(claudeActivityState: .active)
                 }
 
             }

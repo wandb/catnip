@@ -29,6 +29,7 @@ struct WorkspaceDetailView: View {
     @State private var latestMessage: String?
     @State private var cachedDiff: WorktreeDiffResponse?
     @State private var pendingUserPrompt: String? // Store prompt we just sent before backend updates
+    @State private var pendingUserPromptTimestamp: Date? // Track when prompt was sent for timeout
     @State private var isCreatingPR = false
     @State private var isUpdatingPR = false
     @State private var showingPRCreationSheet = false
@@ -725,26 +726,35 @@ struct WorkspaceDetailView: View {
 
         let previousPhase = phase
 
-        // Clear pendingUserPrompt if backend has started processing or completed
+        // Clear pendingUserPrompt if backend has started processing, completed, or timed out
         // This prevents getting stuck in "working" phase
         if pendingUserPrompt != nil {
             // Backend received and started processing our prompt
-            if workspace.claudeActivityState == .active {
+            if workspace.claudeActivityState == .running {
                 NSLog("📊 Backend started processing - clearing pending prompt")
                 pendingUserPrompt = nil
+                pendingUserPromptTimestamp = nil
             }
             // Backend completed the session
             else if currentTitle != nil {
                 NSLog("📊 Session created - clearing pending prompt")
                 pendingUserPrompt = nil
+                pendingUserPromptTimestamp = nil
+            }
+            // Timeout: clear stale pending prompt after 30 seconds
+            else if let timestamp = pendingUserPromptTimestamp,
+                    Date().timeIntervalSince(timestamp) > 30 {
+                NSLog("⚠️ Pending prompt timed out after 30s - clearing")
+                pendingUserPrompt = nil
+                pendingUserPromptTimestamp = nil
             }
         }
 
         // Show "working" phase when:
-        // 1. Claude is ACTIVE (actively processing), OR
+        // 1. Claude is .running (actively processing), OR
         // 2. We have a pending prompt (just sent a prompt but backend hasn't updated yet)
-        // Note: .running means session exists but Claude isn't actively working - show completed phase
-        if workspace.claudeActivityState == .active || pendingUserPrompt != nil {
+        // Note: .active means PTY exists but Claude isn't actively working - show completed phase
+        if workspace.claudeActivityState == .running || pendingUserPrompt != nil {
             phase = .working
 
             // Fetch latest message and diff while working
@@ -806,6 +816,7 @@ struct WorkspaceDetailView: View {
             await MainActor.run {
                 // Store the prompt we just sent for immediate display
                 pendingUserPrompt = promptToSend
+                pendingUserPromptTimestamp = Date()
                 NSLog("🐱 [WorkspaceDetailView] Stored pending prompt: \(promptToSend.prefix(50))...")
 
                 prompt = ""
