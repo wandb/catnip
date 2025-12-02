@@ -102,8 +102,26 @@ export class KeepAliveCoordinator extends DurableObject<{
       console.log(`🫀 Cleaned up ${result.rowsWritten} inactive codespace(s)`);
     }
 
-    // Schedule next alarm in 60 seconds
-    await this.ctx.storage.setAlarm(Date.now() + 60 * 1000);
+    // Only schedule next alarm if there are still active codespaces
+    const remainingRows = this.sql
+      .exec(
+        "SELECT COUNT(*) as count FROM codespace_activity WHERE last_activity_time > ?",
+        fiveMinutesAgo,
+      )
+      .toArray();
+
+    const remainingCount = (remainingRows[0]?.count as number) || 0;
+
+    if (remainingCount > 0) {
+      await this.ctx.storage.setAlarm(Date.now() + 60 * 1000);
+      console.log(
+        `🫀 Next alarm scheduled in 60s (${remainingCount} active codespace(s))`,
+      );
+    } else {
+      console.log(
+        "🫀 No active codespaces, alarm will restart on next activity",
+      );
+    }
   }
 
   /**
