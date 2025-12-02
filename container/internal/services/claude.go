@@ -365,12 +365,13 @@ func (s *ClaudeService) GetFullSessionData(worktreePath string, includeFullData 
 		SessionInfo: sessionSummary,
 	}
 
-	// Get all sessions for this workspace
-	allSessions, err := s.GetAllSessionsForWorkspace(worktreePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get all sessions: %w", err)
+	// Only populate top-level allSessions when full data is requested
+	// Always clear sessionInfo.allSessions to avoid duplication in the response
+	if includeFullData {
+		fullData.AllSessions = sessionSummary.AllSessions
 	}
-	fullData.AllSessions = allSessions
+	// Clear from sessionInfo - FullSessionData has its own top-level AllSessions field
+	sessionSummary.AllSessions = nil
 
 	// Always populate latest data from parser (lightweight - uses cached state)
 	s.populateLatestDataFromParser(worktreePath, fullData)
