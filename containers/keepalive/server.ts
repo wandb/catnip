@@ -60,9 +60,9 @@ const pingHandler = async (
   console.log(`🫀 Pinging codespace: ${codespaceName}`);
 
   try {
-    // Execute: gh codespace ssh {name} -- uptime
+    // Execute: gh codespace ssh -c {name} -- uptime
     const proc = Bun.spawn(
-      ["gh", "codespace", "ssh", codespaceName, "--", "uptime"],
+      ["gh", "codespace", "ssh", "-c", codespaceName, "--", "uptime"],
       {
         env: {
           ...process.env,
