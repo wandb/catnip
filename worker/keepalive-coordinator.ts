@@ -11,7 +11,7 @@ import type { KeepAliveContainer } from "./index";
  * - Track last activity time per codespace
  * - Use Durable Object alarms to check every 60 seconds
  * - Invoke KeepAliveContainer to ping codespaces every 5 minutes when active
- * - Stop pinging after 10 minutes of inactivity
+ * - Stop pinging after 5 minutes of inactivity (app pings /v1/info every minute)
  */
 
 interface CodespaceActivity {
@@ -52,16 +52,15 @@ export class KeepAliveCoordinator extends DurableObject<{
    */
   async alarm(): Promise<void> {
     const now = Date.now();
-    const tenMinutesAgo = now - 10 * 60 * 1000;
     const fiveMinutesAgo = now - 5 * 60 * 1000;
 
     console.log("🫀 KeepAlive alarm checking active codespaces");
 
-    // Get all active codespaces (activity within last 10 minutes)
+    // Get all active codespaces (activity within last 5 minutes)
     const rows = this.sql
       .exec(
         "SELECT * FROM codespace_activity WHERE last_activity_time > ?",
-        tenMinutesAgo,
+        fiveMinutesAgo,
       )
       .toArray();
 
@@ -78,7 +77,7 @@ export class KeepAliveCoordinator extends DurableObject<{
       };
 
       // Only ping if:
-      // 1. Last activity is within 10 minutes (already filtered by query)
+      // 1. Last activity is within 5 minutes (already filtered by query)
       // 2. Last ping was more than 5 minutes ago
       if (activity.lastPingTime < fiveMinutesAgo) {
         console.log(`🫀 Sending keep-alive ping for ${activity.codespaceName}`);
@@ -93,10 +92,10 @@ export class KeepAliveCoordinator extends DurableObject<{
       }
     }
 
-    // Clean up inactive codespaces (no activity in last 10 minutes)
+    // Clean up inactive codespaces (no activity in last 5 minutes)
     const result = this.sql.exec(
       "DELETE FROM codespace_activity WHERE last_activity_time <= ?",
-      tenMinutesAgo,
+      fiveMinutesAgo,
     );
 
     if (result.rowsWritten > 0) {
