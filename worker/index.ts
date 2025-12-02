@@ -2906,6 +2906,38 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
                   codespaceName,
                   "available",
                 );
+
+                // Track activity for keep-alive (fire and forget)
+                c.executionCtx.waitUntil(
+                  (async () => {
+                    try {
+                      if (credentials.githubToken) {
+                        const coordinator = c.env.KEEPALIVE_COORDINATOR.get(
+                          c.env.KEEPALIVE_COORDINATOR.idFromName("global"),
+                        );
+
+                        await coordinator.fetch("https://internal/activity", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            codespaceName: credentials.codespaceName,
+                            githubUser: credentials.githubUser,
+                            githubToken: credentials.githubToken,
+                          }),
+                        });
+
+                        console.log(
+                          `🫀 Activity updated for ${credentials.codespaceName}`,
+                        );
+                      }
+                    } catch (error) {
+                      console.error(
+                        "Keep-alive activity tracking error:",
+                        error,
+                      );
+                    }
+                  })(),
+                );
               } else {
                 // Any other state (Shutdown, ShuttingDown, Starting, etc.) - mark unavailable
                 void updateCodespaceStatus(
