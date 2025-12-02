@@ -162,14 +162,19 @@ struct WorkspaceDetailView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         // Show terminal button when in portrait mode (not showing terminal)
+        // Wrapped in context progress ring to show Claude's token usage
         if !isLandscape && !showPortraitTerminal {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showPortraitTerminal = true
                 } label: {
-                    Image(systemName: "terminal")
-                        .font(.body)
+                    ContextProgressRing(contextTokens: sessionStats?.lastContextSizeTokens) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -993,9 +998,13 @@ struct WorkspaceDetailView: View {
                 Button {
                     showPortraitTerminal = false
                 } label: {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.body)
+                    ContextProgressRing(contextTokens: sessionStats?.lastContextSizeTokens) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -1335,6 +1344,75 @@ struct MarkdownText: View {
             }
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Context Progress Ring
+
+/// A circular progress indicator showing Claude's context usage
+/// Changes color based on token count thresholds:
+/// - Gray: < 40K tokens
+/// - Green: 40K - 80K tokens
+/// - Orange: 80K - 120K tokens
+/// - Red: > 120K tokens (approaching 155K limit)
+struct ContextProgressRing<Content: View>: View {
+    let contextTokens: Int64?
+    let content: Content
+
+    private let maxTokens: Int64 = 155_000
+    private let lineWidth: CGFloat = 2.5
+    private let buttonSize: CGFloat = 36
+    // Inset for the ring - positions it just inside the button edge
+    private let ringInset: CGFloat = 1.0
+
+    init(contextTokens: Int64?, @ViewBuilder content: () -> Content) {
+        self.contextTokens = contextTokens
+        self.content = content()
+    }
+
+    private var progress: Double {
+        guard let tokens = contextTokens, tokens > 0 else { return 0 }
+        return min(Double(tokens) / Double(maxTokens), 1.0)
+    }
+
+    private var ringColor: Color {
+        guard let tokens = contextTokens else { return .gray.opacity(0.3) }
+
+        switch tokens {
+        case ..<40_000:
+            return .gray.opacity(0.5)
+        case 40_000..<80_000:
+            return .green
+        case 80_000..<120_000:
+            return .orange
+        default:
+            return .red
+        }
+    }
+
+    var body: some View {
+        Circle()
+            .fill(.ultraThinMaterial)
+            .overlay {
+                // Background ring (always visible, subtle)
+                Circle()
+                    .strokeBorder(Color.gray.opacity(0.3), lineWidth: lineWidth)
+                    .padding(ringInset)
+            }
+            .overlay {
+                // Progress ring - uses trim for animation
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(ringColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(ringInset + lineWidth / 2)
+                    .animation(.easeInOut(duration: 0.3), value: progress)
+            }
+            .overlay {
+                // Icon content centered
+                content
+            }
+            .frame(width: buttonSize, height: buttonSize)
     }
 }
 

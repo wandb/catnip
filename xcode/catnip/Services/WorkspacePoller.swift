@@ -199,7 +199,6 @@ class WorkspacePoller: ObservableObject {
                     NSLog("📊 Session became inactive, will switch to full polling soon")
                 }
 
-                NSLog("📊 Session data updated - Active: \(isActive), Prompt: \(sessionData.latestUserPrompt?.prefix(30) ?? "nil")...")
             }
 
         } catch {

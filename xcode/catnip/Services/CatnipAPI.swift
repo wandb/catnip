@@ -261,11 +261,6 @@ class CatnipAPI: ObservableObject {
             throw APIError.serverError(httpResponse.statusCode, "Failed to fetch session data")
         }
 
-        // Debug: log the raw JSON response
-        if let jsonString = String(data: data, encoding: .utf8) {
-            NSLog("📊 [CatnipAPI] Session data response: \(jsonString.prefix(500))...")
-        }
-
         do {
             return try decoder.decode(SessionData.self, from: data)
         } catch {
