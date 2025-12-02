@@ -124,6 +124,59 @@ type FullSessionData struct {
 	UserPrompts []ClaudeHistoryEntry `json:"userPrompts,omitempty"`
 	// Total message count in full data
 	MessageCount int `json:"messageCount,omitempty"`
+	// Latest user prompt from history (always populated when available)
+	LatestUserPrompt string `json:"latestUserPrompt,omitempty"`
+	// Latest assistant message text (always populated when available)
+	LatestMessage string `json:"latestMessage,omitempty"`
+	// Latest thinking/reasoning content (always populated when available)
+	LatestThought string `json:"latestThought,omitempty"`
+	// Session statistics (token counts, tool usage, etc.)
+	Stats *SessionStats `json:"stats,omitempty"`
+	// Current todo items from the session
+	Todos []Todo `json:"todos,omitempty"`
+	// Latest session title (from PTY escape sequences or session history)
+	LatestSessionTitle string `json:"latestSessionTitle,omitempty"`
+}
+
+// SessionStats contains aggregated statistics about a Claude session
+// @Description Session statistics including token counts and activity metrics
+type SessionStats struct {
+	// Total number of messages in the session
+	TotalMessages int `json:"totalMessages" example:"42"`
+	// Number of user messages
+	UserMessages int `json:"userMessages" example:"15"`
+	// Number of assistant messages
+	AssistantMessages int `json:"assistantMessages" example:"27"`
+	// Number of human prompts (user messages with text, not tool results)
+	HumanPromptCount int `json:"humanPromptCount" example:"10"`
+	// Total tool calls made
+	ToolCallCount int `json:"toolCallCount" example:"35"`
+	// Total input tokens used
+	TotalInputTokens int64 `json:"totalInputTokens" example:"150000"`
+	// Total output tokens generated
+	TotalOutputTokens int64 `json:"totalOutputTokens" example:"85000"`
+	// Cache read tokens (context reuse)
+	CacheReadTokens int64 `json:"cacheReadTokens" example:"120000"`
+	// Cache creation tokens
+	CacheCreationTokens int64 `json:"cacheCreationTokens" example:"30000"`
+	// Last message's cache_read value (actual context size in tokens)
+	LastContextSizeTokens int64 `json:"lastContextSizeTokens" example:"125000"`
+	// Number of API calls made
+	APICallCount int `json:"apiCallCount" example:"12"`
+	// Session duration in seconds (wall-clock time)
+	SessionDurationSeconds float64 `json:"sessionDurationSeconds" example:"3600.5"`
+	// Active duration in seconds (time Claude was actually working)
+	ActiveDurationSeconds float64 `json:"activeDurationSeconds" example:"1800.25"`
+	// Number of thinking blocks
+	ThinkingBlockCount int `json:"thinkingBlockCount" example:"8"`
+	// Number of sub-agents spawned
+	SubAgentCount int `json:"subAgentCount" example:"3"`
+	// Number of context compactions
+	CompactionCount int `json:"compactionCount" example:"1"`
+	// Number of images in the conversation
+	ImageCount int `json:"imageCount" example:"2"`
+	// Tool usage counts by name
+	ActiveToolNames map[string]int `json:"activeToolNames,omitempty"`
 }
 
 // CreateCompletionRequest represents a request to create a completion using claude CLI

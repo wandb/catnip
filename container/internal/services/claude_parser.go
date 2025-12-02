@@ -2,12 +2,12 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/vanpelt/catnip/internal/claude/parser"
+	"github.com/vanpelt/catnip/internal/claude/paths"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 )
@@ -77,6 +77,7 @@ func (s *ParserService) GetOrCreateParser(worktreePath string) (*parser.SessionF
 	if err != nil {
 		return nil, fmt.Errorf("failed to find session file for %s: %w", worktreePath, err)
 	}
+	logger.Debugf("📖 GetOrCreateParser: using session file %s for worktree %s", sessionFile, worktreePath)
 
 	s.parsersMutex.Lock()
 	defer s.parsersMutex.Unlock()
@@ -161,7 +162,11 @@ func (s *ParserService) RemoveParser(worktreePath string) {
 }
 
 // findSessionFile finds the best session file for a given worktree
-// Uses the same logic as ClaudeService to ensure consistency
+// Uses paths.FindBestSessionFile which properly:
+// - Validates UUID format (filters out agent-*.jsonl)
+// - Checks for conversation content (not just snapshots)
+// - Filters out forked sessions (queue-operation)
+// - Prioritizes most recently modified, then largest size
 func (s *ParserService) findSessionFile(worktreePath string) (string, error) {
 	projectDirName := WorktreePathToProjectDir(worktreePath)
 
@@ -169,7 +174,7 @@ func (s *ParserService) findSessionFile(worktreePath string) (string, error) {
 	homeDir := config.Runtime.HomeDir
 	localDir := filepath.Join(homeDir, ".claude", "projects", projectDirName)
 
-	if sessionFile := s.findBestSessionInDir(localDir); sessionFile != "" {
+	if sessionFile, err := paths.FindBestSessionFile(localDir); err == nil && sessionFile != "" {
 		return sessionFile, nil
 	}
 
@@ -177,54 +182,11 @@ func (s *ParserService) findSessionFile(worktreePath string) (string, error) {
 	volumeDir := config.Runtime.VolumeDir
 	volumeProjectDir := filepath.Join(volumeDir, ".claude", ".claude", "projects", projectDirName)
 
-	if sessionFile := s.findBestSessionInDir(volumeProjectDir); sessionFile != "" {
+	if sessionFile, err := paths.FindBestSessionFile(volumeProjectDir); err == nil && sessionFile != "" {
 		return sessionFile, nil
 	}
 
 	return "", fmt.Errorf("no session file found for worktree: %s", worktreePath)
-}
-
-// findBestSessionInDir finds the best (largest, most recent) session file in a directory
-func (s *ParserService) findBestSessionInDir(dir string) string {
-	// Check if directory exists
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return ""
-	}
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-
-	var bestFile string
-	var bestSize int64
-	var bestModTime time.Time
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
-			continue
-		}
-
-		filePath := filepath.Join(dir, entry.Name())
-		info, err := os.Stat(filePath)
-		if err != nil {
-			continue
-		}
-
-		// Skip very small files (likely warmup-only sessions)
-		if info.Size() < 10000 {
-			continue
-		}
-
-		// Prefer larger files (more content), use mod time as tie-breaker
-		if info.Size() > bestSize || (info.Size() == bestSize && info.ModTime().After(bestModTime)) {
-			bestFile = filePath
-			bestSize = info.Size()
-			bestModTime = info.ModTime()
-		}
-	}
-
-	return bestFile
 }
 
 // evictIfNeeded evicts least recently used parsers if we exceed maxParsers

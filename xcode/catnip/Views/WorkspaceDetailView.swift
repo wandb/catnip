@@ -29,6 +29,7 @@ struct WorkspaceDetailView: View {
     @State private var latestMessage: String?
     @State private var cachedDiff: WorktreeDiffResponse?
     @State private var pendingUserPrompt: String? // Store prompt we just sent before backend updates
+    @State private var pendingUserPromptTimestamp: Date? // Track when prompt was sent for timeout
     @State private var isCreatingPR = false
     @State private var isUpdatingPR = false
     @State private var showingPRCreationSheet = false
@@ -59,9 +60,80 @@ struct WorkspaceDetailView: View {
         poller.workspace
     }
 
+    /// Get the latest user prompt, preferring session data over workspace data
+    private var effectiveLatestUserPrompt: String? {
+        // First check session data (more up-to-date during active polling)
+        if let prompt = poller.sessionData?.latestUserPrompt, !prompt.isEmpty {
+            return prompt
+        }
+        // Fall back to workspace data
+        return workspace?.latestUserPrompt
+    }
+
+    /// Get the latest Claude message, preferring session data over workspace data
+    private var effectiveLatestMessage: String? {
+        // First check session data (more up-to-date during active polling)
+        if let msg = poller.sessionData?.latestMessage, !msg.isEmpty {
+            return msg
+        }
+        // Fall back to workspace's latestClaudeMessage (from worktrees endpoint)
+        if let msg = workspace?.latestClaudeMessage, !msg.isEmpty {
+            return msg
+        }
+        // Final fallback to latestMessage state
+        return latestMessage
+    }
+
+    /// Get session stats from session data
+    private var sessionStats: SessionStats? {
+        poller.sessionData?.stats
+    }
+
+    /// Get the effective session title, preferring session data over workspace data
+    private var effectiveSessionTitle: String? {
+        // First check session data (more up-to-date during active polling)
+        if let title = poller.sessionData?.latestSessionTitle, !title.isEmpty {
+            return title
+        }
+        // Fall back to workspace data
+        return workspace?.latestSessionTitle
+    }
+
+    /// Get effective todos, preferring session data over workspace data
+    private var effectiveTodos: [Todo]? {
+        // First check session data (more up-to-date during active polling)
+        if let todos = poller.sessionData?.todos, !todos.isEmpty {
+            return todos
+        }
+        // Fall back to workspace data
+        return workspace?.todos
+    }
+
+    /// Check if we have any session content to display
+    /// Used to determine if we should show empty state vs completed state
+    private var hasSessionContent: Bool {
+        // Has user prompt
+        if let prompt = effectiveLatestUserPrompt, !prompt.isEmpty {
+            return true
+        }
+        // Has Claude message
+        if let msg = effectiveLatestMessage, !msg.isEmpty {
+            return true
+        }
+        // Has session title
+        if let title = effectiveSessionTitle, !title.isEmpty {
+            return true
+        }
+        // Has todos
+        if let todos = effectiveTodos, !todos.isEmpty {
+            return true
+        }
+        return false
+    }
+
     private var navigationTitle: String {
         // Show session title if available (in both working and completed phases)
-        if let title = workspace?.latestSessionTitle, !title.isEmpty {
+        if let title = effectiveSessionTitle, !title.isEmpty {
             // Truncate to first line or 50 chars
             let firstLine = title.components(separatedBy: .newlines).first ?? title
             return firstLine.count > 50 ? String(firstLine.prefix(50)) + "..." : firstLine
@@ -91,14 +163,19 @@ struct WorkspaceDetailView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         // Show terminal button when in portrait mode (not showing terminal)
+        // Wrapped in context progress ring to show Claude's token usage
         if !isLandscape && !showPortraitTerminal {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showPortraitTerminal = true
                 } label: {
-                    Image(systemName: "terminal")
-                        .font(.body)
+                    ContextProgressRing(contextTokens: sessionStats?.lastContextSizeTokens) {
+                        Image(systemName: "terminal")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -251,7 +328,9 @@ struct WorkspaceDetailView: View {
     private var contentView: some View {
         ScrollView {
             VStack(spacing: 20) {
-                if phase == .input {
+                if phase == .input || (phase == .completed && !hasSessionContent) {
+                    // Show empty state for input phase OR completed phase with no content
+                    // (e.g., new workspace with commits but no Claude session)
                     emptyStateView
                         .padding(.horizontal, 16)
                 } else if phase == .working {
@@ -312,8 +391,8 @@ struct WorkspaceDetailView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Show the user's prompt (either pending or from workspace)
-                if let userPrompt = pendingUserPrompt ?? workspace?.latestUserPrompt, !userPrompt.isEmpty {
+                // Show the user's prompt (either pending or from session/workspace)
+                if let userPrompt = pendingUserPrompt ?? effectiveLatestUserPrompt, !userPrompt.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("You asked:")
                             .font(.caption.weight(.semibold))
@@ -330,7 +409,7 @@ struct WorkspaceDetailView: View {
                 }
 
                 // Show Claude's latest message while working
-                if let claudeMessage = latestMessage, !claudeMessage.isEmpty {
+                if let claudeMessage = effectiveLatestMessage, !claudeMessage.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude is saying:")
                             .font(.caption.weight(.semibold))
@@ -342,7 +421,7 @@ struct WorkspaceDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(uiColor: .tertiarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                } else if workspace?.latestSessionTitle != nil {
+                } else if effectiveSessionTitle != nil {
                     // Show loading state while fetching message
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude is saying:")
@@ -363,7 +442,7 @@ struct WorkspaceDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
-                if let todos = workspace?.todos, !todos.isEmpty {
+                if let todos = effectiveTodos, !todos.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Progress:")
                             .font(.callout.weight(.semibold))
@@ -403,7 +482,7 @@ struct WorkspaceDetailView: View {
             // Session content with padding
             VStack(alignment: .leading, spacing: 8) {
                 // User prompt
-                if let userPrompt = workspace?.latestUserPrompt, !userPrompt.isEmpty {
+                if let userPrompt = effectiveLatestUserPrompt, !userPrompt.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("You asked:")
                             .font(.caption.weight(.semibold))
@@ -420,7 +499,7 @@ struct WorkspaceDetailView: View {
                 }
 
                 // Claude's response
-                if let claudeMessage = latestMessage, !claudeMessage.isEmpty {
+                if let claudeMessage = effectiveLatestMessage, !claudeMessage.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude responded:")
                             .font(.caption.weight(.semibold))
@@ -432,7 +511,7 @@ struct WorkspaceDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(uiColor: .tertiarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                } else if workspace?.latestSessionTitle != nil {
+                } else if effectiveSessionTitle != nil {
                     // Show loading state while fetching message
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Claude responded:")
@@ -453,7 +532,7 @@ struct WorkspaceDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
 
-                if let todos = workspace?.todos, !todos.isEmpty {
+                if let todos = effectiveTodos, !todos.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Tasks:")
                             .font(.callout.weight(.semibold))
@@ -504,7 +583,8 @@ struct WorkspaceDetailView: View {
 
     private var footerView: some View {
         Group {
-            if phase == .completed {
+            if phase == .completed && hasSessionContent {
+                // Only show footer buttons if we have actual session content to show
                 HStack(spacing: 12) {
                     Button {
                         showPromptSheet = true
@@ -632,35 +712,49 @@ struct WorkspaceDetailView: View {
     }
 
     private func determinePhase(for workspace: WorkspaceInfo) {
+        // Use effective values that prefer session data over workspace data
+        let currentTitle = effectiveSessionTitle
+        let currentTodos = effectiveTodos
+
         NSLog("📊 determinePhase - claudeActivityState: %@, latestSessionTitle: %@, todos: %d, isDirty: %@, commits: %d, pendingPrompt: %@",
               workspace.claudeActivityState.map { "\($0)" } ?? "nil",
-              workspace.latestSessionTitle ?? "nil",
-              workspace.todos?.count ?? 0,
+              currentTitle ?? "nil",
+              currentTodos?.count ?? 0,
               workspace.isDirty.map { "\($0)" } ?? "nil",
               workspace.commitCount ?? 0,
               pendingUserPrompt != nil ? "yes" : "no")
 
         let previousPhase = phase
 
-        // Clear pendingUserPrompt if backend has started processing or completed
+        // Clear pendingUserPrompt if backend has started processing, completed, or timed out
         // This prevents getting stuck in "working" phase
         if pendingUserPrompt != nil {
             // Backend received and started processing our prompt
-            if workspace.claudeActivityState == .active {
+            if workspace.claudeActivityState == .running {
                 NSLog("📊 Backend started processing - clearing pending prompt")
                 pendingUserPrompt = nil
+                pendingUserPromptTimestamp = nil
             }
             // Backend completed the session
-            else if workspace.latestSessionTitle != nil {
+            else if currentTitle != nil {
                 NSLog("📊 Session created - clearing pending prompt")
                 pendingUserPrompt = nil
+                pendingUserPromptTimestamp = nil
+            }
+            // Timeout: clear stale pending prompt after 30 seconds
+            else if let timestamp = pendingUserPromptTimestamp,
+                    Date().timeIntervalSince(timestamp) > 30 {
+                NSLog("⚠️ Pending prompt timed out after 30s - clearing")
+                pendingUserPrompt = nil
+                pendingUserPromptTimestamp = nil
             }
         }
 
         // Show "working" phase when:
-        // 1. Claude is ACTIVE (actively working), OR
+        // 1. Claude is .running (actively processing), OR
         // 2. We have a pending prompt (just sent a prompt but backend hasn't updated yet)
-        if workspace.claudeActivityState == .active || pendingUserPrompt != nil {
+        // Note: .active means PTY exists but Claude isn't actively working - show completed phase
+        if workspace.claudeActivityState == .running || pendingUserPrompt != nil {
             phase = .working
 
             // Fetch latest message and diff while working
@@ -668,7 +762,7 @@ struct WorkspaceDetailView: View {
                 await fetchLatestMessage(for: workspace)
                 await fetchDiffIfNeeded(for: workspace)
             }
-        } else if workspace.latestSessionTitle != nil || workspace.todos?.isEmpty == false {
+        } else if currentTitle != nil || currentTodos?.isEmpty == false {
             // Has a session title or todos - definitely completed
             phase = .completed
 
@@ -722,6 +816,7 @@ struct WorkspaceDetailView: View {
             await MainActor.run {
                 // Store the prompt we just sent for immediate display
                 pendingUserPrompt = promptToSend
+                pendingUserPromptTimestamp = Date()
                 NSLog("🐱 [WorkspaceDetailView] Stored pending prompt: \(promptToSend.prefix(50))...")
 
                 prompt = ""
@@ -772,7 +867,8 @@ struct WorkspaceDetailView: View {
         // Skip if we already have a cached diff and Claude is still actively working
         // We want to refetch periodically during active work, but avoid spamming requests
         // When work completes, we'll refetch one final time from the completed phase
-        if cachedDiff != nil && workspace.claudeActivityState == .active {
+        let isActive = workspace.claudeActivityState == .active
+        if cachedDiff != nil && isActive {
             NSLog("📊 Diff already cached and workspace still active, skipping fetch to avoid spam")
             return
         }
@@ -780,7 +876,7 @@ struct WorkspaceDetailView: View {
         NSLog("📊 Fetching diff for workspace with changes (dirty: %@, commits: %d, active: %@)",
               workspace.isDirty.map { "\($0)" } ?? "nil",
               workspace.commitCount ?? 0,
-              workspace.claudeActivityState == .active ? "yes" : "no")
+              isActive ? "yes" : "no")
 
         do {
             let diff = try await CatnipAPI.shared.getWorkspaceDiff(id: workspace.id)
@@ -913,9 +1009,13 @@ struct WorkspaceDetailView: View {
                 Button {
                     showPortraitTerminal = false
                 } label: {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.body)
+                    ContextProgressRing(contextTokens: sessionStats?.lastContextSizeTokens) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -1027,6 +1127,7 @@ private struct WorkspaceDetailPreview: View {
                 todos: nil,
                 latestSessionTitle: nil,
                 latestUserPrompt: nil,
+                latestClaudeMessage: nil,
                 pullRequestUrl: nil,
                 pullRequestState: nil,
                 hasCommitsAheadOfRemote: nil,
@@ -1047,6 +1148,7 @@ private struct WorkspaceDetailPreview: View {
                 todos: Todo.previewList,
                 latestSessionTitle: "Implementing new feature",
                 latestUserPrompt: nil,
+                latestClaudeMessage: "Working on the new feature...",
                 pullRequestUrl: nil,
                 pullRequestState: nil,
                 hasCommitsAheadOfRemote: workspace.hasCommitsAheadOfRemote,
@@ -1253,6 +1355,75 @@ struct MarkdownText: View {
             }
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - Context Progress Ring
+
+/// A circular progress indicator showing Claude's context usage
+/// Changes color based on token count thresholds:
+/// - Gray: < 40K tokens
+/// - Green: 40K - 80K tokens
+/// - Orange: 80K - 120K tokens
+/// - Red: > 120K tokens (approaching 155K limit)
+struct ContextProgressRing<Content: View>: View {
+    let contextTokens: Int64?
+    let content: Content
+
+    private let maxTokens: Int64 = 155_000
+    private let lineWidth: CGFloat = 2.5
+    private let buttonSize: CGFloat = 36
+    // Inset for the ring - positions it just inside the button edge
+    private let ringInset: CGFloat = 1.0
+
+    init(contextTokens: Int64?, @ViewBuilder content: () -> Content) {
+        self.contextTokens = contextTokens
+        self.content = content()
+    }
+
+    private var progress: Double {
+        guard let tokens = contextTokens, tokens > 0 else { return 0 }
+        return min(Double(tokens) / Double(maxTokens), 1.0)
+    }
+
+    private var ringColor: Color {
+        guard let tokens = contextTokens else { return .gray.opacity(0.3) }
+
+        switch tokens {
+        case ..<40_000:
+            return .gray.opacity(0.5)
+        case 40_000..<80_000:
+            return .green
+        case 80_000..<120_000:
+            return .orange
+        default:
+            return .red
+        }
+    }
+
+    var body: some View {
+        Circle()
+            .fill(.ultraThinMaterial)
+            .overlay {
+                // Background ring (always visible, subtle)
+                Circle()
+                    .strokeBorder(Color.gray.opacity(0.3), lineWidth: lineWidth)
+                    .padding(ringInset)
+            }
+            .overlay {
+                // Progress ring - uses trim for animation
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(ringColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(ringInset + lineWidth / 2)
+                    .animation(.easeInOut(duration: 0.3), value: progress)
+            }
+            .overlay {
+                // Icon content centered
+                content
+            }
+            .frame(width: buttonSize, height: buttonSize)
     }
 }
 

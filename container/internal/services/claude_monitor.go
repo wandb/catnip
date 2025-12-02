@@ -1236,37 +1236,50 @@ func (m *WorktreeTodoMonitor) checkForTodoUpdates(worktreeID string) {
 	todosJSONStr := string(todosJSON)
 
 	// Check if todos have changed
-	if todosJSONStr == m.lastTodosJSON {
-		return // No change in todos
+	todosChanged := todosJSONStr != m.lastTodosJSON
+
+	if todosChanged {
+		// Todos have changed!
+		logger.Debugf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
+
+		// Update activity time for todo monitoring (but don't update Claude service activity
+		// as todo monitoring is passive and should not keep workspaces "active")
+		now := time.Now()
+		m.claudeMonitor.activityMutex.Lock()
+		m.claudeMonitor.lastActivityTimes[m.workDir] = now
+		m.claudeMonitor.activityMutex.Unlock()
+
+		// Note: We intentionally don't call UpdateActivity here because todo monitoring
+		// is passive and should not prevent workspaces from transitioning to inactive
+
+		// Update state
+		m.lastTodos = todos
+		m.lastTodosJSON = todosJSONStr
+
+		// Check if we should trigger branch renaming based on todos
+		m.checkTodoBasedBranchRenaming(todos)
 	}
 
-	// Todos have changed!
-	logger.Debugf("📝 Todo update detected for worktree %s: %d todos", m.workDir, len(todos))
+	// Build updates map - always check for user prompt changes during active sessions
+	// This ensures the "You asked" section stays populated
+	updates := make(map[string]interface{})
 
-	// Update activity time for todo monitoring (but don't update Claude service activity
-	// as todo monitoring is passive and should not keep workspaces "active")
-	now := time.Now()
-	m.claudeMonitor.activityMutex.Lock()
-	m.claudeMonitor.lastActivityTimes[m.workDir] = now
-	m.claudeMonitor.activityMutex.Unlock()
-
-	// Note: We intentionally don't call UpdateActivity here because todo monitoring
-	// is passive and should not prevent workspaces from transitioning to inactive
-
-	// Update state
-	m.lastTodos = todos
-	m.lastTodosJSON = todosJSONStr
-
-	// Check if we should trigger branch renaming based on todos
-	m.checkTodoBasedBranchRenaming(todos)
-
-	// Update worktree state
-	updates := map[string]interface{}{
-		"todos": todos,
+	if todosChanged {
+		updates["todos"] = todos
 	}
 
-	if err := m.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
-		logger.Warnf("⚠️  Failed to update worktree todos for %s: %v", worktreeID, err)
+	// Always update the latest user prompt from history during active sessions
+	// This ensures the "You asked" section stays populated even before todos are created
+	latestUserPrompt, err := reader.GetLatestUserPrompt()
+	if err == nil && latestUserPrompt != "" {
+		updates["latest_user_prompt"] = latestUserPrompt
+	}
+
+	// Only update if we have changes
+	if len(updates) > 0 {
+		if err := m.gitService.stateManager.UpdateWorktree(worktreeID, updates); err != nil {
+			logger.Warnf("⚠️  Failed to update worktree for %s: %v", worktreeID, err)
+		}
 	}
 
 	// Also check for latest Claude message changes from parser

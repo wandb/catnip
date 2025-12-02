@@ -46,6 +46,7 @@ class WorkspacePoller: ObservableObject {
     @Published private(set) var currentInterval: PollingInterval = .idle
     @Published private(set) var lastUpdate: Date?
     @Published private(set) var workspace: WorkspaceInfo?
+    @Published private(set) var sessionData: SessionData?
     @Published private(set) var error: String?
 
     // MARK: - Private Properties
@@ -66,7 +67,7 @@ class WorkspacePoller: ObservableObject {
             self.workspace = initialWorkspace
             self.lastActivityStateChange = Date()
             self.previousActivityState = initialWorkspace.claudeActivityState
-            NSLog("📊 Initialized poller with existing workspace data")
+            NSLog("📊 Initialized poller with existing workspace data, id: \(workspaceId)")
         }
 
         setupAppStateObservers()
@@ -148,14 +149,15 @@ class WorkspacePoller: ObservableObject {
 
         let timeSinceLastChange = Date().timeIntervalSince(lastActivityStateChange)
 
-        // Active: Claude is actively working
-        if workspace.claudeActivityState == .active {
+        // .running = Claude is actively working → fast polling
+        if workspace.claudeActivityState == .running {
             return .active
         }
 
+        // .active = PTY exists but Claude not actively working
         // Recent work: Work finished less than 2 minutes ago
         // Keep polling at medium rate to catch final TODO updates and messages
-        if timeSinceLastChange < 120 { // 2 minutes
+        if workspace.claudeActivityState == .active || timeSinceLastChange < 120 {
             return .recentWork
         }
 
@@ -164,6 +166,55 @@ class WorkspacePoller: ObservableObject {
     }
 
     private func pollWorkspace() async {
+        // For active or recently active sessions, use the lightweight session endpoint
+        let activityState = workspace?.claudeActivityState
+        let isActiveSession = activityState == .active || activityState == .running ||
+            Date().timeIntervalSince(lastActivityStateChange) < 120
+
+        if isActiveSession {
+            await pollSessionData()
+        } else {
+            await pollFullWorkspace()
+        }
+    }
+
+    /// Poll the lightweight session endpoint for active sessions
+    private func pollSessionData() async {
+        do {
+            let newSessionData = try await CatnipAPI.shared.getSessionData(workspaceId: workspaceId)
+
+            if let sessionData = newSessionData {
+                self.sessionData = sessionData
+                lastUpdate = Date()
+                error = nil
+
+                // Check if session is still active based on session info
+                let isActive = sessionData.sessionInfo?.isActive ?? false
+                let previousState = workspace?.claudeActivityState
+
+                // Track activity state changes for polling interval adaptation
+                // .running means Claude is actively working, .active means PTY exists but idle
+                let wasWorking = previousState == .running
+                if !isActive && wasWorking {
+                    lastActivityStateChange = Date()
+                    NSLog("📊 Session stopped working, transitioning to idle polling")
+
+                    // Update workspace to .active (PTY still exists, just not working)
+                    // This ensures determinePollingInterval() sees the correct state
+                    workspace = workspace?.with(claudeActivityState: .active)
+                }
+
+            }
+
+        } catch {
+            // Fall back to full workspace polling on error
+            NSLog("⚠️ Session polling failed, falling back to full workspace: \(error.localizedDescription)")
+            await pollFullWorkspace()
+        }
+    }
+
+    /// Poll the full workspace endpoint (heavier, used for idle workspaces)
+    private func pollFullWorkspace() async {
         do {
             let result = try await CatnipAPI.shared.getWorkspace(
                 id: workspaceId,

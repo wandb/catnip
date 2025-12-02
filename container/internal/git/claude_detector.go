@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vanpelt/catnip/internal/logger"
+	"github.com/vanpelt/catnip/internal/claude/paths"
 )
 
 // ClaudeSessionDetector detects and monitors Claude sessions running in a worktree
@@ -65,58 +65,23 @@ func (d *ClaudeSessionDetector) DetectClaudeSession() (*ClaudeSessionInfo, error
 }
 
 // findClaudeSessionFromFiles looks for Claude session files and extracts information
+// Uses paths.FindBestSessionFile which validates UUIDs, checks conversation content,
+// and filters out forked sessions
 func (d *ClaudeSessionDetector) findClaudeSessionFromFiles() *ClaudeSessionInfo {
 	claudeProjectsDir := filepath.Join(d.workDir, ".claude", "projects")
-	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
-		return nil
-	}
 
-	files, err := os.ReadDir(claudeProjectsDir)
-	if err != nil {
-		logger.Debugf("⚠️  Failed to read Claude projects directory: %v", err)
-		return nil
-	}
-
-	var newestFile string
-	var newestTime time.Time
-
-	// Find the most recent JSONL file
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
-			continue
-		}
-
-		// Extract session ID from filename (remove .jsonl extension)
-		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
-
-		// Validate that it looks like a UUID
-		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
-			continue
-		}
-
-		filePath := filepath.Join(claudeProjectsDir, file.Name())
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			continue
-		}
-
-		if fileInfo.ModTime().After(newestTime) {
-			newestTime = fileInfo.ModTime()
-			newestFile = filePath
-		}
-	}
-
-	if newestFile == "" {
+	sessionFile, err := paths.FindBestSessionFile(claudeProjectsDir)
+	if err != nil || sessionFile == "" {
 		return nil
 	}
 
 	// Extract session ID from filename
-	sessionID := strings.TrimSuffix(filepath.Base(newestFile), ".jsonl")
+	sessionID := strings.TrimSuffix(filepath.Base(sessionFile), ".jsonl")
 
 	// Try to extract title from the JSONL file
-	title := d.extractTitleFromJSONL(newestFile)
+	title := d.extractTitleFromJSONL(sessionFile)
 
-	fileInfo, _ := os.Stat(newestFile)
+	fileInfo, _ := os.Stat(sessionFile)
 	return &ClaudeSessionInfo{
 		SessionID:   sessionID,
 		Title:       title,

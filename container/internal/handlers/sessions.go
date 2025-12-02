@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,6 +12,7 @@ import (
 type SessionsHandler struct {
 	sessionService *services.SessionService
 	claudeService  *services.ClaudeService
+	gitService     *services.GitService
 }
 
 // SessionsResponse represents the response containing all sessions
@@ -42,10 +44,11 @@ type DeleteSessionResponse struct {
 }
 
 // NewSessionsHandler creates a new sessions handler
-func NewSessionsHandler(sessionService *services.SessionService, claudeService *services.ClaudeService) *SessionsHandler {
+func NewSessionsHandler(sessionService *services.SessionService, claudeService *services.ClaudeService, gitService *services.GitService) *SessionsHandler {
 	return &SessionsHandler{
 		sessionService: sessionService,
 		claudeService:  claudeService,
+		gitService:     gitService,
 	}
 }
 
@@ -75,21 +78,40 @@ func (h *SessionsHandler) GetAllSessions(c *fiber.Ctx) error {
 
 // GetSessionByWorkspace returns session for a specific workspace
 // @Summary Get session by workspace
-// @Description Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.
+// @Description Returns session information for a specific workspace. Accepts workspace ID (UUID) or path. Use ?full=true for complete session data including messages.
 // @Tags sessions
 // @Produce json
-// @Param workspace path string true "Workspace directory path"
+// @Param workspace path string true "Workspace ID (UUID) or directory path"
 // @Param full query boolean false "Include full session data with messages and user prompts"
 // @Success 200 {object} ActiveSessionInfo "Basic session info when full=false"
 // @Router /v1/sessions/workspace/{workspace} [get]
 func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
+	// Get workspace from path parameter
 	workspace := c.Params("workspace")
+	if workspace == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "workspace parameter is required",
+		})
+	}
+
+	// Try to resolve as a workspace ID first (UUID)
+	// If it looks like a UUID (contains hyphen, no slashes), try to resolve it
+	worktreePath := workspace
+	if h.gitService != nil && !containsSlash(workspace) {
+		if worktree, exists := h.gitService.GetWorktree(workspace); exists && worktree != nil {
+			worktreePath = worktree.Path
+			// Debug: log the resolution
+			c.Set("X-Debug-Workspace-ID", workspace)
+			c.Set("X-Debug-Worktree-Path", worktreePath)
+		}
+	}
+
 	fullParam := c.Query("full", "false")
 	includeFull := fullParam == "true"
 
 	if includeFull {
 		// Return full session data using Claude service
-		fullData, err := h.claudeService.GetFullSessionData(workspace, true)
+		fullData, err := h.claudeService.GetFullSessionData(worktreePath, true)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
 				"error":   "Failed to get full session data",
@@ -105,14 +127,10 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 
 		return c.JSON(fullData)
 	} else {
-		// Try session service first (for active PTY sessions)
-		session, exists := h.sessionService.GetActiveSession(workspace)
-		if exists {
-			return c.JSON(session)
-		}
-
-		// Fallback to Claude service for basic info (without full data)
-		fullData, err := h.claudeService.GetFullSessionData(workspace, false)
+		// Return session data with latest prompt/message/stats but without full message history
+		// The full=false mode still includes latestUserPrompt, latestMessage, latestThought, stats
+		// It just omits the Messages and UserPrompts arrays
+		fullData, err := h.claudeService.GetFullSessionData(worktreePath, false)
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{
 				"error":   "Failed to get session data",
@@ -126,8 +144,7 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 			})
 		}
 
-		// Return just the session info part for basic requests
-		return c.JSON(fullData.SessionInfo)
+		return c.JSON(fullData)
 	}
 }
 
@@ -182,4 +199,10 @@ func (h *SessionsHandler) GetSessionById(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(sessionData)
+}
+
+// containsSlash checks if a string contains a forward slash
+// Used to distinguish between workspace IDs (UUIDs) and paths
+func containsSlash(s string) bool {
+	return strings.Contains(s, "/")
 }

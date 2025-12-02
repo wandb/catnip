@@ -63,7 +63,6 @@ class CatnipAPI: ObservableObject {
 
     private func getHeaders(includeCodespace: Bool = false) async throws -> [String: String] {
         let token = try await getSessionToken()
-
         var headers = [
             "Content-Type": "application/json",
             "Authorization": "Bearer \(token)"
@@ -220,6 +219,50 @@ class CatnipAPI: ObservableObject {
             return result
         } catch {
             return LatestMessageResponse(content: "Error fetching message", isError: true)
+        }
+    }
+
+    /// Fetch session data for a specific workspace - lightweight polling endpoint
+    /// This endpoint returns latest user prompt, latest message, latest thought, and session stats
+    /// Use this for polling during active sessions instead of the heavier /v1/git/worktrees endpoint
+    func getSessionData(workspaceId: String) async throws -> SessionData? {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return UITestingHelper.getMockSessionData(workspacePath: workspaceId)
+        }
+
+        let headers = try await getHeaders(includeCodespace: true)
+
+        // Use workspace ID (UUID) in URL path - simple and clean
+        guard let url = URL(string: "\(baseURL)/v1/sessions/workspace/\(workspaceId)") else {
+            throw APIError.invalidURL
+        }
+
+        NSLog("📊 [CatnipAPI] Fetching session data from: \(url.absoluteString)")
+
+        var request = URLRequest(url: url)
+        request.allHTTPHeaderFields = headers
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        if httpResponse.statusCode == 404 {
+            // No session data yet - this is normal for new workspaces
+            return nil
+        }
+
+        if httpResponse.statusCode != 200 {
+            throw APIError.serverError(httpResponse.statusCode, "Failed to fetch session data")
+        }
+
+        do {
+            return try decoder.decode(SessionData.self, from: data)
+        } catch {
+            NSLog("❌ [CatnipAPI] Failed to decode SessionData: \(error)")
+            throw error
         }
     }
 

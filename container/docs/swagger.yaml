@@ -306,6 +306,18 @@ definitions:
         items:
           $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry'
         type: array
+      latestMessage:
+        description: Latest assistant message text (always populated when available)
+        type: string
+      latestSessionTitle:
+        description: Latest session title (from PTY escape sequences or session history)
+        type: string
+      latestThought:
+        description: Latest thinking/reasoning content (always populated when available)
+        type: string
+      latestUserPrompt:
+        description: Latest user prompt from history (always populated when available)
+        type: string
       messageCount:
         description: Total message count in full data
         type: integer
@@ -318,6 +330,15 @@ definitions:
         allOf:
         - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary'
         description: Basic session information
+      stats:
+        allOf:
+        - $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.SessionStats'
+        description: Session statistics (token counts, tool usage, etc.)
+      todos:
+        description: Current todo items from the session
+        items:
+          $ref: '#/definitions/github_com_vanpelt_catnip_internal_models.Todo'
+        type: array
       userPrompts:
         description: User prompts from ~/.claude.json (only when full=true)
         items:
@@ -464,6 +485,83 @@ definitions:
         description: When the session started (if available)
         example: "2024-01-15T14:30:00Z"
         type: string
+    type: object
+  github_com_vanpelt_catnip_internal_models.SessionStats:
+    description: Session statistics including token counts and activity metrics
+    properties:
+      activeDurationSeconds:
+        description: Active duration in seconds (time Claude was actually working)
+        example: 1800.25
+        type: number
+      activeToolNames:
+        additionalProperties:
+          type: integer
+        description: Tool usage counts by name
+        type: object
+      apiCallCount:
+        description: Number of API calls made
+        example: 12
+        type: integer
+      assistantMessages:
+        description: Number of assistant messages
+        example: 27
+        type: integer
+      cacheCreationTokens:
+        description: Cache creation tokens
+        example: 30000
+        type: integer
+      cacheReadTokens:
+        description: Cache read tokens (context reuse)
+        example: 120000
+        type: integer
+      compactionCount:
+        description: Number of context compactions
+        example: 1
+        type: integer
+      humanPromptCount:
+        description: Number of human prompts (user messages with text, not tool results)
+        example: 10
+        type: integer
+      imageCount:
+        description: Number of images in the conversation
+        example: 2
+        type: integer
+      lastContextSizeTokens:
+        description: Last message's cache_read value (actual context size in tokens)
+        example: 125000
+        type: integer
+      sessionDurationSeconds:
+        description: Session duration in seconds (wall-clock time)
+        example: 3600.5
+        type: number
+      subAgentCount:
+        description: Number of sub-agents spawned
+        example: 3
+        type: integer
+      thinkingBlockCount:
+        description: Number of thinking blocks
+        example: 8
+        type: integer
+      toolCallCount:
+        description: Total tool calls made
+        example: 35
+        type: integer
+      totalInputTokens:
+        description: Total input tokens used
+        example: 150000
+        type: integer
+      totalMessages:
+        description: Total number of messages in the session
+        example: 42
+        type: integer
+      totalOutputTokens:
+        description: Total output tokens generated
+        example: 85000
+        type: integer
+      userMessages:
+        description: Number of user messages
+        example: 15
+        type: integer
     type: object
   github_com_vanpelt_catnip_internal_models.TitleEntry:
     properties:
@@ -2339,10 +2437,10 @@ paths:
       tags:
       - sessions
     get:
-      description: Returns session information for a specific workspace directory.
-        Use ?full=true for complete session data including messages.
+      description: Returns session information for a specific workspace. Accepts workspace
+        ID (UUID) or path. Use ?full=true for complete session data including messages.
       parameters:
-      - description: Workspace directory path
+      - description: Workspace ID (UUID) or directory path
         in: path
         name: workspace
         required: true

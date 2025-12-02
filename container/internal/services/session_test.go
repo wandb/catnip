@@ -339,23 +339,26 @@ func TestSessionServiceDirectory(t *testing.T) {
 			assert.Equal(t, "55555555-5555-5555-5555-555555555555", newest, "Should ignore files < 10KB")
 		})
 
-		// Test 3: Only small files (all < 10KB) - should return empty
-		t.Run("AllFilesTooSmall", func(t *testing.T) {
+		// Test 3: Files without conversation content still get returned via fallback
+		// paths.FindBestSessionFile prefers files with conversation content but falls back
+		// to the most recent valid UUID file if none have content
+		t.Run("FallbackToMostRecentWithoutContent", func(t *testing.T) {
 			subDir := filepath.Join(claudeDir, "all-small-test")
 			require.NoError(t, os.MkdirAll(subDir, 0755))
 
-			// Create multiple small files
+			// Create multiple files without conversation content (just zeros)
 			for i := 0; i < 3; i++ {
 				uuid := strings.Repeat(string(rune('0'+i)), 8) + "-" + strings.Repeat(string(rune('0'+i)), 4) + "-" + strings.Repeat(string(rune('0'+i)), 4) + "-" + strings.Repeat(string(rune('0'+i)), 4) + "-" + strings.Repeat(string(rune('0'+i)), 12)
 				smallFile := filepath.Join(subDir, uuid+".jsonl")
-				smallContent := make([]byte, 9000) // All < 10KB
+				smallContent := make([]byte, 9000)
 				require.NoError(t, os.WriteFile(smallFile, smallContent, 0644))
 				time.Sleep(10 * time.Millisecond)
 			}
 
-			// Should return empty since all files are too small
+			// Should return most recent file via fallback since none have conversation content
+			// The last file created (22222222-...) is the most recent
 			newest := service.findNewestClaudeSessionFile(subDir)
-			assert.Empty(t, newest, "Should return empty when all files are < 10KB")
+			assert.Equal(t, "22222222-2222-2222-2222-222222222222", newest, "Should return most recent file via fallback")
 		})
 
 		// Test 4: Invalid UUID formats should be ignored

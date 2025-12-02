@@ -236,7 +236,7 @@ func startServer(cmd *cobra.Command) {
 	authHandler := handlers.NewAuthHandler()
 	uploadHandler := handlers.NewUploadHandler()
 	gitHandler := handlers.NewGitHandler(gitService, gitHTTPService, sessionService, claudeMonitor)
-	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService)
+	sessionHandler := handlers.NewSessionsHandler(sessionService, claudeService, gitService)
 	eventsHandler := handlers.NewEventsHandler(portMonitor, gitService)
 	claudeHandler := handlers.NewClaudeHandler(claudeService, gitService).WithEvents(eventsHandler).WithOnboardingService(claudeOnboardingService).WithPTYHandler(ptyHandler)
 	defer eventsHandler.Stop()
@@ -316,6 +316,7 @@ func startServer(cmd *cobra.Command) {
 	// Session management routes
 	v1.Get("/sessions/active", sessionHandler.GetActiveSessions)
 	v1.Get("/sessions", sessionHandler.GetAllSessions)
+	// Workspace param can be either a workspace ID (UUID) or a path
 	v1.Get("/sessions/workspace/:workspace", sessionHandler.GetSessionByWorkspace)
 	v1.Get("/sessions/workspace/:workspace/session/:sessionId", sessionHandler.GetSessionById)
 	v1.Delete("/sessions/workspace/:workspace", sessionHandler.DeleteSession)

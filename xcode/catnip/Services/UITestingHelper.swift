@@ -103,6 +103,7 @@ struct UITestingHelper {
                 ],
                 latestSessionTitle: "Implementing GitHub OAuth",
                 latestUserPrompt: "Add GitHub authentication",
+                latestClaudeMessage: "I've implemented the OAuth flow with GitHub. The token validation is in progress.",
                 pullRequestUrl: "https://github.com/wandb/catnip/pull/123",
                 pullRequestState: "OPEN",
                 hasCommitsAheadOfRemote: nil,
@@ -122,6 +123,7 @@ struct UITestingHelper {
                 todos: nil,
                 latestSessionTitle: "Fixed API error handling",
                 latestUserPrompt: "Fix API errors",
+                latestClaudeMessage: "The API error handling has been fixed.",
                 pullRequestUrl: nil,
                 pullRequestState: nil,
                 hasCommitsAheadOfRemote: nil,
@@ -141,6 +143,7 @@ struct UITestingHelper {
                 todos: nil,
                 latestSessionTitle: nil,
                 latestUserPrompt: nil,
+                latestClaudeMessage: nil,
                 pullRequestUrl: nil,
                 pullRequestState: nil,
                 hasCommitsAheadOfRemote: nil,
@@ -219,6 +222,62 @@ struct UITestingHelper {
             title: "Mock PR: \(branch)",
             description: "This is a mock pull request description for testing purposes."
         )
+    }
+
+    static func getMockSessionData(workspacePath: String) -> SessionData? {
+        guard shouldUseMockData else { return nil }
+
+        // Return mock session data for active workspaces
+        if workspacePath.contains("feature-auth") {
+            return SessionData(
+                sessionInfo: SessionSummary(
+                    worktreePath: workspacePath,
+                    sessionStartTime: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-3600)),
+                    sessionEndTime: nil,
+                    turnCount: 5,
+                    isActive: true,
+                    lastSessionId: "mock-session-1",
+                    currentSessionId: "mock-session-1",
+                    header: "Implementing GitHub OAuth",
+                    lastCost: 0.15,
+                    lastDuration: 1800,
+                    lastTotalInputTokens: 25000,
+                    lastTotalOutputTokens: 12000
+                ),
+                allSessions: nil,
+                latestUserPrompt: "Add GitHub authentication",
+                latestMessage: "I've started implementing the OAuth flow...",
+                latestThought: "Let me analyze the current authentication structure...",
+                stats: SessionStats(
+                    totalMessages: 12,
+                    userMessages: 5,
+                    assistantMessages: 7,
+                    humanPromptCount: 5,
+                    toolCallCount: 15,
+                    totalInputTokens: 45000,
+                    totalOutputTokens: 18000,
+                    cacheReadTokens: 35000,
+                    cacheCreationTokens: 10000,
+                    lastContextSizeTokens: 125000,
+                    apiCallCount: 8,
+                    sessionDurationSeconds: 1800.5,
+                    activeDurationSeconds: 900.25,
+                    thinkingBlockCount: 5,
+                    subAgentCount: 2,
+                    compactionCount: 0,
+                    imageCount: 0,
+                    activeToolNames: ["Read": 8, "Edit": 5, "Bash": 2]
+                ),
+                todos: [
+                    Todo(content: "Implement OAuth callback handler", status: .completed, activeForm: "Implementing OAuth callback handler"),
+                    Todo(content: "Add token refresh logic", status: .inProgress, activeForm: "Adding token refresh logic"),
+                    Todo(content: "Write unit tests for auth flow", status: .pending, activeForm: "Writing unit tests for auth flow")
+                ],
+                latestSessionTitle: "Implementing GitHub OAuth"
+            )
+        }
+
+        return nil
     }
 
     static func shouldAutoNavigateToWorkspaces() -> Bool {

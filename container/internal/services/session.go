@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vanpelt/catnip/internal/claude/paths"
 	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 	"github.com/vanpelt/catnip/internal/models"
@@ -373,91 +374,29 @@ func (s *SessionService) isProcessAlive(pid string) bool {
 }
 
 // FindBestSessionFile finds the best JSONL session file in a project directory
-// It filters out small/warmup sessions and prefers larger files with more content
+// Uses paths.FindBestSessionFile which validates UUIDs, checks conversation content,
+// and filters out forked sessions
 // Returns the full file path to the best session, or empty string if none found
 func (s *SessionService) FindBestSessionFile(projectDir string) string {
-	sessionID := s.findNewestClaudeSessionFile(projectDir)
-	if sessionID == "" {
-		return ""
-	}
-	return filepath.Join(projectDir, sessionID+".jsonl")
-}
-
-// findNewestClaudeSessionFile finds the best JSONL file in .claude/projects directory
-// It filters out "Warmup" sessions and prefers larger, more active sessions
-func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) string {
-	// Check if .claude/projects directory exists
-	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
-		return ""
-	}
-
-	files, err := os.ReadDir(claudeProjectsDir)
+	sessionFile, err := paths.FindBestSessionFile(projectDir)
 	if err != nil {
 		return ""
 	}
+	return sessionFile
+}
 
-	type sessionCandidate struct {
-		sessionID string
-		size      int64
-		modTime   time.Time
-	}
-
-	var candidates []sessionCandidate
-
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".jsonl") {
-			continue
-		}
-
-		// Extract session ID from filename (remove .jsonl extension)
-		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
-
-		// Validate that it looks like a UUID
-		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
-			continue
-		}
-
-		filePath := filepath.Join(claudeProjectsDir, file.Name())
-		fileInfo, err := os.Stat(filePath)
-		if err != nil {
-			continue
-		}
-
-		// Skip very small files (likely empty or warmup sessions)
-		// Real sessions with actual conversation are typically >10KB
-		if fileInfo.Size() < 10000 {
-			continue
-		}
-
-		// Note: We used to filter out "Warmup" sessions here, but that was too aggressive
-		// If a session started with "Warmup" but has grown to >10KB, it clearly has real content
-		// The size check above is sufficient to filter out truly empty warmup sessions
-
-		// This is a valid session candidate
-		candidates = append(candidates, sessionCandidate{
-			sessionID: sessionID,
-			size:      fileInfo.Size(),
-			modTime:   fileInfo.ModTime(),
-		})
-	}
-
-	// No valid sessions found
-	if len(candidates) == 0 {
+// findNewestClaudeSessionFile finds the best JSONL file in .claude/projects directory
+// Uses paths.FindBestSessionFile which properly validates UUIDs, checks conversation content,
+// and filters out forked sessions
+func (s *SessionService) findNewestClaudeSessionFile(claudeProjectsDir string) string {
+	sessionFile, err := paths.FindBestSessionFile(claudeProjectsDir)
+	if err != nil || sessionFile == "" {
 		return ""
 	}
 
-	// Pick the largest session (most conversation history)
-	// Tie-breaker: newest modification time
-	bestSession := candidates[0]
-	for _, candidate := range candidates[1:] {
-		if candidate.size > bestSession.size {
-			bestSession = candidate
-		} else if candidate.size == bestSession.size && candidate.modTime.After(bestSession.modTime) {
-			bestSession = candidate
-		}
-	}
-
-	return bestSession.sessionID
+	// Extract session ID from the full path (remove directory and .jsonl extension)
+	sessionID := strings.TrimSuffix(filepath.Base(sessionFile), ".jsonl")
+	return sessionID
 }
 
 // DeleteSessionState removes session state from disk

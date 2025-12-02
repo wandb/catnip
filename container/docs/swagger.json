@@ -1701,7 +1701,7 @@
         },
         "/v1/sessions/workspace/{workspace}": {
             "get": {
-                "description": "Returns session information for a specific workspace directory. Use ?full=true for complete session data including messages.",
+                "description": "Returns session information for a specific workspace. Accepts workspace ID (UUID) or path. Use ?full=true for complete session data including messages.",
                 "produces": [
                     "application/json"
                 ],
@@ -1712,7 +1712,7 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Workspace directory path",
+                        "description": "Workspace ID (UUID) or directory path",
                         "name": "workspace",
                         "in": "path",
                         "required": true
@@ -2237,6 +2237,22 @@
                         "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionListEntry"
                     }
                 },
+                "latestMessage": {
+                    "description": "Latest assistant message text (always populated when available)",
+                    "type": "string"
+                },
+                "latestSessionTitle": {
+                    "description": "Latest session title (from PTY escape sequences or session history)",
+                    "type": "string"
+                },
+                "latestThought": {
+                    "description": "Latest thinking/reasoning content (always populated when available)",
+                    "type": "string"
+                },
+                "latestUserPrompt": {
+                    "description": "Latest user prompt from history (always populated when available)",
+                    "type": "string"
+                },
                 "messageCount": {
                     "description": "Total message count in full data",
                     "type": "integer"
@@ -2255,6 +2271,21 @@
                             "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.ClaudeSessionSummary"
                         }
                     ]
+                },
+                "stats": {
+                    "description": "Session statistics (token counts, tool usage, etc.)",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.SessionStats"
+                        }
+                    ]
+                },
+                "todos": {
+                    "description": "Current todo items from the session",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_vanpelt_catnip_internal_models.Todo"
+                    }
                 },
                 "userPrompts": {
                     "description": "User prompts from ~/.claude.json (only when full=true)",
@@ -2444,6 +2475,104 @@
                     "description": "When the session started (if available)",
                     "type": "string",
                     "example": "2024-01-15T14:30:00Z"
+                }
+            }
+        },
+        "github_com_vanpelt_catnip_internal_models.SessionStats": {
+            "description": "Session statistics including token counts and activity metrics",
+            "type": "object",
+            "properties": {
+                "activeDurationSeconds": {
+                    "description": "Active duration in seconds (time Claude was actually working)",
+                    "type": "number",
+                    "example": 1800.25
+                },
+                "activeToolNames": {
+                    "description": "Tool usage counts by name",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "apiCallCount": {
+                    "description": "Number of API calls made",
+                    "type": "integer",
+                    "example": 12
+                },
+                "assistantMessages": {
+                    "description": "Number of assistant messages",
+                    "type": "integer",
+                    "example": 27
+                },
+                "cacheCreationTokens": {
+                    "description": "Cache creation tokens",
+                    "type": "integer",
+                    "example": 30000
+                },
+                "cacheReadTokens": {
+                    "description": "Cache read tokens (context reuse)",
+                    "type": "integer",
+                    "example": 120000
+                },
+                "compactionCount": {
+                    "description": "Number of context compactions",
+                    "type": "integer",
+                    "example": 1
+                },
+                "humanPromptCount": {
+                    "description": "Number of human prompts (user messages with text, not tool results)",
+                    "type": "integer",
+                    "example": 10
+                },
+                "imageCount": {
+                    "description": "Number of images in the conversation",
+                    "type": "integer",
+                    "example": 2
+                },
+                "lastContextSizeTokens": {
+                    "description": "Last message's cache_read value (actual context size in tokens)",
+                    "type": "integer",
+                    "example": 125000
+                },
+                "sessionDurationSeconds": {
+                    "description": "Session duration in seconds (wall-clock time)",
+                    "type": "number",
+                    "example": 3600.5
+                },
+                "subAgentCount": {
+                    "description": "Number of sub-agents spawned",
+                    "type": "integer",
+                    "example": 3
+                },
+                "thinkingBlockCount": {
+                    "description": "Number of thinking blocks",
+                    "type": "integer",
+                    "example": 8
+                },
+                "toolCallCount": {
+                    "description": "Total tool calls made",
+                    "type": "integer",
+                    "example": 35
+                },
+                "totalInputTokens": {
+                    "description": "Total input tokens used",
+                    "type": "integer",
+                    "example": 150000
+                },
+                "totalMessages": {
+                    "description": "Total number of messages in the session",
+                    "type": "integer",
+                    "example": 42
+                },
+                "totalOutputTokens": {
+                    "description": "Total output tokens generated",
+                    "type": "integer",
+                    "example": 85000
+                },
+                "userMessages": {
+                    "description": "Number of user messages",
+                    "type": "integer",
+                    "example": 15
                 }
             }
         },
