@@ -21,8 +21,16 @@ export class CatnipContainer extends Container {
   };
 }
 
+// Keep-alive container for GitHub Codespaces
+export class KeepAliveContainer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "30s"; // Shut down quickly after responding
+}
+
 export interface Env {
   CATNIP_CONTAINER: DurableObjectNamespace<CatnipContainer>;
+  KEEPALIVE_CONTAINER: DurableObjectNamespace<KeepAliveContainer>;
+  KEEPALIVE_COORDINATOR: DurableObjectNamespace;
   ASSETS: Fetcher;
   SESSIONS: DurableObjectNamespace;
   CODESPACE_STORE: DurableObjectNamespace;
@@ -714,6 +722,49 @@ export function createApp(env: Env) {
     if (Date.now() > session.expiresAt) {
       return c.json({ authenticated: false });
     }
+
+    // Track activity for keep-alive (fire and forget - don't block response)
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          // Get most recent codespace for this user
+          const codespaceStore = c.env.CODESPACE_STORE.get(
+            c.env.CODESPACE_STORE.idFromName("global"),
+          );
+          const codespaceResponse = await codespaceStore.fetch(
+            `https://internal/codespace/${session.username}`,
+          );
+
+          if (codespaceResponse.ok) {
+            const codespace =
+              await codespaceResponse.json<CodespaceCredentials>();
+
+            // Only track if we have valid credentials with a token
+            if (codespace.githubToken) {
+              // Notify keep-alive coordinator
+              const coordinator = c.env.KEEPALIVE_COORDINATOR.get(
+                c.env.KEEPALIVE_COORDINATOR.idFromName("global"),
+              );
+
+              await coordinator.fetch("https://internal/activity", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  codespaceName: codespace.codespaceName,
+                  githubUser: codespace.githubUser,
+                  githubToken: codespace.githubToken,
+                }),
+              });
+
+              console.log(`🫀 Activity updated for ${codespace.codespaceName}`);
+            }
+          }
+        } catch (error) {
+          // Don't fail the auth status request if keep-alive tracking fails
+          console.error("Keep-alive activity tracking error:", error);
+        }
+      })(),
+    );
 
     return c.json({
       authenticated: true,
@@ -3177,3 +3228,4 @@ export default {
 // Export Durable Objects
 export { SessionStore } from "./sessions";
 export { CodespaceStore } from "./codespace-store";
+export { KeepAliveCoordinator } from "./keepalive-coordinator";
