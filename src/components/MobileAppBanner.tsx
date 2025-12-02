@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { X, Smartphone } from "lucide-react";
 
 export function MobileAppBanner() {
-  const [isVisible, setIsVisible] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
 
   useEffect(() => {
@@ -10,23 +9,15 @@ export function MobileAppBanner() {
     const dismissed = localStorage.getItem("catnip-mobile-banner-dismissed");
     if (dismissed) {
       setIsDismissed(true);
-      return;
-    }
-
-    // Detect if user is on a mobile device
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) {
-      setIsVisible(true);
     }
   }, []);
 
   const handleDismiss = () => {
-    setIsVisible(false);
     setIsDismissed(true);
     localStorage.setItem("catnip-mobile-banner-dismissed", "true");
   };
 
-  if (!isVisible || isDismissed) {
+  if (isDismissed) {
     return null;
   }
 

@@ -1,15 +1,6 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Menu,
-  X,
-  Github,
-  Smartphone,
-  Zap,
-  Cloud,
-  Terminal,
-} from "lucide-react";
+import { Github, Smartphone, Zap, Cloud, Terminal } from "lucide-react";
 import { MobileAppBanner } from "@/components/MobileAppBanner";
 
 interface LandingPageProps {
@@ -17,54 +8,13 @@ interface LandingPageProps {
 }
 
 export function LandingPage({ onLogin }: LandingPageProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#0a0a0a] to-[#1a1a1a]">
-      {/* Mobile App Banner */}
+      {/* Mobile App Banner - Always visible */}
       <MobileAppBanner />
 
-      {/* Header with Hamburger Menu */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-sm border-b border-gray-800">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo@2x.png" alt="Catnip Logo" className="w-10 h-10" />
-            <span className="text-xl font-bold text-white">Catnip</span>
-          </div>
-
-          {/* Hamburger Menu Button */}
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="p-2 text-gray-400 hover:text-white transition-colors"
-            aria-label="Menu"
-          >
-            {menuOpen ? (
-              <X className="w-6 h-6" />
-            ) : (
-              <Menu className="w-6 h-6" />
-            )}
-          </button>
-        </div>
-
-        {/* Dropdown Menu */}
-        {menuOpen && (
-          <div className="absolute top-full right-0 w-48 bg-[#1a1a1a] border-l border-b border-gray-800 shadow-lg">
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                onLogin();
-              }}
-              className="w-full px-4 py-3 text-left text-white hover:bg-gray-800 transition-colors flex items-center gap-2"
-            >
-              <Github className="w-4 h-4" />
-              Log In
-            </button>
-          </div>
-        )}
-      </header>
-
       {/* Main Content */}
-      <main className="pt-24 pb-16">
+      <main className="pt-20 pb-16">
         <div className="container mx-auto px-4">
           {/* Hero Section */}
           <div className="text-center max-w-4xl mx-auto mb-16">
