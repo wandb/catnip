@@ -12,16 +12,16 @@ import Combine
 /// Adaptive polling intervals based on workspace activity state
 enum PollingInterval {
     case active       // Claude actively working
-    case recentWork   // Work finished recently
+    case recentWork   // Work finished recently (one-time 5s delay)
     case idle         // No recent activity
     case background   // App backgrounded
     case suspended    // No polling
 
     var timeInterval: TimeInterval {
         switch self {
-        case .active:       return 1.5  // Fast updates when Claude is working
-        case .recentWork:   return 3.0  // Medium updates for recently completed work
-        case .idle:         return 10.0 // Slow updates when idle
+        case .active:       return 3.0  // Poll every 3s when Claude is actively working
+        case .recentWork:   return 5.0  // One-time 5s delay after work completes
+        case .idle:         return .infinity // No polling when idle (.running or .inactive)
         case .background:   return 30.0 // Very slow when backgrounded
         case .suspended:    return .infinity // No polling
         }
@@ -29,9 +29,9 @@ enum PollingInterval {
 
     var description: String {
         switch self {
-        case .active:       return "active (1.5s)"
-        case .recentWork:   return "recent (3s)"
-        case .idle:         return "idle (10s)"
+        case .active:       return "active (3s)"
+        case .recentWork:   return "recent (5s one-time)"
+        case .idle:         return "idle (no polling)"
         case .background:   return "background (30s)"
         case .suspended:    return "suspended"
         }
@@ -56,6 +56,7 @@ class WorkspacePoller: ObservableObject {
     private var lastETag: String?
     private var lastActivityStateChange: Date = Date()
     private var previousActivityState: ClaudeActivityState?
+    private var hasPolledAfterTransition = false  // Track if we've done the one-time poll after .active→.running/.inactive
 
     // MARK: - Initialization
 
@@ -109,6 +110,11 @@ class WorkspacePoller: ObservableObject {
         scheduleNextPoll()
     }
 
+    /// Update session data (for manual hydration)
+    func updateSessionData(_ data: SessionData?) {
+        self.sessionData = data
+    }
+
     // MARK: - Private Methods
 
     private func scheduleNextPoll() {
@@ -147,34 +153,42 @@ class WorkspacePoller: ObservableObject {
             return .idle  // No workspace yet, use idle rate
         }
 
-        let timeSinceLastChange = Date().timeIntervalSince(lastActivityStateChange)
+        // State meanings:
+        // .inactive = no PTY running → no polling needed
+        // .running = PTY up, waiting for user input → no polling needed
+        // .active = Claude is actively working → poll every 3s
 
-        // .running = Claude is actively working → fast polling
-        if workspace.claudeActivityState == .running {
+        // .active = Claude is actively working → fast polling
+        if workspace.claudeActivityState == .active {
+            hasPolledAfterTransition = false  // Reset flag when actively working
             return .active
         }
 
-        // .active = PTY exists but Claude not actively working
-        // Recent work: Work finished less than 2 minutes ago
-        // Keep polling at medium rate to catch final TODO updates and messages
-        if workspace.claudeActivityState == .active || timeSinceLastChange < 120 {
+        // Transitioning from .active to .running or .inactive
+        // Do one 5s delayed poll to catch final updates, then stop polling
+        if !hasPolledAfterTransition {
             return .recentWork
         }
 
-        // Idle: No recent activity
+        // .running or .inactive = no polling needed
         return .idle
     }
 
     private func pollWorkspace() async {
-        // For active or recently active sessions, use the lightweight session endpoint
+        // For active sessions, use the lightweight session endpoint
         let activityState = workspace?.claudeActivityState
-        let isActiveSession = activityState == .active || activityState == .running ||
-            Date().timeIntervalSince(lastActivityStateChange) < 120
+        let isActiveSession = activityState == .active
 
         if isActiveSession {
             await pollSessionData()
         } else {
             await pollFullWorkspace()
+        }
+
+        // If this was the one-time poll after transitioning from .active, mark it complete
+        if currentInterval == .recentWork {
+            hasPolledAfterTransition = true
+            NSLog("📊 Completed one-time post-transition poll, stopping polling until Claude becomes active again")
         }
     }
 
@@ -193,15 +207,16 @@ class WorkspacePoller: ObservableObject {
                 let previousState = workspace?.claudeActivityState
 
                 // Track activity state changes for polling interval adaptation
-                // .running means Claude is actively working, .active means PTY exists but idle
-                let wasWorking = previousState == .running
+                // .active means Claude is actively working
+                // When session stops being active, transition to .running (PTY exists, waiting for input)
+                let wasWorking = previousState == .active
                 if !isActive && wasWorking {
                     lastActivityStateChange = Date()
-                    NSLog("📊 Session stopped working, transitioning to idle polling")
+                    NSLog("📊 Claude stopped working, transitioning from .active to .running")
 
-                    // Update workspace to .active (PTY still exists, just not working)
+                    // Update workspace to .running (PTY still exists, just waiting for input)
                     // This ensures determinePollingInterval() sees the correct state
-                    workspace = workspace?.with(claudeActivityState: .active)
+                    workspace = workspace?.with(claudeActivityState: .running)
                 }
 
             }

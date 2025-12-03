@@ -35,6 +35,15 @@ struct WorkspaceDetailView: View {
     @State private var showingPRCreationSheet = false
     @State private var isLandscape = false
     @State private var showPortraitTerminal = false  // Show terminal in portrait mode
+
+    // Codespace shutdown detection
+    @State private var showShutdownAlert = false
+    @State private var shutdownMessage: String?
+    @Environment(\.dismiss) private var dismiss
+
+    // CatnipInstaller for status refresh
+    @StateObject private var installer = CatnipInstaller.shared
+
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @Environment(\.verticalSizeClass) var verticalSizeClass
     @EnvironmentObject var authManager: AuthManager
@@ -186,6 +195,8 @@ struct WorkspaceDetailView: View {
                 await loadWorkspace()
                 poller.start()
 
+                // Note: HealthCheckService is already running - WorkspacesView manages it as a singleton
+
                 // Start PTY after workspace is loaded
                 if let workspace = workspace {
                     Task {
@@ -201,6 +212,8 @@ struct WorkspaceDetailView: View {
             }
             .onDisappear {
                 poller.stop()
+                // Note: We don't stop HealthCheckService here because WorkspacesView manages it.
+                // WorkspacesView is still in the navigation stack when we're viewing a workspace detail.
             }
             .onChange(of: horizontalSizeClass) {
                 updateOrientation()
@@ -276,6 +289,39 @@ struct WorkspaceDetailView: View {
                 if phase == .input {
                     showPromptSheet = true
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .codespaceShutdownDetected)) { notification in
+                // Handle codespace shutdown notification
+                if let message = notification.userInfo?["message"] as? String {
+                    shutdownMessage = message
+                    showShutdownAlert = true
+                }
+            }
+            .alert("Codespace Unavailable", isPresented: $showShutdownAlert) {
+                Button("Reconnect") {
+                    Task {
+                        // CRITICAL: Refresh user status BEFORE navigation
+                        // This triggers worker verification with ?refresh=true
+                        // Rate-limited to prevent abuse (10s server, 10s client)
+                        do {
+                            try await installer.fetchUserStatus(forceRefresh: true)
+                            NSLog("✅ Refreshed user status before reconnect")
+                        } catch {
+                            NSLog("⚠️ Failed to refresh status: \(error)")
+                            // Continue anyway - user will see current state
+                            // Graceful degradation if network fails
+                        }
+
+                        // Reset health check state
+                        await MainActor.run {
+                            HealthCheckService.shared.resetShutdownState()
+                            // Dismiss this view to go back to CodespaceView (via WorkspacesView) with fresh data
+                            dismiss()
+                        }
+                    }
+                }
+            } message: {
+                Text(shutdownMessage ?? "Your codespace has shut down. Tap 'Reconnect' to restart it.")
             }
     }
 
@@ -670,6 +716,13 @@ struct WorkspaceDetailView: View {
                 NSLog("✅ Using pre-loaded workspace data, skipping initial fetch for: \(workspaceId)")
                 determinePhase(for: workspace)
             }
+
+            // Hydrate session data if workspace is in .running or .active state
+            // This ensures context stats and other session info are available immediately
+            if workspace.claudeActivityState == .running || workspace.claudeActivityState == .active {
+                NSLog("📊 Initial hydration: fetching session data for workspace in \(workspace.claudeActivityState?.rawValue ?? "unknown") state")
+                await fetchSessionData()
+            }
             return
         }
 
@@ -695,6 +748,12 @@ struct WorkspaceDetailView: View {
             await MainActor.run {
                 // Poller will manage workspace state
                 determinePhase(for: workspace)
+            }
+
+            // Hydrate session data if workspace is in .running or .active state
+            if workspace.claudeActivityState == .running || workspace.claudeActivityState == .active {
+                NSLog("📊 Initial hydration: fetching session data for workspace in \(workspace.claudeActivityState?.rawValue ?? "unknown") state")
+                await fetchSessionData()
             }
         } catch let apiError as APIError {
             await MainActor.run {
@@ -751,10 +810,13 @@ struct WorkspaceDetailView: View {
         }
 
         // Show "working" phase when:
-        // 1. Claude is .running (actively processing), OR
+        // 1. Claude is .active (actively processing), OR
         // 2. We have a pending prompt (just sent a prompt but backend hasn't updated yet)
-        // Note: .active means PTY exists but Claude isn't actively working - show completed phase
-        if workspace.claudeActivityState == .running || pendingUserPrompt != nil {
+        // State meanings:
+        //   - .inactive: no PTY running
+        //   - .running: PTY up and running, waiting for user action (Claude NOT working)
+        //   - .active: PTY up and Claude is actively working
+        if workspace.claudeActivityState == .active || pendingUserPrompt != nil {
             phase = .working
 
             // Fetch latest message and diff while working
@@ -857,6 +919,25 @@ struct WorkspaceDetailView: View {
         }
     }
 
+    /// Fetch session data to hydrate context stats and other session info
+    private func fetchSessionData() async {
+        do {
+            NSLog("📊 Fetching session data for workspace: \(workspaceId)")
+            let sessionData = try await CatnipAPI.shared.getSessionData(workspaceId: workspaceId)
+
+            await MainActor.run {
+                if let sessionData = sessionData {
+                    poller.updateSessionData(sessionData)
+                    NSLog("✅ Hydrated session data - context tokens: \(sessionData.stats?.lastContextSizeTokens ?? 0)")
+                } else {
+                    NSLog("⚠️ Session data fetch returned nil")
+                }
+            }
+        } catch {
+            NSLog("❌ Failed to fetch session data: \(error.localizedDescription)")
+        }
+    }
+
     private func fetchDiffIfNeeded(for workspace: WorkspaceInfo) async {
         // Only fetch if workspace has changes
         guard (workspace.isDirty == true || (workspace.commitCount ?? 0) > 0) else {
@@ -867,16 +948,16 @@ struct WorkspaceDetailView: View {
         // Skip if we already have a cached diff and Claude is still actively working
         // We want to refetch periodically during active work, but avoid spamming requests
         // When work completes, we'll refetch one final time from the completed phase
-        let isActive = workspace.claudeActivityState == .active
-        if cachedDiff != nil && isActive {
-            NSLog("📊 Diff already cached and workspace still active, skipping fetch to avoid spam")
+        let isActivelyWorking = workspace.claudeActivityState == .active
+        if cachedDiff != nil && isActivelyWorking {
+            NSLog("📊 Diff already cached and Claude still actively working, skipping fetch to avoid spam")
             return
         }
 
-        NSLog("📊 Fetching diff for workspace with changes (dirty: %@, commits: %d, active: %@)",
+        NSLog("📊 Fetching diff for workspace with changes (dirty: %@, commits: %d, activelyWorking: %@)",
               workspace.isDirty.map { "\($0)" } ?? "nil",
               workspace.commitCount ?? 0,
-              isActive ? "yes" : "no")
+              isActivelyWorking ? "yes" : "no")
 
         do {
             let diff = try await CatnipAPI.shared.getWorkspaceDiff(id: workspace.id)
@@ -1135,12 +1216,13 @@ private struct WorkspaceDetailPreview: View {
                 cacheStatus: workspace.cacheStatus
             )
         case .working:
+            // .active means Claude is actively working
             workspace = WorkspaceInfo(
                 id: workspace.id,
                 name: workspace.name,
                 branch: workspace.branch,
                 repoId: workspace.repoId,
-                claudeActivityState: .active,
+                claudeActivityState: .active,  // Claude is actively working
                 commitCount: workspace.commitCount,
                 isDirty: workspace.isDirty,
                 lastAccessed: workspace.lastAccessed,

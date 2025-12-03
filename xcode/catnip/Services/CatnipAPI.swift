@@ -385,15 +385,39 @@ class CatnipAPI: ObservableObject {
                 throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
             }
 
+            NSLog("📊 GET /v1/git/worktrees/\(id)/diff - Status: \(httpResponse.statusCode), Data size: \(data.count) bytes")
+
             if httpResponse.statusCode != 200 {
                 let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                NSLog("❌ Diff request failed with status \(httpResponse.statusCode): \(errorMessage)")
                 throw APIError.serverError(httpResponse.statusCode, errorMessage)
             }
 
+            // Log raw response for debugging
+            if data.isEmpty {
+                NSLog("⚠️ Diff response is empty (0 bytes) - this may cause decoding to fail")
+            }
+            if let jsonString = String(data: data, encoding: .utf8) {
+                NSLog("📊 Diff response preview: \(jsonString.prefix(200))...")
+            }
+
             let diffResponse = try decoder.decode(WorktreeDiffResponse.self, from: data)
-            print("🐱 Loaded diff for workspace \(id): \(diffResponse.totalFiles) files")
+            NSLog("✅ Decoded diff for workspace \(id): \(diffResponse.totalFiles) files")
             return diffResponse
         } catch let error as DecodingError {
+            NSLog("❌ Diff decoding error: \(error)")
+            switch error {
+            case .dataCorrupted(let context):
+                NSLog("  - Data corrupted: \(context.debugDescription)")
+            case .keyNotFound(let key, let context):
+                NSLog("  - Key '\(key.stringValue)' not found: \(context.debugDescription)")
+            case .typeMismatch(let type, let context):
+                NSLog("  - Type mismatch for \(type): \(context.debugDescription)")
+            case .valueNotFound(let type, let context):
+                NSLog("  - Value not found for \(type): \(context.debugDescription)")
+            @unknown default:
+                NSLog("  - Unknown decoding error: \(error)")
+            }
             throw APIError.decodingError(error)
         } catch let error as APIError {
             throw error
