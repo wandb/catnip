@@ -14,6 +14,8 @@ struct DiffFileView: View {
     private let maxAutoExpandLines = 500
     private let stats: FileDiffStats
 
+    @Environment(\.colorScheme) private var colorScheme
+
     init(fileDiff: FileDiff, initiallyExpanded: Bool = false) {
         self.fileDiff = fileDiff
         self.stats = DiffParser.calculateStats(fileDiff.diffText ?? "")
@@ -168,10 +170,8 @@ struct DiffFileView: View {
                     .foregroundStyle(lineColor(for: line.type))
                     .frame(width: 16)
 
-                // Content (no wrapping)
-                Text(line.content.isEmpty ? " " : line.content)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(lineColor(for: line.type))
+                // Content with syntax highlighting
+                Text(highlightedContent(for: line))
                     .padding(.leading, 4)
                     .padding(.trailing, 12)
                     .background(lineBackground(for: line.type))
@@ -205,6 +205,33 @@ struct DiffFileView: View {
         }
         .buttonStyle(.plain)
         .background(Color(uiColor: .tertiarySystemBackground).opacity(0.5))
+    }
+
+    // MARK: - Syntax Highlighting
+
+    /// Apply syntax highlighting to line content
+    private func highlightedContent(for line: DiffLine) -> AttributedString {
+        // Use empty string as placeholder for empty lines
+        let content = line.content.isEmpty ? " " : line.content
+
+        // Only apply syntax highlighting if we have a language
+        guard let language = fileDiff.language else {
+            var attr = AttributedString(content)
+            attr.font = .system(.caption, design: .monospaced)
+            attr.foregroundColor = lineColor(for: line.type)
+            return attr
+        }
+
+        // Get highlighted code from SyntaxHighlighter
+        // The background colors (green/red) will show the diff,
+        // while the syntax highlighting colors show the code structure
+        let highlighted = SyntaxHighlighter.shared.highlight(
+            code: content,
+            language: language,
+            colorScheme: colorScheme
+        )
+
+        return highlighted
     }
 
     // MARK: - Style Helpers

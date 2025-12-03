@@ -70,6 +70,12 @@ struct FileDiff: Codable, Identifiable {
         case diffText = "diff_text"
         case isExpanded = "is_expanded"
     }
+
+    /// Detect syntax highlighting language from file path
+    /// Uses LanguageDetector service based on GitHub Linguist data
+    var language: String? {
+        LanguageDetector.detectLanguage(from: filePath)
+    }
 }
 
 // MARK: - Diff Parsing Models
