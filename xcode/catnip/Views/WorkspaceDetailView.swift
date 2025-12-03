@@ -722,12 +722,10 @@ struct WorkspaceDetailView: View {
                 determinePhase(for: workspace)
             }
 
-            // Hydrate session data if workspace is in .running or .active state
-            // This ensures context stats and other session info are available immediately
-            if workspace.claudeActivityState == .running || workspace.claudeActivityState == .active {
-                NSLog("📊 Initial hydration: fetching session data for workspace in \(workspace.claudeActivityState?.rawValue ?? "unknown") state")
-                await fetchSessionData()
-            }
+            // Always hydrate session data on initial load
+            // API will return appropriate data based on whether a session exists
+            NSLog("📊 Initial hydration: fetching session data for workspace")
+            await fetchSessionData()
             return
         }
 
@@ -755,11 +753,10 @@ struct WorkspaceDetailView: View {
                 determinePhase(for: workspace)
             }
 
-            // Hydrate session data if workspace is in .running or .active state
-            if workspace.claudeActivityState == .running || workspace.claudeActivityState == .active {
-                NSLog("📊 Initial hydration: fetching session data for workspace in \(workspace.claudeActivityState?.rawValue ?? "unknown") state")
-                await fetchSessionData()
-            }
+            // Always hydrate session data on initial load
+            // API will return appropriate data based on whether a session exists
+            NSLog("📊 Initial hydration: fetching session data for workspace")
+            await fetchSessionData()
         } catch let apiError as APIError {
             await MainActor.run {
                 NSLog("❌ API error fetching workspace \(workspaceId): \(apiError.errorDescription ?? "unknown")")
