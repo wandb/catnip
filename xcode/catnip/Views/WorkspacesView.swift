@@ -32,6 +32,7 @@ struct WorkspacesView: View {
     // Codespace shutdown detection
     @State private var showShutdownAlert = false
     @State private var shutdownMessage: String?
+    @State private var isReconnecting = false  // Track if we're in reconnection flow
     @Environment(\.dismiss) private var dismiss
 
     // CatnipInstaller for status refresh
@@ -82,18 +83,26 @@ struct WorkspacesView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .codespaceShutdownDetected)) { notification in
             // Handle codespace shutdown notification
-            if let message = notification.userInfo?["message"] as? String {
+            // Only show alert if we're not already in reconnection flow
+            if !isReconnecting, let message = notification.userInfo?["message"] as? String {
                 shutdownMessage = message
                 showShutdownAlert = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .shouldReconnectToCodespace)) { _ in
+            // Mark as reconnecting to suppress duplicate alerts
+            isReconnecting = true
             // Dismiss when reconnection is triggered from child view
             dismiss()
         }
         .alert("Codespace Unavailable", isPresented: $showShutdownAlert) {
             Button("Reconnect") {
                 Task {
+                    // Mark as reconnecting to prevent re-showing alert
+                    await MainActor.run {
+                        isReconnecting = true
+                    }
+
                     // CRITICAL: Refresh user status BEFORE navigation
                     // This triggers worker verification with ?refresh=true
                     // Rate-limited to prevent abuse (10s server, 10s client)
