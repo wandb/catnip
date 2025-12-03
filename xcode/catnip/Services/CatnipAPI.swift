@@ -222,23 +222,32 @@ class CatnipAPI: ObservableObject {
         }
     }
 
-    /// Fetch session data for a specific workspace - lightweight polling endpoint
+    /// Fetch session data for a specific workspace - lightweight polling endpoint with ETag support
     /// This endpoint returns latest user prompt, latest message, latest thought, and session stats
     /// Use this for polling during active sessions instead of the heavier /v1/git/worktrees endpoint
-    func getSessionData(workspaceId: String) async throws -> SessionData? {
+    /// Returns nil if 304 Not Modified (data unchanged)
+    func getSessionData(workspaceId: String, ifNoneMatch: String? = nil) async throws -> (sessionData: SessionData, etag: String?)? {
         // Return mock data in UI testing mode
         if UITestingHelper.shouldUseMockData {
-            return UITestingHelper.getMockSessionData(workspacePath: workspaceId)
+            if let mockData = UITestingHelper.getMockSessionData(workspacePath: workspaceId) {
+                return (sessionData: mockData, etag: "mock-etag")
+            }
+            return nil
         }
 
-        let headers = try await getHeaders(includeCodespace: true)
+        var headers = try await getHeaders(includeCodespace: true)
+
+        // Add If-None-Match header if ETag is provided
+        if let etag = ifNoneMatch {
+            headers["If-None-Match"] = etag
+        }
 
         // Use workspace ID (UUID) in URL path - simple and clean
         guard let url = URL(string: "\(baseURL)/v1/sessions/workspace/\(workspaceId)") else {
             throw APIError.invalidURL
         }
 
-        NSLog("📊 [CatnipAPI] Fetching session data from: \(url.absoluteString)")
+        NSLog("📊 [CatnipAPI] Fetching session data from: \(url.absoluteString)\(ifNoneMatch != nil ? " (with ETag)" : "")")
 
         var request = URLRequest(url: url)
         request.allHTTPHeaderFields = headers
@@ -247,6 +256,12 @@ class CatnipAPI: ObservableObject {
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
+        }
+
+        // Handle 304 Not Modified - data unchanged
+        if httpResponse.statusCode == 304 {
+            NSLog("📊 [CatnipAPI] Session data unchanged (304 Not Modified)")
+            return nil  // Return nil to indicate no change
         }
 
         if httpResponse.statusCode == 404 {
@@ -259,7 +274,10 @@ class CatnipAPI: ObservableObject {
         }
 
         do {
-            return try decoder.decode(SessionData.self, from: data)
+            let sessionData = try decoder.decode(SessionData.self, from: data)
+            // Extract ETag from response headers
+            let etag = httpResponse.value(forHTTPHeaderField: "ETag")
+            return (sessionData: sessionData, etag: etag)
         } catch {
             NSLog("❌ [CatnipAPI] Failed to decode SessionData: \(error)")
             throw error
@@ -385,15 +403,39 @@ class CatnipAPI: ObservableObject {
                 throw APIError.networkError(NSError(domain: "Invalid response", code: -1))
             }
 
+            NSLog("📊 GET /v1/git/worktrees/\(id)/diff - Status: \(httpResponse.statusCode), Data size: \(data.count) bytes")
+
             if httpResponse.statusCode != 200 {
                 let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                NSLog("❌ Diff request failed with status \(httpResponse.statusCode): \(errorMessage)")
                 throw APIError.serverError(httpResponse.statusCode, errorMessage)
             }
 
+            // Log raw response for debugging
+            if data.isEmpty {
+                NSLog("⚠️ Diff response is empty (0 bytes) - this may cause decoding to fail")
+            }
+            if let jsonString = String(data: data, encoding: .utf8) {
+                NSLog("📊 Diff response preview: \(jsonString.prefix(200))...")
+            }
+
             let diffResponse = try decoder.decode(WorktreeDiffResponse.self, from: data)
-            print("🐱 Loaded diff for workspace \(id): \(diffResponse.totalFiles) files")
+            NSLog("✅ Decoded diff for workspace \(id): \(diffResponse.totalFiles) files")
             return diffResponse
         } catch let error as DecodingError {
+            NSLog("❌ Diff decoding error: \(error)")
+            switch error {
+            case .dataCorrupted(let context):
+                NSLog("  - Data corrupted: \(context.debugDescription)")
+            case .keyNotFound(let key, let context):
+                NSLog("  - Key '\(key.stringValue)' not found: \(context.debugDescription)")
+            case .typeMismatch(let type, let context):
+                NSLog("  - Type mismatch for \(type): \(context.debugDescription)")
+            case .valueNotFound(let type, let context):
+                NSLog("  - Value not found for \(type): \(context.debugDescription)")
+            @unknown default:
+                NSLog("  - Unknown decoding error: \(error)")
+            }
             throw APIError.decodingError(error)
         } catch let error as APIError {
             throw error

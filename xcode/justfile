@@ -6,7 +6,7 @@ build:
         -project catnip.xcodeproj \
         -scheme catnip \
         -configuration Debug \
-        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -sdk iphonesimulator \
         clean build \
         SWIFT_SUPPRESS_WARNINGS=NO \
         GCC_WARN_INHIBIT_ALL_WARNINGS=NO \
@@ -20,7 +20,7 @@ build-quick:
         -project catnip.xcodeproj \
         -scheme catnip \
         -configuration Debug \
-        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -sdk iphonesimulator \
         build \
         2>&1 | tee /tmp/xcode-build-quick.log
 
@@ -30,7 +30,7 @@ analyze:
         -project catnip.xcodeproj \
         -scheme catnip \
         -configuration Debug \
-        -destination 'platform=iOS Simulator,name=iPhone 16 Pro' \
+        -sdk iphonesimulator \
         analyze \
         RUN_CLANG_STATIC_ANALYZER=YES \
         2>&1 | tee /tmp/xcode-analyze.log

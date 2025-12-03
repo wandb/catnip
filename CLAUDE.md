@@ -23,3 +23,4 @@ Supplemental guidance for Anthropic Claude when working in this repository. Read
 - Link back to the relevant section in `AGENTS.md` instead of duplicating content
 - Ask the user for clarification whenever expectations conflict or the repository appears out of sync with the documented workflows
 - When working with our catnip-dev docker container, dont restart or mess with the catnip process. Air is configured to rebuild and restart when changes are made. If you can build the app locally, air has already done it in the container and we can proceed.
+- When checking if swift changes build successfully use `just build` or `just build-quick` from within the xcode directory.

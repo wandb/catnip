@@ -27,6 +27,30 @@ struct WorktreeDiffResponse: Codable {
         case sourceBranch = "source_branch"
         case forkCommit = "fork_commit"
     }
+
+    // Regular initializer for creating instances (e.g., in tests/previews)
+    init(summary: String, fileDiffs: [FileDiff], totalFiles: Int, worktreeId: String, worktreeName: String, sourceBranch: String, forkCommit: String) {
+        self.summary = summary
+        self.fileDiffs = fileDiffs
+        self.totalFiles = totalFiles
+        self.worktreeId = worktreeId
+        self.worktreeName = worktreeName
+        self.sourceBranch = sourceBranch
+        self.forkCommit = forkCommit
+    }
+
+    // Custom decoder to handle null file_diffs from backend
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(String.self, forKey: .summary)
+        // If file_diffs is null, default to empty array
+        fileDiffs = try container.decodeIfPresent([FileDiff].self, forKey: .fileDiffs) ?? []
+        totalFiles = try container.decode(Int.self, forKey: .totalFiles)
+        worktreeId = try container.decode(String.self, forKey: .worktreeId)
+        worktreeName = try container.decode(String.self, forKey: .worktreeName)
+        sourceBranch = try container.decode(String.self, forKey: .sourceBranch)
+        forkCommit = try container.decode(String.self, forKey: .forkCommit)
+    }
 }
 
 struct FileDiff: Codable, Identifiable {

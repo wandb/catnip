@@ -2439,6 +2439,7 @@ paths:
     get:
       description: Returns session information for a specific workspace. Accepts workspace
         ID (UUID) or path. Use ?full=true for complete session data including messages.
+        Supports conditional requests via If-None-Match header for efficient polling.
       parameters:
       - description: Workspace ID (UUID) or directory path
         in: path
@@ -2449,6 +2450,10 @@ paths:
         in: query
         name: full
         type: boolean
+      - description: ETag from previous request
+        in: header
+        name: If-None-Match
+        type: string
       produces:
       - application/json
       responses:
@@ -2456,6 +2461,8 @@ paths:
           description: Basic session info when full=false
           schema:
             $ref: '#/definitions/internal_handlers.ActiveSessionInfo'
+        "304":
+          description: Not Modified - content unchanged
       summary: Get session by workspace
       tags:
       - sessions
