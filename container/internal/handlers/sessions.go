@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -52,6 +55,19 @@ func NewSessionsHandler(sessionService *services.SessionService, claudeService *
 	}
 }
 
+// generateSessionDataETag generates an ETag hash from session data
+func generateSessionDataETag(sessionData interface{}) (string, error) {
+	// Marshal the session data to JSON for consistent hashing
+	data, err := json.Marshal(sessionData)
+	if err != nil {
+		return "", err
+	}
+
+	// Generate SHA-256 hash
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:]), nil
+}
+
 // GetActiveSessions returns all active sessions
 // @Summary Get active sessions
 // @Description Returns all active sessions (not ended)
@@ -78,12 +94,14 @@ func (h *SessionsHandler) GetAllSessions(c *fiber.Ctx) error {
 
 // GetSessionByWorkspace returns session for a specific workspace
 // @Summary Get session by workspace
-// @Description Returns session information for a specific workspace. Accepts workspace ID (UUID) or path. Use ?full=true for complete session data including messages.
+// @Description Returns session information for a specific workspace. Accepts workspace ID (UUID) or path. Use ?full=true for complete session data including messages. Supports conditional requests via If-None-Match header for efficient polling.
 // @Tags sessions
 // @Produce json
 // @Param workspace path string true "Workspace ID (UUID) or directory path"
 // @Param full query boolean false "Include full session data with messages and user prompts"
+// @Param If-None-Match header string false "ETag from previous request"
 // @Success 200 {object} ActiveSessionInfo "Basic session info when full=false"
+// @Success 304 "Not Modified - content unchanged"
 // @Router /v1/sessions/workspace/{workspace} [get]
 func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 	// Get workspace from path parameter
@@ -109,43 +127,42 @@ func (h *SessionsHandler) GetSessionByWorkspace(c *fiber.Ctx) error {
 	fullParam := c.Query("full", "false")
 	includeFull := fullParam == "true"
 
-	if includeFull {
-		// Return full session data using Claude service
-		fullData, err := h.claudeService.GetFullSessionData(worktreePath, true)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{
-				"error":   "Failed to get full session data",
-				"details": err.Error(),
-			})
-		}
+	// Get session data
+	fullData, err := h.claudeService.GetFullSessionData(worktreePath, includeFull)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{
+			"error":   "Failed to get session data",
+			"details": err.Error(),
+		})
+	}
 
-		if fullData == nil {
-			return c.Status(404).JSON(fiber.Map{
-				"error": "Session not found for workspace",
-			})
-		}
+	if fullData == nil {
+		return c.Status(404).JSON(fiber.Map{
+			"error": "Session not found for workspace",
+		})
+	}
 
-		return c.JSON(fullData)
-	} else {
-		// Return session data with latest prompt/message/stats but without full message history
-		// The full=false mode still includes latestUserPrompt, latestMessage, latestThought, stats
-		// It just omits the Messages and UserPrompts arrays
-		fullData, err := h.claudeService.GetFullSessionData(worktreePath, false)
-		if err != nil {
-			return c.Status(500).JSON(fiber.Map{
-				"error":   "Failed to get session data",
-				"details": err.Error(),
-			})
-		}
-
-		if fullData == nil {
-			return c.Status(404).JSON(fiber.Map{
-				"error": "Session not found for workspace",
-			})
-		}
-
+	// Generate ETag from the session data
+	etag, err := generateSessionDataETag(fullData)
+	if err != nil {
+		// Log error but continue without ETag support
+		// Don't fail the request just because ETag generation failed
 		return c.JSON(fullData)
 	}
+
+	// Check If-None-Match header for conditional request
+	clientETag := c.Get("If-None-Match")
+	if clientETag != "" && clientETag == etag {
+		// Content hasn't changed, return 304 Not Modified
+		c.Set("ETag", etag)
+		c.Set("Cache-Control", "no-cache") // Must revalidate, but cacheable
+		return c.SendStatus(fiber.StatusNotModified)
+	}
+
+	// Content has changed or no ETag provided, return full response with ETag
+	c.Set("ETag", etag)
+	c.Set("Cache-Control", "no-cache") // Must revalidate, but cacheable
+	return c.JSON(fullData)
 }
 
 // DeleteSession removes a session

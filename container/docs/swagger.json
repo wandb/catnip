@@ -1701,7 +1701,7 @@
         },
         "/v1/sessions/workspace/{workspace}": {
             "get": {
-                "description": "Returns session information for a specific workspace. Accepts workspace ID (UUID) or path. Use ?full=true for complete session data including messages.",
+                "description": "Returns session information for a specific workspace. Accepts workspace ID (UUID) or path. Use ?full=true for complete session data including messages. Supports conditional requests via If-None-Match header for efficient polling.",
                 "produces": [
                     "application/json"
                 ],
@@ -1722,6 +1722,12 @@
                         "description": "Include full session data with messages and user prompts",
                         "name": "full",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ETag from previous request",
+                        "name": "If-None-Match",
+                        "in": "header"
                     }
                 ],
                 "responses": {
@@ -1730,6 +1736,9 @@
                         "schema": {
                             "$ref": "#/definitions/internal_handlers.ActiveSessionInfo"
                         }
+                    },
+                    "304": {
+                        "description": "Not Modified - content unchanged"
                     }
                 }
             },
