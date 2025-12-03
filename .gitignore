@@ -48,6 +48,9 @@ worker/**/*.js.map
 # secrets
 *.pem
 
+# binaries
+container/capture-pty
+
 # reference files
 reference
 container/Dockerfile.backup
