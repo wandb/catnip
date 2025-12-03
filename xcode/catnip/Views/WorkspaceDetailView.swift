@@ -1429,6 +1429,7 @@ private struct WorkspaceDetailPreview: View {
 
 struct MarkdownText: View {
     let markdown: String
+    @Environment(\.colorScheme) private var colorScheme
 
     init(_ markdown: String) {
         self.markdown = markdown
@@ -1438,6 +1439,24 @@ struct MarkdownText: View {
         Markdown(markdown)
             .markdownTextStyle(\.text) {
                 FontSize(15)
+            }
+            .markdownBlockStyle(\.codeBlock) { configuration in
+                ScrollView(.horizontal, showsIndicators: true) {
+                    configuration.label
+                        .relativeLineSpacing(.em(0.225))
+                        .markdownTextStyle {
+                            FontFamilyVariant(.monospaced)
+                            FontSize(.em(0.85))
+                        }
+                        .textSelection(.enabled)
+                        .padding(AppTheme.Spacing.md)
+                }
+                .background(AppTheme.Colors.SyntaxHighlighting.background(for: colorScheme))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.Spacing.Radius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.Spacing.Radius.md)
+                        .strokeBorder(AppTheme.Colors.Separator.primary, lineWidth: 0.5)
+                )
             }
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1563,6 +1582,107 @@ private struct WorkspaceDiffViewerPreviewContent: View {
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
+    }
+}
+
+// MARK: - MarkdownText Previews
+
+#Preview("Workspace Detail with Code Blocks - Light") {
+    NavigationStack {
+        WorkspaceDetailCodeBlockPreview(workspace: .previewWithCodeBlocks, phase: .completed)
+    }
+    .preferredColorScheme(.light)
+}
+
+#Preview("Workspace Detail with Code Blocks - Dark") {
+    NavigationStack {
+        WorkspaceDetailCodeBlockPreview(workspace: .previewWithCodeBlocks, phase: .completed)
+    }
+    .preferredColorScheme(.dark)
+}
+
+// Helper preview for workspace with code blocks
+private struct WorkspaceDetailCodeBlockPreview: View {
+    let workspace: WorkspaceInfo
+    let phase: WorkspacePhase
+
+    @State private var currentPhase: WorkspacePhase
+    @State private var showSheet = false
+    @State private var previewPrompt = ""
+
+    init(workspace: WorkspaceInfo, phase: WorkspacePhase) {
+        self.workspace = workspace
+        self.phase = phase
+        _currentPhase = State(initialValue: phase)
+    }
+
+    var body: some View {
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    if currentPhase == .completed {
+                        completedSectionPreview
+                    }
+                }
+                .padding(16)
+            }
+        }
+        .navigationTitle(workspace.latestSessionTitle ?? workspace.displayName)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var completedSectionPreview: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Session content with padding
+            VStack(alignment: .leading, spacing: 16) {
+                // User prompt
+                if let userPrompt = workspace.latestUserPrompt, !userPrompt.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("You asked:")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        Text(userPrompt)
+                            .font(.body)
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .tertiarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                // Claude's response with code blocks
+                if let claudeMessage = workspace.latestClaudeMessage, !claudeMessage.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Claude responded:")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+
+                        EnhancedMarkdownText(claudeMessage)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .tertiarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                if let todos = workspace.todos {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Tasks:")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.secondary)
+
+                        TodoListView(todos: todos)
+                    }
+                }
+            }
+        }
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 #endif

@@ -76,6 +76,96 @@ extension WorkspaceInfo {
         cacheStatus: nil
     )
 
+    static let previewWithCodeBlocks = WorkspaceInfo(
+        id: "workspace-code",
+        name: "feature-markdown-highlighting",
+        branch: "feature/markdown-code",
+        repoId: "wandb/catnip",
+        claudeActivityState: .running,
+        commitCount: 2,
+        isDirty: true,
+        lastAccessed: ISO8601DateFormatter().string(from: Date()),
+        createdAt: ISO8601DateFormatter().string(from: Date().addingTimeInterval(-7200)),
+        todos: [
+            Todo(content: "Add syntax highlighting theme", status: .completed, activeForm: "Adding syntax highlighting theme"),
+            Todo(content: "Update MarkdownText component", status: .inProgress, activeForm: "Updating MarkdownText component"),
+            Todo(content: "Test in light and dark modes", status: .pending, activeForm: "Testing in light and dark modes")
+        ],
+        latestSessionTitle: "Enhanced Markdown Code Block Styling",
+        latestUserPrompt: "Can you add better styling for code blocks in our markdown rendering?",
+        latestClaudeMessage: """
+        I've added enhanced code block styling to the MarkdownText component! Here's what I implemented:
+
+        ## Swift Code Example
+
+        ```swift
+        import SwiftUI
+
+        struct MarkdownText: View {
+            let markdown: String
+            @Environment(\\.colorScheme) private var colorScheme
+
+            var body: some View {
+                Markdown(markdown)
+                    .markdownBlockStyle(\\.codeBlock) { configuration in
+                        ScrollView(.horizontal) {
+                            configuration.label
+                                .padding(AppTheme.Spacing.md)
+                        }
+                        .background(backgroundColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+            }
+        }
+        ```
+
+        ## Python Example
+
+        ```python
+        def calculate_fibonacci(n):
+            '''Calculate nth Fibonacci number using dynamic programming.'''
+            if n <= 1:
+                return n
+
+            fib = [0, 1]
+            for i in range(2, n + 1):
+                fib.append(fib[i-1] + fib[i-2])
+
+            return fib[n]
+
+        # Example usage
+        result = calculate_fibonacci(10)
+        print(f"The 10th Fibonacci number is: {result}")
+        ```
+
+        ## JSON Configuration
+
+        ```json
+        {
+          "theme": {
+            "codeBlock": {
+              "backgroundColor": "#f7f7f7",
+              "borderRadius": 8,
+              "padding": 16
+            },
+            "syntax": {
+              "keyword": "#ad3da4",
+              "string": "#d12f1b",
+              "comment": "#5d6c79"
+            }
+          }
+        }
+        ```
+
+        The code blocks now have proper backgrounds, rounded corners, and horizontal scrolling for long lines!
+        """,
+        pullRequestUrl: nil,
+        pullRequestState: nil,
+        hasCommitsAheadOfRemote: nil,
+        path: "/workspaces/catnip/feature-markdown-code",
+        cacheStatus: nil
+    )
+
     static let previewList = [preview1, preview2, preview3]
 }
 

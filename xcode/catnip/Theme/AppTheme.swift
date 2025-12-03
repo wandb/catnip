@@ -68,6 +68,19 @@ struct AppTheme {
             static let background = Color(uiColor: .systemFill)
             static let tint = Color.blue
         }
+
+        // Syntax highlighting theme support
+        struct SyntaxHighlighting {
+            // Light theme background (Xcode-inspired)
+            static let lightBackground = Color(hex: "f7f7f7")
+
+            // Dark theme background (Xcode-inspired)
+            static let darkBackground = Color(hex: "1f1f24")
+
+            static func background(for colorScheme: ColorScheme) -> Color {
+                colorScheme == .dark ? darkBackground : lightBackground
+            }
+        }
     }
 
     // MARK: - Typography

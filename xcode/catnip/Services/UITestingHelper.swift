@@ -86,6 +86,8 @@ struct UITestingHelper {
         }
 
         return [
+            // Use the preview with code blocks as the first workspace for screenshot tests
+            WorkspaceInfo.previewWithCodeBlocks,
             WorkspaceInfo(
                 id: "mock-ws-1",
                 name: "feature-authentication",

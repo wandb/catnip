@@ -12,6 +12,7 @@
 		34502E4A2EAA9CAC00575EEA /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 34502E492EAA9CAC00575EEA /* WidgetKit.framework */; };
 		34502E4C2EAA9CAC00575EEA /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 34502E4B2EAA9CAC00575EEA /* SwiftUI.framework */; };
 		34502E5B2EAA9CAD00575EEA /* CatnipWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 34502E472EAA9CAC00575EEA /* CatnipWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		345F53072EE09EA0000702ED /* Highlightr in Frameworks */ = {isa = PBXBuildFile; productRef = 345F53062EE09EA0000702ED /* Highlightr */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -133,6 +134,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				34502CF42E99B32C00575EEA /* SwiftTerm in Frameworks */,
+				345F53072EE09EA0000702ED /* Highlightr in Frameworks */,
 				34502CF92E9DD77B00575EEA /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -233,6 +235,7 @@
 			packageProductDependencies = (
 				34502CF32E99B32C00575EEA /* SwiftTerm */,
 				34502CF82E9DD77B00575EEA /* MarkdownUI */,
+				345F53062EE09EA0000702ED /* Highlightr */,
 			);
 			productName = catnip;
 			productReference = 346BB06C2E931364000F5DA0 /* Catnip.app */;
@@ -322,6 +325,7 @@
 			packageReferences = (
 				34502CF22E99B32C00575EEA /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				34502CF72E9DD77B00575EEA /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				345F53052EE09EA0000702ED /* XCRemoteSwiftPackageReference "Highlightr" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 346BB06D2E931364000F5DA0 /* Products */;
@@ -831,6 +835,14 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		345F53052EE09EA0000702ED /* XCRemoteSwiftPackageReference "Highlightr" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/raspu/Highlightr";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.3.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -843,6 +855,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 34502CF72E9DD77B00575EEA /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 			productName = MarkdownUI;
+		};
+		345F53062EE09EA0000702ED /* Highlightr */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 345F53052EE09EA0000702ED /* XCRemoteSwiftPackageReference "Highlightr" */;
+			productName = Highlightr;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
