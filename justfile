@@ -6,6 +6,14 @@
 # - Use 'build-apple' as a convenience alias for Apple Container SDK
 # - Use 'container-start/stop/status' to manage Apple Container system
 
+# Build the keepalive container for CloudFlare Workers
+build-keepalive:
+    @echo "🫀 Building keepalive container..."
+    docker build -f containers/keepalive/Dockerfile -t keepalive:latest containers/keepalive
+    @echo "✅ Keepalive container built successfully!"
+    @echo "   Tag: keepalive:latest"
+    @echo "   Test with: docker run --rm -p 8080:8080 keepalive:latest"
+
 # Build the catnip container for the current platform - supports both Docker and Apple Container SDK
 # Usage: just build-container [TAG] [CPUS] [MEMORY] [ARGS...]
 # Examples:

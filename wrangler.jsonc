@@ -34,7 +34,7 @@
   "observability": {
     "enabled": true,
   },
-  // TEMPORARY: Container support disabled to avoid building/uploading container
+  // TEMPORARY: CatnipContainer disabled to avoid building/uploading main container
   // "containers": [
   //   {
   //     "class_name": "CatnipContainer",
@@ -43,13 +43,29 @@
   //     "image": "./Dockerfile",
   //   },
   // ],
+  "containers": [
+    {
+      "class_name": "KeepAliveContainer",
+      "max_instances": 5,
+      "name": "keepalive-container",
+      "image": "./containers/keepalive/Dockerfile",
+    },
+  ],
   "durable_objects": {
     "bindings": [
-      // TEMPORARY: Container binding disabled
+      // TEMPORARY: CatnipContainer binding disabled
       // {
       //   "class_name": "CatnipContainer",
       //   "name": "CATNIP_CONTAINER",
       // },
+      {
+        "class_name": "KeepAliveContainer",
+        "name": "KEEPALIVE_CONTAINER",
+      },
+      {
+        "class_name": "KeepAliveCoordinator",
+        "name": "KEEPALIVE_COORDINATOR",
+      },
       {
         "class_name": "SessionStore",
         "name": "SESSIONS",
@@ -68,6 +84,10 @@
     {
       "new_sqlite_classes": ["CodespaceStore"],
       "tag": "v2",
+    },
+    {
+      "new_sqlite_classes": ["KeepAliveContainer", "KeepAliveCoordinator"],
+      "tag": "v3",
     },
   ],
   /**
@@ -104,11 +124,19 @@
       "routes": [{ "pattern": "qa.catnip.run/*", "zone_name": "catnip.run" }],
       "durable_objects": {
         "bindings": [
-          // TEMPORARY: Container binding disabled
+          // TEMPORARY: CatnipContainer binding disabled
           // {
           //   "class_name": "CatnipContainer",
           //   "name": "CATNIP_CONTAINER",
           // },
+          {
+            "class_name": "KeepAliveContainer",
+            "name": "KEEPALIVE_CONTAINER",
+          },
+          {
+            "class_name": "KeepAliveCoordinator",
+            "name": "KEEPALIVE_COORDINATOR",
+          },
           {
             "class_name": "SessionStore",
             "name": "SESSIONS",
@@ -119,7 +147,7 @@
           },
         ],
       },
-      // TEMPORARY: Container support disabled
+      // TEMPORARY: CatnipContainer disabled
       // "containers": [
       //   {
       //     "class_name": "CatnipContainer",
@@ -128,6 +156,14 @@
       //     "image": "./Dockerfile",
       //   },
       // ],
+      "containers": [
+        {
+          "class_name": "KeepAliveContainer",
+          "max_instances": 5,
+          "name": "keepalive-container",
+          "image": "./containers/keepalive/Dockerfile",
+        },
+      ],
       "migrations": [
         {
           "new_sqlite_classes": ["CatnipContainer", "SessionStore"],
@@ -136,6 +172,10 @@
         {
           "new_sqlite_classes": ["CodespaceStore"],
           "tag": "v2",
+        },
+        {
+          "new_sqlite_classes": ["KeepAliveContainer", "KeepAliveCoordinator"],
+          "tag": "v3",
         },
       ],
     },
@@ -158,11 +198,19 @@
       ],
       "durable_objects": {
         "bindings": [
-          // TEMPORARY: Container binding disabled
+          // TEMPORARY: CatnipContainer binding disabled
           // {
           //   "class_name": "CatnipContainer",
           //   "name": "CATNIP_CONTAINER",
           // },
+          {
+            "class_name": "KeepAliveContainer",
+            "name": "KEEPALIVE_CONTAINER",
+          },
+          {
+            "class_name": "KeepAliveCoordinator",
+            "name": "KEEPALIVE_COORDINATOR",
+          },
           {
             "class_name": "SessionStore",
             "name": "SESSIONS",
@@ -173,7 +221,7 @@
           },
         ],
       },
-      // TEMPORARY: Container support disabled
+      // TEMPORARY: CatnipContainer disabled
       // "containers": [
       //   {
       //     "class_name": "CatnipContainer",
@@ -183,6 +231,14 @@
       //     "instance_type": "standard",
       //   },
       // ],
+      "containers": [
+        {
+          "class_name": "KeepAliveContainer",
+          "max_instances": 5,
+          "name": "keepalive-container",
+          "image": "./containers/keepalive/Dockerfile",
+        },
+      ],
       "observability": {
         "enabled": true,
       },
@@ -194,6 +250,10 @@
         {
           "new_sqlite_classes": ["CodespaceStore"],
           "tag": "v2",
+        },
+        {
+          "new_sqlite_classes": ["KeepAliveContainer", "KeepAliveCoordinator"],
+          "tag": "v3",
         },
       ],
     },

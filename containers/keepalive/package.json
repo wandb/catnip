@@ -1,0 +1,12 @@
+{
+  "name": "catnip-keepalive",
+  "version": "1.0.0",
+  "description": "Keep-alive service for GitHub Codespaces",
+  "main": "server.ts",
+  "scripts": {
+    "start": "bun run server.ts"
+  },
+  "dependencies": {
+    "@types/bun": "latest"
+  }
+}
