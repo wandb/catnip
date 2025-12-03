@@ -13,7 +13,7 @@ struct EnhancedMarkdownText: View {
     let markdown: String
 
     @State private var codeBlocks: [CodeBlockInfo] = []
-    @State private var processedMarkdown: String = ""
+    @State private var renderedSections: [MarkdownSection] = []
 
     init(_ markdown: String) {
         self.markdown = markdown
@@ -22,7 +22,7 @@ struct EnhancedMarkdownText: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Process markdown and render sections
-            ForEach(renderSections(), id: \.id) { section in
+            ForEach(renderedSections, id: \.id) { section in
                 section.view
             }
         }
@@ -37,13 +37,12 @@ struct EnhancedMarkdownText: View {
 
     private func processMarkdown() {
         let result = MarkdownCodeBlockProcessor.extractCodeBlocks(from: markdown)
-        processedMarkdown = result.processedMarkdown
         codeBlocks = result.codeBlocks
+        renderedSections = renderSections()
     }
 
     private func renderSections() -> [MarkdownSection] {
         var sections: [MarkdownSection] = []
-        var remaining = markdown
 
         // Sort code blocks by their position in the original markdown
         let sortedBlocks = codeBlocks.sorted { block1, block2 in

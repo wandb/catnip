@@ -19,11 +19,6 @@ struct LanguageDetector {
         let filename = (filePath as NSString).lastPathComponent
         let ext = (filePath as NSString).pathExtension.lowercased()
 
-        // Check for exact filename matches first (e.g., "Dockerfile", "Makefile")
-        if let language = filenameMap[filename] {
-            return language
-        }
-
         // Check for case-insensitive filename matches
         if let language = filenameMap[filename.lowercased()] {
             return language
@@ -41,18 +36,18 @@ struct LanguageDetector {
 
     /// Map of exact filenames to language identifiers
     /// Based on GitHub Linguist filenames field
+    /// Note: Keys are checked case-insensitively, so lowercase entries are sufficient
     private static let filenameMap: [String: String] = [
         // Docker
-        "Dockerfile": "dockerfile",
-        "Containerfile": "dockerfile",
+        "dockerfile": "dockerfile",
+        "containerfile": "dockerfile",
 
         // Make
-        "Makefile": "makefile",
         "makefile": "makefile",
-        "GNUmakefile": "makefile",
+        "gnumakefile": "makefile",
 
         // CMake
-        "CMakeLists.txt": "cmake",
+        "cmakelists.txt": "cmake",
 
         // Git
         ".gitignore": "gitignore",
@@ -60,21 +55,21 @@ struct LanguageDetector {
         ".gitmodules": "gitconfig",
 
         // Ruby/Rake
-        "Rakefile": "ruby",
-        "Gemfile": "ruby",
-        "Podfile": "ruby",
-        "Vagrantfile": "ruby",
+        "rakefile": "ruby",
+        "gemfile": "ruby",
+        "podfile": "ruby",
+        "vagrantfile": "ruby",
 
         // JavaScript/Node
-        "Gruntfile": "javascript",
-        "Gulpfile": "javascript",
+        "gruntfile": "javascript",
+        "gulpfile": "javascript",
 
         // Python
-        "Pipfile": "toml",
+        "pipfile": "toml",
 
         // Other
-        "BUILD": "python",  // Bazel
-        "WORKSPACE": "python",  // Bazel
+        "build": "python",  // Bazel
+        "workspace": "python",  // Bazel
     ]
 
     /// Map of file extensions to language identifiers

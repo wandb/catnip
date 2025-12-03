@@ -114,6 +114,16 @@ final class LanguageDetectorTests: XCTestCase {
         XCTAssertEqual(LanguageDetector.detectLanguage(from: "config.xml"), "xml")
     }
 
+    // MARK: - Multi-Dot Filename Tests
+
+    func testMultipleDotFilenames() {
+        XCTAssertEqual(LanguageDetector.detectLanguage(from: "app.test.ts"), "typescript")
+        XCTAssertEqual(LanguageDetector.detectLanguage(from: "script.test.js"), "javascript")
+        XCTAssertEqual(LanguageDetector.detectLanguage(from: "Dockerfile.production"), nil)
+        XCTAssertEqual(LanguageDetector.detectLanguage(from: "component.spec.tsx"), "typescript")
+        XCTAssertEqual(LanguageDetector.detectLanguage(from: "config.local.json"), "json")
+    }
+
     // MARK: - Dictionary Integrity Tests
 
     /// This test verifies that there are no duplicate keys in our extension map
