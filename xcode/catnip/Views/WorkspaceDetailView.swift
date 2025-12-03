@@ -922,17 +922,19 @@ struct WorkspaceDetailView: View {
     }
 
     /// Fetch session data to hydrate context stats and other session info
+    /// Initial fetch doesn't use ETag - we always want fresh data on first load
     private func fetchSessionData() async {
         do {
             NSLog("📊 Fetching session data for workspace: \(workspaceId)")
-            let sessionData = try await CatnipAPI.shared.getSessionData(workspaceId: workspaceId)
+            // Don't pass ETag for initial fetch - we want fresh data
+            let result = try await CatnipAPI.shared.getSessionData(workspaceId: workspaceId, ifNoneMatch: nil)
 
             await MainActor.run {
-                if let sessionData = sessionData {
-                    poller.updateSessionData(sessionData)
-                    NSLog("✅ Hydrated session data - context tokens: \(sessionData.stats?.lastContextSizeTokens ?? 0)")
+                if let result = result {
+                    poller.updateSessionData(result.sessionData)
+                    NSLog("✅ Hydrated session data - context tokens: \(result.sessionData.stats?.lastContextSizeTokens ?? 0)")
                 } else {
-                    NSLog("⚠️ Session data fetch returned nil")
+                    NSLog("⚠️ Session data fetch returned nil (no session yet)")
                 }
             }
         } catch {

@@ -53,7 +53,8 @@ class WorkspacePoller: ObservableObject {
     private let workspaceId: String
     private var pollingTask: Task<Void, Never>?
     private var appStateObserver: NSObjectProtocol?
-    private var lastETag: String?
+    private var lastETag: String?  // ETag for workspace data polling
+    private var lastSessionETag: String?  // ETag for session data polling
     private var lastActivityStateChange: Date = Date()
     private var previousActivityState: ClaudeActivityState?
     private var hasPolledAfterTransition = false  // Track if we've done the one-time poll after .active→.running/.inactive
@@ -192,35 +193,42 @@ class WorkspacePoller: ObservableObject {
         }
     }
 
-    /// Poll the lightweight session endpoint for active sessions
+    /// Poll the lightweight session endpoint for active sessions with ETag support
     private func pollSessionData() async {
         do {
-            let newSessionData = try await CatnipAPI.shared.getSessionData(workspaceId: workspaceId)
+            let result = try await CatnipAPI.shared.getSessionData(
+                workspaceId: workspaceId,
+                ifNoneMatch: lastSessionETag
+            )
 
-            if let sessionData = newSessionData {
-                self.sessionData = sessionData
-                lastUpdate = Date()
-                error = nil
-
-                // Check if session is still active based on session info
-                let isActive = sessionData.sessionInfo?.isActive ?? false
-                let previousState = workspace?.claudeActivityState
-
-                // Track activity state changes for polling interval adaptation
-                // .active means Claude is actively working
-                // When session stops being active, transition to .running (PTY exists, waiting for input)
-                let wasWorking = previousState == .active
-                if !isActive && wasWorking {
-                    lastActivityStateChange = Date()
-                    NSLog("📊 Claude stopped working, transitioning from .active to .running")
-
-                    // Update workspace to .running (PTY still exists, just waiting for input)
-                    // This ensures determinePollingInterval() sees the correct state
-                    workspace = workspace?.with(claudeActivityState: .running)
-                }
-
+            // Handle 304 Not Modified - data unchanged
+            guard let result = result else {
+                NSLog("📊 Session data unchanged (304 Not Modified), keeping existing data")
+                return
             }
 
+            // Update with new session data and ETag
+            self.sessionData = result.sessionData
+            lastSessionETag = result.etag
+            lastUpdate = Date()
+            error = nil
+
+            // Check if session is still active based on session info
+            let isActive = result.sessionData.sessionInfo?.isActive ?? false
+            let previousState = workspace?.claudeActivityState
+
+            // Track activity state changes for polling interval adaptation
+            // .active means Claude is actively working
+            // When session stops being active, transition to .running (PTY exists, waiting for input)
+            let wasWorking = previousState == .active
+            if !isActive && wasWorking {
+                lastActivityStateChange = Date()
+                NSLog("📊 Claude stopped working, transitioning from .active to .running")
+
+                // Update workspace to .running (PTY still exists, just waiting for input)
+                // This ensures determinePollingInterval() sees the correct state
+                workspace = workspace?.with(claudeActivityState: .running)
+            }
         } catch {
             // Fall back to full workspace polling on error
             NSLog("⚠️ Session polling failed, falling back to full workspace: \(error.localizedDescription)")
