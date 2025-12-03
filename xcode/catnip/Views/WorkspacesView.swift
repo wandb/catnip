@@ -87,6 +87,10 @@ struct WorkspacesView: View {
                 showShutdownAlert = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .shouldReconnectToCodespace)) { _ in
+            // Dismiss when reconnection is triggered from child view
+            dismiss()
+        }
         .alert("Codespace Unavailable", isPresented: $showShutdownAlert) {
             Button("Reconnect") {
                 Task {
@@ -105,7 +109,12 @@ struct WorkspacesView: View {
                     // Reset health check state
                     await MainActor.run {
                         HealthCheckService.shared.resetShutdownState()
-                        // Dismiss this view to go back to CodespaceView with fresh data
+
+                        // Post notification to trigger reconnection flow
+                        // This will dismiss all views and auto-reconnect in CodespaceView
+                        NotificationCenter.default.post(name: .shouldReconnectToCodespace, object: nil)
+
+                        // Also dismiss this view
                         dismiss()
                     }
                 }

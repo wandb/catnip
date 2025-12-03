@@ -193,4 +193,5 @@ class HealthCheckService: ObservableObject {
 
 extension Notification.Name {
     static let codespaceShutdownDetected = Notification.Name("codespaceShutdownDetected")
+    static let shouldReconnectToCodespace = Notification.Name("shouldReconnectToCodespace")
 }

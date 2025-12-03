@@ -43,6 +43,7 @@ struct CodespaceView: View {
     @State private var pendingRepository: String?
     @State private var pendingCodespaceName: String?
     @State private var wasConnectingBeforeBackground = false
+    @State private var shouldAutoReconnect = false
 
     private let catFacts = [
         "Cats can rotate their ears 180 degrees.",
@@ -237,6 +238,21 @@ struct CodespaceView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             handleScenePhaseChange(oldPhase: oldPhase, newPhase: newPhase)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .shouldReconnectToCodespace)) { _ in
+            // Child views have dismissed - trigger auto-reconnect
+            NSLog("🔄 Received reconnection request, will auto-connect when navigateToWorkspaces becomes false")
+            shouldAutoReconnect = true
+        }
+        .onChange(of: navigateToWorkspaces) {
+            // Auto-reconnect after returning from workspaces view (triggered by shutdown)
+            if !navigateToWorkspaces && shouldAutoReconnect {
+                NSLog("🔄 Auto-reconnecting after shutdown detection")
+                shouldAutoReconnect = false
+                // Trigger reconnection with stored codespace name
+                let codespaceName = UserDefaults.standard.string(forKey: "codespace_name")
+                handleConnect(codespaceName: codespaceName)
+            }
         }
     }
 
