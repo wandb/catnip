@@ -9,7 +9,8 @@
       "WebFetch(domain:expo.dev)",
       "WebSearch",
       "Skill(superpowers:brainstorming)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []
