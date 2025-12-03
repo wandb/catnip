@@ -1473,7 +1473,7 @@ extension NavigationPadView.ArrowDirection: RawRepresentable {
 
 typealias CustomTerminalAccessory = GlassTerminalAccessory
 
-// Controller managing SwiftTerm terminal and WebSocket connection
+// Controller managing SwiftTerm terminal and PTY data source (real or mock)
 class TerminalController: NSObject, ObservableObject {
     @Published var isConnected = false
     @Published var hasReceivedData = false
@@ -1481,7 +1481,7 @@ class TerminalController: NSObject, ObservableObject {
     @Published var error: String?
 
     let terminalView: SwiftTerm.TerminalView
-    private let webSocketManager: PTYWebSocketManager
+    private let dataSource: PTYDataSource
     let showDismissButton: Bool
 
     private var hasSentReady = false
@@ -1512,27 +1512,32 @@ class TerminalController: NSObject, ObservableObject {
     // Flag to suppress sending during textInputStorage population
     private var suppressSendDuringPopulation = false
 
-    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, showDismissButton: Bool = true) {
-        // Create terminal view
-        self.terminalView = SwiftTerm.TerminalView(frame: .zero)
-        self.showDismissButton = showDismissButton
-
-        // Create WebSocket manager with mobile authentication
-        self.webSocketManager = PTYWebSocketManager(
+    // Convenience init for live WebSocket connection
+    convenience init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, showDismissButton: Bool = true) {
+        let liveDataSource = LivePTYDataSource(
             workspaceId: workspaceId,
             agent: "claude",
             baseURL: baseURL,
             codespaceName: codespaceName,
             authToken: authToken
         )
+        self.init(dataSource: liveDataSource, showDismissButton: showDismissButton)
+    }
+
+    // Primary init accepting any PTYDataSource (for testing/preview)
+    init(dataSource: PTYDataSource, showDismissButton: Bool = true) {
+        // Create terminal view
+        self.terminalView = SwiftTerm.TerminalView(frame: .zero)
+        self.showDismissButton = showDismissButton
+        self.dataSource = dataSource
 
         super.init()
 
         // Setup terminal
         setupTerminal()
 
-        // Setup WebSocket callbacks
-        setupWebSocketCallbacks()
+        // Setup data source callbacks
+        setupDataSourceCallbacks()
     }
 
     private func setupTerminal() {
@@ -1556,9 +1561,9 @@ class TerminalController: NSObject, ObservableObject {
         // 2) Implement custom text input handling to bypass SwiftTerm's check
     }
 
-    private func setupWebSocketCallbacks() {
+    private func setupDataSourceCallbacks() {
         // Handle binary PTY output
-        webSocketManager.onData = { [weak self] data in
+        dataSource.onData = { [weak self] data in
             guard let self = self else { return }
 
             // Always process on main thread to eliminate queue hopping
@@ -1589,7 +1594,7 @@ class TerminalController: NSObject, ObservableObject {
         }
 
         // Handle JSON control messages
-        webSocketManager.onJSONMessage = { [weak self] message in
+        dataSource.onJSONMessage = { [weak self] message in
             guard let self = self else { return }
 
             switch message.type {
@@ -1639,7 +1644,7 @@ class TerminalController: NSObject, ObservableObject {
         }
 
         // Monitor connection status and send ready signal when connected
-        webSocketManager.$isConnected
+        dataSource.isConnected
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isConnected in
                 guard let self = self else { return }
@@ -1654,18 +1659,18 @@ class TerminalController: NSObject, ObservableObject {
             }
             .store(in: &cancellables)
 
-        webSocketManager.$isConnected
+        dataSource.isConnected
             .receive(on: DispatchQueue.main)
             .assign(to: &$isConnected)
 
-        webSocketManager.$error
+        dataSource.error
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateAccessoryStatus()
             }
             .store(in: &cancellables)
 
-        webSocketManager.$error
+        dataSource.error
             .receive(on: DispatchQueue.main)
             .assign(to: &$error)
     }
@@ -1843,7 +1848,7 @@ class TerminalController: NSObject, ObservableObject {
 
         NSLog("🔌 TerminalController.connect() - generation %d", currentGeneration)
 
-        webSocketManager.connect()
+        dataSource.connect()
 
         // Auto-focus terminal immediately to show keyboard with custom accessory
         // No need to wait - this is UI only and doesn't depend on connection
@@ -1863,7 +1868,7 @@ class TerminalController: NSObject, ObservableObject {
 
         NSLog("🔌 TerminalController.disconnect() - generation now %d", connectionGeneration)
 
-        webSocketManager.disconnect()
+        dataSource.disconnect()
 
         // Clean up batching resources (on main thread)
         feedTimer?.invalidate()
@@ -1913,10 +1918,10 @@ class TerminalController: NSObject, ObservableObject {
         // via escape sequences. Early showCursor() causes cursor to be visible at wrong position.
 
         // Send resize to ensure backend knows our dimensions
-        webSocketManager.sendResize(cols: cols, rows: rows)
+        dataSource.sendResize(cols: cols, rows: rows)
 
         // Send ready signal to trigger buffer replay
-        webSocketManager.sendReady()
+        dataSource.sendReady()
     }
 
     func handleResize() {
@@ -1924,7 +1929,7 @@ class TerminalController: NSObject, ObservableObject {
         let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
         let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
 
-        webSocketManager.sendResize(cols: cols, rows: rows)
+        dataSource.sendResize(cols: cols, rows: rows)
     }
 
     @objc func dismissKeyboard() {
@@ -2025,7 +2030,7 @@ extension TerminalController: TerminalViewDelegate {
             }
         }
 
-        webSocketManager.sendInput(string)
+        dataSource.sendInput(string)
     }
 
     func scrolled(source: SwiftTerm.TerminalView, position: Double) {
@@ -2089,28 +2094,72 @@ extension TerminalController: TerminalViewDelegate {
 #if DEBUG
 struct TerminalView_Previews: PreviewProvider {
     static var previews: some View {
-        // Full screen terminal preview for testing glass accessory
-        TerminalView(
-            workspaceId: "test-workspace",
-            baseURL: "ws://localhost:8080",
-            shouldConnect: false,
+        // Portrait terminal preview with realistic Claude TUI content
+        TerminalViewWithMockData(
             showExitButton: false,
             showDismissButton: true
         )
         .ignoresSafeArea()
         .previewDisplayName("Portrait Terminal")
 
-        // Landscape terminal preview
-        TerminalView(
-            workspaceId: "test-workspace",
-            baseURL: "ws://localhost:8080",
-            shouldConnect: false,
+        // Landscape terminal preview with realistic Claude TUI content
+        TerminalViewWithMockData(
             showExitButton: true,
             showDismissButton: true
         )
         .ignoresSafeArea()
         .previewInterfaceOrientation(.landscapeLeft)
         .previewDisplayName("Landscape Terminal")
+    }
+}
+
+// Helper view that creates a TerminalView with mock data source
+private struct TerminalViewWithMockData: View {
+    let showExitButton: Bool
+    let showDismissButton: Bool
+
+    @StateObject private var terminalController: TerminalController
+
+    init(showExitButton: Bool, showDismissButton: Bool) {
+        self.showExitButton = showExitButton
+        self.showDismissButton = showDismissButton
+
+        // Create mock data source with realistic Claude content
+        let mockDataSource = MockPTYDataSource.createPreviewDataSource(playbackSpeed: 1.0)
+        _terminalController = StateObject(wrappedValue: TerminalController(
+            dataSource: mockDataSource,
+            showDismissButton: showDismissButton
+        ))
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            TerminalViewRepresentable(controller: terminalController)
+                .ignoresSafeArea(.container, edges: .top)
+        }
+        .ignoresSafeArea(.container, edges: .top)
+        .preferredColorScheme(.dark)
+        .toolbar {
+            if showExitButton {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        // Preview only - no action
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                            .font(.body)
+                    }
+                }
+            }
+        }
+        .onAppear {
+            // Connect and start replay
+            terminalController.connect()
+        }
+        .onDisappear {
+            terminalController.disconnect()
+        }
     }
 }
 #endif
