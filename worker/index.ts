@@ -752,7 +752,6 @@ export function createApp(env: Env) {
                 body: JSON.stringify({
                   codespaceName: codespace.codespaceName,
                   githubUser: codespace.githubUser,
-                  githubToken: codespace.githubToken,
                 }),
               });
 
@@ -2922,7 +2921,6 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
                           body: JSON.stringify({
                             codespaceName: credentials.codespaceName,
                             githubUser: credentials.githubUser,
-                            githubToken: credentials.githubToken,
                           }),
                         });
 

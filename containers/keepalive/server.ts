@@ -9,6 +9,10 @@
  * State management and rate limiting happen in the KeepAliveCoordinator DO.
  */
 
+// Configuration constants
+const PORT = parseInt(process.env.PORT || "8080");
+const COMMAND_TIMEOUT_MS = 30000; // 30 seconds
+
 interface PingRequest {
   githubToken: string;
 }
@@ -21,8 +25,6 @@ interface PingResponse {
   stderr?: string;
   timestamp: number;
 }
-
-const port = parseInt(process.env.PORT || "8080");
 
 // Health check endpoint
 const healthHandler = () => {
@@ -73,12 +75,16 @@ const pingHandler = async (
       },
     );
 
-    // Wait for process to complete with 30 second timeout
+    // Wait for process to complete with timeout
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(
-        () => reject(new Error("Command timeout after 30 seconds")),
-        30000,
-      );
+      setTimeout(() => {
+        proc.kill(); // Kill the process on timeout
+        reject(
+          new Error(
+            `Command timeout after ${COMMAND_TIMEOUT_MS / 1000} seconds`,
+          ),
+        );
+      }, COMMAND_TIMEOUT_MS);
     });
 
     await Promise.race([proc.exited, timeoutPromise]);
@@ -120,7 +126,7 @@ const pingHandler = async (
 
 // Simple router
 const server = Bun.serve({
-  port,
+  port: PORT,
   async fetch(req) {
     const url = new URL(req.url);
 
@@ -140,4 +146,4 @@ const server = Bun.serve({
   },
 });
 
-console.log(`🫀 Keep-alive service listening on port ${port}`);
+console.log(`🫀 Keep-alive service listening on port ${PORT}`);

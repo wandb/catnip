@@ -46,7 +46,7 @@
   "containers": [
     {
       "class_name": "KeepAliveContainer",
-      "max_instances": 10,
+      "max_instances": 5,
       "name": "keepalive-container",
       "image": "./containers/keepalive/Dockerfile",
     },
@@ -159,7 +159,7 @@
       "containers": [
         {
           "class_name": "KeepAliveContainer",
-          "max_instances": 10,
+          "max_instances": 5,
           "name": "keepalive-container",
           "image": "./containers/keepalive/Dockerfile",
         },
