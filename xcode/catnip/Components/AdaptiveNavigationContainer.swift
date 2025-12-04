@@ -16,7 +16,7 @@ struct AdaptiveNavigationContainer<Sidebar: View, Detail: View, EmptyDetail: Vie
     let emptyDetail: () -> EmptyDetail
 
     @State private var navigationPath = NavigationPath()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     init(
         @ViewBuilder sidebar: @escaping () -> Sidebar,
