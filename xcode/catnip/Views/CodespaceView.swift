@@ -27,6 +27,7 @@ enum RepositoryListMode {
 
 struct CodespaceView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.adaptiveTheme) private var adaptiveTheme
     @EnvironmentObject var authManager: AuthManager
     @StateObject private var installer = CatnipInstaller.shared
     @StateObject private var tracker = CodespaceCreationTracker.shared
@@ -364,6 +365,7 @@ struct CodespaceView: View {
                     .disabled(phase == .connecting)
                     .accessibilityIdentifier("primaryActionButton")
                 }
+                .frame(maxWidth: adaptiveTheme.maxContentWidth)
 
                 // Inline status / error
                 if !statusMessage.isEmpty {
@@ -965,6 +967,7 @@ struct CodespaceView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: adaptiveTheme.maxContentWidth)
                 .padding(.horizontal, 20)
             }
         }
@@ -1258,6 +1261,7 @@ struct CodespaceView: View {
                     }
                     .buttonStyle(SecondaryButtonStyle(isDisabled: false))
                 }
+                .frame(maxWidth: adaptiveTheme.maxContentWidth)
                 .padding(.horizontal, 20)
 
                 // Show error if refresh found no repos
