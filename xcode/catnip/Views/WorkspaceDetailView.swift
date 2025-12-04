@@ -33,19 +33,17 @@ struct WorkspaceDetailView: View {
     @State private var isCreatingPR = false
     @State private var isUpdatingPR = false
     @State private var showingPRCreationSheet = false
-    @State private var isLandscape = false
-    @State private var showPortraitTerminal = false  // Show terminal in portrait mode
+    @State private var showTerminalOnly = false  // Show terminal only (iPhone toggle)
 
     // Codespace shutdown detection
     @State private var showShutdownAlert = false
     @State private var shutdownMessage: String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.adaptiveTheme) private var adaptiveTheme
 
     // CatnipInstaller for status refresh
     @StateObject private var installer = CatnipInstaller.shared
 
-    @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @Environment(\.verticalSizeClass) var verticalSizeClass
     @EnvironmentObject var authManager: AuthManager
 
     init(workspaceId: String, initialWorkspace: WorkspaceInfo? = nil, pendingPrompt: String? = nil) {
@@ -152,42 +150,16 @@ struct WorkspaceDetailView: View {
 
     private var mainContentView: some View {
         Group {
-            // Show terminal in landscape or portrait terminal mode, normal UI otherwise
-            if isLandscape {
-                terminalView
-            } else if showPortraitTerminal {
-                portraitTerminalView
+            if phase == .loading {
+                loadingView
+            } else if phase == .error || workspace == nil {
+                errorView
             } else {
-                if phase == .loading {
-                    loadingView
-                } else if phase == .error || workspace == nil {
-                    errorView
-                } else {
-                    contentView
-                }
+                contentView
             }
         }
     }
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        // Show terminal button when in portrait mode (not showing terminal)
-        // Wrapped in context progress ring to show Claude's token usage
-        if !isLandscape && !showPortraitTerminal {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showPortraitTerminal = true
-                } label: {
-                    ContextProgressRing(contextTokens: sessionStats?.lastContextSizeTokens) {
-                        Image(systemName: "terminal")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.primary)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
 
     var body: some View {
         mainView
@@ -214,15 +186,6 @@ struct WorkspaceDetailView: View {
                 poller.stop()
                 // Note: We don't stop HealthCheckService here because WorkspacesView manages it.
                 // WorkspacesView is still in the navigation stack when we're viewing a workspace detail.
-            }
-            .onChange(of: horizontalSizeClass) {
-                updateOrientation()
-            }
-            .onChange(of: verticalSizeClass) {
-                updateOrientation()
-            }
-            .onAppear {
-                updateOrientation()
             }
             .onChange(of: poller.workspace) {
                 if let newWorkspace = poller.workspace {
@@ -337,11 +300,6 @@ struct WorkspaceDetailView: View {
 
             mainContentView
         }
-        .navigationTitle(navigationTitle)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            toolbarContent
-        }
     }
 
     private var loadingView: some View {
@@ -377,13 +335,50 @@ struct WorkspaceDetailView: View {
     }
 
     private var contentView: some View {
+        Group {
+            if adaptiveTheme.prefersSideBySideTerminal {
+                // iPad/Mac: Side-by-side terminal + chat
+                AdaptiveSplitView(
+                    defaultMode: .split,
+                    allowModeToggle: true,
+                    leading: { chatInterfaceView },
+                    trailing: { terminalView }
+                )
+            } else {
+                // iPhone: Single view with toggle
+                ZStack {
+                    Color(uiColor: .systemBackground).ignoresSafeArea()
+
+                    if showTerminalOnly {
+                        terminalView
+                    } else {
+                        chatInterfaceView
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showTerminalOnly.toggle() } label: {
+                            ContextProgressRing(contextTokens: sessionStats?.lastContextSizeTokens) {
+                                Image(systemName: showTerminalOnly ? "text.bubble" : "terminal")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(navigationTitle)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var chatInterfaceView: some View {
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: adaptiveTheme.cardPadding) {
                 if phase == .input || (phase == .completed && !hasSessionContent) {
                     // Show empty state for input phase OR completed phase with no content
                     // (e.g., new workspace with commits but no Claude session)
                     emptyStateView
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, adaptiveTheme.containerPadding)
                 } else if phase == .working {
                     workingSection
                 } else if phase == .completed {
@@ -392,10 +387,10 @@ struct WorkspaceDetailView: View {
 
                 if !error.isEmpty {
                     errorBox
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, adaptiveTheme.containerPadding)
                 }
             }
-            .padding(.top, 16)
+            .padding(.top, adaptiveTheme.containerPadding)
         }
         .safeAreaInset(edge: .bottom) {
             footerView
@@ -1048,14 +1043,16 @@ struct WorkspaceDetailView: View {
 
         // Terminal view with navigation bar
         // Use worktree name (not UUID) as the session parameter
-        // Only connect when in landscape mode to prevent premature connections
+        // Connect when showing terminal (either in split view or single pane mode)
         // Let keyboard naturally push content up by not ignoring safe area
+        let shouldConnect = adaptiveTheme.prefersSideBySideTerminal || showTerminalOnly
+
         return TerminalView(
             workspaceId: worktreeName,
             baseURL: websocketBaseURL,
             codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
             authToken: authManager.sessionToken,
-            shouldConnect: isLandscape
+            shouldConnect: shouldConnect
         )
     }
 
@@ -1064,72 +1061,6 @@ struct WorkspaceDetailView: View {
         return "wss://catnip.run"
     }
 
-    // MARK: - Portrait Terminal View
-
-    private var portraitTerminalView: some View {
-        let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "nil"
-        let worktreeName = workspace?.name ?? "unknown"
-
-        NSLog("🐱 Portrait terminal - Codespace: \(codespaceName), Worktree: \(worktreeName)")
-
-        // Terminal fills available space - glass accessory overlays it
-        // Add ~60 points width for approximately 7-8 extra columns at 12pt mono font
-        return GeometryReader { geometry in
-            ScrollView(.horizontal, showsIndicators: false) {
-                TerminalView(
-                    workspaceId: worktreeName,
-                    baseURL: websocketBaseURL,
-                    codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
-                    authToken: authManager.sessionToken,
-                    shouldConnect: showPortraitTerminal,
-                    showExitButton: false,
-                    showDismissButton: false
-                )
-                .frame(width: geometry.size.width + 60)
-            }
-        }
-        .background(Color.black)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showPortraitTerminal = false
-                } label: {
-                    ContextProgressRing(contextTokens: sessionStats?.lastContextSizeTokens) {
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.primary)
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func updateOrientation() {
-        // Detect landscape: compact height OR regular width + compact height
-        // This works for both iPhone landscape and iPad landscape
-        let newIsLandscape = verticalSizeClass == .compact ||
-            (horizontalSizeClass == .regular && verticalSizeClass == .compact)
-
-        if newIsLandscape != isLandscape {
-            isLandscape = newIsLandscape
-            NSLog("📱 Orientation changed - isLandscape: \(isLandscape)")
-
-            // Close portrait terminal when rotating to landscape
-            if newIsLandscape && showPortraitTerminal {
-                showPortraitTerminal = false
-            }
-        }
-    }
-
-    private func rotateToLandscape() {
-        // Request landscape orientation
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-            windowScene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { error in
-                NSLog("⚠️ Failed to rotate to landscape: \(error.localizedDescription)")
-            }
-        }
-    }
 }
 
 struct TodoListView: View {
