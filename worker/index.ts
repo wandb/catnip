@@ -7,10 +7,69 @@ import {
   getCookie,
 } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
-import { githubAuth } from "@hono/oauth-providers/github";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
 import { generateMobileToken } from "./mobile-auth";
+
+// OAuth security helpers
+const ALLOWED_REDIRECT_SCHEMES = ["catnip://"];
+const ALLOWED_REDIRECT_PREFIXES = ["catnip://auth", "catnip://oauth"];
+
+function validateRedirectUri(redirectUri: string): boolean {
+  if (!redirectUri) return false;
+  return ALLOWED_REDIRECT_PREFIXES.some((prefix) =>
+    redirectUri.startsWith(prefix),
+  );
+}
+
+// Simple rate limiting for OAuth endpoints
+// This helps prevent abuse of OAuth flows
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+function createRateLimitMiddleware(maxRequests: number, windowMs: number) {
+  const rateLimitMap = new Map<string, RateLimitEntry>();
+
+  return async (c: Context, next: () => Promise<void>) => {
+    const clientIp =
+      c.req.header("cf-connecting-ip") ||
+      c.req.header("x-forwarded-for") ||
+      "unknown";
+    const now = Date.now();
+    const key = `oauth:${clientIp}`;
+
+    // Clean up old entries
+    const entry = rateLimitMap.get(key);
+    if (entry && now > entry.resetAt) {
+      rateLimitMap.delete(key);
+    }
+
+    // Check rate limit
+    const current = rateLimitMap.get(key);
+    if (current && current.count >= maxRequests) {
+      console.warn(
+        `[Rate Limit] Blocked ${clientIp} - ${current.count} requests in window`,
+      );
+      throw new HTTPException(429, {
+        message: "Too many OAuth requests. Please try again later.",
+      });
+    }
+
+    // Update counter
+    if (current) {
+      current.count++;
+    } else {
+      rateLimitMap.set(key, {
+        count: 1,
+        resetAt: now + windowMs,
+      });
+    }
+
+    await next();
+  };
+}
 
 // Durable Object for container management
 export class CatnipContainer extends Container {
@@ -79,6 +138,10 @@ type Variables = {
   sessionId: string;
   session: SessionData;
   mobileToken: string;
+  token?: { token: string; expires_in?: number };
+  "refresh-token"?: { token: string; expires_in: number };
+  "user-github"?: any;
+  "granted-scopes"?: string[];
 };
 
 type HonoEnv = {
@@ -460,23 +523,135 @@ export function createApp(env: Env) {
     await next();
   });
 
+  // Apply rate limiting to OAuth endpoints (10 requests per 5 minutes per IP)
+  const oauthRateLimiter = createRateLimitMiddleware(10, 5 * 60 * 1000);
+  app.use("/v1/auth/github*", oauthRateLimiter);
+  app.use("/v1/auth/mobile*", oauthRateLimiter);
+
   // GitHub OAuth - handles both login initiation and callback
-  // Temporarily force OAuth App mode by not passing GitHub App credentials
+  // IMPORTANT: We can't use the standard githubAuth middleware because it doesn't
+  // pass redirect_uri to GitHub when oauthApp: true, which means our mobile flow
+  // parameters (mobile=1, app_redirect, app_state) get lost during the OAuth flow.
+  // Instead, we manually handle the OAuth flow to preserve query parameters.
   app.use("/v1/auth/github", async (c, next) => {
     const currentUrl = new URL(c.req.url);
+    const code = c.req.query("code");
+    const state = c.req.query("state");
 
-    // Preserve query parameters in redirect_uri for mobile OAuth flow
-    // This ensures mobile=1, app_redirect, and app_state survive the OAuth flow
-    const redirectUri = currentUrl.toString();
+    console.log(`[OAuth Middleware] Request URL: ${currentUrl.toString()}`);
+    console.log(`[OAuth Middleware] Has code: ${!!code}`);
 
-    return githubAuth({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
-      scope: ["read:user", "user:email", "repo", "codespace", "read:org"],
-      redirect_uri: redirectUri,
-      // Use OAuth App mode for broader scope access
-      oauthApp: true,
-    })(c, next);
+    // If no code, this is the initial OAuth request - redirect to GitHub
+    if (!code) {
+      const oauthState = crypto.randomUUID();
+
+      // Build GitHub authorization URL with our redirect_uri that preserves query params
+      // We add our CSRF state to the redirect_uri as a query parameter instead of using cookies
+      // This ensures state survives the entire OAuth flow regardless of browser cookie behavior
+      const redirectUri = new URL(currentUrl.toString());
+      redirectUri.searchParams.set("csrf_state", oauthState);
+
+      const githubAuthUrl = new URL("https://github.com/login/oauth/authorize");
+      githubAuthUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+      githubAuthUrl.searchParams.set("redirect_uri", redirectUri.toString());
+      githubAuthUrl.searchParams.set(
+        "scope",
+        "read:user user:email repo codespace read:org",
+      );
+      githubAuthUrl.searchParams.set("state", oauthState);
+
+      console.log(
+        `[OAuth] Redirecting to GitHub with redirect_uri: ${redirectUri.toString()}`,
+      );
+      return c.redirect(githubAuthUrl.toString());
+    }
+
+    // Verify state to prevent CSRF attacks
+    // The state from GitHub should match the csrf_state we embedded in redirect_uri
+    const csrfState = c.req.query("csrf_state");
+    if (!csrfState || state !== csrfState) {
+      console.error("[OAuth] State mismatch - possible CSRF attack", {
+        githubState: state,
+        ourState: csrfState,
+      });
+      throw new HTTPException(401, { message: "Invalid state parameter" });
+    }
+
+    // Exchange code for access token
+    const tokenResponse = await fetch(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: env.GITHUB_CLIENT_ID,
+          client_secret: env.GITHUB_CLIENT_SECRET,
+          code,
+        }),
+      },
+    );
+
+    const tokenData = (await tokenResponse.json()) as any;
+
+    if (tokenData.error) {
+      console.error(
+        "[OAuth] Token exchange failed:",
+        tokenData.error_description,
+      );
+      throw new HTTPException(400, { message: tokenData.error_description });
+    }
+
+    // Get user data from GitHub
+    const userResponse = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+        Accept: "application/json",
+        "User-Agent": "Catnip-OAuth",
+      },
+    });
+
+    const user = (await userResponse.json()) as any;
+
+    if (user.message) {
+      console.error("[OAuth] Failed to get user data:", user.message);
+      throw new HTTPException(400, { message: user.message });
+    }
+
+    // Get user email
+    const emailResponse = await fetch("https://api.github.com/user/emails", {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+        Accept: "application/json",
+        "User-Agent": "Catnip-OAuth",
+      },
+    });
+
+    const emails = (await emailResponse.json()) as any[];
+    const primaryEmail = emails.find((e: any) => e.primary)?.email;
+    user.email = primaryEmail;
+
+    // Set token data in context for the next handler
+    c.set("token", {
+      token: tokenData.access_token,
+      expires_in: tokenData.expires_in,
+    });
+
+    if (tokenData.refresh_token) {
+      c.set("refresh-token", {
+        token: tokenData.refresh_token,
+        expires_in: tokenData.refresh_token_expires_in,
+      });
+    }
+
+    c.set("user-github", user);
+    c.set("granted-scopes", tokenData.scope?.split(",") || []);
+
+    console.log(`[OAuth] Successfully authenticated user: ${user.login}`);
+
+    await next();
   });
 
   // After OAuth completes
@@ -554,6 +729,18 @@ export function createApp(env: Env) {
     const appRedirect = c.req.query("app_redirect");
     const appState = c.req.query("app_state");
 
+    console.log(
+      `[OAuth Callback] isMobileFlow=${isMobileFlow}, appRedirect=${appRedirect}, appState=${appState}`,
+    );
+
+    // Validate appRedirect to prevent open redirect and XSS attacks
+    if (isMobileFlow && appRedirect && !validateRedirectUri(appRedirect)) {
+      console.error(`[OAuth Callback] Invalid appRedirect: ${appRedirect}`);
+      throw new HTTPException(400, {
+        message: "Invalid app_redirect parameter",
+      });
+    }
+
     if (isMobileFlow && appRedirect) {
       try {
         // Generate a mobile session token
@@ -585,11 +772,41 @@ export function createApp(env: Env) {
           `Mobile OAuth success: redirecting to ${redirectUrl.toString()}`,
         );
 
-        return c.redirect(redirectUrl.toString());
+        // For mobile flows, return an HTML "trampoline" page that immediately redirects
+        // This ensures ASWebAuthenticationSession doesn't try to render the page
+        // before the redirect happens. We use both meta refresh and JavaScript for maximum compatibility.
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="refresh" content="0;url=${redirectUrl.toString().replace(/"/g, "&quot;")}">
+  <title>Redirecting...</title>
+  <script>
+    // Immediate JavaScript redirect as backup
+    window.location.replace(${JSON.stringify(redirectUrl.toString())});
+  </script>
+</head>
+<body>
+  <p>Redirecting to Catnip...</p>
+</body>
+</html>`;
+
+        return c.html(html);
       } catch (error) {
         console.error("Mobile OAuth callback error:", error);
+        console.error(
+          "Error details:",
+          error instanceof Error ? error.message : String(error),
+        );
+        console.error(
+          "Stack:",
+          error instanceof Error ? error.stack : "No stack trace",
+        );
         // Fall through to standard web flow
       }
+    } else {
+      console.log(
+        `[OAuth Callback] Falling through to web flow - mobile flow not detected`,
+      );
     }
 
     // Set signed cookie with just session ID
@@ -654,6 +871,15 @@ export function createApp(env: Env) {
   app.get("/v1/auth/github/mobile", async (c) => {
     const redirectUri = c.req.query("redirect_uri") || "catnip://auth";
     const state = c.req.query("state") || crypto.randomUUID();
+
+    // Validate redirect_uri to prevent open redirect attacks
+    if (!validateRedirectUri(redirectUri)) {
+      console.error(`[OAuth] Invalid redirect_uri: ${redirectUri}`);
+      throw new HTTPException(400, {
+        message:
+          "Invalid redirect_uri. Must start with catnip://auth or catnip://oauth",
+      });
+    }
 
     // Instead of relying on cookies (which can be lost during long OAuth flows),
     // encode the mobile OAuth state directly in the callback URL parameters.
