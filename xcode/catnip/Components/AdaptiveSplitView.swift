@@ -40,12 +40,15 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
 
     var body: some View {
         Group {
-            if adaptiveTheme.prefersSideBySideTerminal {
-                // iPad/Mac: Side-by-side layout
-                splitLayout
-            } else {
+            if adaptiveTheme.context.isPhone {
                 // iPhone: Single pane with toggle
                 singlePaneLayout
+            } else if adaptiveTheme.context == .iPadCompact {
+                // iPad portrait: Vertical split (top/bottom)
+                verticalSplitLayout
+            } else {
+                // iPad landscape/Mac: Horizontal split (side-by-side)
+                horizontalSplitLayout
             }
         }
         .onChange(of: adaptiveTheme.context) { _, _ in
@@ -54,9 +57,9 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
         }
     }
 
-    // MARK: - Split Layout (iPad/Mac)
+    // MARK: - Horizontal Split Layout (iPad Landscape/Mac)
 
-    private var splitLayout: some View {
+    private var horizontalSplitLayout: some View {
         HStack(spacing: 0) {
             if currentMode == .leading || currentMode == .split {
                 leading()
@@ -70,6 +73,33 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
             if currentMode == .trailing || currentMode == .split {
                 trailing()
                     .frame(maxWidth: .infinity)
+            }
+        }
+        .toolbar {
+            if allowModeToggle {
+                ToolbarItem(placement: .topBarTrailing) {
+                    modeToggleMenu
+                }
+            }
+        }
+    }
+
+    // MARK: - Vertical Split Layout (iPad Portrait)
+
+    private var verticalSplitLayout: some View {
+        VStack(spacing: 0) {
+            if currentMode == .leading || currentMode == .split {
+                leading()
+                    .frame(maxHeight: currentMode == .split ? .infinity : .infinity)
+
+                if currentMode == .split {
+                    Divider()
+                }
+            }
+
+            if currentMode == .trailing || currentMode == .split {
+                trailing()
+                    .frame(maxHeight: .infinity)
             }
         }
         .toolbar {

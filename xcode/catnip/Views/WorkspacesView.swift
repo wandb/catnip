@@ -260,6 +260,7 @@ struct WorkspacesView: View {
                             WorkspaceCard(workspace: workspace)
                                 .contentShape(Rectangle())
                         }
+                        .listRowInsets(EdgeInsets())
                         .listRowSeparator(.visible)
                         .listRowBackground(Color(uiColor: .secondarySystemBackground))
                         .accessibilityIdentifier("workspace-\(workspace.id)")
@@ -716,8 +717,6 @@ struct WorkspaceCard: View {
                 Spacer()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 }
 
