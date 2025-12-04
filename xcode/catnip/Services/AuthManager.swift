@@ -97,17 +97,25 @@ class AuthManager: NSObject, ObservableObject {
                     let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
                     let queryItems = components?.queryItems
 
-                    guard let returnedState = queryItems?.first(where: { $0.name == "state" })?.value,
-                          let token = queryItems?.first(where: { $0.name == "token" })?.value,
-                          let username = queryItems?.first(where: { $0.name == "username" })?.value else {
+                    // Verify state parameter FIRST before extracting any other data
+                    // This prevents processing potentially malicious data if state verification fails
+                    guard let returnedState = queryItems?.first(where: { $0.name == "state" })?.value else {
+                        print("OAuth callback missing state parameter")
                         continuation.resume(returning: false)
                         return
                     }
 
-                    // Verify state
                     let storedState = try? await KeychainHelper.load(key: "oauth_state")
                     guard returnedState == storedState else {
-                        print("OAuth state mismatch")
+                        print("OAuth state mismatch - possible CSRF attack")
+                        continuation.resume(returning: false)
+                        return
+                    }
+
+                    // State is valid, now extract token and username
+                    guard let token = queryItems?.first(where: { $0.name == "token" })?.value,
+                          let username = queryItems?.first(where: { $0.name == "username" })?.value else {
+                        print("OAuth callback missing required parameters")
                         continuation.resume(returning: false)
                         return
                     }
@@ -125,7 +133,9 @@ class AuthManager: NSObject, ObservableObject {
             }
 
             authSession?.presentationContextProvider = self
-            authSession?.prefersEphemeralWebBrowserSession = false
+            // Use ephemeral session to prevent cookie sharing with Safari
+            // This ensures a clean, predictable OAuth flow every time
+            authSession?.prefersEphemeralWebBrowserSession = true
             authSession?.start()
         }
     }
