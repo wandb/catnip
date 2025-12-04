@@ -246,90 +246,72 @@ struct WorkspacesView: View {
     // MARK: - Adaptive Navigation Views
 
     private var workspacesList: some View {
-        VStack(spacing: 0) {
-            // Custom header bar to match navigation styling
-            HStack {
-                Text("Workspaces")
-                    .font(.largeTitle.bold())
-
-                Spacer()
-
-                Button(action: { showCreateSheet = true }) {
-                    Image(systemName: "plus")
-                        .font(.title3)
-                        .foregroundStyle(.primary)
+        Group {
+            if isLoading {
+                loadingView
+            } else if let error = error {
+                errorView(error)
+            } else if workspaces.isEmpty {
+                emptyView
+            } else {
+                List(selection: $selectedWorkspaceId) {
+                    ForEach(workspaces) { workspace in
+                        NavigationLink(value: workspace.id) {
+                            WorkspaceCard(workspace: workspace)
+                                .contentShape(Rectangle())
+                        }
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.visible)
+                        .listRowBackground(Color(uiColor: .secondarySystemBackground))
+                        .accessibilityIdentifier("workspace-\(workspace.id)")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                deleteConfirmation = workspace
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
                 }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+                .accessibilityIdentifier("workspacesList")
+                .alert("Delete Workspace", isPresented: Binding(
+                    get: { deleteConfirmation != nil },
+                    set: { if !$0 { deleteConfirmation = nil } }
+                )) {
+                    Button("Cancel", role: .cancel) {
+                        deleteConfirmation = nil
+                    }
+                    Button("Delete", role: .destructive) {
+                        if let workspace = deleteConfirmation {
+                            Task {
+                                await deleteWorkspace(workspace)
+                            }
+                        }
+                    }
+                } message: {
+                    if let workspace = deleteConfirmation {
+                        let changesList = [
+                            workspace.isDirty == true ? "uncommitted changes" : nil,
+                            (workspace.commitCount ?? 0) > 0 ? "\(workspace.commitCount ?? 0) commits" : nil
+                        ].compactMap { $0 }
 
-                Button(action: {}) {
-                    Image(systemName: "rectangle.split.2x1")
-                        .font(.title3)
-                        .foregroundStyle(.primary)
+                        if !changesList.isEmpty {
+                            Text("Delete workspace \"\(workspace.displayName)\"? This workspace has \(changesList.joined(separator: " and ")). This action cannot be undone.")
+                        } else {
+                            Text("Delete workspace \"\(workspace.displayName)\"? This action cannot be undone.")
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 8)
-            .background(Color(uiColor: .systemBackground))
-
-            // Content
-            Group {
-                if isLoading {
-                    loadingView
-                } else if let error = error {
-                    errorView(error)
-                } else if workspaces.isEmpty {
-                    emptyView
-                } else {
-                    List(selection: $selectedWorkspaceId) {
-                        ForEach(workspaces) { workspace in
-                            NavigationLink(value: workspace.id) {
-                                WorkspaceCard(workspace: workspace)
-                                    .contentShape(Rectangle())
-                            }
-                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                            .listRowSeparator(.visible)
-                            .listRowBackground(Color(uiColor: .secondarySystemBackground))
-                            .accessibilityIdentifier("workspace-\(workspace.id)")
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    deleteConfirmation = workspace
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .accessibilityIdentifier("workspacesList")
-                    .alert("Delete Workspace", isPresented: Binding(
-                        get: { deleteConfirmation != nil },
-                        set: { if !$0 { deleteConfirmation = nil } }
-                    )) {
-                        Button("Cancel", role: .cancel) {
-                            deleteConfirmation = nil
-                        }
-                        Button("Delete", role: .destructive) {
-                            if let workspace = deleteConfirmation {
-                                Task {
-                                    await deleteWorkspace(workspace)
-                                }
-                            }
-                        }
-                    } message: {
-                        if let workspace = deleteConfirmation {
-                            let changesList = [
-                                workspace.isDirty == true ? "uncommitted changes" : nil,
-                                (workspace.commitCount ?? 0) > 0 ? "\(workspace.commitCount ?? 0) commits" : nil
-                            ].compactMap { $0 }
-
-                            if !changesList.isEmpty {
-                                Text("Delete workspace \"\(workspace.displayName)\"? This workspace has \(changesList.joined(separator: " and ")). This action cannot be undone.")
-                            } else {
-                                Text("Delete workspace \"\(workspace.displayName)\"? This action cannot be undone.")
-                            }
-                        }
-                    }
+        }
+        .navigationTitle("Workspaces")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button(action: { showCreateSheet = true }) {
+                    Image(systemName: "plus")
                 }
             }
         }
