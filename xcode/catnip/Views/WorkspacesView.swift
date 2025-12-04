@@ -246,10 +246,7 @@ struct WorkspacesView: View {
     // MARK: - Adaptive Navigation Views
 
     private var workspacesList: some View {
-        ZStack {
-            Color(uiColor: .systemGroupedBackground)
-                .ignoresSafeArea()
-
+        Group {
             if isLoading {
                 loadingView
             } else if let error = error {
