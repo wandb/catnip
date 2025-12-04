@@ -307,7 +307,7 @@ struct WorkspacesView: View {
             }
         }
         .navigationTitle("Workspaces")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: { showCreateSheet = true }) {
