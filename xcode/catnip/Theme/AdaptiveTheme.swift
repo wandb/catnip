@@ -237,13 +237,13 @@ class AdaptiveTheme: ObservableObject {
         case .iPhoneCompact, .iPhoneLandscape:
             return .infinity  // Use full width on iPhone
         case .iPadCompact:
-            return 600
+            return 400
         case .iPadRegular:
-            return 800
+            return 600
         case .macCompact:
-            return 700
+            return 500
         case .macRegular:
-            return 1000
+            return 700
         }
     }
 }
