@@ -1,15 +1,5 @@
 import { describe, it, expect } from "vitest";
-
-// Helper functions from worker/index.ts
-// We'll extract these to make them testable
-const ALLOWED_REDIRECT_PREFIXES = ["catnip://auth", "catnip://oauth"];
-
-function validateRedirectUri(redirectUri: string): boolean {
-  if (!redirectUri) return false;
-  return ALLOWED_REDIRECT_PREFIXES.some((prefix) =>
-    redirectUri.startsWith(prefix),
-  );
-}
+import { validateRedirectUri } from "./oauth-utils";
 
 describe("OAuth Security", () => {
   describe("validateRedirectUri", () => {
@@ -41,10 +31,10 @@ describe("OAuth Security", () => {
       expect(validateRedirectUri("catnip://malicious")).toBe(false);
     });
 
-    it("should prevent path traversal attempts", () => {
-      expect(validateRedirectUri("catnip://auth/../malicious")).toBe(true); // Still starts with catnip://auth
-      // This is acceptable because the URL scheme prevents actual traversal
-      // The native app will handle the URL properly
+    it("should accept URLs with path components after prefix", () => {
+      expect(validateRedirectUri("catnip://auth/../malicious")).toBe(true);
+      // Path components (including ../) are allowed after the catnip://auth prefix
+      // The native app handles URL parsing and any path normalization
     });
 
     it("should handle URLs with query parameters", () => {

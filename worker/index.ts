@@ -10,17 +10,11 @@ import { HTTPException } from "hono/http-exception";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
 import { generateMobileToken } from "./mobile-auth";
-
-// OAuth security helpers
-const ALLOWED_REDIRECT_SCHEMES = ["catnip://"];
-const ALLOWED_REDIRECT_PREFIXES = ["catnip://auth", "catnip://oauth"];
-
-function validateRedirectUri(redirectUri: string): boolean {
-  if (!redirectUri) return false;
-  return ALLOWED_REDIRECT_PREFIXES.some((prefix) =>
-    redirectUri.startsWith(prefix),
-  );
-}
+import {
+  validateRedirectUri,
+  OAUTH_RATE_LIMIT_MAX_REQUESTS,
+  OAUTH_RATE_LIMIT_WINDOW_MS,
+} from "./oauth-utils";
 
 // Simple rate limiting for OAuth endpoints
 // This helps prevent abuse of OAuth flows
@@ -31,6 +25,8 @@ interface RateLimitEntry {
 
 function createRateLimitMiddleware(maxRequests: number, windowMs: number) {
   const rateLimitMap = new Map<string, RateLimitEntry>();
+  let lastCleanup = Date.now();
+  const CLEANUP_INTERVAL_MS = 60000; // Clean up every minute
 
   return async (c: Context, next: () => Promise<void>) => {
     const clientIp =
@@ -40,27 +36,45 @@ function createRateLimitMiddleware(maxRequests: number, windowMs: number) {
     const now = Date.now();
     const key = `oauth:${clientIp}`;
 
-    // Clean up old entries
-    const entry = rateLimitMap.get(key);
-    if (entry && now > entry.resetAt) {
-      rateLimitMap.delete(key);
+    // Periodically clean up expired entries to prevent memory leak
+    if (now - lastCleanup > CLEANUP_INTERVAL_MS) {
+      let cleanedCount = 0;
+      for (const [entryKey, entry] of rateLimitMap.entries()) {
+        if (now > entry.resetAt) {
+          rateLimitMap.delete(entryKey);
+          cleanedCount++;
+        }
+      }
+      if (cleanedCount > 0) {
+        console.log(`[Rate Limit] Cleaned up ${cleanedCount} expired entries`);
+      }
+      lastCleanup = now;
     }
 
-    // Check rate limit
+    // Check and update rate limit for current request
     const current = rateLimitMap.get(key);
-    if (current && current.count >= maxRequests) {
-      console.warn(
-        `[Rate Limit] Blocked ${clientIp} - ${current.count} requests in window`,
-      );
-      throw new HTTPException(429, {
-        message: "Too many OAuth requests. Please try again later.",
-      });
-    }
-
-    // Update counter
     if (current) {
-      current.count++;
+      // Entry exists - check if expired
+      if (now > current.resetAt) {
+        // Expired, reset counter
+        rateLimitMap.set(key, {
+          count: 1,
+          resetAt: now + windowMs,
+        });
+      } else if (current.count >= maxRequests) {
+        // Not expired and over limit
+        console.warn(
+          `[Rate Limit] Blocked ${clientIp} - ${current.count} requests in window`,
+        );
+        throw new HTTPException(429, {
+          message: "Too many OAuth requests. Please try again later.",
+        });
+      } else {
+        // Not expired and under limit
+        current.count++;
+      }
     } else {
+      // New entry
       rateLimitMap.set(key, {
         count: 1,
         resetAt: now + windowMs,
@@ -523,8 +537,11 @@ export function createApp(env: Env) {
     await next();
   });
 
-  // Apply rate limiting to OAuth endpoints (10 requests per 5 minutes per IP)
-  const oauthRateLimiter = createRateLimitMiddleware(10, 5 * 60 * 1000);
+  // Apply rate limiting to OAuth endpoints
+  const oauthRateLimiter = createRateLimitMiddleware(
+    OAUTH_RATE_LIMIT_MAX_REQUESTS,
+    OAUTH_RATE_LIMIT_WINDOW_MS,
+  );
   app.use("/v1/auth/github*", oauthRateLimiter);
   app.use("/v1/auth/mobile*", oauthRateLimiter);
 
@@ -772,25 +789,9 @@ export function createApp(env: Env) {
           `Mobile OAuth success: redirecting to ${redirectUrl.toString()}`,
         );
 
-        // For mobile flows, return an HTML "trampoline" page that immediately redirects
-        // This ensures ASWebAuthenticationSession doesn't try to render the page
-        // before the redirect happens. We use both meta refresh and JavaScript for maximum compatibility.
-        const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta http-equiv="refresh" content="0;url=${redirectUrl.toString().replace(/"/g, "&quot;")}">
-  <title>Redirecting...</title>
-  <script>
-    // Immediate JavaScript redirect as backup
-    window.location.replace(${JSON.stringify(redirectUrl.toString())});
-  </script>
-</head>
-<body>
-  <p>Redirecting to Catnip...</p>
-</body>
-</html>`;
-
-        return c.html(html);
+        // Use HTTP 302 redirect for mobile flows
+        // This is safer than HTML trampoline (no XSS risk) and works reliably with ASWebAuthenticationSession
+        return c.redirect(redirectUrl.toString());
       } catch (error) {
         console.error("Mobile OAuth callback error:", error);
         console.error(
