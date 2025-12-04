@@ -21,7 +21,7 @@ struct WorkspacesView: View {
     @State private var branchesLoading = false
     @State private var createSheetError: String? // Separate error for create sheet
     @State private var deleteConfirmation: WorkspaceInfo? // Workspace to delete
-    @State private var navigationWorkspace: WorkspaceInfo? // Workspace to navigate to
+    @State private var selectedWorkspaceId: String? // Selected workspace for adaptive navigation
     @State private var pendingPromptForNavigation: String? // Prompt to pass to detail view
     @State private var createdWorkspaceForRetry: WorkspaceInfo? // Track created workspace for retry on 408 timeout
 
@@ -34,6 +34,7 @@ struct WorkspacesView: View {
     @State private var shutdownMessage: String?
     @State private var isReconnecting = false  // Track if we're in reconnection flow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.adaptiveTheme) private var adaptiveTheme
 
     // CatnipInstaller for status refresh
     @StateObject private var installer = CatnipInstaller.shared
@@ -43,28 +44,12 @@ struct WorkspacesView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color(uiColor: .systemGroupedBackground)
-                .ignoresSafeArea()
-
-            if isLoading {
-                loadingView
-            } else if let error = error {
-                errorView(error)
-            } else if workspaces.isEmpty {
-                emptyView
-            } else {
-                listView
-            }
-        }
-        .navigationTitle("Workspaces")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showCreateSheet = true }) {
-                    Image(systemName: "plus")
-                }
-            }
+        AdaptiveNavigationContainer {
+            workspacesList
+        } detail: { _ in
+            selectedWorkspaceDetail
+        } emptyDetail: {
+            emptySelectionView
         }
         .task {
             await loadWorkspaces()
@@ -179,16 +164,9 @@ struct WorkspacesView: View {
                 }
             }
         }
-        .navigationDestination(item: $navigationWorkspace) { workspace in
-            WorkspaceDetailView(
-                workspaceId: workspace.id,
-                initialWorkspace: workspace,
-                pendingPrompt: pendingPromptForNavigation
-            )
-        }
-        .onChange(of: navigationWorkspace) {
+        .onChange(of: selectedWorkspaceId) {
             // Clear pending prompt after navigation completes
-            if navigationWorkspace == nil && pendingPromptForNavigation != nil {
+            if selectedWorkspaceId == nil && pendingPromptForNavigation != nil {
                 pendingPromptForNavigation = nil
                 NSLog("🐱 [WorkspacesView] Cleared pendingPromptForNavigation after navigation")
             }
@@ -265,60 +243,111 @@ struct WorkspacesView: View {
         .padding()
     }
 
-    private var listView: some View {
-        List {
-            ForEach(workspaces) { workspace in
-                Button {
-                    navigationWorkspace = workspace
-                } label: {
-                    WorkspaceCard(workspace: workspace)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowSeparator(.visible)
-                .listRowBackground(Color(uiColor: .secondarySystemBackground))
-                .accessibilityIdentifier("workspace-\(workspace.id)")
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button(role: .destructive) {
-                        deleteConfirmation = workspace
-                    } label: {
-                        Label("Delete", systemImage: "trash")
-                    }
-                }
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .accessibilityIdentifier("workspacesList")
-        .alert("Delete Workspace", isPresented: Binding(
-            get: { deleteConfirmation != nil },
-            set: { if !$0 { deleteConfirmation = nil } }
-        )) {
-            Button("Cancel", role: .cancel) {
-                deleteConfirmation = nil
-            }
-            Button("Delete", role: .destructive) {
-                if let workspace = deleteConfirmation {
-                    Task {
-                        await deleteWorkspace(workspace)
-                    }
-                }
-            }
-        } message: {
-            if let workspace = deleteConfirmation {
-                let changesList = [
-                    workspace.isDirty == true ? "uncommitted changes" : nil,
-                    (workspace.commitCount ?? 0) > 0 ? "\(workspace.commitCount ?? 0) commits" : nil
-                ].compactMap { $0 }
+    // MARK: - Adaptive Navigation Views
 
-                if !changesList.isEmpty {
-                    Text("Delete workspace \"\(workspace.displayName)\"? This workspace has \(changesList.joined(separator: " and ")). This action cannot be undone.")
-                } else {
-                    Text("Delete workspace \"\(workspace.displayName)\"? This action cannot be undone.")
+    private var workspacesList: some View {
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
+
+            if isLoading {
+                loadingView
+            } else if let error = error {
+                errorView(error)
+            } else if workspaces.isEmpty {
+                emptyView
+            } else {
+                List(selection: $selectedWorkspaceId) {
+                    ForEach(workspaces) { workspace in
+                        NavigationLink(value: workspace.id) {
+                            WorkspaceCard(workspace: workspace)
+                                .contentShape(Rectangle())
+                        }
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.visible)
+                        .listRowBackground(Color(uiColor: .secondarySystemBackground))
+                        .accessibilityIdentifier("workspace-\(workspace.id)")
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                deleteConfirmation = workspace
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .accessibilityIdentifier("workspacesList")
+                .alert("Delete Workspace", isPresented: Binding(
+                    get: { deleteConfirmation != nil },
+                    set: { if !$0 { deleteConfirmation = nil } }
+                )) {
+                    Button("Cancel", role: .cancel) {
+                        deleteConfirmation = nil
+                    }
+                    Button("Delete", role: .destructive) {
+                        if let workspace = deleteConfirmation {
+                            Task {
+                                await deleteWorkspace(workspace)
+                            }
+                        }
+                    }
+                } message: {
+                    if let workspace = deleteConfirmation {
+                        let changesList = [
+                            workspace.isDirty == true ? "uncommitted changes" : nil,
+                            (workspace.commitCount ?? 0) > 0 ? "\(workspace.commitCount ?? 0) commits" : nil
+                        ].compactMap { $0 }
+
+                        if !changesList.isEmpty {
+                            Text("Delete workspace \"\(workspace.displayName)\"? This workspace has \(changesList.joined(separator: " and ")). This action cannot be undone.")
+                        } else {
+                            Text("Delete workspace \"\(workspace.displayName)\"? This action cannot be undone.")
+                        }
+                    }
                 }
             }
         }
+        .navigationTitle("Workspaces")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showCreateSheet = true }) {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+    }
+
+    private var selectedWorkspaceDetail: some View {
+        Group {
+            if let workspaceId = selectedWorkspaceId,
+               let workspace = workspaces.first(where: { $0.id == workspaceId }) {
+                WorkspaceDetailView(
+                    workspaceId: workspace.id,
+                    initialWorkspace: workspace,
+                    pendingPrompt: pendingPromptForNavigation
+                )
+            } else {
+                emptySelectionView
+            }
+        }
+    }
+
+    private var emptySelectionView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.system(size: 56))
+                .foregroundStyle(.secondary)
+            Text("Select a Workspace")
+                .font(.title2.weight(.semibold))
+            Text("Choose a workspace from the sidebar to view details")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
     }
 
     private func loadWorkspaces() async {
@@ -546,7 +575,7 @@ struct WorkspacesView: View {
                 showCreateSheet = false
                 isCreating = false
                 createdWorkspaceForRetry = nil // Clear retry state on success
-                navigationWorkspace = workspace
+                selectedWorkspaceId = workspace.id
                 NSLog("🚀 Navigating to newly created workspace: \(workspace.id)")
             }
         } catch {
