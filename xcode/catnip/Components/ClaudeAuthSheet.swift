@@ -52,6 +52,7 @@ struct ClaudeAuthSheet: View {
                 }
                 .padding(.horizontal, 20)
             }
+            .scrollDismissesKeyboard(.interactively)
             .scrollBounceBehavior(.basedOnSize)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationBarTitleDisplayMode(.inline)
@@ -65,6 +66,8 @@ struct ClaudeAuthSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         .interactiveDismissDisabled(isProcessing || status?.parsedState == .complete)
         .onAppear {
             if status == nil {
