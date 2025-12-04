@@ -255,22 +255,42 @@ struct WorkspacesView: View {
                 emptyView
             } else {
                 List(selection: $selectedWorkspaceId) {
-                    ForEach(workspaces) { workspace in
-                        NavigationLink(value: workspace.id) {
-                            WorkspaceCard(workspace: workspace)
-                                .contentShape(Rectangle())
-                        }
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .listRowSeparator(.visible)
-                        .listRowBackground(Color(uiColor: .secondarySystemBackground))
-                        .accessibilityIdentifier("workspace-\(workspace.id)")
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                deleteConfirmation = workspace
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                    Section {
+                        ForEach(workspaces) { workspace in
+                            NavigationLink(value: workspace.id) {
+                                WorkspaceCard(workspace: workspace)
+                                    .contentShape(Rectangle())
+                            }
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .listRowSeparator(.visible)
+                            .listRowBackground(Color(uiColor: .secondarySystemBackground))
+                            .accessibilityIdentifier("workspace-\(workspace.id)")
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    deleteConfirmation = workspace
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
                         }
+                    } header: {
+                        HStack {
+                            Text("Workspaces")
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+                                .foregroundColor(.primary)
+
+                            Spacer()
+
+                            Button(action: { showCreateSheet = true }) {
+                                Image(systemName: "plus")
+                                    .font(.title3)
+                                    .foregroundColor(.primary)
+                            }
+                        }
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
+                        .textCase(nil)
                     }
                 }
                 .listStyle(.sidebar)
@@ -303,15 +323,6 @@ struct WorkspacesView: View {
                             Text("Delete workspace \"\(workspace.displayName)\"? This action cannot be undone.")
                         }
                     }
-                }
-            }
-        }
-        .navigationTitle("Workspaces")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                Button(action: { showCreateSheet = true }) {
-                    Image(systemName: "plus")
                 }
             }
         }
