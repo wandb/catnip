@@ -60,7 +60,7 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
         HStack(spacing: 0) {
             if currentMode == .leading || currentMode == .split {
                 leading()
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: currentMode == .split ? adaptiveTheme.maxContentWidth : .infinity)
 
                 if currentMode == .split {
                     Divider()

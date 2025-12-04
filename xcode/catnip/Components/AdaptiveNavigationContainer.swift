@@ -32,8 +32,10 @@ struct AdaptiveNavigationContainer<Sidebar: View, Detail: View, EmptyDetail: Vie
         if adaptiveTheme.prefersSplitView {
             // iPad/Mac: Use NavigationSplitView with sidebar + detail
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                sidebar()
-                    .navigationSplitViewColumnWidth(adaptiveTheme.sidebarWidth)
+                NavigationStack {
+                    sidebar()
+                }
+                .navigationSplitViewColumnWidth(adaptiveTheme.sidebarWidth)
             } detail: {
                 NavigationStack(path: $navigationPath) {
                     detail($navigationPath)
