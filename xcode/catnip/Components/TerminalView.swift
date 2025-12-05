@@ -175,6 +175,8 @@ class TerminalViewWrapper: UIView {
     private var navigationPad: NavigationPadView?
     private var keyboardHeight: CGFloat = 0
     private var keyboardObservers: [NSObjectProtocol] = []
+    private var resizeObservers: [NSObjectProtocol] = []
+    private var lastBounds: CGRect = .zero
 
     func setup(with terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
         self.terminalView = terminalView
@@ -186,22 +188,27 @@ class TerminalViewWrapper: UIView {
         addSubview(terminalView)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
 
-        // Calculate minimum width needed for minCols
-        let font = terminalView.font ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        let minWidth = TerminalController.calculateMinWidth(font: font)
+        // Configure scrollbars to not consume width
+        terminalView.showsVerticalScrollIndicator = true
+        terminalView.showsHorizontalScrollIndicator = false
+        // Ensure scrollbars are overlay style (don't reduce content area)
+        terminalView.scrollIndicatorInsets = .zero
 
-        // Set width to at least minWidth, but remove trailing constraint so it can extend
+        // Pin terminal to all edges with minimal padding
+        // Reduced from 12pt to 8pt to compensate for any SwiftTerm internal spacing
+        // This ensures cols/rows match visual width more accurately
         NSLayoutConstraint.activate([
             terminalView.topAnchor.constraint(equalTo: topAnchor),
             terminalView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            terminalView.widthAnchor.constraint(equalToConstant: minWidth)
+            terminalView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),  // Left padding
+            terminalView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)  // Right padding to balance
         ])
 
-        // Add bottom content inset so terminal content extends behind the glass toolbar
+        // Add content insets: bottom for glass toolbar
+        // Left padding is handled by constraints, not content inset (to ensure cols/rows match visual width)
         terminalView.contentInset.bottom = 56
 
-        // Also set scroll indicator insets so they don't appear behind the toolbar
+        // Set scroll indicator insets so they don't appear behind the toolbar
         terminalView.scrollIndicatorInsets.bottom = 56
 
         // Create floating glass toolbar that overlays the terminal
@@ -225,6 +232,9 @@ class TerminalViewWrapper: UIView {
         // Observe keyboard to position toolbar above it
         setupKeyboardObservers()
 
+        // Observe orientation and bounds changes for terminal resize
+        setupResizeObservers()
+
         // Add pull-to-refresh for reconnecting WebSocket
         setupRefreshControl(for: terminalView, controller: controller)
     }
@@ -232,16 +242,17 @@ class TerminalViewWrapper: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
 
-        // Add toolbar to window so it's positioned relative to screen, not the scrollable terminal
-        if let window = window, let toolbar = floatingToolbar, toolbar.superview == nil {
-            window.addSubview(toolbar)
+        // Add toolbar to this view so it's positioned relative to terminal view bounds, not screen
+        if let toolbar = floatingToolbar, toolbar.superview == nil {
+            addSubview(toolbar)
+            toolbar.alpha = 1  // Always visible at bottom of terminal view
             positionToolbar()
         }
 
-        // Add navigation pad to window (initially hidden)
-        if let window = window, let navPad = navigationPad, navPad.superview == nil {
+        // Add navigation pad to this view (initially hidden)
+        if let navPad = navigationPad, navPad.superview == nil {
             navPad.alpha = 0  // Hidden until toggled
-            window.addSubview(navPad)
+            addSubview(navPad)
             positionNavigationPad()
         }
     }
@@ -250,37 +261,41 @@ class TerminalViewWrapper: UIView {
         super.layoutSubviews()
         positionToolbar()
         positionNavigationPad()
+
+        // layoutSubviews is called frequently, use handleBoundsChange to deduplicate
+        handleBoundsChange()
     }
 
     private func positionToolbar() {
-        guard let toolbar = floatingToolbar, let window = window else { return }
+        guard let toolbar = floatingToolbar else { return }
 
-        let screenWidth = window.bounds.width
+        // Use wrapper's visible width (viewport width), not terminal's scrollable width
+        let toolbarWidth = bounds.width
         let toolbarHeight: CGFloat = 56
-        let safeAreaBottom = window.safeAreaInsets.bottom
+        let safeAreaBottom = safeAreaInsets.bottom
 
-        // Position toolbar at bottom of screen, above keyboard if visible
+        // Position toolbar at bottom of visible viewport, above keyboard if visible
         let bottomOffset = keyboardHeight > 0 ? keyboardHeight : safeAreaBottom
-        let toolbarY = window.bounds.height - bottomOffset - toolbarHeight
+        let toolbarY = bounds.height - bottomOffset - toolbarHeight
 
         toolbar.frame = CGRect(
             x: 0,
             y: toolbarY,
-            width: screenWidth,
+            width: toolbarWidth,
             height: toolbarHeight
         )
     }
 
     private func positionNavigationPad() {
-        guard let navPad = navigationPad, let window = window else { return }
+        guard let navPad = navigationPad else { return }
 
         let size = NavigationPadView.size
         let margin: CGFloat = 16
         let gapAboveToolbar: CGFloat = 2  // Very close to toolbar for tight visual grouping
 
         // Position in lower-right corner, above toolbar
-        let x = window.bounds.width - size - margin
-        let y = (floatingToolbar?.frame.minY ?? window.bounds.height) - size - gapAboveToolbar
+        let x = bounds.width - size - margin
+        let y = (floatingToolbar?.frame.minY ?? bounds.height) - size - gapAboveToolbar
 
         navPad.frame = CGRect(x: x, y: y, width: size, height: size)
     }
@@ -320,17 +335,56 @@ class TerminalViewWrapper: UIView {
         keyboardObservers = [showObserver, hideObserver, changeObserver]
     }
 
+    private func setupResizeObservers() {
+        // Observe device orientation changes
+        let orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleOrientationChange()
+        }
+
+        resizeObservers = [orientationObserver]
+    }
+
+    private func handleOrientationChange() {
+        // Force layout and trigger resize after orientation change
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.forceTerminalResize()
+        }
+    }
+
+    private func handleBoundsChange() {
+        // Bounds changed, check if width changed significantly
+        if abs(bounds.width - lastBounds.width) > 1.0 {
+            forceTerminalResize()
+        }
+    }
+
+    private func forceTerminalResize() {
+        lastBounds = bounds
+
+        // Force terminal to relayout with new bounds
+        terminalView?.setNeedsLayout()
+        terminalView?.layoutIfNeeded()
+
+        // Small delay to ensure SwiftTerm has recalculated cols based on new width
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.controller?.handleResize()
+        }
+    }
+
     private func handleKeyboardWillShow(_ notification: Notification) {
         guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
               let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
-              let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt,
-              let window = window else {
+              let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt else {
             return
         }
 
-        // Convert keyboard frame to window coordinates for proper landscape handling
-        let keyboardFrameInWindow = window.convert(keyboardFrame, from: nil)
-        keyboardHeight = max(0, window.bounds.height - keyboardFrameInWindow.origin.y)
+        // Convert keyboard frame to this view's coordinates
+        let keyboardFrameInView = convert(keyboardFrame, from: nil)
+        keyboardHeight = max(0, bounds.height - keyboardFrameInView.origin.y)
 
         UIView.animate(
             withDuration: duration,
@@ -338,8 +392,6 @@ class TerminalViewWrapper: UIView {
             options: UIView.AnimationOptions(rawValue: curve << 16),
             animations: {
                 self.positionToolbar()
-                // Show toolbar when keyboard appears
-                self.floatingToolbar?.alpha = 1
             }
         )
     }
@@ -352,20 +404,12 @@ class TerminalViewWrapper: UIView {
 
         keyboardHeight = 0
 
-        // Check if we're in landscape mode
-        let isLandscape = UIDevice.current.orientation.isLandscape ||
-            (window?.bounds.width ?? 0) > (window?.bounds.height ?? 0)
-
         UIView.animate(
             withDuration: duration,
             delay: 0,
             options: UIView.AnimationOptions(rawValue: curve << 16),
             animations: {
                 self.positionToolbar()
-                // Hide toolbar in landscape when keyboard is dismissed
-                if isLandscape {
-                    self.floatingToolbar?.alpha = 0
-                }
             }
         )
     }
@@ -373,14 +417,13 @@ class TerminalViewWrapper: UIView {
     private func handleKeyboardWillChangeFrame(_ notification: Notification) {
         guard let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
               let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
-              let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt,
-              let window = window else {
+              let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt else {
             return
         }
 
-        // Convert keyboard frame to window coordinates for proper landscape handling
-        let keyboardFrameInWindow = window.convert(keyboardFrame, from: nil)
-        keyboardHeight = max(0, window.bounds.height - keyboardFrameInWindow.origin.y)
+        // Convert keyboard frame to this view's coordinates
+        let keyboardFrameInView = convert(keyboardFrame, from: nil)
+        keyboardHeight = max(0, bounds.height - keyboardFrameInView.origin.y)
 
         UIView.animate(
             withDuration: duration,
@@ -394,6 +437,7 @@ class TerminalViewWrapper: UIView {
 
     deinit {
         keyboardObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        resizeObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     private func setupRefreshControl(for terminalView: SwiftTerm.TerminalView, controller: TerminalController) {
@@ -959,10 +1003,10 @@ class GlassTerminalAccessory: UIInputView {
         // Update toggle button state
         updateButtonTextHighlight(navPadToggleButton, active: true, color: .systemBlue)
 
-        // Get button position in window coordinates for morph animation
+        // Get button position in parent view coordinates for morph animation
         var originPoint: CGPoint?
-        if let button = navPadToggleButton, let window = window {
-            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
+        if let button = navPadToggleButton, let parent = superview {
+            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: parent)
             originPoint = buttonCenter
         }
 
@@ -978,10 +1022,10 @@ class GlassTerminalAccessory: UIInputView {
         // Update toggle button state
         updateButtonTextHighlight(navPadToggleButton, active: false, color: .label)
 
-        // Get button position in window coordinates for morph animation
+        // Get button position in parent view coordinates for morph animation
         var targetPoint: CGPoint?
-        if let button = navPadToggleButton, let window = window {
-            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: window)
+        if let button = navPadToggleButton, let parent = superview {
+            let buttonCenter = button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: parent)
             targetPoint = buttonCenter
         }
 
@@ -1899,35 +1943,61 @@ class TerminalController: NSObject, ObservableObject {
     }
 
     // Minimum terminal dimensions for TUI rendering
-    static let minCols: UInt16 = 65
+    // iPad split view: ensure terminal has enough width even when sidebar is visible
+    static let minCols: UInt16 = 74
     private static let minRows: UInt16 = 15
 
     // Calculate minimum width for minCols (DRY helper)
     static func calculateMinWidth(font: UIFont) -> CGFloat {
         let charWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
-        // Add fudge factor to account for padding/margins/scrollbar
-        return charWidth * CGFloat(minCols + 2)
+        // Add extra buffer to ensure we actually get minCols displayed
+        // Account for padding, margins, scrollbar, and rounding errors
+        return charWidth * CGFloat(minCols + 4)
     }
 
     private func sendReadySignal() {
-        // Get current terminal dimensions with minimums for TUI compatibility
-        let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
-        let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
+        // CRITICAL: Force layout pass to ensure we have correct dimensions
+        // Without this, portrait mode gets landscape dimensions on initial load
+        terminalView.setNeedsLayout()
+        terminalView.layoutIfNeeded()
 
-        // Note: Don't call showCursor() - let Claude's TUI control cursor visibility
-        // via escape sequences. Early showCursor() causes cursor to be visible at wrong position.
+        // Small delay to ensure layout has fully completed and SwiftTerm recalculated cols
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self = self else { return }
 
-        // Send resize to ensure backend knows our dimensions
-        dataSource.sendResize(cols: cols, rows: rows)
+            // Get current terminal dimensions - use actual size, no minimum enforcement
+            let terminal = self.terminalView.getTerminal()
+            let cols = UInt16(terminal.cols)
+            let rows = UInt16(terminal.rows)
 
-        // Send ready signal to trigger buffer replay
-        dataSource.sendReady()
+            // DEBUG: Log all dimension info
+            print("📐 [sendReadySignal] Terminal buffer: \(terminal.cols)x\(terminal.rows)")
+            print("📐 [sendReadySignal] TerminalView bounds: \(self.terminalView.bounds)")
+            print("📐 [sendReadySignal] TerminalView frame: \(self.terminalView.frame)")
+            print("📐 [sendReadySignal] Sending to backend: \(cols)x\(rows)")
+
+            // Note: Don't call showCursor() - let Claude's TUI control cursor visibility
+            // via escape sequences. Early showCursor() causes cursor to be visible at wrong position.
+
+            // Send resize to ensure backend knows our dimensions
+            self.dataSource.sendResize(cols: cols, rows: rows)
+
+            // Send ready signal to trigger buffer replay
+            self.dataSource.sendReady()
+        }
     }
 
     func handleResize() {
-        // Get current terminal dimensions with minimums for TUI compatibility
-        let cols = max(UInt16(terminalView.getTerminal().cols), Self.minCols)
-        let rows = max(UInt16(terminalView.getTerminal().rows), Self.minRows)
+        // Get current terminal dimensions - use actual size, no minimum enforcement
+        let terminal = terminalView.getTerminal()
+        let cols = UInt16(terminal.cols)
+        let rows = UInt16(terminal.rows)
+
+        // DEBUG: Log all dimension info
+        print("📐 [handleResize] Terminal buffer: \(terminal.cols)x\(terminal.rows)")
+        print("📐 [handleResize] TerminalView bounds: \(terminalView.bounds)")
+        print("📐 [handleResize] TerminalView frame: \(terminalView.frame)")
+        print("📐 [handleResize] Sending to backend: \(cols)x\(rows)")
 
         dataSource.sendResize(cols: cols, rows: rows)
     }

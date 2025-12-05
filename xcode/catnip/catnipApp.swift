@@ -24,6 +24,7 @@ struct catnipApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .withAdaptiveTheme()
                 .environmentObject(authManager)
                 .environmentObject(notificationManager)
                 .onAppear {

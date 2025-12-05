@@ -10,7 +10,9 @@
       "WebSearch",
       "Skill(superpowers:brainstorming)",
       "Bash(python3:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(xargs ls:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []
