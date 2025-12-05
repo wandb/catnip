@@ -345,6 +345,7 @@ struct WorkspaceDetailView: View {
                                     .font(.system(size: 11, weight: .medium))
                             }
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
