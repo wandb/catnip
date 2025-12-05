@@ -12,17 +12,19 @@ struct AdaptiveNavigationContainer<Sidebar: View, Detail: View, EmptyDetail: Vie
     @Environment(\.adaptiveTheme) private var adaptiveTheme
 
     let sidebar: () -> Sidebar
-    let detail: (Binding<NavigationPath>) -> Detail
+    let detail: (Binding<NavigationPath>, String?) -> Detail
     let emptyDetail: () -> EmptyDetail
 
     @State private var navigationPath = NavigationPath()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @Binding var columnVisibility: NavigationSplitViewVisibility
 
     init(
+        columnVisibility: Binding<NavigationSplitViewVisibility> = .constant(.all),
         @ViewBuilder sidebar: @escaping () -> Sidebar,
-        @ViewBuilder detail: @escaping (Binding<NavigationPath>) -> Detail,
+        @ViewBuilder detail: @escaping (Binding<NavigationPath>, String?) -> Detail,
         @ViewBuilder emptyDetail: @escaping () -> EmptyDetail
     ) {
+        self._columnVisibility = columnVisibility
         self.sidebar = sidebar
         self.detail = detail
         self.emptyDetail = emptyDetail
@@ -38,16 +40,17 @@ struct AdaptiveNavigationContainer<Sidebar: View, Detail: View, EmptyDetail: Vie
                 .navigationSplitViewColumnWidth(adaptiveTheme.sidebarWidth)
             } detail: {
                 NavigationStack(path: $navigationPath) {
-                    detail($navigationPath)
+                    detail($navigationPath, nil)
                 }
             }
+            .navigationSplitViewStyle(.balanced)
         } else {
             // iPhone: Use NavigationStack with full-screen push
             NavigationStack(path: $navigationPath) {
                 sidebar()
-                    .navigationDestination(for: String.self) { _ in
-                        detail($navigationPath)
-                    }
+            }
+            .navigationDestination(for: String.self) { workspaceId in
+                detail($navigationPath, workspaceId)
             }
         }
     }
@@ -61,7 +64,7 @@ struct AdaptiveNavigationContainer<Sidebar: View, Detail: View, EmptyDetail: Vie
             NavigationLink("Item \(index)", value: "item-\(index)")
         }
         .navigationTitle("Sidebar")
-    } detail: { _ in
+    } detail: { _, workspaceId in
         Text("Detail View")
             .navigationTitle("Detail")
     } emptyDetail: {
@@ -86,7 +89,7 @@ struct AdaptiveNavigationContainer<Sidebar: View, Detail: View, EmptyDetail: Vie
             NavigationLink("Item \(index)", value: "item-\(index)")
         }
         .navigationTitle("Sidebar")
-    } detail: { _ in
+    } detail: { _, workspaceId in
         Text("Detail View")
             .navigationTitle("Detail")
     } emptyDetail: {

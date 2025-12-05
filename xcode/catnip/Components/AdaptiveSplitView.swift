@@ -20,6 +20,7 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
 
     let defaultMode: AdaptiveSplitMode
     let allowModeToggle: Bool
+    let contextTokens: Int64?
     let leading: () -> Leading
     let trailing: () -> Trailing
 
@@ -28,11 +29,13 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
     init(
         defaultMode: AdaptiveSplitMode = .split,
         allowModeToggle: Bool = true,
+        contextTokens: Int64? = nil,
         @ViewBuilder leading: @escaping () -> Leading,
         @ViewBuilder trailing: @escaping () -> Trailing
     ) {
         self.defaultMode = defaultMode
         self.allowModeToggle = allowModeToggle
+        self.contextTokens = contextTokens
         self.leading = leading
         self.trailing = trailing
         _currentMode = State(initialValue: defaultMode)
@@ -43,12 +46,10 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
             if adaptiveTheme.context.isPhone {
                 // iPhone: Single pane with toggle
                 singlePaneLayout
-            } else if adaptiveTheme.context == .iPadCompact {
-                // iPad portrait: Vertical split (top/bottom)
-                verticalSplitLayout
             } else {
-                // iPad landscape/Mac: Horizontal split (side-by-side)
-                horizontalSplitLayout
+                // iPad (both portrait and landscape): Vertical split (top/bottom)
+                // Terminal on top, chat on bottom for better code visibility
+                verticalSplitLayout
             }
         }
         .onChange(of: adaptiveTheme.context) { _, _ in
@@ -153,7 +154,7 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
                     currentMode = .leading
                 }
             } label: {
-                Label("Leading Only", systemImage: "rectangle.leadinghalf.filled")
+                Label("Terminal Only", systemImage: "rectangle.leadinghalf.filled")
             }
 
             Button {
@@ -161,12 +162,15 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
                     currentMode = .trailing
                 }
             } label: {
-                Label("Trailing Only", systemImage: "rectangle.trailinghalf.filled")
+                Label("Overview Only", systemImage: "rectangle.trailinghalf.filled")
             }
         } label: {
-            Image(systemName: currentMode == .split ? "rectangle.split.2x1" :
-                  currentMode == .leading ? "rectangle.leadinghalf.filled" :
-                  "rectangle.trailinghalf.filled")
+            ContextProgressRing(contextTokens: contextTokens) {
+                Image(systemName: currentMode == .split ? "rectangle.split.2x1" :
+                      currentMode == .leading ? "rectangle.leadinghalf.filled" :
+                      "rectangle.trailinghalf.filled")
+                    .font(.system(size: 11, weight: .medium))
+            }
         }
     }
 
