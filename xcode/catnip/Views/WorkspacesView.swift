@@ -258,11 +258,16 @@ struct WorkspacesView: View {
                     ForEach(workspaces) { workspace in
                         NavigationLink(value: workspace.id) {
                             WorkspaceCard(workspace: workspace)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    Color(uiColor: .secondarySystemBackground)
+                                        .ignoresSafeArea(edges: .horizontal)
+                                )
                                 .contentShape(Rectangle())
                         }
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.visible)
-                        .listRowBackground(Color(uiColor: .secondarySystemBackground))
+                        .listRowBackground(Color.clear)
                         .accessibilityIdentifier("workspace-\(workspace.id)")
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -273,7 +278,7 @@ struct WorkspacesView: View {
                         }
                     }
                 }
-                .listStyle(.sidebar)
+                .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .navigationTitle("Workspaces")
                 .navigationBarTitleDisplayMode(.inline)
@@ -717,6 +722,8 @@ struct WorkspaceCard: View {
                 Spacer()
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
 
