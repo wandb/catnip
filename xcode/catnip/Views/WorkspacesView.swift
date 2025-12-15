@@ -25,7 +25,10 @@ struct WorkspacesView: View {
     @State private var selectedWorkspaceId: String? // Selected workspace for split view (iPad)
     @State private var pendingPromptForNavigation: String? // Prompt to pass to detail view
     @State private var createdWorkspaceForRetry: WorkspaceInfo? // Track created workspace for retry on 408 timeout
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all // Control sidebar visibility (iPad)
+    // iPad sidebar visibility: .all shows sidebar by default for discoverability.
+    // Using .all instead of .automatic ensures consistent behavior across iOS 18 and iOS 26,
+    // as .automatic had different default behaviors between versions.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     // Claude authentication
     @State private var showClaudeAuthSheet = false

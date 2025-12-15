@@ -58,34 +58,7 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
         }
     }
 
-    // MARK: - Horizontal Split Layout (iPad Landscape/Mac)
-
-    private var horizontalSplitLayout: some View {
-        HStack(spacing: 0) {
-            if currentMode == .leading || currentMode == .split {
-                leading()
-                    .frame(maxWidth: currentMode == .split ? adaptiveTheme.maxContentWidth : .infinity)
-
-                if currentMode == .split {
-                    Divider()
-                }
-            }
-
-            if currentMode == .trailing || currentMode == .split {
-                trailing()
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .toolbar {
-            if allowModeToggle {
-                ToolbarItem(placement: .topBarTrailing) {
-                    modeToggleMenu
-                }
-            }
-        }
-    }
-
-    // MARK: - Vertical Split Layout (iPad Portrait)
+    // MARK: - Vertical Split Layout (iPad)
 
     private var verticalSplitLayout: some View {
         VStack(spacing: 0) {

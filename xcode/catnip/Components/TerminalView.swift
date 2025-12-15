@@ -1942,8 +1942,11 @@ class TerminalController: NSObject, ObservableObject {
         }
     }
 
-    // Minimum terminal dimensions for TUI rendering
-    // iPad split view: ensure terminal has enough width even when sidebar is visible
+    // Target terminal dimensions for optimal TUI rendering
+    // 74 columns: Claude Code's TUI works best with ~70+ cols for diff views, progress bars,
+    // and wrapped text. This target is achieved on iPad and iPhone landscape, but iPhone
+    // portrait (~50-55 cols at 12pt font) will have narrower output with more line wrapping.
+    // Note: This is a target, not enforced - actual cols depend on available screen width.
     static let minCols: UInt16 = 74
     private static let minRows: UInt16 = 15
 
@@ -1961,7 +1964,10 @@ class TerminalController: NSObject, ObservableObject {
         terminalView.setNeedsLayout()
         terminalView.layoutIfNeeded()
 
-        // Small delay to ensure layout has fully completed and SwiftTerm recalculated cols
+        // 150ms delay: SwiftTerm needs time to recalculate terminal dimensions after
+        // layoutIfNeeded(). This accounts for the layout pass completing, SwiftTerm's
+        // internal column/row recalculation, and any pending view updates. Shorter delays
+        // (50-100ms) resulted in stale dimensions being sent on device rotation.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self = self else { return }
 
