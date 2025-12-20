@@ -27,6 +27,7 @@ enum RepositoryListMode {
 
 struct CodespaceView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.adaptiveTheme) private var adaptiveTheme
     @EnvironmentObject var authManager: AuthManager
     @StateObject private var installer = CatnipInstaller.shared
     @StateObject private var tracker = CodespaceCreationTracker.shared
@@ -309,109 +310,116 @@ struct CodespaceView: View {
     }
 
     private var connectView: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Logo / brand
-                Image("logo")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 80, height: 80)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 2)
-                    .padding(.top, 40)
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
 
-                Text("Access your GitHub Codespaces")
-                    .font(.title2.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .padding(.bottom, 4)
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Logo / brand
+                    Image("logo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 80, height: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 2)
+                        .padding(.top, 40)
 
-                VStack(spacing: 16) {
-                    Button {
-                        // Determine action based on user's codespace and repository status
-                        if installer.userStatus?.hasAnyCodespaces == false {
-                            // No codespaces - check if they have repos with Catnip
-                            if installer.hasRepositoriesWithCatnip {
-                                // Has repos with Catnip → Launch New Codespace
-                                repositoryListMode = .launch
-                            } else {
-                                // No repos with Catnip → Install Catnip
-                                repositoryListMode = .installation
-                            }
-                            phase = .repositorySelection
-                            Task {
-                                do {
-                                    try await installer.fetchRepositories()
-                                } catch {
-                                    errorMessage = "Failed to load repositories: \(error.localizedDescription)"
-                                    phase = .connect
+                    Text("Access your GitHub Codespaces")
+                        .font(.title2.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.bottom, 4)
+
+                    VStack(spacing: 16) {
+                        Button {
+                            // Determine action based on user's codespace and repository status
+                            if installer.userStatus?.hasAnyCodespaces == false {
+                                // No codespaces - check if they have repos with Catnip
+                                if installer.hasRepositoriesWithCatnip {
+                                    // Has repos with Catnip → Launch New Codespace
+                                    repositoryListMode = .launch
+                                } else {
+                                    // No repos with Catnip → Install Catnip
+                                    repositoryListMode = .installation
                                 }
+                                phase = .repositorySelection
+                                Task {
+                                    do {
+                                        try await installer.fetchRepositories()
+                                    } catch {
+                                        errorMessage = "Failed to load repositories: \(error.localizedDescription)"
+                                        phase = .connect
+                                    }
+                                }
+                            } else {
+                                // Has codespaces → Access My Codespace
+                                handleConnect()
                             }
-                        } else {
-                            // Has codespaces → Access My Codespace
-                            handleConnect()
-                        }
-                    } label: {
-                        HStack {
-                            if phase == .connecting {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                    .padding(.trailing, 6)
+                        } label: {
+                            HStack {
+                                if phase == .connecting {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .padding(.trailing, 6)
+                                }
+                                Text(phase == .connecting ? "Connecting…" : primaryButtonText)
                             }
-                            Text(phase == .connecting ? "Connecting…" : primaryButtonText)
                         }
+                        .buttonStyle(ProminentButtonStyle(isDisabled: phase == .connecting))
+                        .disabled(phase == .connecting)
+                        .accessibilityIdentifier("primaryActionButton")
                     }
-                    .buttonStyle(ProminentButtonStyle(isDisabled: phase == .connecting))
-                    .disabled(phase == .connecting)
-                    .accessibilityIdentifier("primaryActionButton")
-                }
+                    .frame(maxWidth: adaptiveTheme.maxContentWidth)
 
-                // Inline status / error
-                if !statusMessage.isEmpty {
-                    HStack(spacing: 10) {
-                        Image(systemName: statusIcon)
-                            .foregroundStyle(statusColor)
-                        Text(statusMessage)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                        Spacer()
+                    // Inline status / error
+                    if !statusMessage.isEmpty {
+                        HStack(spacing: 10) {
+                            Image(systemName: statusIcon)
+                                .foregroundStyle(statusColor)
+                            Text(statusMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(statusColor.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
-                    .padding(12)
-                    .background(statusColor.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
 
-                if !errorMessage.isEmpty {
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.red)
-                        Text(errorMessage)
-                            .font(.subheadline)
-                        Spacer()
+                    if !errorMessage.isEmpty {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(Color.red)
+                            Text(errorMessage)
+                                .font(.subheadline)
+                            Spacer()
+                        }
+                        .foregroundStyle(Color.red)
+                        .padding(12)
+                        .background(Color.red.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
-                    .foregroundStyle(Color.red)
-                    .padding(12)
-                    .background(Color.red.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
 
-                Spacer(minLength: 12)
+                    Spacer(minLength: 12)
 
-                // Fun fact section
-                VStack(spacing: 6) {
-                    HStack(spacing: 4) {
-                        Text("🐾")
-                            .font(.footnote)
-                        Text(currentCatFact)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    // Fun fact section
+                    VStack(spacing: 6) {
+                        HStack(spacing: 4) {
+                            Text("🐾")
+                                .font(.footnote)
+                            Text(currentCatFact)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .multilineTextAlignment(.center)
                     }
-                    .multilineTextAlignment(.center)
                 }
+                .frame(maxWidth: adaptiveTheme.maxContentWidth)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
             }
-            .padding(.horizontal, 20)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .background(Color(uiColor: .systemGroupedBackground))
         .onAppear {
             if currentCatFact.isEmpty {
                 currentCatFact = catFacts.randomElement() ?? catFacts[0]
@@ -965,6 +973,7 @@ struct CodespaceView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: adaptiveTheme.maxContentWidth)
                 .padding(.horizontal, 20)
             }
         }
@@ -1186,100 +1195,106 @@ struct CodespaceView: View {
     }
 
     private var createRepositoryView: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Spacer()
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
 
-                // Welcoming icon
-                Image(systemName: "plus.rectangle.on.folder")
-                    .font(.system(size: 60))
-                    .foregroundStyle(Color.accentColor)
+            ScrollView {
+                VStack(spacing: 24) {
+                    Spacer()
 
-                VStack(spacing: 12) {
-                    Text("Create Your First Repository")
-                        .font(.title2.weight(.semibold))
-                        .multilineTextAlignment(.center)
+                    // Welcoming icon
+                    Image(systemName: "plus.rectangle.on.folder")
+                        .font(.system(size: 60))
+                        .foregroundStyle(Color.accentColor)
 
-                    Text("Catnip needs a GitHub repository to work with. Create one to get started with agentic coding on your mobile device.")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
+                    VStack(spacing: 12) {
+                        Text("Create Your First Repository")
+                            .font(.title2.weight(.semibold))
+                            .multilineTextAlignment(.center)
 
-                Spacer()
-
-                VStack(spacing: 12) {
-                    // Primary action - Create on GitHub
-                    Button {
-                        if let url = URL(string: "https://github.com/new") {
-                            UIApplication.shared.open(url)
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text("Create Repository on GitHub")
-                        }
+                        Text("Catnip needs a GitHub repository to work with. Create one to get started with agentic coding on your mobile device.")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                     }
-                    .buttonStyle(ProminentButtonStyle(isDisabled: false))
 
-                    // Secondary action - Refresh to check
-                    Button {
-                        Task {
-                            do {
-                                // Force refresh both user status and repositories
-                                // This will re-check GitHub state after user creates repo
-                                try await installer.fetchUserStatus(forceRefresh: true)
-                                try await installer.fetchRepositories(forceRefresh: true)
+                    Spacer()
 
-                                // After refresh, determine next flow
-                                await MainActor.run {
-                                    if installer.repositories.isEmpty {
-                                        // Still no repos - show error
-                                        errorMessage = "No repositories found yet. Create one on GitHub and try again."
-                                    } else {
-                                        // Success! Navigate to install flow
-                                        NSLog("✅ User now has \(installer.repositories.count) repositories")
-                                        repositoryListMode = .installation
-                                        phase = .repositorySelection
-                                    }
-                                }
-                            } catch {
-                                await MainActor.run {
-                                    errorMessage = "Failed to check repositories: \(error.localizedDescription)"
-                                }
+                    VStack(spacing: 12) {
+                        // Primary action - Create on GitHub
+                        Button {
+                            if let url = URL(string: "https://github.com/new") {
+                                UIApplication.shared.open(url)
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "plus.circle.fill")
+                                Text("Create Repository on GitHub")
                             }
                         }
-                    } label: {
-                        HStack {
-                            Image(systemName: "arrow.clockwise")
-                            Text("I Created a Repository")
-                        }
-                    }
-                    .buttonStyle(SecondaryButtonStyle(isDisabled: false))
-                }
-                .padding(.horizontal, 20)
+                        .buttonStyle(ProminentButtonStyle(isDisabled: false))
 
-                // Show error if refresh found no repos
-                if !errorMessage.isEmpty {
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(Color.orange)
-                        Text(errorMessage)
-                            .font(.subheadline)
-                        Spacer()
+                        // Secondary action - Refresh to check
+                        Button {
+                            Task {
+                                do {
+                                    // Force refresh both user status and repositories
+                                    // This will re-check GitHub state after user creates repo
+                                    try await installer.fetchUserStatus(forceRefresh: true)
+                                    try await installer.fetchRepositories(forceRefresh: true)
+
+                                    // After refresh, determine next flow
+                                    await MainActor.run {
+                                        if installer.repositories.isEmpty {
+                                            // Still no repos - show error
+                                            errorMessage = "No repositories found yet. Create one on GitHub and try again."
+                                        } else {
+                                            // Success! Navigate to install flow
+                                            NSLog("✅ User now has \(installer.repositories.count) repositories")
+                                            repositoryListMode = .installation
+                                            phase = .repositorySelection
+                                        }
+                                    }
+                                } catch {
+                                    await MainActor.run {
+                                        errorMessage = "Failed to check repositories: \(error.localizedDescription)"
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "arrow.clockwise")
+                                Text("I Created a Repository")
+                            }
+                        }
+                        .buttonStyle(SecondaryButtonStyle(isDisabled: false))
                     }
-                    .foregroundStyle(Color.orange)
-                    .padding(12)
-                    .background(Color.orange.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal, 20)
+
+                    // Show error if refresh found no repos
+                    if !errorMessage.isEmpty {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(Color.orange)
+                            Text(errorMessage)
+                                .font(.subheadline)
+                            Spacer()
+                        }
+                        .foregroundStyle(Color.orange)
+                        .padding(12)
+                        .background(Color.orange.opacity(0.08))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 20)
+                    }
                 }
+                .frame(maxWidth: adaptiveTheme.maxContentWidth)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding()
             }
-            .padding()
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 

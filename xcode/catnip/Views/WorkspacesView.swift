@@ -21,9 +21,14 @@ struct WorkspacesView: View {
     @State private var branchesLoading = false
     @State private var createSheetError: String? // Separate error for create sheet
     @State private var deleteConfirmation: WorkspaceInfo? // Workspace to delete
-    @State private var navigationWorkspace: WorkspaceInfo? // Workspace to navigate to
+    @State private var navigationWorkspace: WorkspaceInfo? // Workspace to navigate to (iPhone)
+    @State private var selectedWorkspaceId: String? // Selected workspace for split view (iPad)
     @State private var pendingPromptForNavigation: String? // Prompt to pass to detail view
     @State private var createdWorkspaceForRetry: WorkspaceInfo? // Track created workspace for retry on 408 timeout
+    // iPad sidebar visibility: .all shows sidebar by default for discoverability.
+    // Using .all instead of .automatic ensures consistent behavior across iOS 18 and iOS 26,
+    // as .automatic had different default behaviors between versions.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     // Claude authentication
     @State private var showClaudeAuthSheet = false
@@ -34,6 +39,7 @@ struct WorkspacesView: View {
     @State private var shutdownMessage: String?
     @State private var isReconnecting = false  // Track if we're in reconnection flow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.adaptiveTheme) private var adaptiveTheme
 
     // CatnipInstaller for status refresh
     @StateObject private var installer = CatnipInstaller.shared
@@ -43,27 +49,16 @@ struct WorkspacesView: View {
     }
 
     var body: some View {
-        ZStack {
-            Color(uiColor: .systemGroupedBackground)
-                .ignoresSafeArea()
-
-            if isLoading {
-                loadingView
-            } else if let error = error {
-                errorView(error)
-            } else if workspaces.isEmpty {
-                emptyView
+        // CRITICAL: Use different navigation patterns for iPhone vs iPad
+        // iPhone is already inside ContentView's NavigationStack - DON'T create another!
+        // iPad needs NavigationSplitView for sidebar/detail pattern
+        Group {
+            if adaptiveTheme.prefersSplitView {
+                // iPad: Use NavigationSplitView for sidebar + detail
+                iPadSplitView
             } else {
-                listView
-            }
-        }
-        .navigationTitle("Workspaces")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: { showCreateSheet = true }) {
-                    Image(systemName: "plus")
-                }
+                // iPhone: Simple content view - we're already inside NavigationStack from ContentView
+                iPhoneContentView
             }
         }
         .task {
@@ -179,20 +174,7 @@ struct WorkspacesView: View {
                 }
             }
         }
-        .navigationDestination(item: $navigationWorkspace) { workspace in
-            WorkspaceDetailView(
-                workspaceId: workspace.id,
-                initialWorkspace: workspace,
-                pendingPrompt: pendingPromptForNavigation
-            )
-        }
-        .onChange(of: navigationWorkspace) {
-            // Clear pending prompt after navigation completes
-            if navigationWorkspace == nil && pendingPromptForNavigation != nil {
-                pendingPromptForNavigation = nil
-                NSLog("🐱 [WorkspacesView] Cleared pendingPromptForNavigation after navigation")
-            }
-        }
+        // Note: selectedWorkspaceId/navigationWorkspace change handlers are in platform-specific views
         .sheet(isPresented: $showClaudeAuthSheet) {
             let codespaceName = UserDefaults.standard.string(forKey: "codespace_name") ?? "unknown"
             ClaudeAuthSheet(isPresented: $showClaudeAuthSheet, codespaceName: codespaceName) {
@@ -265,7 +247,52 @@ struct WorkspacesView: View {
         .padding()
     }
 
-    private var listView: some View {
+    // MARK: - Platform-Specific Navigation Views
+
+    /// iPhone navigation - simple content view, relies on parent's NavigationStack
+    /// CRITICAL: Do NOT wrap this in a NavigationStack - ContentView already provides one!
+    private var iPhoneContentView: some View {
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+                .ignoresSafeArea()
+
+            if isLoading {
+                loadingView
+            } else if let error = error {
+                errorView(error)
+            } else if workspaces.isEmpty {
+                emptyView
+            } else {
+                iPhoneListView
+            }
+        }
+        .navigationTitle("Workspaces")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showCreateSheet = true }) {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        // Use the original navigation pattern - item binding, not NavigationLink(value:)
+        .navigationDestination(item: $navigationWorkspace) { workspace in
+            WorkspaceDetailView(
+                workspaceId: workspace.id,
+                initialWorkspace: workspace,
+                pendingPrompt: pendingPromptForNavigation
+            )
+        }
+        .onChange(of: navigationWorkspace) {
+            // Clear pending prompt after navigation completes
+            if navigationWorkspace == nil && pendingPromptForNavigation != nil {
+                pendingPromptForNavigation = nil
+            }
+        }
+    }
+
+    /// iPhone list view - uses Button to trigger navigation, not NavigationLink
+    private var iPhoneListView: some View {
         List {
             ForEach(workspaces) { workspace in
                 Button {
@@ -295,30 +322,152 @@ struct WorkspacesView: View {
             get: { deleteConfirmation != nil },
             set: { if !$0 { deleteConfirmation = nil } }
         )) {
-            Button("Cancel", role: .cancel) {
-                deleteConfirmation = nil
+            deleteAlertButtons
+        } message: {
+            deleteAlertMessage
+        }
+    }
+
+    /// iPad navigation - uses NavigationSplitView for sidebar/detail pattern
+    private var iPadSplitView: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            workspacesList
+                .navigationSplitViewColumnWidth(adaptiveTheme.sidebarWidth)
+        } detail: {
+            if let selectedId = selectedWorkspaceId,
+               let workspace = workspaces.first(where: { $0.id == selectedId }) {
+                WorkspaceDetailView(
+                    workspaceId: workspace.id,
+                    initialWorkspace: workspace,
+                    pendingPrompt: pendingPromptForNavigation
+                )
+            } else {
+                emptySelectionView
             }
-            Button("Delete", role: .destructive) {
-                if let workspace = deleteConfirmation {
-                    Task {
-                        await deleteWorkspace(workspace)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: selectedWorkspaceId) { _, newValue in
+            // Auto-hide sidebar when workspace is selected on iPad
+            if newValue != nil {
+                columnVisibility = .detailOnly
+            }
+            // Clear pending prompt
+            if newValue == nil && pendingPromptForNavigation != nil {
+                pendingPromptForNavigation = nil
+            }
+        }
+    }
+
+    // MARK: - Shared Content Views (iPad only uses workspacesList)
+
+    /// iPad workspace list - used only inside iPadSplitView's sidebar
+    private var workspacesList: some View {
+        Group {
+            if isLoading {
+                loadingView
+            } else if let error = error {
+                errorView(error)
+            } else if workspaces.isEmpty {
+                emptyView
+            } else {
+                // iPad: Use selection binding for split view
+                List(selection: $selectedWorkspaceId) {
+                    iPadWorkspaceListContent
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .navigationTitle("Workspaces")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(action: { showCreateSheet = true }) {
+                            Image(systemName: "plus")
+                        }
                     }
                 }
-            }
-        } message: {
-            if let workspace = deleteConfirmation {
-                let changesList = [
-                    workspace.isDirty == true ? "uncommitted changes" : nil,
-                    (workspace.commitCount ?? 0) > 0 ? "\(workspace.commitCount ?? 0) commits" : nil
-                ].compactMap { $0 }
-
-                if !changesList.isEmpty {
-                    Text("Delete workspace \"\(workspace.displayName)\"? This workspace has \(changesList.joined(separator: " and ")). This action cannot be undone.")
-                } else {
-                    Text("Delete workspace \"\(workspace.displayName)\"? This action cannot be undone.")
+                .accessibilityIdentifier("workspacesList")
+                .alert("Delete Workspace", isPresented: Binding(
+                    get: { deleteConfirmation != nil },
+                    set: { if !$0 { deleteConfirmation = nil } }
+                )) {
+                    deleteAlertButtons
+                } message: {
+                    deleteAlertMessage
                 }
             }
         }
+    }
+
+    /// iPad workspace list content - uses NavigationLink with value for split view selection
+    @ViewBuilder
+    private var iPadWorkspaceListContent: some View {
+        ForEach(workspaces) { workspace in
+            NavigationLink(value: workspace.id) {
+                WorkspaceCard(workspace: workspace)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        Color(uiColor: .secondarySystemBackground)
+                        .ignoresSafeArea(edges: .horizontal)
+                    )
+                    .contentShape(Rectangle())
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.visible)
+            .listRowBackground(Color.clear)
+            .accessibilityIdentifier("workspace-\(workspace.id)")
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    deleteConfirmation = workspace
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deleteAlertButtons: some View {
+        Button("Cancel", role: .cancel) {
+            deleteConfirmation = nil
+        }
+        Button("Delete", role: .destructive) {
+            if let workspace = deleteConfirmation {
+                Task {
+                    await deleteWorkspace(workspace)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var deleteAlertMessage: some View {
+        if let workspace = deleteConfirmation {
+            let changesList = [
+                workspace.isDirty == true ? "uncommitted changes" : nil,
+                (workspace.commitCount ?? 0) > 0 ? "\(workspace.commitCount ?? 0) commits" : nil
+            ].compactMap { $0 }
+
+            if !changesList.isEmpty {
+                Text("Delete workspace \"\(workspace.displayName)\"? This workspace has \(changesList.joined(separator: " and ")). This action cannot be undone.")
+            } else {
+                Text("Delete workspace \"\(workspace.displayName)\"? This action cannot be undone.")
+            }
+        }
+    }
+
+    private var emptySelectionView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "square.stack.3d.up")
+                .font(.system(size: 56))
+                .foregroundStyle(.secondary)
+            Text("Select a Workspace")
+                .font(.title2.weight(.semibold))
+            Text("Choose a workspace from the sidebar to view details")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
     }
 
     private func loadWorkspaces() async {
@@ -546,7 +695,14 @@ struct WorkspacesView: View {
                 showCreateSheet = false
                 isCreating = false
                 createdWorkspaceForRetry = nil // Clear retry state on success
-                navigationWorkspace = workspace
+                // Navigate using the appropriate mechanism for the current device
+                if adaptiveTheme.prefersSplitView {
+                    // iPad: Use selection binding
+                    selectedWorkspaceId = workspace.id
+                } else {
+                    // iPhone: Use navigation item binding
+                    navigationWorkspace = workspace
+                }
                 NSLog("🚀 Navigating to newly created workspace: \(workspace.id)")
             }
         } catch {

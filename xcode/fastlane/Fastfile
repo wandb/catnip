@@ -1,0 +1,32 @@
+default_platform(:ios)
+
+platform :ios do
+  desc "Capture App Store screenshots"
+  lane :screenshots do
+    capture_screenshots(scheme: "catnip")
+  end
+
+  desc "Upload screenshots to App Store Connect"
+  lane :upload_screenshots do
+    deliver(
+      skip_binary_upload: true,
+      skip_metadata: true,
+      overwrite_screenshots: true
+    )
+  end
+
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    build_app(scheme: "catnip")
+    upload_to_testflight
+  end
+
+  desc "Build and submit to App Store"
+  lane :release do
+    build_app(scheme: "catnip")
+    deliver(
+      submit_for_review: false,
+      automatic_release: false
+    )
+  end
+end

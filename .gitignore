@@ -67,3 +67,9 @@ container/internal/assets/dist/*
 # Xcode user-specific files
 **/xcuserdata/
 xcode/build/
+
+# Fastlane
+xcode/fastlane/screenshots/
+xcode/fastlane/test_output/
+xcode/fastlane/report.xml
+xcode/Gemfile.lock
