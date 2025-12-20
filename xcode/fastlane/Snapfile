@@ -1,0 +1,39 @@
+# Snapfile - Minimum required screenshots for App Store
+
+# Devices - using available simulators
+devices([
+  # iPhone - 6.9" is now the primary requirement (auto-scales to other sizes)
+  "iPhone 16 Pro Max",    # 6.9" display (1320 × 2868px)
+
+  # iPad - one iPad size
+  "iPad Pro 13-inch (M4)" # 13" display
+])
+
+# Languages - add more as needed
+languages([
+  "en-US"
+])
+
+# Xcode scheme to use
+scheme("catnip")
+
+# Where to save screenshots
+output_directory("./fastlane/screenshots")
+
+# Clear previous screenshots
+clear_previous_screenshots(true)
+
+# Stop on first error (useful for debugging)
+stop_after_first_error(false)
+
+# Override status bar (iOS 13+)
+override_status_bar(true)
+
+# Launch arguments for your app (customize as needed)
+# launch_arguments(["-screenshots"])
+
+# Number of concurrent simulators
+concurrent_simulators(true)
+
+# Only run screenshot tests (not all UI tests)
+only_testing(["CatnipUITests/AppStoreScreenshots"])

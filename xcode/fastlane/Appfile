@@ -1,0 +1,14 @@
+# Appfile - App Store Connect configuration
+# Update these values with your actual information
+
+# Your Apple ID email
+# apple_id("your-email@example.com")
+
+# Your app's bundle identifier
+app_identifier("com.wandb.catnip")
+
+# Your Apple Developer Team ID
+# team_id("XXXXXXXXXX")
+
+# App Store Connect Team ID (if different from Developer Team)
+# itc_team_id("XXXXXXXXXX")

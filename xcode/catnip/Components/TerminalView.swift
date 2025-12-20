@@ -37,6 +37,26 @@ struct TerminalView: View {
         self.shouldConnect = shouldConnect
         self.showExitButton = showExitButton
         self.showDismissButton = showDismissButton
+
+        // Use mock data source for UI testing, live WebSocket for production
+        #if DEBUG
+        if UITestingHelper.shouldUseMockData {
+            // Use width-adaptive screenshot mock for clean rendering at any resolution
+            let mockDataSource = ScreenshotMockPTYDataSource.createForScreenshots()
+            _terminalController = StateObject(wrappedValue: TerminalController(
+                dataSource: mockDataSource,
+                showDismissButton: showDismissButton
+            ))
+        } else {
+            _terminalController = StateObject(wrappedValue: TerminalController(
+                workspaceId: workspaceId,
+                baseURL: baseURL,
+                codespaceName: codespaceName,
+                authToken: authToken,
+                showDismissButton: showDismissButton
+            ))
+        }
+        #else
         _terminalController = StateObject(wrappedValue: TerminalController(
             workspaceId: workspaceId,
             baseURL: baseURL,
@@ -44,6 +64,7 @@ struct TerminalView: View {
             authToken: authToken,
             showDismissButton: showDismissButton
         ))
+        #endif
     }
 
     var body: some View {
@@ -249,9 +270,10 @@ class TerminalViewWrapper: UIView {
             positionToolbar()
         }
 
-        // Add navigation pad to this view (initially hidden)
+        // Add navigation pad to this view (initially hidden, unless UI testing)
         if let navPad = navigationPad, navPad.superview == nil {
-            navPad.alpha = 0  // Hidden until toggled
+            // Show nav pad by default for UI testing screenshots
+            navPad.alpha = UITestingHelper.shouldUseMockData ? 1 : 0
             addSubview(navPad)
             positionNavigationPad()
         }
@@ -2200,8 +2222,8 @@ private struct TerminalViewWithMockData: View {
         self.showExitButton = showExitButton
         self.showDismissButton = showDismissButton
 
-        // Create mock data source with realistic Claude content
-        let mockDataSource = MockPTYDataSource.createPreviewDataSource(playbackSpeed: 1.0)
+        // Create width-adaptive mock for previews
+        let mockDataSource = ScreenshotMockPTYDataSource.createForScreenshots()
         _terminalController = StateObject(wrappedValue: TerminalController(
             dataSource: mockDataSource,
             showDismissButton: showDismissButton

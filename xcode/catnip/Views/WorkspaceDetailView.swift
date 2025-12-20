@@ -346,6 +346,7 @@ struct WorkspaceDetailView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("terminal")
                     }
                 }
             }
@@ -442,7 +443,7 @@ struct WorkspaceDetailView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Color.accentColor)
 
-                        MarkdownText(claudeMessage)
+                        EnhancedMarkdownText(claudeMessage)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -532,7 +533,7 @@ struct WorkspaceDetailView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(Color.accentColor)
 
-                        MarkdownText(claudeMessage)
+                        EnhancedMarkdownText(claudeMessage)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
