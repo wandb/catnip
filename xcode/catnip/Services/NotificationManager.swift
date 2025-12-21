@@ -25,6 +25,19 @@ class NotificationManager: NSObject, ObservableObject {
     // Callback for handling notification taps
     var onNotificationTap: ((String, String?) -> Void)?
 
+    // Device token for remote notifications
+    @Published var deviceToken: String?
+
+    // Store device token when registered
+    func setDeviceToken(_ token: Data) {
+        let tokenString = token.map { String(format: "%02.2hhx", $0) }.joined()
+        self.deviceToken = tokenString
+        NSLog("📱 Device token registered: \(tokenString.prefix(16))...")
+
+        // Store in UserDefaults for App Intents access
+        UserDefaults.standard.set(tokenString, forKey: "apnsDeviceToken")
+    }
+
     override private init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
@@ -176,9 +189,16 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
             case "open_codespace":
                 if let codespaceName = userInfo["codespace_name"] as? String {
                     NSLog("🔔 Opening codespace: \(codespaceName)")
-                    // Trigger the callback to handle navigation
                     DispatchQueue.main.async {
                         self.onNotificationTap?(codespaceName, "open_codespace")
+                    }
+                }
+            case "open_workspace":
+                // Handle Siri/remote notification workspace opening
+                if let workspaceId = userInfo["workspaceId"] as? String {
+                    NSLog("🔔 Opening workspace: \(workspaceId)")
+                    DispatchQueue.main.async {
+                        self.onNotificationTap?(workspaceId, "open_workspace")
                     }
                 }
             case "show_error":
