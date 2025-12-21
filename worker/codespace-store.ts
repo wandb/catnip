@@ -23,6 +23,11 @@ interface StoredCodespaceCredentials {
   updatedAt: number;
 }
 
+interface DeviceToken {
+  token: string;
+  updatedAt: number;
+}
+
 export class CodespaceStore extends DurableObject<Record<string, any>> {
   private sql: SqlStorage;
   private keys: Map<number, CryptoKey> = new Map();
@@ -251,6 +256,56 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       else {
         return new Response("Method not allowed", { status: 405 });
       }
+    }
+
+    // Handle device token routes: /device-token/{username}
+    if (url.pathname.match(/^\/device-token\/(.+)$/)) {
+      const username = url.pathname.split("/")[2];
+      const tokenKey = `device-token:${username}`;
+
+      // PUT /device-token/{username} - Store device token
+      if (request.method === "PUT") {
+        let body;
+        try {
+          body = await request.json<{ deviceToken: string }>();
+        } catch (_error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+
+        if (!body.deviceToken) {
+          return new Response("deviceToken required", { status: 400 });
+        }
+
+        const deviceTokenData: DeviceToken = {
+          token: body.deviceToken,
+          updatedAt: Date.now(),
+        };
+
+        await this.ctx.storage.put(tokenKey, deviceTokenData);
+        console.log(`📱 Stored device token for ${username}`);
+
+        return new Response("OK", { status: 200 });
+      }
+
+      // GET /device-token/{username} - Get device token
+      if (request.method === "GET") {
+        const deviceTokenData =
+          await this.ctx.storage.get<DeviceToken>(tokenKey);
+
+        if (!deviceTokenData) {
+          return new Response("No device token", { status: 404 });
+        }
+
+        return Response.json(deviceTokenData);
+      }
+
+      // DELETE /device-token/{username} - Delete device token
+      if (request.method === "DELETE") {
+        await this.ctx.storage.delete(tokenKey);
+        return new Response("OK", { status: 200 });
+      }
+
+      return new Response("Method not allowed", { status: 405 });
     }
 
     // Handle specific codespace lookup: /internal/codespace/{username}/{codespaceName}
