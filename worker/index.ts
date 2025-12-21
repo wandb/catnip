@@ -113,6 +113,11 @@ export interface Env {
   GITHUB_WEBHOOK_SECRET: string;
   CATNIP_ENCRYPTION_KEY: string;
   ENVIRONMENT?: string;
+  // APNs configuration for push notifications
+  APNS_AUTH_KEY?: string;
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_BUNDLE_ID?: string;
 }
 
 interface SessionData {
