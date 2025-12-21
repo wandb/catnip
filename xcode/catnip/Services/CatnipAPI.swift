@@ -605,6 +605,90 @@ class CatnipAPI: ObservableObject {
         }
     }
 
+    // MARK: - Siri API
+
+    /// Register device token for push notifications
+    func registerDeviceToken(_ deviceToken: String) async throws {
+        // Skip in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("✅ [CatnipAPI] Mock device token registration (no-op)")
+            return
+        }
+
+        // We register by including the device token in any Siri request
+        // For now, just store it locally - it will be sent with actual prompts
+        NSLog("📱 [CatnipAPI] Device token ready for Siri requests")
+    }
+
+    /// Send prompt via Siri (queues for background processing)
+    func sendSiriPrompt(_ prompt: String) async throws {
+        // Skip in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            NSLog("✅ [CatnipAPI] Mock Siri prompt (no-op)")
+            return
+        }
+
+        let headers = try await getHeaders()
+        guard let url = URL(string: "\(baseURL)/v1/siri/prompt") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.allHTTPHeaderFields = headers
+
+        // Include device token if available
+        let deviceToken = UserDefaults.standard.string(forKey: "apnsDeviceToken")
+
+        let body: [String: Any] = [
+            "prompt": prompt,
+            "deviceToken": deviceToken ?? ""
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw APIError.serverError(500, "Failed to send Siri prompt")
+        }
+
+        NSLog("🎤 [CatnipAPI] Siri prompt queued successfully")
+    }
+
+    /// Get workspace status for Siri
+    func getSiriStatus() async throws -> (status: String, message: String) {
+        // Return mock data in UI testing mode
+        if UITestingHelper.shouldUseMockData {
+            return (status: "idle", message: "You have 2 workspaces. Claude is not currently working.")
+        }
+
+        let headers = try await getHeaders()
+        guard let url = URL(string: "\(baseURL)/v1/siri/status") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.allHTTPHeaderFields = headers
+        request.timeoutInterval = 10.0
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            throw APIError.serverError(500, "Failed to get Siri status")
+        }
+
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let status = json["status"] as? String,
+           let message = json["message"] as? String {
+            return (status: status, message: message)
+        }
+
+        throw APIError.decodingError(NSError(domain: "Failed to parse Siri status", code: -1))
+    }
+
     // MARK: - Claude Onboarding API
 
     func getClaudeSettings() async throws -> ClaudeSettings {
