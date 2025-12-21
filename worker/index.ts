@@ -577,9 +577,9 @@ async function initiateSiriPrompt(
     const workspace = workspaces[0];
     console.log(`🎤 Sending prompt to workspace: ${workspace.name}`);
 
-    // 4. Start PTY and send prompt
+    // 4. Start PTY and send prompt (use workspace.name like iOS app does)
     await fetch(
-      `${codespaceUrl}/v1/pty/start?session=${encodeURIComponent(workspace.path)}&agent=claude`,
+      `${codespaceUrl}/v1/pty/start?session=${encodeURIComponent(workspace.name)}&agent=claude`,
       {
         method: "POST",
         headers: { "X-Github-Token": codespace.githubToken },
@@ -589,7 +589,7 @@ async function initiateSiriPrompt(
 
     // Send the prompt
     const promptResponse = await fetch(
-      `${codespaceUrl}/v1/pty/prompt?session=${encodeURIComponent(workspace.path)}&agent=claude`,
+      `${codespaceUrl}/v1/pty/prompt?session=${encodeURIComponent(workspace.name)}&agent=claude`,
       {
         method: "POST",
         headers: {
