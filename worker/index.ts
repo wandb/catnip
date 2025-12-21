@@ -9,6 +9,7 @@ import {
 import { HTTPException } from "hono/http-exception";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
+import { sendPushNotification, ApnsPayload, ApnsConfig } from "./apns";
 import { generateMobileToken } from "./mobile-auth";
 import {
   validateRedirectUri,
@@ -400,6 +401,240 @@ async function updateRefreshTimestamp(
   await updateVerificationCache(codespaceStore, username, {
     lastRefreshRequest: timestamp,
   });
+}
+
+// Helper to send push notification with error handling
+async function sendCatnipNotification(
+  env: Env,
+  deviceToken: string | undefined,
+  payload: {
+    title: string;
+    body: string;
+    workspaceId?: string;
+    workspaceName?: string;
+  },
+): Promise<void> {
+  if (!deviceToken) {
+    console.warn("No device token, cannot send notification");
+    return;
+  }
+
+  if (
+    !env.APNS_AUTH_KEY ||
+    !env.APNS_KEY_ID ||
+    !env.APNS_TEAM_ID ||
+    !env.APNS_BUNDLE_ID
+  ) {
+    console.warn("APNs not configured, skipping notification");
+    return;
+  }
+
+  const apnsPayload: ApnsPayload = {
+    aps: {
+      alert: {
+        title: payload.title,
+        body: payload.body,
+      },
+      sound: "default",
+      "mutable-content": 1,
+    },
+    workspaceId: payload.workspaceId,
+    workspaceName: payload.workspaceName,
+    action: "open_workspace",
+  };
+
+  const config: ApnsConfig = {
+    authKey: env.APNS_AUTH_KEY,
+    keyId: env.APNS_KEY_ID,
+    teamId: env.APNS_TEAM_ID,
+    bundleId: env.APNS_BUNDLE_ID,
+  };
+
+  await sendPushNotification(deviceToken, apnsPayload, config);
+}
+
+// Process Siri prompt in background
+async function processSiriPrompt(
+  env: Env,
+  username: string,
+  prompt: string,
+  deviceToken?: string,
+): Promise<void> {
+  try {
+    console.log(
+      `🎤 Processing Siri prompt for ${username}: "${prompt.slice(0, 50)}..."`,
+    );
+
+    // 1. Get most recent codespace
+    const codespaceStore = env.CODESPACE_STORE.get(
+      env.CODESPACE_STORE.idFromName("global"),
+    );
+
+    const codespaceResponse = await codespaceStore.fetch(
+      `https://internal/codespace/${username}`,
+    );
+
+    if (!codespaceResponse.ok) {
+      await sendCatnipNotification(env, deviceToken, {
+        title: "Catnip",
+        body: "No codespace connected. Open Catnip to connect.",
+      });
+      return;
+    }
+
+    const codespace = (await codespaceResponse.json()) as CodespaceCredentials;
+
+    if (!codespace.githubToken) {
+      await sendCatnipNotification(env, deviceToken, {
+        title: "Catnip",
+        body: "Codespace credentials expired. Open Catnip to reconnect.",
+      });
+      return;
+    }
+
+    // 2. Build codespace URL and check health
+    const codespaceUrl = `https://${codespace.codespaceName}-6369.app.github.dev`;
+
+    const health = await checkCodespaceHealth(
+      codespaceUrl,
+      codespace.githubToken,
+      {
+        hasFreshCredentials: true,
+      },
+    );
+
+    if (!health.healthy) {
+      await sendCatnipNotification(env, deviceToken, {
+        title: "Catnip",
+        body: "Couldn't reach your codespace. It may need to be restarted.",
+      });
+      return;
+    }
+
+    // 3. Get workspaces to find most recent
+    const workspacesResponse = await fetch(`${codespaceUrl}/v1/git/worktrees`, {
+      headers: { "X-Github-Token": codespace.githubToken },
+    });
+
+    if (!workspacesResponse.ok) {
+      await sendCatnipNotification(env, deviceToken, {
+        title: "Catnip",
+        body: "Failed to get workspaces.",
+      });
+      return;
+    }
+
+    const workspaces = (await workspacesResponse.json()) as Array<{
+      id: string;
+      name: string;
+      path: string;
+    }>;
+
+    if (workspaces.length === 0) {
+      await sendCatnipNotification(env, deviceToken, {
+        title: "Catnip",
+        body: "No workspaces found. Create one in the app first.",
+      });
+      return;
+    }
+
+    // Most recent workspace (first in list, sorted by last accessed)
+    const workspace = workspaces[0];
+    console.log(`🎤 Sending prompt to workspace: ${workspace.name}`);
+
+    // 4. Start PTY and send prompt
+    const startPtyResponse = await fetch(
+      `${codespaceUrl}/v1/pty/start?session=${encodeURIComponent(workspace.path)}&agent=claude`,
+      {
+        method: "POST",
+        headers: { "X-Github-Token": codespace.githubToken },
+      },
+    );
+
+    if (!startPtyResponse.ok) {
+      console.warn("PTY start response:", startPtyResponse.status);
+    }
+
+    // Small delay to let PTY initialize
+    await new Promise((r) => setTimeout(r, 1000));
+
+    // Send the prompt
+    const promptResponse = await fetch(
+      `${codespaceUrl}/v1/pty/prompt?session=${encodeURIComponent(workspace.path)}&agent=claude`,
+      {
+        method: "POST",
+        headers: {
+          "X-Github-Token": codespace.githubToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt }),
+      },
+    );
+
+    if (!promptResponse.ok) {
+      await sendCatnipNotification(env, deviceToken, {
+        title: "Catnip",
+        body: "Failed to send prompt to Claude.",
+      });
+      return;
+    }
+
+    // 5. Poll for Claude response (max 2 minutes)
+    const maxWaitMs = 120_000;
+    const pollIntervalMs = 3_000;
+    const startTime = Date.now();
+    let wasActive = true;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+
+      const sessionResponse = await fetch(
+        `${codespaceUrl}/v1/sessions/workspace/${workspace.id}`,
+        { headers: { "X-Github-Token": codespace.githubToken } },
+      );
+
+      if (sessionResponse.ok) {
+        const session = (await sessionResponse.json()) as {
+          is_active?: boolean;
+          latest_message?: string;
+        };
+
+        // Claude finished if it was active and now isn't
+        if (wasActive && session.is_active === false) {
+          const lastMessage =
+            session.latest_message || "Claude finished working.";
+          const preview =
+            lastMessage.length > 100
+              ? lastMessage.substring(0, 100) + "..."
+              : lastMessage;
+
+          await sendCatnipNotification(env, deviceToken, {
+            title: `Claude responded in "${workspace.name}"`,
+            body: preview,
+            workspaceId: workspace.id,
+            workspaceName: workspace.name,
+          });
+          return;
+        }
+
+        wasActive = session.is_active ?? false;
+      }
+    }
+
+    // Timeout - Claude still working
+    await sendCatnipNotification(env, deviceToken, {
+      title: "Catnip",
+      body: `Claude is still working on your request in "${workspace.name}"`,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    });
+  } catch (error) {
+    console.error("Siri prompt processing error:", error);
+    await sendCatnipNotification(env, deviceToken, {
+      title: "Catnip",
+      body: "Something went wrong. Open the app to check status.",
+    });
+  }
 }
 
 // Factory function to create app with environment bindings
@@ -1002,6 +1237,133 @@ export function createApp(env: Env) {
       userId: session.userId,
       username: session.username,
     });
+  });
+
+  // Siri prompt endpoint - queues prompt and returns immediately
+  app.post("/v1/siri/prompt", requireAuth, async (c) => {
+    const username = c.get("username");
+
+    const body = await c.req.json<{ prompt?: string; deviceToken?: string }>();
+    const { prompt, deviceToken } = body;
+
+    if (!prompt) {
+      return c.json({ error: "Prompt is required" }, 400);
+    }
+
+    console.log(
+      `🎤 Siri prompt received from ${username}: "${prompt.slice(0, 50)}..."`,
+    );
+
+    // Store device token for future notifications
+    if (deviceToken) {
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+      await codespaceStore.fetch(`https://internal/device-token/${username}`, {
+        method: "PUT",
+        body: JSON.stringify({ deviceToken }),
+      });
+    }
+
+    // Return immediately - process in background via waitUntil
+    c.executionCtx.waitUntil(
+      processSiriPrompt(c.env, username, prompt, deviceToken),
+    );
+
+    return c.json({ queued: true });
+  });
+
+  // Siri status endpoint - get workspace status for voice feedback
+  app.get("/v1/siri/status", requireAuth, async (c) => {
+    const username = c.get("username");
+
+    try {
+      // Get most recent codespace
+      const codespaceStore = c.env.CODESPACE_STORE.get(
+        c.env.CODESPACE_STORE.idFromName("global"),
+      );
+
+      const codespaceResponse = await codespaceStore.fetch(
+        `https://internal/codespace/${username}`,
+      );
+
+      if (!codespaceResponse.ok) {
+        return c.json({
+          status: "no_codespace",
+          message: "No codespace is connected.",
+        });
+      }
+
+      const codespace =
+        (await codespaceResponse.json()) as CodespaceCredentials;
+
+      if (!codespace.githubToken) {
+        return c.json({
+          status: "expired",
+          message: "Codespace credentials expired.",
+        });
+      }
+
+      // Get workspaces
+      const codespaceUrl = `https://${codespace.codespaceName}-6369.app.github.dev`;
+      const workspacesResponse = await fetch(
+        `${codespaceUrl}/v1/git/worktrees`,
+        {
+          headers: { "X-Github-Token": codespace.githubToken },
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+
+      if (!workspacesResponse.ok) {
+        return c.json({
+          status: "unavailable",
+          message: "Couldn't reach your codespace.",
+        });
+      }
+
+      const workspaces = (await workspacesResponse.json()) as Array<{
+        id: string;
+        name: string;
+        claude_session?: { is_active?: boolean };
+      }>;
+
+      if (workspaces.length === 0) {
+        return c.json({
+          status: "no_workspaces",
+          message: "You don't have any active workspaces.",
+        });
+      }
+
+      // Count active Claude sessions
+      const activeCount = workspaces.filter(
+        (w) => w.claude_session?.is_active,
+      ).length;
+      const workspaceNames = workspaces.slice(0, 3).map((w) => w.name);
+
+      if (activeCount === 0) {
+        return c.json({
+          status: "idle",
+          message: `You have ${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}. Claude is not currently working.`,
+          workspaces: workspaceNames,
+        });
+      }
+
+      const activeWorkspace = workspaces.find(
+        (w) => w.claude_session?.is_active,
+      );
+      return c.json({
+        status: "active",
+        message: `Claude is working on "${activeWorkspace?.name}".`,
+        workspaces: workspaceNames,
+        activeWorkspace: activeWorkspace?.name,
+      });
+    } catch (error) {
+      console.error("Siri status error:", error);
+      return c.json({
+        status: "error",
+        message: "Something went wrong.",
+      });
+    }
   });
 
   // Debug endpoint for GitHub token permissions
