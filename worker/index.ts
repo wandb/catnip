@@ -469,10 +469,8 @@ async function sendCatnipNotification(
   await sendPushNotification(deviceToken, apnsPayload, config);
 }
 
-// Maximum time to poll for Claude response (2 minutes)
-const SIRI_MAX_POLL_TIME_MS = 120_000;
-// Maximum number of poll attempts (with ~3s between queue invocations)
-const SIRI_MAX_POLL_COUNT = 40;
+// Maximum time to poll for Claude response (5 minutes)
+const SIRI_MAX_POLL_TIME_MS = 300_000;
 
 // Initiate Siri prompt - validates, starts Claude, enqueues for polling
 async function initiateSiriPrompt(
@@ -669,13 +667,10 @@ async function processSiriPromptPoll(
 ): Promise<{ requeue: boolean; delaySeconds?: number }> {
   const elapsed = Date.now() - message.startedAt;
 
-  // Check if we've exceeded max time or poll count
-  if (
-    elapsed >= SIRI_MAX_POLL_TIME_MS ||
-    message.pollCount >= SIRI_MAX_POLL_COUNT
-  ) {
+  // Check if we've exceeded max polling time
+  if (elapsed >= SIRI_MAX_POLL_TIME_MS) {
     console.log(
-      `🎤 Polling timeout for ${message.workspaceName} after ${message.pollCount} polls`,
+      `🎤 Polling timeout for ${message.workspaceName} after ${Math.round(elapsed / 1000)}s`,
     );
     await sendCatnipNotification(env, message.deviceToken, {
       title: "Catnip",
