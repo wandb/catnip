@@ -43,7 +43,10 @@ struct SendPromptIntent: AppIntent {
             "deviceToken": deviceToken ?? ""
         ]
 
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let httpBody = try? JSONSerialization.data(withJSONObject: body) else {
+            return .result(dialog: "Failed to prepare request. Please try again.")
+        }
+        request.httpBody = httpBody
 
         do {
             let (_, response) = try await URLSession.shared.data(for: request)

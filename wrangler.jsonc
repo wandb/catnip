@@ -34,6 +34,14 @@
   "observability": {
     "enabled": true,
   },
+  "queues": {
+    "producers": [
+      { "binding": "SIRI_PROMPT_QUEUE", "queue": "siri-prompt-queue" }
+    ],
+    "consumers": [
+      { "queue": "siri-prompt-queue", "max_batch_size": 1, "max_retries": 3, "max_batch_timeout": 30 }
+    ]
+  },
   // TEMPORARY: CatnipContainer disabled to avoid building/uploading main container
   // "containers": [
   //   {
@@ -184,6 +192,17 @@
       "vars": {
         "GITHUB_CLIENT_ID": "Ov23liz2NEskOA2spZSE",
         "ENVIRONMENT": "production",
+        "APNS_KEY_ID": "7FSFA65H3P",
+        "APNS_TEAM_ID": "5DTHBP38WM",
+        "APNS_BUNDLE_ID": "com.wandb.catnip",
+      },
+      "queues": {
+        "producers": [
+          { "binding": "SIRI_PROMPT_QUEUE", "queue": "siri-prompt-queue" }
+        ],
+        "consumers": [
+          { "queue": "siri-prompt-queue", "max_batch_size": 1, "max_retries": 3, "max_batch_timeout": 30 }
+        ]
       },
       "r2_buckets": [
         {

@@ -119,6 +119,22 @@ export interface Env {
   APNS_KEY_ID?: string;
   APNS_TEAM_ID?: string;
   APNS_BUNDLE_ID?: string;
+  // Queue for Siri prompt processing
+  SIRI_PROMPT_QUEUE?: Queue<SiriPromptMessage>;
+}
+
+// Message format for Siri prompt queue
+interface SiriPromptMessage {
+  username: string;
+  prompt: string;
+  deviceToken?: string;
+  codespaceUrl: string;
+  workspaceId: string;
+  workspaceName: string;
+  workspacePath: string;
+  githubToken: string;
+  startedAt: number;
+  pollCount: number;
 }
 
 interface SessionData {
@@ -453,8 +469,13 @@ async function sendCatnipNotification(
   await sendPushNotification(deviceToken, apnsPayload, config);
 }
 
-// Process Siri prompt in background
-async function processSiriPrompt(
+// Maximum time to poll for Claude response (2 minutes)
+const SIRI_MAX_POLL_TIME_MS = 120_000;
+// Maximum number of poll attempts (with ~3s between queue invocations)
+const SIRI_MAX_POLL_COUNT = 40;
+
+// Initiate Siri prompt - validates, starts Claude, enqueues for polling
+async function initiateSiriPrompt(
   env: Env,
   username: string,
   prompt: string,
@@ -462,8 +483,23 @@ async function processSiriPrompt(
 ): Promise<void> {
   try {
     console.log(
-      `🎤 Processing Siri prompt for ${username}: "${prompt.slice(0, 50)}..."`,
+      `🎤 Initiating Siri prompt for ${username}: "${prompt.slice(0, 50)}..."`,
     );
+
+    // Get device token from storage if not provided
+    let resolvedDeviceToken = deviceToken;
+    if (!resolvedDeviceToken) {
+      const codespaceStore = env.CODESPACE_STORE.get(
+        env.CODESPACE_STORE.idFromName("global"),
+      );
+      const tokenResponse = await codespaceStore.fetch(
+        `https://internal/device-token/${username}`,
+      );
+      if (tokenResponse.ok) {
+        const tokenData = (await tokenResponse.json()) as { token: string };
+        resolvedDeviceToken = tokenData.token;
+      }
+    }
 
     // 1. Get most recent codespace
     const codespaceStore = env.CODESPACE_STORE.get(
@@ -475,7 +511,7 @@ async function processSiriPrompt(
     );
 
     if (!codespaceResponse.ok) {
-      await sendCatnipNotification(env, deviceToken, {
+      await sendCatnipNotification(env, resolvedDeviceToken, {
         title: "Catnip",
         body: "No codespace connected. Open Catnip to connect.",
       });
@@ -485,7 +521,7 @@ async function processSiriPrompt(
     const codespace = (await codespaceResponse.json()) as CodespaceCredentials;
 
     if (!codespace.githubToken) {
-      await sendCatnipNotification(env, deviceToken, {
+      await sendCatnipNotification(env, resolvedDeviceToken, {
         title: "Catnip",
         body: "Codespace credentials expired. Open Catnip to reconnect.",
       });
@@ -498,13 +534,11 @@ async function processSiriPrompt(
     const health = await checkCodespaceHealth(
       codespaceUrl,
       codespace.githubToken,
-      {
-        hasFreshCredentials: true,
-      },
+      { hasFreshCredentials: true },
     );
 
     if (!health.healthy) {
-      await sendCatnipNotification(env, deviceToken, {
+      await sendCatnipNotification(env, resolvedDeviceToken, {
         title: "Catnip",
         body: "Couldn't reach your codespace. It may need to be restarted.",
       });
@@ -514,10 +548,11 @@ async function processSiriPrompt(
     // 3. Get workspaces to find most recent
     const workspacesResponse = await fetch(`${codespaceUrl}/v1/git/worktrees`, {
       headers: { "X-Github-Token": codespace.githubToken },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!workspacesResponse.ok) {
-      await sendCatnipNotification(env, deviceToken, {
+      await sendCatnipNotification(env, resolvedDeviceToken, {
         title: "Catnip",
         body: "Failed to get workspaces.",
       });
@@ -531,7 +566,7 @@ async function processSiriPrompt(
     }>;
 
     if (workspaces.length === 0) {
-      await sendCatnipNotification(env, deviceToken, {
+      await sendCatnipNotification(env, resolvedDeviceToken, {
         title: "Catnip",
         body: "No workspaces found. Create one in the app first.",
       });
@@ -543,20 +578,14 @@ async function processSiriPrompt(
     console.log(`🎤 Sending prompt to workspace: ${workspace.name}`);
 
     // 4. Start PTY and send prompt
-    const startPtyResponse = await fetch(
+    await fetch(
       `${codespaceUrl}/v1/pty/start?session=${encodeURIComponent(workspace.path)}&agent=claude`,
       {
         method: "POST",
         headers: { "X-Github-Token": codespace.githubToken },
+        signal: AbortSignal.timeout(10000),
       },
     );
-
-    if (!startPtyResponse.ok) {
-      console.warn("PTY start response:", startPtyResponse.status);
-    }
-
-    // Small delay to let PTY initialize
-    await new Promise((r) => setTimeout(r, 1000));
 
     // Send the prompt
     const promptResponse = await fetch(
@@ -568,72 +597,166 @@ async function processSiriPrompt(
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ prompt }),
+        signal: AbortSignal.timeout(10000),
       },
     );
 
     if (!promptResponse.ok) {
-      await sendCatnipNotification(env, deviceToken, {
+      await sendCatnipNotification(env, resolvedDeviceToken, {
         title: "Catnip",
         body: "Failed to send prompt to Claude.",
       });
       return;
     }
 
-    // 5. Poll for Claude response (max 2 minutes)
-    const maxWaitMs = 120_000;
-    const pollIntervalMs = 3_000;
-    const startTime = Date.now();
-    let wasActive = true;
+    // 5. Enqueue for polling (if queue is available)
+    if (env.SIRI_PROMPT_QUEUE) {
+      const message: SiriPromptMessage = {
+        username,
+        prompt,
+        deviceToken: resolvedDeviceToken,
+        codespaceUrl,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        workspacePath: workspace.path,
+        githubToken: codespace.githubToken,
+        startedAt: Date.now(),
+        pollCount: 0,
+      };
 
-    while (Date.now() - startTime < maxWaitMs) {
-      await new Promise((r) => setTimeout(r, pollIntervalMs));
+      await env.SIRI_PROMPT_QUEUE.send(message, {
+        delaySeconds: 3, // Wait 3 seconds before first poll
+      });
 
-      const sessionResponse = await fetch(
-        `${codespaceUrl}/v1/sessions/workspace/${workspace.id}`,
-        { headers: { "X-Github-Token": codespace.githubToken } },
+      console.log(`🎤 Enqueued polling for workspace: ${workspace.name}`);
+    } else {
+      // Fallback: send immediate notification if queue not available
+      console.warn("Queue not available, sending immediate notification");
+      await sendCatnipNotification(env, resolvedDeviceToken, {
+        title: "Catnip",
+        body: `Claude is working on your request in "${workspace.name}"`,
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+      });
+    }
+  } catch (error) {
+    console.error("Siri prompt initiation error:", error);
+    // Try to send error notification
+    try {
+      const codespaceStore = env.CODESPACE_STORE.get(
+        env.CODESPACE_STORE.idFromName("global"),
       );
-
-      if (sessionResponse.ok) {
-        const session = (await sessionResponse.json()) as {
-          is_active?: boolean;
-          latest_message?: string;
-        };
-
-        // Claude finished if it was active and now isn't
-        if (wasActive && session.is_active === false) {
-          const lastMessage =
-            session.latest_message || "Claude finished working.";
-          const preview =
-            lastMessage.length > 100
-              ? lastMessage.substring(0, 100) + "..."
-              : lastMessage;
-
-          await sendCatnipNotification(env, deviceToken, {
-            title: `Claude responded in "${workspace.name}"`,
-            body: preview,
-            workspaceId: workspace.id,
-            workspaceName: workspace.name,
-          });
-          return;
-        }
-
-        wasActive = session.is_active ?? false;
+      const tokenResponse = await codespaceStore.fetch(
+        `https://internal/device-token/${username}`,
+      );
+      if (tokenResponse.ok) {
+        const tokenData = (await tokenResponse.json()) as { token: string };
+        await sendCatnipNotification(env, tokenData.token, {
+          title: "Catnip",
+          body: "Something went wrong. Open the app to check status.",
+        });
       }
+    } catch {
+      // Ignore notification errors
+    }
+  }
+}
+
+// Process a single poll from the queue
+async function processSiriPromptPoll(
+  env: Env,
+  message: SiriPromptMessage,
+): Promise<{ requeue: boolean; delaySeconds?: number }> {
+  const elapsed = Date.now() - message.startedAt;
+
+  // Check if we've exceeded max time or poll count
+  if (
+    elapsed >= SIRI_MAX_POLL_TIME_MS ||
+    message.pollCount >= SIRI_MAX_POLL_COUNT
+  ) {
+    console.log(
+      `🎤 Polling timeout for ${message.workspaceName} after ${message.pollCount} polls`,
+    );
+    await sendCatnipNotification(env, message.deviceToken, {
+      title: "Catnip",
+      body: `Claude is still working on your request in "${message.workspaceName}"`,
+      workspaceId: message.workspaceId,
+      workspaceName: message.workspaceName,
+    });
+    return { requeue: false };
+  }
+
+  try {
+    // Poll session status with timeout
+    const sessionResponse = await fetch(
+      `${message.codespaceUrl}/v1/sessions/workspace/${message.workspaceId}`,
+      {
+        headers: { "X-Github-Token": message.githubToken },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+
+    if (!sessionResponse.ok) {
+      console.warn(
+        `🎤 Session poll failed with status ${sessionResponse.status}`,
+      );
+      // Requeue with backoff on failure
+      return { requeue: true, delaySeconds: 5 };
     }
 
-    // Timeout - Claude still working
-    await sendCatnipNotification(env, deviceToken, {
-      title: "Catnip",
-      body: `Claude is still working on your request in "${workspace.name}"`,
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-    });
+    const session = (await sessionResponse.json()) as {
+      is_active?: boolean;
+      latest_message?: string;
+    };
+
+    // Claude finished if session is no longer active
+    if (session.is_active === false) {
+      const lastMessage = session.latest_message || "Claude finished working.";
+      const preview =
+        lastMessage.length > 100
+          ? lastMessage.substring(0, 100) + "..."
+          : lastMessage;
+
+      console.log(`🎤 Claude finished in ${message.workspaceName}`);
+      await sendCatnipNotification(env, message.deviceToken, {
+        title: `Claude responded in "${message.workspaceName}"`,
+        body: preview,
+        workspaceId: message.workspaceId,
+        workspaceName: message.workspaceName,
+      });
+      return { requeue: false };
+    }
+
+    // Still active, requeue for more polling
+    return { requeue: true, delaySeconds: 3 };
   } catch (error) {
-    console.error("Siri prompt processing error:", error);
-    await sendCatnipNotification(env, deviceToken, {
-      title: "Catnip",
-      body: "Something went wrong. Open the app to check status.",
-    });
+    console.error("Siri poll error:", error);
+    // Requeue with backoff on error
+    return { requeue: true, delaySeconds: 5 };
+  }
+}
+
+// Queue consumer handler
+export async function handleSiriPromptQueue(
+  batch: MessageBatch<SiriPromptMessage>,
+  env: Env,
+): Promise<void> {
+  for (const msg of batch.messages) {
+    const result = await processSiriPromptPoll(env, msg.body);
+
+    if (result.requeue && env.SIRI_PROMPT_QUEUE) {
+      // Requeue with updated poll count
+      const updatedMessage: SiriPromptMessage = {
+        ...msg.body,
+        pollCount: msg.body.pollCount + 1,
+      };
+      await env.SIRI_PROMPT_QUEUE.send(updatedMessage, {
+        delaySeconds: result.delaySeconds || 3,
+      });
+    }
+
+    // Acknowledge the message
+    msg.ack();
   }
 }
 
@@ -1250,6 +1373,11 @@ export function createApp(env: Env) {
       return c.json({ error: "Prompt is required" }, 400);
     }
 
+    // Validate prompt length (max 10000 characters)
+    if (prompt.length > 10000) {
+      return c.json({ error: "Prompt too long (max 10000 characters)" }, 400);
+    }
+
     console.log(
       `🎤 Siri prompt received from ${username}: "${prompt.slice(0, 50)}..."`,
     );
@@ -1267,7 +1395,7 @@ export function createApp(env: Env) {
 
     // Return immediately - process in background via waitUntil
     c.executionCtx.waitUntil(
-      processSiriPrompt(c.env, username, prompt, deviceToken),
+      initiateSiriPrompt(c.env, username, prompt, deviceToken),
     );
 
     return c.json({ queued: true });
@@ -3846,6 +3974,9 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     return createApp(env).fetch(request, env, ctx);
+  },
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    await handleSiriPromptQueue(batch as MessageBatch<SiriPromptMessage>, env);
   },
 } satisfies ExportedHandler<Env>;
 
