@@ -6,9 +6,44 @@
 //
 
 import SwiftUI
+import UserNotifications
+
+// App Delegate for handling push notification registration
+class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // Request notification permission and register for remote notifications
+        Task {
+            let granted = await NotificationManager.shared.requestPermission()
+            if granted {
+                await MainActor.run {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            }
+        }
+        return true
+    }
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        NotificationManager.shared.setDeviceToken(deviceToken)
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        NSLog("📱 Failed to register for remote notifications: \(error)")
+    }
+}
 
 @main
 struct catnipApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var authManager = AuthManager()
     @StateObject private var notificationManager = NotificationManager.shared
     @State private var navigationPath = NavigationPath()
@@ -35,23 +70,30 @@ struct catnipApp: App {
 
     private func setupNotificationHandling() {
         // Set up notification tap handler
-        notificationManager.onNotificationTap = { codespaceName, action in
-            NSLog("🔔 App handling notification tap - codespace: \(codespaceName), action: \(action ?? "none")")
+        notificationManager.onNotificationTap = { identifier, action in
+            NSLog("🔔 App handling notification tap - identifier: \(identifier), action: \(action ?? "none")")
 
-            if action == "open_codespace" && !codespaceName.isEmpty {
+            if action == "open_codespace" && !identifier.isEmpty {
                 // Store the codespace name that should be opened
-                UserDefaults.standard.set(codespaceName, forKey: "codespace_name")
-
-                // The navigation will be handled by ContentView/CodespaceView
-                // when it appears or becomes active. The existing handleConnect()
-                // flow will pick up the stored codespace name and trigger SSE connection.
-                NSLog("🔔 Stored codespace name for connection: \(codespaceName)")
+                UserDefaults.standard.set(identifier, forKey: "codespace_name")
+                NSLog("🔔 Stored codespace name for connection: \(identifier)")
 
                 // Post notification to trigger connection flow
                 NotificationCenter.default.post(
                     name: NSNotification.Name("TriggerCodespaceConnection"),
                     object: nil,
-                    userInfo: ["codespace_name": codespaceName]
+                    userInfo: ["codespace_name": identifier]
+                )
+            } else if action == "open_workspace" && !identifier.isEmpty {
+                // Store the workspace ID for navigation
+                UserDefaults.standard.set(identifier, forKey: "pending_workspace_id")
+                NSLog("🔔 Stored workspace ID for navigation: \(identifier)")
+
+                // Post notification to trigger workspace navigation
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("OpenWorkspace"),
+                    object: nil,
+                    userInfo: ["workspaceId": identifier]
                 )
             }
         }
