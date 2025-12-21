@@ -471,6 +471,8 @@ async function sendCatnipNotification(
 
 // Maximum time to poll for Claude response (5 minutes)
 const SIRI_MAX_POLL_TIME_MS = 300_000;
+// Polling interval between queue invocations (seconds)
+const SIRI_POLL_INTERVAL_SECONDS = 10;
 
 // Initiate Siri prompt - validates, starts Claude, enqueues for polling
 async function initiateSiriPrompt(
@@ -623,7 +625,7 @@ async function initiateSiriPrompt(
       };
 
       await env.SIRI_PROMPT_QUEUE.send(message, {
-        delaySeconds: 3, // Wait 3 seconds before first poll
+        delaySeconds: SIRI_POLL_INTERVAL_SECONDS,
       });
 
       console.log(`🎤 Enqueued polling for workspace: ${workspace.name}`);
@@ -695,8 +697,8 @@ async function processSiriPromptPoll(
       console.warn(
         `🎤 Session poll failed with status ${sessionResponse.status}`,
       );
-      // Requeue with backoff on failure
-      return { requeue: true, delaySeconds: 5 };
+      // Requeue on failure
+      return { requeue: true, delaySeconds: SIRI_POLL_INTERVAL_SECONDS };
     }
 
     const session = (await sessionResponse.json()) as {
@@ -723,11 +725,11 @@ async function processSiriPromptPoll(
     }
 
     // Still active, requeue for more polling
-    return { requeue: true, delaySeconds: 3 };
+    return { requeue: true, delaySeconds: SIRI_POLL_INTERVAL_SECONDS };
   } catch (error) {
     console.error("Siri poll error:", error);
-    // Requeue with backoff on error
-    return { requeue: true, delaySeconds: 5 };
+    // Requeue on error
+    return { requeue: true, delaySeconds: SIRI_POLL_INTERVAL_SECONDS };
   }
 }
 
@@ -746,7 +748,7 @@ export async function handleSiriPromptQueue(
         pollCount: msg.body.pollCount + 1,
       };
       await env.SIRI_PROMPT_QUEUE.send(updatedMessage, {
-        delaySeconds: result.delaySeconds || 3,
+        delaySeconds: result.delaySeconds || SIRI_POLL_INTERVAL_SECONDS,
       });
     }
 
