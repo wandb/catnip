@@ -30,6 +30,10 @@ class CodespaceCreationTracker: ObservableObject {
     private var activity: Activity<CodespaceActivityAttributes>?
     private let estimatedDuration: TimeInterval = 5 * 60 // 5 minutes
 
+    // Push token observation task
+    private var pushTokenObservationTask: Task<Void, Never>?
+    private var registeredPushToken: String?
+
     // Background polling manager (only available in main app, not widget extension)
     #if !WIDGET_EXTENSION
     private let backgroundManager = BackgroundProgressManager()
@@ -276,11 +280,17 @@ class CodespaceCreationTracker: ObservableObject {
         progress = 0.0
         elapsedTime = 0
         startTime = nil
+
+        // Cancel push token observation
+        pushTokenObservationTask?.cancel()
+        pushTokenObservationTask = nil
+        registeredPushToken = nil
     }
 
     private func startProgressTimer() {
-        // Update progress every 10 seconds
-        progressTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
+        // Update progress every 60 seconds (increased from 10s since push is primary)
+        // This serves as a fallback when push notifications fail
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
             self?.updateProgress()
         }
     }
@@ -360,26 +370,29 @@ class CodespaceCreationTracker: ObservableObject {
             NSLog("🎯 🔍 Initial state: status='\(initialState.status)', progress=\(initialState.progress), elapsedSeconds=\(initialState.elapsedSeconds)")
 
             if #available(iOS 16.2, *) {
-                NSLog("🎯 🔍 Requesting activity using iOS 16.2+ API...")
+                NSLog("🎯 🔍 Requesting activity using iOS 16.2+ API with push type...")
                 activity = try Activity<CodespaceActivityAttributes>.request(
                     attributes: attributes,
                     content: .init(state: initialState, staleDate: nil),
-                    pushType: nil
+                    pushType: .token
                 )
             } else {
-                NSLog("🎯 🔍 Requesting activity using iOS 16.1 API...")
+                NSLog("🎯 🔍 Requesting activity using iOS 16.1 API with push type...")
                 activity = try Activity<CodespaceActivityAttributes>.request(
                     attributes: attributes,
                     contentState: initialState,
-                    pushType: nil
+                    pushType: .token
                 )
             }
 
             if let activity = activity {
-                NSLog("🎯 ✅ Successfully started Live Activity!")
+                NSLog("🎯 ✅ Successfully started Live Activity with push support!")
                 NSLog("🎯    Activity ID: \(activity.id)")
                 NSLog("🎯    Activity state: \(activity.activityState)")
                 NSLog("🎯    Content: \(activity.content)")
+
+                // Start observing push token updates
+                observePushToken(for: activity)
             } else {
                 NSLog("🎯 ⚠️ Activity request succeeded but activity is nil")
             }
@@ -390,6 +403,117 @@ class CodespaceCreationTracker: ObservableObject {
             NSLog("🎯    Error type: \(type(of: error))")
         }
     }
+
+    /// Observe push token updates from the Live Activity and register with server
+    @available(iOS 16.1, *)
+    private func observePushToken(for activity: Activity<CodespaceActivityAttributes>) {
+        #if WIDGET_EXTENSION
+        // Widget extension cannot register push tokens - only main app can
+        NSLog("🎯 📲 Push token observation skipped in widget extension")
+        #else
+        // Cancel any existing observation
+        pushTokenObservationTask?.cancel()
+
+        pushTokenObservationTask = Task {
+            for await tokenData in activity.pushTokenUpdates {
+                // Convert token to hex string
+                let tokenString = tokenData.map { String(format: "%02x", $0) }.joined()
+                NSLog("🎯 📲 Received Live Activity push token: \(tokenString.prefix(16))...")
+
+                // Skip if already registered this token
+                guard tokenString != registeredPushToken else {
+                    NSLog("🎯 📲 Token already registered, skipping")
+                    continue
+                }
+
+                // Register with server
+                await registerPushToken(tokenString)
+            }
+        }
+        #endif
+    }
+
+    #if !WIDGET_EXTENSION
+    /// Register the Live Activity push token with the server
+    private func registerPushToken(_ token: String) async {
+        guard let codespaceName = codespaceName,
+              let repositoryName = repositoryName else {
+            NSLog("🎯 ⚠️ Cannot register push token - missing codespace or repository name")
+            return
+        }
+
+        NSLog("🎯 📲 Registering Live Activity push token with server...")
+
+        do {
+            // Get auth token from Keychain
+            let authToken = try await KeychainHelper.load(key: "session_token")
+
+            // Build request
+            guard let url = URL(string: "https://catnip.run/v1/live-activity/register") else {
+                NSLog("🎯 ❌ Invalid API URL")
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+
+            let body: [String: String] = [
+                "pushToken": token,
+                "codespaceName": codespaceName,
+                "repositoryName": repositoryName
+            ]
+            request.httpBody = try JSONEncoder().encode(body)
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                NSLog("🎯 ✅ Successfully registered Live Activity push token")
+                registeredPushToken = token
+            } else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                NSLog("🎯 ❌ Failed to register push token: HTTP \(statusCode)")
+            }
+        } catch {
+            NSLog("🎯 ❌ Error registering push token: \(error)")
+        }
+    }
+
+    /// Refresh the push token with the server (called when token changes)
+    private func refreshPushToken(_ token: String) async {
+        NSLog("🎯 📲 Refreshing Live Activity push token...")
+
+        do {
+            let authToken = try await KeychainHelper.load(key: "session_token")
+
+            guard let url = URL(string: "https://catnip.run/v1/live-activity/token") else {
+                NSLog("🎯 ❌ Invalid API URL")
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "PATCH"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+
+            let body = ["pushToken": token]
+            request.httpBody = try JSONEncoder().encode(body)
+
+            let (_, response) = try await URLSession.shared.data(for: request)
+
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
+                NSLog("🎯 ✅ Successfully refreshed Live Activity push token")
+                registeredPushToken = token
+            } else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                NSLog("🎯 ❌ Failed to refresh push token: HTTP \(statusCode)")
+            }
+        } catch {
+            NSLog("🎯 ❌ Error refreshing push token: \(error)")
+        }
+    }
+    #endif
 
     private func updateLiveActivity() {
         guard #available(iOS 16.1, *),

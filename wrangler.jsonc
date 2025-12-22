@@ -36,10 +36,10 @@
   },
   "queues": {
     "producers": [
-      { "binding": "SIRI_PROMPT_QUEUE", "queue": "siri-prompt-queue" }
+      { "binding": "CREATION_PROGRESS_QUEUE", "queue": "creation-progress-queue" }
     ],
     "consumers": [
-      { "queue": "siri-prompt-queue", "max_batch_size": 1, "max_retries": 3, "max_batch_timeout": 30 }
+      { "queue": "creation-progress-queue", "max_batch_size": 1, "max_retries": 3, "max_batch_timeout": 60 }
     ]
   },
   // TEMPORARY: CatnipContainer disabled to avoid building/uploading main container
@@ -198,10 +198,10 @@
       },
       "queues": {
         "producers": [
-          { "binding": "SIRI_PROMPT_QUEUE", "queue": "siri-prompt-queue" }
+          { "binding": "CREATION_PROGRESS_QUEUE", "queue": "creation-progress-queue" }
         ],
         "consumers": [
-          { "queue": "siri-prompt-queue", "max_batch_size": 1, "max_retries": 3, "max_batch_timeout": 30 }
+          { "queue": "creation-progress-queue", "max_batch_size": 1, "max_retries": 3, "max_batch_timeout": 60 }
         ]
       },
       "r2_buckets": [

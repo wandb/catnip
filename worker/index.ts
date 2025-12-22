@@ -9,7 +9,14 @@ import {
 import { HTTPException } from "hono/http-exception";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
-import { sendPushNotification, ApnsPayload, ApnsConfig } from "./apns";
+import {
+  sendPushNotification,
+  sendLiveActivityUpdate,
+  ApnsPayload,
+  ApnsConfig,
+  LiveActivityContentState,
+} from "./apns";
+import { LiveActivitySession } from "./codespace-store";
 import { generateMobileToken } from "./mobile-auth";
 import {
   validateRedirectUri,
@@ -119,22 +126,20 @@ export interface Env {
   APNS_KEY_ID?: string;
   APNS_TEAM_ID?: string;
   APNS_BUNDLE_ID?: string;
-  // Queue for Siri prompt processing
-  SIRI_PROMPT_QUEUE?: Queue<SiriPromptMessage>;
+  // Queue for Live Activity codespace creation progress
+  CREATION_PROGRESS_QUEUE?: Queue<CreationProgressMessage>;
 }
 
-// Message format for Siri prompt queue
-interface SiriPromptMessage {
+// Message format for Live Activity creation progress queue
+interface CreationProgressMessage {
   username: string;
-  prompt: string;
-  deviceToken?: string;
-  codespaceUrl: string;
-  workspaceId: string;
-  workspaceName: string;
-  workspacePath: string;
-  githubToken: string;
+  codespaceName: string;
+  repositoryName: string;
+  accessToken: string; // GitHub access token for API calls
+  liveActivityPushToken: string;
   startedAt: number;
   pollCount: number;
+  lastState?: string; // Track state changes
 }
 
 interface SessionData {
@@ -469,286 +474,204 @@ async function sendCatnipNotification(
   await sendPushNotification(deviceToken, apnsPayload, config);
 }
 
-// Maximum time to poll for Claude response (5 minutes)
-const SIRI_MAX_POLL_TIME_MS = 300_000;
-// Polling interval between queue invocations (seconds)
-const SIRI_POLL_INTERVAL_SECONDS = 10;
+// Maximum time to poll for codespace creation (15 minutes)
+const CREATION_MAX_POLL_TIME_MS = 15 * 60 * 1000;
+// Regular polling interval (30 seconds for hybrid approach)
+const CREATION_POLL_INTERVAL_SECONDS = 30;
 
-// Initiate Siri prompt - validates, starts Claude, enqueues for polling
-async function initiateSiriPrompt(
+// Process a single creation progress poll from the queue
+async function processCreationProgressPoll(
   env: Env,
-  username: string,
-  prompt: string,
-  deviceToken?: string,
-): Promise<void> {
-  try {
-    console.log(
-      `🎤 Initiating Siri prompt for ${username}: "${prompt.slice(0, 50)}..."`,
-    );
-
-    // Get device token from storage if not provided
-    let resolvedDeviceToken = deviceToken;
-    if (!resolvedDeviceToken) {
-      const codespaceStore = env.CODESPACE_STORE.get(
-        env.CODESPACE_STORE.idFromName("global"),
-      );
-      const tokenResponse = await codespaceStore.fetch(
-        `https://internal/device-token/${username}`,
-      );
-      if (tokenResponse.ok) {
-        const tokenData = (await tokenResponse.json()) as { token: string };
-        resolvedDeviceToken = tokenData.token;
-      }
-    }
-
-    // 1. Get most recent codespace
-    const codespaceStore = env.CODESPACE_STORE.get(
-      env.CODESPACE_STORE.idFromName("global"),
-    );
-
-    const codespaceResponse = await codespaceStore.fetch(
-      `https://internal/codespace/${username}`,
-    );
-
-    if (!codespaceResponse.ok) {
-      await sendCatnipNotification(env, resolvedDeviceToken, {
-        title: "Catnip",
-        body: "No codespace connected. Open Catnip to connect.",
-      });
-      return;
-    }
-
-    const codespace = (await codespaceResponse.json()) as CodespaceCredentials;
-
-    if (!codespace.githubToken) {
-      await sendCatnipNotification(env, resolvedDeviceToken, {
-        title: "Catnip",
-        body: "Codespace credentials expired. Open Catnip to reconnect.",
-      });
-      return;
-    }
-
-    // 2. Build codespace URL and check health
-    const codespaceUrl = `https://${codespace.codespaceName}-6369.app.github.dev`;
-
-    const health = await checkCodespaceHealth(
-      codespaceUrl,
-      codespace.githubToken,
-      { hasFreshCredentials: true },
-    );
-
-    if (!health.healthy) {
-      await sendCatnipNotification(env, resolvedDeviceToken, {
-        title: "Catnip",
-        body: "Couldn't reach your codespace. It may need to be restarted.",
-      });
-      return;
-    }
-
-    // 3. Get workspaces to find most recent
-    const workspacesResponse = await fetch(`${codespaceUrl}/v1/git/worktrees`, {
-      headers: { "X-Github-Token": codespace.githubToken },
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!workspacesResponse.ok) {
-      await sendCatnipNotification(env, resolvedDeviceToken, {
-        title: "Catnip",
-        body: "Failed to get workspaces.",
-      });
-      return;
-    }
-
-    const workspaces = (await workspacesResponse.json()) as Array<{
-      id: string;
-      name: string;
-      path: string;
-    }>;
-
-    if (workspaces.length === 0) {
-      await sendCatnipNotification(env, resolvedDeviceToken, {
-        title: "Catnip",
-        body: "No workspaces found. Create one in the app first.",
-      });
-      return;
-    }
-
-    // Most recent workspace (first in list, sorted by last accessed)
-    const workspace = workspaces[0];
-    console.log(`🎤 Sending prompt to workspace: ${workspace.name}`);
-
-    // 4. Start PTY and send prompt (use workspace.name like iOS app does)
-    await fetch(
-      `${codespaceUrl}/v1/pty/start?session=${encodeURIComponent(workspace.name)}&agent=claude`,
-      {
-        method: "POST",
-        headers: { "X-Github-Token": codespace.githubToken },
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-
-    // Send the prompt
-    const promptResponse = await fetch(
-      `${codespaceUrl}/v1/pty/prompt?session=${encodeURIComponent(workspace.name)}&agent=claude`,
-      {
-        method: "POST",
-        headers: {
-          "X-Github-Token": codespace.githubToken,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ prompt }),
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-
-    if (!promptResponse.ok) {
-      await sendCatnipNotification(env, resolvedDeviceToken, {
-        title: "Catnip",
-        body: "Failed to send prompt to Claude.",
-      });
-      return;
-    }
-
-    // 5. Enqueue for polling (if queue is available)
-    if (env.SIRI_PROMPT_QUEUE) {
-      const message: SiriPromptMessage = {
-        username,
-        prompt,
-        deviceToken: resolvedDeviceToken,
-        codespaceUrl,
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-        workspacePath: workspace.path,
-        githubToken: codespace.githubToken,
-        startedAt: Date.now(),
-        pollCount: 0,
-      };
-
-      await env.SIRI_PROMPT_QUEUE.send(message, {
-        delaySeconds: SIRI_POLL_INTERVAL_SECONDS,
-      });
-
-      console.log(`🎤 Enqueued polling for workspace: ${workspace.name}`);
-    } else {
-      // Fallback: send immediate notification if queue not available
-      console.warn("Queue not available, sending immediate notification");
-      await sendCatnipNotification(env, resolvedDeviceToken, {
-        title: "Catnip",
-        body: `Claude is working on your request in "${workspace.name}"`,
-        workspaceId: workspace.id,
-        workspaceName: workspace.name,
-      });
-    }
-  } catch (error) {
-    console.error("Siri prompt initiation error:", error);
-    // Try to send error notification
-    try {
-      const codespaceStore = env.CODESPACE_STORE.get(
-        env.CODESPACE_STORE.idFromName("global"),
-      );
-      const tokenResponse = await codespaceStore.fetch(
-        `https://internal/device-token/${username}`,
-      );
-      if (tokenResponse.ok) {
-        const tokenData = (await tokenResponse.json()) as { token: string };
-        await sendCatnipNotification(env, tokenData.token, {
-          title: "Catnip",
-          body: "Something went wrong. Open the app to check status.",
-        });
-      }
-    } catch {
-      // Ignore notification errors
-    }
-  }
-}
-
-// Process a single poll from the queue
-async function processSiriPromptPoll(
-  env: Env,
-  message: SiriPromptMessage,
+  message: CreationProgressMessage,
 ): Promise<{ requeue: boolean; delaySeconds?: number }> {
   const elapsed = Date.now() - message.startedAt;
 
-  // Check if we've exceeded max polling time
-  if (elapsed >= SIRI_MAX_POLL_TIME_MS) {
+  // Check if we've exceeded max polling time (15 minutes)
+  if (elapsed >= CREATION_MAX_POLL_TIME_MS) {
     console.log(
-      `🎤 Polling timeout for ${message.workspaceName} after ${Math.round(elapsed / 1000)}s`,
+      `🏗️ Creation polling timeout for ${message.codespaceName} after ${Math.round(elapsed / 1000)}s`,
     );
-    await sendCatnipNotification(env, message.deviceToken, {
-      title: "Catnip",
-      body: `Claude is still working on your request in "${message.workspaceName}"`,
-      workspaceId: message.workspaceId,
-      workspaceName: message.workspaceName,
-    });
+
+    // Send final "end" update to dismiss the Live Activity
+    if (
+      env.APNS_AUTH_KEY &&
+      env.APNS_KEY_ID &&
+      env.APNS_TEAM_ID &&
+      env.APNS_BUNDLE_ID
+    ) {
+      const config: ApnsConfig = {
+        authKey: env.APNS_AUTH_KEY,
+        keyId: env.APNS_KEY_ID,
+        teamId: env.APNS_TEAM_ID,
+        bundleId: env.APNS_BUNDLE_ID,
+      };
+
+      await sendLiveActivityUpdate(
+        message.liveActivityPushToken,
+        {
+          status: "Taking longer than expected...",
+          progress: 0.95,
+          elapsedSeconds: Math.round(elapsed / 1000),
+        },
+        config,
+        { event: "end" },
+      );
+    }
+
+    // Clean up the session from storage
+    const codespaceStore = env.CODESPACE_STORE.get(
+      env.CODESPACE_STORE.idFromName("global"),
+    );
+    await codespaceStore.fetch(
+      `https://internal/live-activity-session/${message.username}`,
+      { method: "DELETE" },
+    );
+
     return { requeue: false };
   }
 
   try {
-    // Poll session status with timeout
-    const sessionResponse = await fetch(
-      `${message.codespaceUrl}/v1/sessions/workspace/${message.workspaceId}`,
+    // Poll GitHub API for codespace state
+    const response = await fetch(
+      `https://api.github.com/user/codespaces/${message.codespaceName}`,
       {
-        headers: { "X-Github-Token": message.githubToken },
-        signal: AbortSignal.timeout(5000),
+        headers: {
+          Authorization: `Bearer ${message.accessToken}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Catnip-Worker/1.0",
+        },
+        signal: AbortSignal.timeout(10000),
       },
     );
 
-    if (!sessionResponse.ok) {
+    if (!response.ok) {
       console.warn(
-        `🎤 Session poll failed with status ${sessionResponse.status}`,
+        `🏗️ Codespace API returned ${response.status} for ${message.codespaceName}`,
       );
-      // Requeue on failure
-      return { requeue: true, delaySeconds: SIRI_POLL_INTERVAL_SECONDS };
+      // Requeue on API error (may be transient)
+      return { requeue: true, delaySeconds: CREATION_POLL_INTERVAL_SECONDS };
     }
 
-    const session = (await sessionResponse.json()) as {
-      is_active?: boolean;
-      latest_message?: string;
+    const codespace = (await response.json()) as {
+      state: string;
+      name: string;
     };
 
-    // Claude finished if session is no longer active
-    if (session.is_active === false) {
-      const lastMessage = session.latest_message || "Claude finished working.";
-      const preview =
-        lastMessage.length > 100
-          ? lastMessage.substring(0, 100) + "..."
-          : lastMessage;
+    const currentState = codespace.state;
+    const stateChanged = currentState !== message.lastState;
+    const elapsedSeconds = Math.round(elapsed / 1000);
 
-      console.log(`🎤 Claude finished in ${message.workspaceName}`);
-      await sendCatnipNotification(env, message.deviceToken, {
-        title: `Claude responded in "${message.workspaceName}"`,
-        body: preview,
-        workspaceId: message.workspaceId,
-        workspaceName: message.workspaceName,
-      });
-      return { requeue: false };
+    // Calculate progress based on state and elapsed time
+    let progress: number;
+    let status: string;
+
+    switch (currentState) {
+      case "Queued":
+        progress = 0.1;
+        status = "Queued for creation...";
+        break;
+      case "Provisioning":
+        progress = 0.25;
+        status = "Provisioning codespace...";
+        break;
+      case "Created":
+        progress = 0.4;
+        status = "Codespace created, building...";
+        break;
+      case "Starting":
+        progress = 0.7;
+        status = "Starting codespace...";
+        break;
+      case "Available":
+        progress = 1.0;
+        status = "Codespace ready!";
+        break;
+      case "Failed":
+      case "Deleted":
+        progress = 0;
+        status = `Creation ${currentState.toLowerCase()}`;
+        break;
+      default:
+        // For unknown states, estimate based on time
+        progress = Math.min(0.5 + (elapsedSeconds / 600) * 0.4, 0.9);
+        status = `Creating codespace (${currentState})...`;
     }
 
-    // Still active, requeue for more polling
-    return { requeue: true, delaySeconds: SIRI_POLL_INTERVAL_SECONDS };
+    // Check if we should send an update:
+    // - State changed (immediate update)
+    // - 30 seconds since last push (regular interval)
+    const timeSinceLastPush =
+      elapsed - message.pollCount * CREATION_POLL_INTERVAL_SECONDS * 1000;
+    const shouldPush =
+      stateChanged ||
+      timeSinceLastPush >= CREATION_POLL_INTERVAL_SECONDS * 1000;
+
+    if (
+      shouldPush &&
+      env.APNS_AUTH_KEY &&
+      env.APNS_KEY_ID &&
+      env.APNS_TEAM_ID &&
+      env.APNS_BUNDLE_ID
+    ) {
+      const config: ApnsConfig = {
+        authKey: env.APNS_AUTH_KEY,
+        keyId: env.APNS_KEY_ID,
+        teamId: env.APNS_TEAM_ID,
+        bundleId: env.APNS_BUNDLE_ID,
+      };
+
+      const isComplete = currentState === "Available";
+      const isFailed = currentState === "Failed" || currentState === "Deleted";
+
+      await sendLiveActivityUpdate(
+        message.liveActivityPushToken,
+        { status, progress, elapsedSeconds },
+        config,
+        isComplete || isFailed ? { event: "end" } : undefined,
+      );
+
+      console.log(
+        `🏗️ Pushed Live Activity update: ${currentState} (${Math.round(progress * 100)}%)`,
+      );
+
+      // Clean up session if complete
+      if (isComplete || isFailed) {
+        const codespaceStore = env.CODESPACE_STORE.get(
+          env.CODESPACE_STORE.idFromName("global"),
+        );
+        await codespaceStore.fetch(
+          `https://internal/live-activity-session/${message.username}`,
+          { method: "DELETE" },
+        );
+        return { requeue: false };
+      }
+    }
+
+    // Requeue for continued polling
+    return { requeue: true, delaySeconds: CREATION_POLL_INTERVAL_SECONDS };
   } catch (error) {
-    console.error("Siri poll error:", error);
+    console.error("Creation progress poll error:", error);
     // Requeue on error
-    return { requeue: true, delaySeconds: SIRI_POLL_INTERVAL_SECONDS };
+    return { requeue: true, delaySeconds: CREATION_POLL_INTERVAL_SECONDS };
   }
 }
 
-// Queue consumer handler
-export async function handleSiriPromptQueue(
-  batch: MessageBatch<SiriPromptMessage>,
+// Queue consumer handler for creation progress
+export async function handleCreationProgressQueue(
+  batch: MessageBatch<CreationProgressMessage>,
   env: Env,
 ): Promise<void> {
   for (const msg of batch.messages) {
-    const result = await processSiriPromptPoll(env, msg.body);
+    const result = await processCreationProgressPoll(env, msg.body);
 
-    if (result.requeue && env.SIRI_PROMPT_QUEUE) {
-      // Requeue with updated poll count
-      const updatedMessage: SiriPromptMessage = {
+    if (result.requeue && env.CREATION_PROGRESS_QUEUE) {
+      // Requeue with updated poll count and last state
+      const updatedMessage: CreationProgressMessage = {
         ...msg.body,
         pollCount: msg.body.pollCount + 1,
       };
-      await env.SIRI_PROMPT_QUEUE.send(updatedMessage, {
-        delaySeconds: result.delaySeconds || SIRI_POLL_INTERVAL_SECONDS,
+      await env.CREATION_PROGRESS_QUEUE.send(updatedMessage, {
+        delaySeconds: result.delaySeconds || CREATION_POLL_INTERVAL_SECONDS,
       });
     }
 
@@ -1359,136 +1282,115 @@ export function createApp(env: Env) {
     });
   });
 
-  // Siri prompt endpoint - queues prompt and returns immediately
-  app.post("/v1/siri/prompt", requireAuth, async (c) => {
+  // Live Activity session registration - called by iOS when starting Live Activity
+  app.post("/v1/live-activity/register", requireAuth, async (c) => {
     const username = c.get("username");
+    const accessToken = c.get("accessToken");
 
-    const body = await c.req.json<{ prompt?: string; deviceToken?: string }>();
-    const { prompt, deviceToken } = body;
+    const body = await c.req.json<{
+      pushToken: string;
+      codespaceName: string;
+      repositoryName: string;
+    }>();
 
-    if (!prompt) {
-      return c.json({ error: "Prompt is required" }, 400);
-    }
+    const { pushToken, codespaceName, repositoryName } = body;
 
-    // Validate prompt length (max 10000 characters)
-    if (prompt.length > 10000) {
-      return c.json({ error: "Prompt too long (max 10000 characters)" }, 400);
+    if (!pushToken || !codespaceName || !repositoryName) {
+      return c.json(
+        { error: "pushToken, codespaceName, and repositoryName are required" },
+        400,
+      );
     }
 
     console.log(
-      `🎤 Siri prompt received from ${username}: "${prompt.slice(0, 50)}..."`,
+      `🏗️ Live Activity registered for ${username}: ${codespaceName}`,
     );
 
-    // Store device token for future notifications
-    if (deviceToken) {
-      const codespaceStore = c.env.CODESPACE_STORE.get(
-        c.env.CODESPACE_STORE.idFromName("global"),
-      );
-      await codespaceStore.fetch(`https://internal/device-token/${username}`, {
-        method: "PUT",
-        body: JSON.stringify({ deviceToken }),
+    // Store the session in the Durable Object
+    const codespaceStore = c.env.CODESPACE_STORE.get(
+      c.env.CODESPACE_STORE.idFromName("global"),
+    );
+
+    await codespaceStore.fetch(
+      `https://internal/live-activity-session/${username}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pushToken, codespaceName, repositoryName }),
+      },
+    );
+
+    // Enqueue the first progress poll
+    if (c.env.CREATION_PROGRESS_QUEUE) {
+      const message: CreationProgressMessage = {
+        username,
+        codespaceName,
+        repositoryName,
+        accessToken,
+        liveActivityPushToken: pushToken,
+        startedAt: Date.now(),
+        pollCount: 0,
+      };
+
+      await c.env.CREATION_PROGRESS_QUEUE.send(message, {
+        delaySeconds: 5, // First poll after 5 seconds
       });
+
+      console.log(`🏗️ Enqueued first progress poll for ${codespaceName}`);
     }
 
-    // Return immediately - process in background via waitUntil
-    c.executionCtx.waitUntil(
-      initiateSiriPrompt(c.env, username, prompt, deviceToken),
-    );
-
-    return c.json({ queued: true });
+    return c.json({ success: true });
   });
 
-  // Siri status endpoint - get workspace status for voice feedback
-  app.get("/v1/siri/status", requireAuth, async (c) => {
+  // Live Activity token refresh - called when iOS refreshes the push token
+  app.patch("/v1/live-activity/token", requireAuth, async (c) => {
     const username = c.get("username");
 
-    try {
-      // Get most recent codespace
-      const codespaceStore = c.env.CODESPACE_STORE.get(
-        c.env.CODESPACE_STORE.idFromName("global"),
-      );
+    const body = await c.req.json<{ pushToken: string }>();
+    const { pushToken } = body;
 
-      const codespaceResponse = await codespaceStore.fetch(
-        `https://internal/codespace/${username}`,
-      );
-
-      if (!codespaceResponse.ok) {
-        return c.json({
-          status: "no_codespace",
-          message: "No codespace is connected.",
-        });
-      }
-
-      const codespace =
-        (await codespaceResponse.json()) as CodespaceCredentials;
-
-      if (!codespace.githubToken) {
-        return c.json({
-          status: "expired",
-          message: "Codespace credentials expired.",
-        });
-      }
-
-      // Get workspaces
-      const codespaceUrl = `https://${codespace.codespaceName}-6369.app.github.dev`;
-      const workspacesResponse = await fetch(
-        `${codespaceUrl}/v1/git/worktrees`,
-        {
-          headers: { "X-Github-Token": codespace.githubToken },
-          signal: AbortSignal.timeout(10000),
-        },
-      );
-
-      if (!workspacesResponse.ok) {
-        return c.json({
-          status: "unavailable",
-          message: "Couldn't reach your codespace.",
-        });
-      }
-
-      const workspaces = (await workspacesResponse.json()) as Array<{
-        id: string;
-        name: string;
-        claude_session?: { is_active?: boolean };
-      }>;
-
-      if (workspaces.length === 0) {
-        return c.json({
-          status: "no_workspaces",
-          message: "You don't have any active workspaces.",
-        });
-      }
-
-      // Count active Claude sessions
-      const activeCount = workspaces.filter(
-        (w) => w.claude_session?.is_active,
-      ).length;
-      const workspaceNames = workspaces.slice(0, 3).map((w) => w.name);
-
-      if (activeCount === 0) {
-        return c.json({
-          status: "idle",
-          message: `You have ${workspaces.length} workspace${workspaces.length === 1 ? "" : "s"}. Claude is not currently working.`,
-          workspaces: workspaceNames,
-        });
-      }
-
-      const activeWorkspace = workspaces.find(
-        (w) => w.claude_session?.is_active,
-      );
-      return c.json({
-        status: "active",
-        message: `Claude is working on "${activeWorkspace?.name}".`,
-        workspaces: workspaceNames,
-        activeWorkspace: activeWorkspace?.name,
-      });
-    } catch (error) {
-      console.error("Siri status error:", error);
-      return c.json({
-        status: "error",
-        message: "Something went wrong.",
-      });
+    if (!pushToken) {
+      return c.json({ error: "pushToken is required" }, 400);
     }
+
+    console.log(`🏗️ Live Activity token refreshed for ${username}`);
+
+    const codespaceStore = c.env.CODESPACE_STORE.get(
+      c.env.CODESPACE_STORE.idFromName("global"),
+    );
+
+    const response = await codespaceStore.fetch(
+      `https://internal/live-activity-session/${username}/token`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pushToken }),
+      },
+    );
+
+    if (!response.ok) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+
+    return c.json({ success: true });
+  });
+
+  // Live Activity cancellation - called when user cancels codespace creation
+  app.delete("/v1/live-activity", requireAuth, async (c) => {
+    const username = c.get("username");
+
+    console.log(`🏗️ Live Activity cancelled for ${username}`);
+
+    const codespaceStore = c.env.CODESPACE_STORE.get(
+      c.env.CODESPACE_STORE.idFromName("global"),
+    );
+
+    await codespaceStore.fetch(
+      `https://internal/live-activity-session/${username}`,
+      { method: "DELETE" },
+    );
+
+    return c.json({ success: true });
   });
 
   // Debug endpoint for GitHub token permissions
@@ -3973,7 +3875,16 @@ export default {
     return createApp(env).fetch(request, env, ctx);
   },
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
-    await handleSiriPromptQueue(batch as MessageBatch<SiriPromptMessage>, env);
+    // Route to appropriate handler based on queue name
+    const queueName = batch.queue;
+    if (queueName === "creation-progress-queue") {
+      await handleCreationProgressQueue(
+        batch as MessageBatch<CreationProgressMessage>,
+        env,
+      );
+    } else {
+      console.error(`Unknown queue: ${queueName}`);
+    }
   },
 } satisfies ExportedHandler<Env>;
 

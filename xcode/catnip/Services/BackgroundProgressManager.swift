@@ -16,7 +16,7 @@ class BackgroundProgressManager: NSObject {
     private var session: URLSession!
     private var currentTask: URLSessionDownloadTask?
     private var isPolling = false
-    private let pollingInterval: TimeInterval = 20.0 // 20 seconds between polls
+    private let pollingInterval: TimeInterval = 60.0 // 60 seconds between polls (fallback, push is primary)
 
     // Callback to update progress when response is received
     var onProgressUpdate: (() -> Void)?
