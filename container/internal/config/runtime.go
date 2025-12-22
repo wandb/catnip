@@ -55,18 +55,14 @@ func getEnvOrDefault(key, defaultValue string) string {
 }
 
 // getClaudeConfigDir returns the Claude config directory path.
-// On Linux, it respects XDG_CONFIG_HOME (defaults to ~/.config/claude).
-// On macOS and other platforms, it uses ~/.claude.
+// If XDG_CONFIG_HOME is set, uses $XDG_CONFIG_HOME/claude.
+// Otherwise, uses ~/.claude (the traditional Claude location).
 func getClaudeConfigDir(homeDir string) string {
-	if runtime.GOOS == "linux" {
-		// Check XDG_CONFIG_HOME first
-		if xdgConfigHome := os.Getenv("XDG_CONFIG_HOME"); xdgConfigHome != "" {
-			return filepath.Join(xdgConfigHome, "claude")
-		}
-		// Default XDG location on Linux
-		return filepath.Join(homeDir, ".config", "claude")
+	// Check XDG_CONFIG_HOME first (cross-platform)
+	if xdgConfigHome := os.Getenv("XDG_CONFIG_HOME"); xdgConfigHome != "" {
+		return filepath.Join(xdgConfigHome, "claude")
 	}
-	// macOS and other platforms use ~/.claude
+	// Default to ~/.claude when XDG_CONFIG_HOME is not set
 	return filepath.Join(homeDir, ".claude")
 }
 
