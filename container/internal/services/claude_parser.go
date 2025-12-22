@@ -170,9 +170,8 @@ func (s *ParserService) RemoveParser(worktreePath string) {
 func (s *ParserService) findSessionFile(worktreePath string) (string, error) {
 	projectDirName := WorktreePathToProjectDir(worktreePath)
 
-	// Check local directory first
-	homeDir := config.Runtime.HomeDir
-	localDir := filepath.Join(homeDir, ".claude", "projects", projectDirName)
+	// Check local directory first (respects XDG_CONFIG_HOME on Linux)
+	localDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), projectDirName)
 
 	if sessionFile, err := paths.FindBestSessionFile(localDir); err == nil && sessionFile != "" {
 		return sessionFile, nil

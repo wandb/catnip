@@ -31,6 +31,7 @@ type RuntimeConfig struct {
 	LiveDir            string
 	HomeDir            string
 	TempDir            string
+	ClaudeConfigDir    string // Claude config directory (respects XDG_CONFIG_HOME on Linux)
 	CurrentRepo        string // For native mode, the git repo we're running from
 	SyncEnabled        bool   // Whether to sync settings to volume
 	PortMonitorEnabled bool   // Whether to use /proc for port monitoring
@@ -51,6 +52,22 @@ func getEnvOrDefault(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// getClaudeConfigDir returns the Claude config directory path.
+// On Linux, it respects XDG_CONFIG_HOME (defaults to ~/.config/claude).
+// On macOS and other platforms, it uses ~/.claude.
+func getClaudeConfigDir(homeDir string) string {
+	if runtime.GOOS == "linux" {
+		// Check XDG_CONFIG_HOME first
+		if xdgConfigHome := os.Getenv("XDG_CONFIG_HOME"); xdgConfigHome != "" {
+			return filepath.Join(xdgConfigHome, "claude")
+		}
+		// Default XDG location on Linux
+		return filepath.Join(homeDir, ".config", "claude")
+	}
+	// macOS and other platforms use ~/.claude
+	return filepath.Join(homeDir, ".claude")
 }
 
 // DetectRuntime determines the current runtime environment and returns appropriate configuration
@@ -78,6 +95,7 @@ func DetectRuntime() *RuntimeConfig {
 		config.LiveDir = getEnvOrDefault("CATNIP_LIVE_DIR", "/live")
 		config.HomeDir = getEnvOrDefault("CATNIP_HOME_DIR", "/home/catnip")
 		config.TempDir = getEnvOrDefault("CATNIP_TEMP_DIR", "/tmp")
+		config.ClaudeConfigDir = getClaudeConfigDir(config.HomeDir)
 		config.SyncEnabled = true
 		config.PortMonitorEnabled = true
 
@@ -90,6 +108,7 @@ func DetectRuntime() *RuntimeConfig {
 		config.LiveDir = getEnvOrDefault("CATNIP_LIVE_DIR", "")            // Will be set if running from a git repo
 		config.HomeDir = getEnvOrDefault("CATNIP_HOME_DIR", homeDir)
 		config.TempDir = getEnvOrDefault("CATNIP_TEMP_DIR", os.TempDir())
+		config.ClaudeConfigDir = getClaudeConfigDir(config.HomeDir)
 		config.SyncEnabled = false                          // No need to sync in native mode
 		config.PortMonitorEnabled = runtime.GOOS == "linux" // Only on Linux
 
@@ -269,4 +288,10 @@ func (rc *RuntimeConfig) IsNative() bool {
 // IsContainerized returns true if running in any container (Docker or Apple)
 func (rc *RuntimeConfig) IsContainerized() bool {
 	return rc.Mode == DockerMode || rc.Mode == ContainerMode
+}
+
+// GetClaudeProjectsDir returns the Claude projects directory path.
+// This is ClaudeConfigDir + "/projects"
+func (rc *RuntimeConfig) GetClaudeProjectsDir() string {
+	return filepath.Join(rc.ClaudeConfigDir, "projects")
 }

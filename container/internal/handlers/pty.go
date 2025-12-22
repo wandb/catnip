@@ -2246,7 +2246,7 @@ func getClaudeSessionTimeout() time.Duration {
 	return 120 * time.Second // Default: Give Claude 2 minutes to create session file
 }
 
-// monitorClaudeSession monitors .claude/projects directory for new session files
+// monitorClaudeSession monitors Claude projects directory for new session files
 func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	logger.Debugf("👀 Starting Claude session monitoring for %s in %s", session.ID, session.WorkDir)
 
@@ -2256,7 +2256,11 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	startTime := time.Now()
 	timeout := getClaudeSessionTimeout()
 
-	claudeProjectsDir := filepath.Join(session.WorkDir, ".claude", "projects")
+	// Construct the Claude projects directory path for this workspace
+	transformedPath := strings.ReplaceAll(session.WorkDir, "/", "-")
+	transformedPath = strings.TrimPrefix(transformedPath, "-")
+	transformedPath = "-" + transformedPath // Add back the leading dash
+	claudeProjectsDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), transformedPath)
 
 	for range ticker.C {
 		if time.Since(startTime) > timeout {
@@ -2284,16 +2288,14 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 
 // getClaudeSessionLogModTime returns the modification time of the most recently modified Claude session log
 func (h *PTYHandler) getClaudeSessionLogModTime(workDir string) time.Time {
-	homeDir := config.Runtime.HomeDir
-
 	// Transform workDir path to Claude projects directory format
 	transformedPath := strings.ReplaceAll(workDir, "/", "-")
 	transformedPath = strings.TrimPrefix(transformedPath, "-")
 	transformedPath = "-" + transformedPath // Add back the leading dash
 
-	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+	claudeProjectsDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), transformedPath)
 
-	// Check if .claude/projects directory exists
+	// Check if projects directory exists
 	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
 		return time.Time{}
 	}
@@ -2611,10 +2613,10 @@ func (h *PTYHandler) detectClaudeErrorsFromJSONL(session *Session) []string {
 	}
 
 	// Construct path to Claude JSONL files
-	homeDir := config.Runtime.HomeDir
 	transformedPath := strings.ReplaceAll(session.WorkDir, "/", "-")
 	transformedPath = strings.TrimPrefix(transformedPath, "-")
-	projectsDir := filepath.Join(homeDir, ".claude", "projects", "-"+transformedPath)
+	transformedPath = "-" + transformedPath // Add back the leading dash
+	projectsDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), transformedPath)
 
 	// Find the most recent JSONL file
 	entries, err := os.ReadDir(projectsDir)

@@ -33,6 +33,7 @@ type Settings struct {
 	done                chan bool
 	volumePath          string
 	homePath            string
+	claudeConfigDir     string // Claude config directory (respects XDG_CONFIG_HOME on Linux)
 	lastModTimes        map[string]time.Time
 	debounceMap         map[string]*time.Timer // For debouncing file changes
 	lastDirSync         map[string]time.Time   // For tracking directory sync times
@@ -45,6 +46,7 @@ func NewSettings() *Settings {
 	return &Settings{
 		volumePath:          config.Runtime.VolumeDir,
 		homePath:            config.Runtime.HomeDir,
+		claudeConfigDir:     config.Runtime.ClaudeConfigDir,
 		lastModTimes:        make(map[string]time.Time),
 		debounceMap:         make(map[string]*time.Timer),
 		lastDirSync:         make(map[string]time.Time),
@@ -133,9 +135,9 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 		filename   string
 		destPath   string
 	}{
-		{volumeClaudeNestedDir, ".credentials.json", filepath.Join(s.homePath, ".claude", ".credentials.json")},
+		{volumeClaudeNestedDir, ".credentials.json", filepath.Join(s.claudeConfigDir, ".credentials.json")},
 		{volumeClaudeDir, "claude.json", filepath.Join(s.homePath, ".claude.json")},
-		{volumeClaudeNestedDir, "history.jsonl", filepath.Join(s.homePath, ".claude", "history.jsonl")},
+		{volumeClaudeNestedDir, "history.jsonl", filepath.Join(s.claudeConfigDir, "history.jsonl")},
 		{volumeGitHubDir, "config.yml", filepath.Join(s.homePath, ".config", "gh", "config.yml")},
 		{volumeGitHubDir, "hosts.yml", filepath.Join(s.homePath, ".config", "gh", "hosts.yml")},
 	}
@@ -199,7 +201,7 @@ func (s *Settings) restoreFromVolumeOnBoot() {
 // restoreIDEDirectory copies the IDE directory from volume to home if it exists
 func (s *Settings) restoreIDEDirectory() {
 	volumeIDEDir := filepath.Join(s.volumePath, ".claude", "ide")
-	homeIDEDir := filepath.Join(s.homePath, ".claude", "ide")
+	homeIDEDir := filepath.Join(s.claudeConfigDir, "ide")
 
 	// Check if volume IDE directory exists
 	if _, err := os.Stat(volumeIDEDir); os.IsNotExist(err) {
@@ -224,7 +226,7 @@ func (s *Settings) restoreIDEDirectory() {
 // restoreClaudeProjectsDirectory copies the Claude projects directory from volume to home if it exists
 func (s *Settings) restoreClaudeProjectsDirectory() {
 	volumeProjectsDir := filepath.Join(s.volumePath, ".claude", ".claude", "projects")
-	homeProjectsDir := filepath.Join(s.homePath, ".claude", "projects")
+	homeProjectsDir := filepath.Join(s.claudeConfigDir, "projects")
 
 	// Check if volume projects directory exists
 	if _, err := os.Stat(volumeProjectsDir); os.IsNotExist(err) {
@@ -381,7 +383,7 @@ func (s *Settings) watchForChanges() {
 
 // checkAndSyncClaudeProjects monitors the Claude projects directory for changes and syncs .jsonl files
 func (s *Settings) checkAndSyncClaudeProjects() {
-	homeProjectsDir := filepath.Join(s.homePath, ".claude", "projects")
+	homeProjectsDir := filepath.Join(s.claudeConfigDir, "projects")
 	volumeProjectsDir := filepath.Join(s.volumePath, ".claude", ".claude", "projects")
 
 	// Check if home projects directory exists
@@ -500,9 +502,9 @@ func (s *Settings) checkAndSyncFiles() {
 		destName   string
 		sensitive  bool // True for files that need extra care (like ~/.claude.json)
 	}{
-		{filepath.Join(s.homePath, ".claude", ".credentials.json"), filepath.Join(s.volumePath, ".claude", ".claude"), ".credentials.json", true},
+		{filepath.Join(s.claudeConfigDir, ".credentials.json"), filepath.Join(s.volumePath, ".claude", ".claude"), ".credentials.json", true},
 		{filepath.Join(s.homePath, ".claude.json"), filepath.Join(s.volumePath, ".claude"), "claude.json", true},
-		{filepath.Join(s.homePath, ".claude", "history.jsonl"), filepath.Join(s.volumePath, ".claude", ".claude"), "history.jsonl", false},
+		{filepath.Join(s.claudeConfigDir, "history.jsonl"), filepath.Join(s.volumePath, ".claude", ".claude"), "history.jsonl", false},
 		{filepath.Join(s.homePath, ".config", "gh", "config.yml"), filepath.Join(s.volumePath, ".github"), "config.yml", false},
 		{filepath.Join(s.homePath, ".config", "gh", "hosts.yml"), filepath.Join(s.volumePath, ".github"), "hosts.yml", false},
 	}
@@ -730,7 +732,7 @@ func (s *Settings) copyFile(src, dst string) error {
 // ValidateSettings checks if the Claude settings files contain valid JSON
 func (s *Settings) ValidateSettings() error {
 	files := []string{
-		filepath.Join(s.homePath, ".claude", ".credentials.json"),
+		filepath.Join(s.claudeConfigDir, ".credentials.json"),
 		filepath.Join(s.homePath, ".claude.json"),
 	}
 

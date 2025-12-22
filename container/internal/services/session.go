@@ -140,15 +140,14 @@ func (s *SessionService) LoadSessionState(sessionID string) (*SessionState, erro
 
 // FindSessionByDirectory finds an active Claude session in the given directory
 func (s *SessionService) FindSessionByDirectory(workDir string) (*SessionState, error) {
-	// First, try to find the newest session file directly from .claude/projects
-	// Claude stores projects in ~/.claude/projects/{transformed-path}/
+	// First, try to find the newest session file directly from the Claude projects directory
+	// Claude stores projects in <claude-config-dir>/projects/{transformed-path}/
 	// where the path is transformed: /workspace/catnip/buddy -> -workspace-catnip-buddy
-	homeDir := config.Runtime.HomeDir
 	transformedPath := strings.ReplaceAll(workDir, "/", "-")
 	transformedPath = strings.TrimPrefix(transformedPath, "-")
 	transformedPath = "-" + transformedPath // Add back the leading dash
 
-	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+	claudeProjectsDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), transformedPath)
 	if newestSessionID := s.findNewestClaudeSessionFile(claudeProjectsDir); newestSessionID != "" {
 		// Create a minimal state for the newest session found
 		return &SessionState{
@@ -253,14 +252,13 @@ func (s *SessionService) getLastClaudeActivityTime(workDir string) time.Time {
 	}
 
 	// Fallback to file modification time method
-	homeDir := config.Runtime.HomeDir
 	transformedPath := strings.ReplaceAll(workDir, "/", "-")
 	transformedPath = strings.TrimPrefix(transformedPath, "-")
 	transformedPath = "-" + transformedPath // Add back the leading dash
 
-	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+	claudeProjectsDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), transformedPath)
 
-	// Check if .claude/projects directory exists
+	// Check if projects directory exists
 	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
 		return time.Time{} // Zero time if directory doesn't exist
 	}
@@ -802,9 +800,9 @@ func (s *SessionService) hasRunningPTY(workspaceDir, claudeSessionUUID string) b
 	}
 
 	// Method 2: Check for active claude sessions by looking for recent activity
-	// in the .claude/projects directory
+	// in the Claude projects directory
 	if claudeSessionUUID != "" {
-		claudeProjectsDir := filepath.Join(workspaceDir, ".claude", "projects")
+		claudeProjectsDir := config.Runtime.GetClaudeProjectsDir()
 		sessionFile := filepath.Join(claudeProjectsDir, claudeSessionUUID+".jsonl")
 
 		if info, err := os.Stat(sessionFile); err == nil {
