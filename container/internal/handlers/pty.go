@@ -2257,10 +2257,7 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	timeout := getClaudeSessionTimeout()
 
 	// Construct the Claude projects directory path for this workspace
-	transformedPath := strings.ReplaceAll(session.WorkDir, "/", "-")
-	transformedPath = strings.TrimPrefix(transformedPath, "-")
-	transformedPath = "-" + transformedPath // Add back the leading dash
-	claudeProjectsDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), transformedPath)
+	claudeProjectsDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), paths.EncodePathForClaude(session.WorkDir))
 
 	for range ticker.C {
 		if time.Since(startTime) > timeout {
