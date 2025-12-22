@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/models"
 )
 

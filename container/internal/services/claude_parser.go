@@ -34,9 +34,10 @@ type parserInstance struct {
 // NewParserService creates a new parser service
 func NewParserService() *ParserService {
 	homeDir := config.Runtime.HomeDir
+	claudeConfigDir := config.Runtime.ClaudeConfigDir
 	return &ParserService{
 		parsers:       make(map[string]*parserInstance),
-		historyReader: parser.NewHistoryReader(homeDir),
+		historyReader: parser.NewHistoryReader(homeDir, claudeConfigDir),
 		maxParsers:    100, // Reasonable default: support 100 concurrent worktrees
 		stopCh:        make(chan struct{}),
 	}
