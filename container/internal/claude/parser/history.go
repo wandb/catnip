@@ -19,10 +19,10 @@ type HistoryReader struct {
 	historyJSONLPath string
 }
 
-// NewHistoryReader creates a new history reader with paths to config files
-// Uses config.Runtime to respect XDG_CONFIG_HOME on Linux
-func NewHistoryReader(homeDir string) *HistoryReader {
-	claudeConfigDir := config.Runtime.ClaudeConfigDir
+// NewHistoryReader creates a new history reader with paths to config files.
+// claudeConfigDir should be obtained from config.Runtime.ClaudeConfigDir after
+// runtime initialization (typically passed from the caller).
+func NewHistoryReader(homeDir, claudeConfigDir string) *HistoryReader {
 	return &HistoryReader{
 		claudeConfigPath: filepath.Join(homeDir, ".claude.json"),
 		historyJSONLPath: filepath.Join(claudeConfigDir, "history.jsonl"),
