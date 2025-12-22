@@ -14,15 +14,9 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Request notification permission and register for remote notifications
-        Task {
-            let granted = await NotificationManager.shared.requestPermission()
-            if granted {
-                await MainActor.run {
-                    UIApplication.shared.registerForRemoteNotifications()
-                }
-            }
-        }
+        // Note: Notification permission is requested when user installs Catnip,
+        // not on app launch. This prevents the permission dialog from appearing
+        // immediately and interrupting UI tests.
         return true
     }
 

@@ -9,9 +9,11 @@ import XCTest
 
 final class catnipUITestsLaunchTests: XCTestCase {
 
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
+    // Disabled: Running for every UI configuration (light/dark, dynamic type, etc.)
+    // causes tests to multiply dramatically and timeout in CI.
+    // override class var runsForEachTargetApplicationUIConfiguration: Bool {
+    //     true
+    // }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
