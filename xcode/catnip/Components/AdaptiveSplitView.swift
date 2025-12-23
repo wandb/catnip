@@ -8,15 +8,18 @@
 import SwiftUI
 
 /// Display mode for split content
-enum AdaptiveSplitMode {
-    case leading    // Show only leading content
-    case trailing   // Show only trailing content
-    case split      // Show both side-by-side
+enum AdaptiveSplitMode: Int {
+    case leading = 0   // Show only leading content
+    case trailing = 1  // Show only trailing content
+    case split = 2     // Show both side-by-side
 }
 
 /// Adaptive split view that shows single pane on iPhone and side-by-side on iPad
 struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
     @Environment(\.adaptiveTheme) private var adaptiveTheme
+
+    // Persist the view mode preference across workspace switches
+    @AppStorage("adaptiveSplitViewMode") private var savedModeRawValue: Int = AdaptiveSplitMode.split.rawValue
 
     let defaultMode: AdaptiveSplitMode
     let allowModeToggle: Bool
@@ -24,7 +27,10 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
     let leading: () -> Leading
     let trailing: () -> Trailing
 
-    @State private var currentMode: AdaptiveSplitMode
+    private var currentMode: AdaptiveSplitMode {
+        get { AdaptiveSplitMode(rawValue: savedModeRawValue) ?? defaultMode }
+        nonmutating set { savedModeRawValue = newValue.rawValue }
+    }
 
     init(
         defaultMode: AdaptiveSplitMode = .split,
@@ -38,7 +44,6 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
         self.contextTokens = contextTokens
         self.leading = leading
         self.trailing = trailing
-        _currentMode = State(initialValue: defaultMode)
     }
 
     var body: some View {
@@ -51,10 +56,6 @@ struct AdaptiveSplitView<Leading: View, Trailing: View>: View {
                 // Terminal on top, chat on bottom for better code visibility
                 verticalSplitLayout
             }
-        }
-        .onChange(of: adaptiveTheme.context) { _, _ in
-            // Reset to default mode when context changes
-            currentMode = defaultMode
         }
     }
 

@@ -31,8 +31,15 @@ struct UITestingHelper {
     // Preview mode flag - set by AuthManager
     static var isInPreviewMode: Bool = false
 
+    // Detect Xcode preview environment automatically
+    static var isRunningInXcodePreview: Bool {
+        ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+    }
+
     static var shouldUseMockData: Bool {
-        ProcessInfo.processInfo.arguments.contains("-UseMockData") || isInPreviewMode
+        ProcessInfo.processInfo.arguments.contains("-UseMockData") ||
+        isInPreviewMode ||
+        isRunningInXcodePreview
     }
 
     static var shouldShowWorkspacesList: Bool {

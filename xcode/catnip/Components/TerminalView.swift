@@ -18,6 +18,7 @@ struct TerminalView: View {
     let shouldConnect: Bool  // Only connect when explicitly told to
     let showExitButton: Bool  // Show the exit/rotate button in toolbar
     let showDismissButton: Bool  // Show dismiss keyboard button in accessory
+    let isNewWorkspace: Bool  // True for fresh workspaces with no session history
 
     @StateObject private var terminalController: TerminalController
 
@@ -29,7 +30,7 @@ struct TerminalView: View {
     // CatnipInstaller for status refresh
     @StateObject private var installer = CatnipInstaller.shared
 
-    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true, showExitButton: Bool = true, showDismissButton: Bool = true) {
+    init(workspaceId: String, baseURL: String, codespaceName: String? = nil, authToken: String? = nil, shouldConnect: Bool = true, showExitButton: Bool = true, showDismissButton: Bool = true, isNewWorkspace: Bool = false) {
         self.workspaceId = workspaceId
         self.baseURL = baseURL
         self.codespaceName = codespaceName
@@ -37,12 +38,15 @@ struct TerminalView: View {
         self.shouldConnect = shouldConnect
         self.showExitButton = showExitButton
         self.showDismissButton = showDismissButton
+        self.isNewWorkspace = isNewWorkspace
 
         // Use mock data source for UI testing, live WebSocket for production
         #if DEBUG
         if UITestingHelper.shouldUseMockData {
             // Use width-adaptive screenshot mock for clean rendering at any resolution
-            let mockDataSource = ScreenshotMockPTYDataSource.createForScreenshots()
+            // Choose content style based on workspace state
+            let contentStyle: MockPTYContentStyle = isNewWorkspace ? .newWorkspace : .activeSession
+            let mockDataSource = ScreenshotMockPTYDataSource.create(style: contentStyle)
             _terminalController = StateObject(wrappedValue: TerminalController(
                 dataSource: mockDataSource,
                 showDismissButton: showDismissButton
@@ -78,7 +82,6 @@ struct TerminalView: View {
                 .ignoresSafeArea(.container, edges: .top)
         }
         .ignoresSafeArea(.container, edges: .top)
-        .preferredColorScheme(.dark)
         .toolbar {
             if showExitButton {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -565,6 +568,9 @@ class GlassTerminalAccessory: UIInputView {
         // Fully transparent background to show content behind the glass
         backgroundColor = .clear
         isOpaque = false
+
+        // Force dark mode since this is always over the terminal's black background
+        overrideUserInterfaceStyle = .dark
 
         // Create the floating glass container
         let glassView = createGlassContainer()
@@ -1125,6 +1131,9 @@ class NavigationPadView: UIView {
         // Transparent background
         backgroundColor = .clear
         isOpaque = false
+
+        // Force dark mode since this is always over the terminal's black background
+        overrideUserInterfaceStyle = .dark
 
         // Create glass container
         let glassView = createGlassContainer()
@@ -2192,18 +2201,29 @@ extension TerminalController: TerminalViewDelegate {
 #if DEBUG
 struct TerminalView_Previews: PreviewProvider {
     static var previews: some View {
-        // Portrait terminal preview with realistic Claude TUI content
+        // Portrait terminal preview with active session (conversation history)
         TerminalViewWithMockData(
             showExitButton: false,
-            showDismissButton: true
+            showDismissButton: true,
+            contentStyle: .activeSession
         )
         .ignoresSafeArea()
-        .previewDisplayName("Portrait Terminal")
+        .previewDisplayName("Active Session")
+
+        // Portrait terminal preview for new/fresh workspace
+        TerminalViewWithMockData(
+            showExitButton: false,
+            showDismissButton: true,
+            contentStyle: .newWorkspace
+        )
+        .ignoresSafeArea()
+        .previewDisplayName("New Workspace")
 
         // Landscape terminal preview with realistic Claude TUI content
         TerminalViewWithMockData(
             showExitButton: true,
-            showDismissButton: true
+            showDismissButton: true,
+            contentStyle: .activeSession
         )
         .ignoresSafeArea()
         .previewInterfaceOrientation(.landscapeLeft)
@@ -2215,15 +2235,17 @@ struct TerminalView_Previews: PreviewProvider {
 private struct TerminalViewWithMockData: View {
     let showExitButton: Bool
     let showDismissButton: Bool
+    let contentStyle: MockPTYContentStyle
 
     @StateObject private var terminalController: TerminalController
 
-    init(showExitButton: Bool, showDismissButton: Bool) {
+    init(showExitButton: Bool, showDismissButton: Bool, contentStyle: MockPTYContentStyle = .activeSession) {
         self.showExitButton = showExitButton
         self.showDismissButton = showDismissButton
+        self.contentStyle = contentStyle
 
-        // Create width-adaptive mock for previews
-        let mockDataSource = ScreenshotMockPTYDataSource.createForScreenshots()
+        // Create width-adaptive mock for previews with specified content style
+        let mockDataSource = ScreenshotMockPTYDataSource.create(style: contentStyle)
         _terminalController = StateObject(wrappedValue: TerminalController(
             dataSource: mockDataSource,
             showDismissButton: showDismissButton
@@ -2238,7 +2260,6 @@ private struct TerminalViewWithMockData: View {
                 .ignoresSafeArea(.container, edges: .top)
         }
         .ignoresSafeArea(.container, edges: .top)
-        .preferredColorScheme(.dark)
         .toolbar {
             if showExitButton {
                 ToolbarItem(placement: .topBarTrailing) {
