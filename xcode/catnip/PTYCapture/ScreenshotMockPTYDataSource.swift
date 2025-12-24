@@ -369,9 +369,9 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
     }
 }
 
-#if DEBUG
 extension ScreenshotMockPTYDataSource {
     /// Create mock data source for screenshots (active session with conversation)
+    /// Available in all builds to support preview mode for App Store reviewers
     static func createForScreenshots() -> ScreenshotMockPTYDataSource {
         return ScreenshotMockPTYDataSource(contentStyle: .activeSession)
     }
@@ -386,4 +386,3 @@ extension ScreenshotMockPTYDataSource {
         return ScreenshotMockPTYDataSource(contentStyle: style)
     }
 }
-#endif

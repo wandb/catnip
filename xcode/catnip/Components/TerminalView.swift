@@ -40,8 +40,8 @@ struct TerminalView: View {
         self.showDismissButton = showDismissButton
         self.isNewWorkspace = isNewWorkspace
 
-        // Use mock data source for UI testing, live WebSocket for production
-        #if DEBUG
+        // Use mock data source for preview mode (App Store review), live WebSocket otherwise
+        // Runtime check works in both debug and release builds
         if UITestingHelper.shouldUseMockData {
             // Use width-adaptive screenshot mock for clean rendering at any resolution
             // Choose content style based on workspace state
@@ -60,15 +60,6 @@ struct TerminalView: View {
                 showDismissButton: showDismissButton
             ))
         }
-        #else
-        _terminalController = StateObject(wrappedValue: TerminalController(
-            workspaceId: workspaceId,
-            baseURL: baseURL,
-            codespaceName: codespaceName,
-            authToken: authToken,
-            showDismissButton: showDismissButton
-        ))
-        #endif
     }
 
     var body: some View {
