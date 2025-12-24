@@ -1338,9 +1338,6 @@ struct ContextProgressRing<Content: View>: View {
                 content
             }
             .frame(width: buttonSize, height: buttonSize)
-            // Ensure circular shape regardless of parent layout constraints
-            .aspectRatio(1, contentMode: .fit)
-            .fixedSize()
     }
 }
 
