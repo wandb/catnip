@@ -80,5 +80,8 @@
     "@types/qrcode": "^1.5.5",
     "typescript": "^5.0.0",
     "@vscode/vsce": "^2.21.0"
+  },
+  "overrides": {
+    "jws": "^3.2.3"
   }
 }
