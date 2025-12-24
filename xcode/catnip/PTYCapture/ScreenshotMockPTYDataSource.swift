@@ -9,6 +9,14 @@
 import Foundation
 import Combine
 
+/// Content style for mock PTY data
+enum MockPTYContentStyle {
+    /// Active session with conversation history (default for screenshots)
+    case activeSession
+    /// Fresh workspace with no conversation - just welcome screen
+    case newWorkspace
+}
+
 /// Mock PTY data source that generates width-adaptive Claude Code content
 /// Used for App Store screenshots where captured PTY data doesn't render correctly
 /// at different resolutions
@@ -25,6 +33,9 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
     private var terminalCols: Int = 80
     private var terminalRows: Int = 24
 
+    // Content style determines what kind of terminal content to show
+    private let contentStyle: MockPTYContentStyle
+
     // Configurable display values (randomized for variety)
     private let version: String
     private let modelName: String
@@ -37,7 +48,8 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
     private static let projects = ["~/projects/mobile-app", "~/Development/catnip", "~/code/web-dashboard", "~/work/api-server"]
     private static let recentProjects = ["catnip-ios", "mobile-app", "dashboard", "api-service"]
 
-    init() {
+    init(contentStyle: MockPTYContentStyle = .activeSession) {
+        self.contentStyle = contentStyle
         self.version = Self.versions.randomElement() ?? "v2.0.71"
         self.modelName = Self.models.randomElement() ?? "Opus 4.5"
         self.projectPath = Self.projects.randomElement() ?? "~/projects/mobile-app"
@@ -46,8 +58,10 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
     }
 
     func connect() {
-        NSLog("📸 Screenshot Mock PTY: Connecting...")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        NSLog("📸 Screenshot Mock PTY: Connecting (style: \(contentStyle))...")
+        // Defer to next run loop to allow SwiftUI to set up Combine subscriptions
+        // before we publish the connected state. No actual time delay needed.
+        DispatchQueue.main.async { [weak self] in
             self?._isConnected = true
             NSLog("📸 Screenshot Mock PTY: Connected")
         }
@@ -67,8 +81,8 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
         terminalRows = Int(rows)
         NSLog("📸 Screenshot Mock PTY: Resize to %dx%d", terminalCols, terminalRows)
 
-        // Send buffer-size acknowledgment
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        // Send buffer-size acknowledgment on next run loop
+        DispatchQueue.main.async { [weak self] in
             let message = PTYControlMessage(
                 type: "buffer-size",
                 data: nil,
@@ -88,27 +102,39 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
     // MARK: - Content Generation
 
     private func generateAndSendContent() {
-        let content = generateClaudeCodeContent()
+        let content: String
+        switch contentStyle {
+        case .activeSession:
+            content = generateActiveSessionContent()
+        case .newWorkspace:
+            content = generateNewWorkspaceContent()
+        }
 
-        if let data = content.data(using: .utf8) {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                self?.onData?(data)
+        guard let data = content.data(using: .utf8) else { return }
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    let message = PTYControlMessage(
-                        type: "buffer-complete",
-                        data: nil,
-                        submit: nil,
-                        cols: nil,
-                        rows: nil
-                    )
-                    self?.onJSONMessage?(message)
-                }
+        // Defer to next run loop to ensure terminal view is ready to receive data.
+        // Then send buffer-complete immediately after data to signal replay is done.
+        // Using async (no delay) is deterministic - it just waits for current
+        // run loop to finish, unlike asyncAfter which depends on system timing.
+        DispatchQueue.main.async { [weak self] in
+            self?.onData?(data)
+
+            // Send buffer-complete on next run loop after data is processed
+            DispatchQueue.main.async {
+                let message = PTYControlMessage(
+                    type: "buffer-complete",
+                    data: nil,
+                    submit: nil,
+                    cols: nil,
+                    rows: nil
+                )
+                self?.onJSONMessage?(message)
             }
         }
     }
 
-    private func generateClaudeCodeContent() -> String {
+    /// Generate content for an active session with conversation history
+    private func generateActiveSessionContent() -> String {
         let width = terminalCols
         var lines: [String] = []
 
@@ -228,6 +254,95 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
         return lines.joined(separator: "\r\n")
     }
 
+    /// Generate content for a new/fresh workspace - just welcome screen, no conversation
+    private func generateNewWorkspaceContent() -> String {
+        let width = terminalCols
+        var lines: [String] = []
+
+        // ANSI color codes
+        let reset = "\u{1B}[0m"
+        let orange = "\u{1B}[38;2;215;119;87m"
+        let dim = "\u{1B}[2m"
+        let green = "\u{1B}[32m"
+        let blue = "\u{1B}[34m"
+
+        // Clear screen and move cursor to top
+        lines.append("\u{1B}[2J\u{1B}[H")
+
+        // Add padding at top so header is visible below nav bar
+        for _ in 0..<5 {
+            lines.append("")
+        }
+
+        // Calculate box dimensions
+        let boxWidth = max(40, width - 4)
+        let leftColWidth = boxWidth / 2
+        let rightColWidth = boxWidth - leftColWidth - 1
+
+        // Welcome box - top border with title
+        let title = " Claude Code \(version) "
+        let titlePadding = max(0, boxWidth - title.count - 2) / 2
+        lines.append(orange + "╭─" + String(repeating: "─", count: titlePadding) + title + String(repeating: "─", count: boxWidth - title.count - titlePadding - 2) + "╮" + reset)
+
+        // Two-column content - cleaner for new workspace
+        let leftContent = [
+            "",
+            centerInWidth("Ready to begin", leftColWidth),
+            "",
+            centerInWidth("* ▐▛███▜▌ *", leftColWidth),
+            centerInWidth("* ▝▜█████▛▘ *", leftColWidth),
+            centerInWidth("*  ▘▘ ▝▝  *", leftColWidth),
+            "",
+            centerInWidth("\(modelName) · Claude API", leftColWidth),
+            centerInWidth(projectPath, leftColWidth),
+            ""
+        ]
+
+        let rightContent = [
+            orange + "Tips for getting started" + reset,
+            "Run /init to create a CLAUDE.md",
+            "file with instructions for Claude",
+            String(repeating: "─", count: rightColWidth),
+            orange + "Quick commands" + reset,
+            dim + "/help" + reset + " - Show available commands",
+            dim + "/clear" + reset + " - Clear conversation",
+            "",
+            "",
+            ""
+        ]
+
+        // Generate rows with two columns
+        for i in 0..<max(leftContent.count, rightContent.count) {
+            let left = i < leftContent.count ? leftContent[i] : ""
+            let right = i < rightContent.count ? rightContent[i] : ""
+            let leftPadded = padToWidth(left, width: leftColWidth)
+            let rightPadded = padToWidth(right, width: rightColWidth)
+            lines.append(orange + "│" + reset + leftPadded + orange + "│" + reset + rightPadded + orange + "│" + reset)
+        }
+
+        // Bottom border
+        lines.append(orange + "╰" + String(repeating: "─", count: boxWidth) + "╯" + reset)
+
+        // Empty prompt area - ready for input
+        lines.append("")
+
+        // Input prompt (empty, ready for user)
+        let separatorWidth = min(width, boxWidth + 2)
+        lines.append(dim + String(repeating: "─", count: separatorWidth) + reset)
+        lines.append(green + "> " + reset + dim + "What would you like to build?" + String(repeating: " ", count: max(0, separatorWidth - 35)) + "↵ send" + reset)
+        lines.append(dim + String(repeating: "─", count: separatorWidth) + reset)
+
+        // Status bar - fresh workspace, no tokens used yet
+        let statusPath = "  " + projectPath
+        let branch = "main"
+        let statusLeft = blue + statusPath + reset + "   " + green + branch + reset
+        let statusRight = dim + "0 tokens" + reset
+        let statusPadding = max(0, separatorWidth - statusPath.count - branch.count - "0 tokens".count - 8)
+        lines.append(statusLeft + String(repeating: " ", count: statusPadding) + statusRight)
+
+        return lines.joined(separator: "\r\n")
+    }
+
     private func centerInWidth(_ text: String, _ width: Int) -> String {
         let textLen = visibleLength(text)
         if textLen >= width {
@@ -256,8 +371,19 @@ class ScreenshotMockPTYDataSource: PTYDataSource {
 
 #if DEBUG
 extension ScreenshotMockPTYDataSource {
+    /// Create mock data source for screenshots (active session with conversation)
     static func createForScreenshots() -> ScreenshotMockPTYDataSource {
-        return ScreenshotMockPTYDataSource()
+        return ScreenshotMockPTYDataSource(contentStyle: .activeSession)
+    }
+
+    /// Create mock data source for a new/fresh workspace (no conversation history)
+    static func createForNewWorkspace() -> ScreenshotMockPTYDataSource {
+        return ScreenshotMockPTYDataSource(contentStyle: .newWorkspace)
+    }
+
+    /// Create mock data source with specified content style
+    static func create(style: MockPTYContentStyle) -> ScreenshotMockPTYDataSource {
+        return ScreenshotMockPTYDataSource(contentStyle: style)
     }
 }
 #endif

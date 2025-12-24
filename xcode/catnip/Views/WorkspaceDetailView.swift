@@ -918,6 +918,10 @@ struct WorkspaceDetailView: View {
     private var terminalView: some View {
         let worktreeName = workspace?.name ?? "unknown"
         let shouldConnect = adaptiveTheme.prefersSideBySideTerminal || showTerminalOnly
+        // Determine if this is a fresh workspace with no session history
+        let isNewWorkspace = workspace?.latestSessionTitle == nil &&
+                             workspace?.latestUserPrompt == nil &&
+                             workspace?.todos == nil
 
         return TerminalView(
             workspaceId: worktreeName,
@@ -925,7 +929,8 @@ struct WorkspaceDetailView: View {
             codespaceName: UserDefaults.standard.string(forKey: "codespace_name"),
             authToken: authManager.sessionToken,
             shouldConnect: shouldConnect,
-            showExitButton: false
+            showExitButton: false,
+            isNewWorkspace: isNewWorkspace
         )
     }
 

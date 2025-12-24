@@ -334,15 +334,26 @@ struct WorkspacesView: View {
             workspacesList
                 .navigationSplitViewColumnWidth(adaptiveTheme.sidebarWidth)
         } detail: {
-            if let selectedId = selectedWorkspaceId,
-               let workspace = workspaces.first(where: { $0.id == selectedId }) {
-                WorkspaceDetailView(
-                    workspaceId: workspace.id,
-                    initialWorkspace: workspace,
-                    pendingPrompt: pendingPromptForNavigation
-                )
-            } else {
-                emptySelectionView
+            // Background color that persists during view recreation
+            // Prevents flash when switching workspaces
+            ZStack {
+                Color(uiColor: .systemBackground)
+                    .ignoresSafeArea()
+
+                if let selectedId = selectedWorkspaceId,
+                   let workspace = workspaces.first(where: { $0.id == selectedId }) {
+                    WorkspaceDetailView(
+                        workspaceId: workspace.id,
+                        initialWorkspace: workspace,
+                        pendingPrompt: pendingPromptForNavigation
+                    )
+                    // CRITICAL: Force SwiftUI to recreate the view when workspace changes
+                    // Without this, SwiftUI reuses the view and @StateObject/@State properties
+                    // retain stale data from the previous workspace
+                    .id(selectedId)
+                } else {
+                    emptySelectionView
+                }
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -370,8 +381,8 @@ struct WorkspacesView: View {
             } else if workspaces.isEmpty {
                 emptyView
             } else {
-                // iPad: Use selection binding for split view
-                List(selection: $selectedWorkspaceId) {
+                // iPad: Use plain list - selection is handled manually in iPadWorkspaceListContent
+                List {
                     iPadWorkspaceListContent
                 }
                 .listStyle(.plain)
@@ -398,19 +409,29 @@ struct WorkspacesView: View {
         }
     }
 
-    /// iPad workspace list content - uses NavigationLink with value for split view selection
+    /// iPad workspace list content - uses Button with selection binding
+    /// Note: We use Button instead of NavigationLink to avoid NavigationLink's
+    /// selection styling which causes foreground colors to become invisible
     @ViewBuilder
     private var iPadWorkspaceListContent: some View {
         ForEach(workspaces) { workspace in
-            NavigationLink(value: workspace.id) {
-                WorkspaceCard(workspace: workspace)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        Color(uiColor: .secondarySystemBackground)
-                        .ignoresSafeArea(edges: .horizontal)
-                    )
-                    .contentShape(Rectangle())
+            Button {
+                selectedWorkspaceId = workspace.id
+            } label: {
+                HStack {
+                    WorkspaceCard(workspace: workspace)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 0)
+                }
+                .background(
+                    // Show selection highlight when this workspace is selected
+                    selectedWorkspaceId == workspace.id
+                        ? Color.accentColor.opacity(0.15)
+                        : Color(uiColor: .secondarySystemBackground)
+                )
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             .listRowInsets(EdgeInsets())
             .listRowSeparator(.visible)
             .listRowBackground(Color.clear)

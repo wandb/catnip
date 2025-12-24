@@ -2,7 +2,7 @@
   "name": "catnip-sidebar",
   "displayName": "W&B Catnip",
   "description": "W&B Catnip - a highly addictive agentic coding environment",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "wandb",
   "engines": {
     "vscode": "^1.74.0"
@@ -80,5 +80,8 @@
     "@types/qrcode": "^1.5.5",
     "typescript": "^5.0.0",
     "@vscode/vsce": "^2.21.0"
+  },
+  "overrides": {
+    "jws": "^3.2.3"
   }
 }
