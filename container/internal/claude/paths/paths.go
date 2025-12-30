@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/vanpelt/catnip/internal/config"
 )
 
 // EncodePathForClaude encodes a filesystem path the way Claude does for project directories.
@@ -23,15 +25,12 @@ func EncodePathForClaude(path string) string {
 }
 
 // GetProjectDir returns the Claude projects directory path for a given worktree/project path.
-// Returns the full path to ~/.claude/projects/<encoded-path>/
+// Returns the full path to <claude-config-dir>/projects/<encoded-path>/
+// On Linux, respects XDG_CONFIG_HOME (defaults to ~/.config/claude/projects).
+// On macOS and other platforms, uses ~/.claude/projects.
 func GetProjectDir(worktreePath string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-
 	encodedPath := EncodePathForClaude(worktreePath)
-	return filepath.Join(homeDir, ".claude", "projects", encodedPath), nil
+	return filepath.Join(config.Runtime.GetClaudeProjectsDir(), encodedPath), nil
 }
 
 // IsValidSessionUUID checks if a string is a valid Claude session UUID.

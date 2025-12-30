@@ -5,23 +5,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/vanpelt/catnip/internal/models"
 )
 
 // HistoryReader reads user prompt history from Claude configuration files
-// Supports both legacy ~/.claude.json and new ~/.claude/history.jsonl formats
+// Supports both legacy ~/.claude.json and new <claude-config-dir>/history.jsonl formats
 type HistoryReader struct {
 	claudeConfigPath string
 	historyJSONLPath string
 }
 
-// NewHistoryReader creates a new history reader with paths to config files
-func NewHistoryReader(homeDir string) *HistoryReader {
+// NewHistoryReader creates a new history reader with paths to config files.
+// claudeConfigDir should be obtained from config.Runtime.ClaudeConfigDir after
+// runtime initialization (typically passed from the caller).
+func NewHistoryReader(homeDir, claudeConfigDir string) *HistoryReader {
 	return &HistoryReader{
-		claudeConfigPath: homeDir + "/.claude.json",
-		historyJSONLPath: homeDir + "/.claude/history.jsonl",
+		claudeConfigPath: filepath.Join(homeDir, ".claude.json"),
+		historyJSONLPath: filepath.Join(claudeConfigDir, "history.jsonl"),
 	}
 }
 

@@ -56,7 +56,7 @@ func setupTestSession(t *testing.T, worktreePath, testdataFile string) {
 	t.Helper()
 
 	projectDirName := WorktreePathToProjectDir(worktreePath)
-	projectDir := filepath.Join(config.Runtime.HomeDir, ".claude", "projects", projectDirName)
+	projectDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), projectDirName)
 	err := os.MkdirAll(projectDir, 0755)
 	require.NoError(t, err)
 

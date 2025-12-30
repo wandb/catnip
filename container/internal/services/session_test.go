@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/vanpelt/catnip/internal/config"
 )
 
 func TestSessionService(t *testing.T) {
@@ -241,43 +242,51 @@ func TestSessionServiceDirectory(t *testing.T) {
 		transformedPath = strings.TrimPrefix(transformedPath, "-")
 		transformedPath = "-" + transformedPath
 
-		// Create Claude directory in the expected home location (using tempDir as fake home)
-		homeDir := tempDir
-		claudeDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+		// Create Claude directory in the expected Claude config location
+		claudeDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), transformedPath)
 		require.NoError(t, os.MkdirAll(claudeDir, 0755))
 
-		// Create a fake Claude session file
+		// Create a fake Claude session file with conversation content
+		// The file must contain {"type":"user"} or {"type":"assistant"} to be detected as a valid session
 		sessionFile := filepath.Join(claudeDir, "12345678-1234-1234-1234-123456789abc.jsonl")
-		require.NoError(t, os.WriteFile(sessionFile, []byte("{}"), 0644))
+		sessionContent := `{"type":"user","message":"test"}` + "\n"
+		require.NoError(t, os.WriteFile(sessionFile, []byte(sessionContent), 0644))
 
-		// Update the service to use our tempDir as home directory for testing
-		originalHomeDir := "/home/catnip"
-		// We need to temporarily modify the method to use tempDir as home
-		// Since we can't easily mock this, let's create a fallback test using the persisted session approach
+		// Find session by directory - should find the Claude session file directly
+		// When found directly, the function returns ID "detected" with the Claude session UUID
+		foundSession, err := service.FindSessionByDirectory(testWorkspace)
+		require.NoError(t, err)
+		require.NotNil(t, foundSession)
+		assert.Equal(t, "detected", foundSession.ID)
+		assert.Equal(t, testWorkspace, foundSession.WorkingDirectory)
+		assert.Equal(t, "claude", foundSession.Agent)
+		assert.Equal(t, "12345678-1234-1234-1234-123456789abc", foundSession.ClaudeSessionID)
+	})
 
-		// Instead, test the fallback mechanism by creating a persisted session state
+	t.Run("FindSessionByDirectory_Fallback", func(t *testing.T) {
+		// Test the fallback mechanism when Claude session file doesn't exist
+		testWorkspaceFallback := filepath.Join(tempDir, "test-workspace-fallback")
+
+		// Create a persisted session state (without corresponding Claude files)
 		sessionState := &SessionState{
-			ID:               "test-session",
-			WorkingDirectory: testWorkspace,
+			ID:               "fallback-session",
+			WorkingDirectory: testWorkspaceFallback,
 			Agent:            "claude",
-			ClaudeSessionID:  "12345678-1234-1234-1234-123456789abc",
+			ClaudeSessionID:  "87654321-4321-4321-4321-cba987654321",
 			CreatedAt:        time.Now(),
 			LastAccess:       time.Now(),
 		}
 
 		require.NoError(t, service.SaveSessionState(sessionState))
 
-		// Find session by directory (should find via fallback mechanism)
-		foundSession, err := service.FindSessionByDirectory(testWorkspace)
+		// Find session by directory (should find via fallback mechanism since no Claude file exists)
+		foundSession, err := service.FindSessionByDirectory(testWorkspaceFallback)
 		require.NoError(t, err)
 		require.NotNil(t, foundSession)
-		assert.Equal(t, "test-session", foundSession.ID)
-		assert.Equal(t, testWorkspace, foundSession.WorkingDirectory)
+		assert.Equal(t, "fallback-session", foundSession.ID)
+		assert.Equal(t, testWorkspaceFallback, foundSession.WorkingDirectory)
 		assert.Equal(t, "claude", foundSession.Agent)
-		assert.Equal(t, "12345678-1234-1234-1234-123456789abc", foundSession.ClaudeSessionID)
-
-		// Clean up
-		_ = originalHomeDir // Prevent unused variable warning
+		assert.Equal(t, "87654321-4321-4321-4321-cba987654321", foundSession.ClaudeSessionID)
 	})
 
 	t.Run("FindNewestClaudeSessionFile", func(t *testing.T) {

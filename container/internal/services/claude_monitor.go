@@ -1163,7 +1163,7 @@ func (s *ClaudeMonitorService) startWorktreeTodoMonitor(worktreeID, worktreePath
 
 // findProjectDirectory finds the Claude project directory for a given project name
 func (s *ClaudeMonitorService) findProjectDirectory(projectDirName string) string {
-	claudeProjectsDir := filepath.Join(config.Runtime.HomeDir, ".claude", "projects")
+	claudeProjectsDir := config.Runtime.GetClaudeProjectsDir()
 	projectPath := filepath.Join(claudeProjectsDir, projectDirName)
 
 	if stat, err := os.Stat(projectPath); err == nil && stat.IsDir() {

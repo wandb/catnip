@@ -34,9 +34,10 @@ type parserInstance struct {
 // NewParserService creates a new parser service
 func NewParserService() *ParserService {
 	homeDir := config.Runtime.HomeDir
+	claudeConfigDir := config.Runtime.ClaudeConfigDir
 	return &ParserService{
 		parsers:       make(map[string]*parserInstance),
-		historyReader: parser.NewHistoryReader(homeDir),
+		historyReader: parser.NewHistoryReader(homeDir, claudeConfigDir),
 		maxParsers:    100, // Reasonable default: support 100 concurrent worktrees
 		stopCh:        make(chan struct{}),
 	}
@@ -170,9 +171,8 @@ func (s *ParserService) RemoveParser(worktreePath string) {
 func (s *ParserService) findSessionFile(worktreePath string) (string, error) {
 	projectDirName := WorktreePathToProjectDir(worktreePath)
 
-	// Check local directory first
-	homeDir := config.Runtime.HomeDir
-	localDir := filepath.Join(homeDir, ".claude", "projects", projectDirName)
+	// Check local directory first (respects XDG_CONFIG_HOME on Linux)
+	localDir := filepath.Join(config.Runtime.GetClaudeProjectsDir(), projectDirName)
 
 	if sessionFile, err := paths.FindBestSessionFile(localDir); err == nil && sessionFile != "" {
 		return sessionFile, nil

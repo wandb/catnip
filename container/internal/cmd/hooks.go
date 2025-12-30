@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vanpelt/catnip/internal/config"
 	"github.com/vanpelt/catnip/internal/logger"
 )
 
@@ -106,18 +107,13 @@ func runInstallHooks(cmd *cobra.Command, args []string) error {
 		logger.Info("🔧 Installing Claude Code hooks for activity tracking...")
 	}
 
-	// Get Claude directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	claudeDir := filepath.Join(homeDir, ".claude")
+	// Get Claude directory (respects XDG_CONFIG_HOME on Linux)
+	claudeDir := config.Runtime.ClaudeConfigDir
 	settingsFile := filepath.Join(claudeDir, "settings.json")
 
-	// Create .claude directory if it doesn't exist
+	// Create Claude config directory if it doesn't exist
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .claude directory: %w", err)
+		return fmt.Errorf("failed to create Claude config directory: %w", err)
 	}
 
 	if verboseHooks {

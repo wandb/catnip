@@ -68,9 +68,10 @@ func NewClaudeService() *ClaudeService {
 	// Use runtime-appropriate directories
 	homeDir := config.Runtime.HomeDir
 	volumeDir := config.Runtime.VolumeDir
+	claudeConfigDir := config.Runtime.ClaudeConfigDir
 	return &ClaudeService{
 		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
-		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
+		claudeProjectsDir:    filepath.Join(claudeConfigDir, "projects"),
 		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 		settingsPath:         filepath.Join(volumeDir, "settings.json"),
 		subprocessWrapper:    NewClaudeSubprocessWrapper(),
@@ -89,9 +90,10 @@ func NewClaudeServiceWithWrapper(wrapper ClaudeSubprocessInterface) *ClaudeServi
 	// Use runtime-appropriate directories
 	homeDir := config.Runtime.HomeDir
 	volumeDir := config.Runtime.VolumeDir
+	claudeConfigDir := config.Runtime.ClaudeConfigDir
 	return &ClaudeService{
 		claudeConfigPath:     filepath.Join(homeDir, ".claude.json"),
-		claudeProjectsDir:    filepath.Join(homeDir, ".claude", "projects"),
+		claudeProjectsDir:    filepath.Join(claudeConfigDir, "projects"),
 		volumeProjectsDir:    filepath.Join(volumeDir, ".claude", ".claude", "projects"),
 		settingsPath:         filepath.Join(volumeDir, "settings.json"),
 		subprocessWrapper:    wrapper,
@@ -1135,8 +1137,8 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 		return nil, fmt.Errorf("failed to read claude config file: %w", err)
 	}
 
-	var config map[string]interface{}
-	if err := json.Unmarshal(data, &config); err != nil {
+	var configData map[string]interface{}
+	if err := json.Unmarshal(data, &configData); err != nil {
 		return nil, fmt.Errorf("failed to parse claude config: %w", err)
 	}
 
@@ -1150,7 +1152,7 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 	}
 
 	// Extract theme (default to "dark" if not set)
-	if theme, exists := config["theme"]; exists {
+	if theme, exists := configData["theme"]; exists {
 		if themeStr, ok := theme.(string); ok {
 			settings.Theme = themeStr
 		}
@@ -1158,27 +1160,27 @@ func (s *ClaudeService) GetClaudeSettings() (*models.ClaudeSettings, error) {
 
 	// Check authentication status based on credentials file existence
 	// Don't rely on userID in config - check if credentials actually exist
-	credentialsPath := filepath.Join(os.Getenv("HOME"), ".claude", ".credentials.json")
+	credentialsPath := filepath.Join(config.Runtime.ClaudeConfigDir, ".credentials.json")
 	if _, err := os.Stat(credentialsPath); err == nil {
 		settings.IsAuthenticated = true
 	}
 
 	// Extract version from lastReleaseNotesSeen
-	if lastRelease, exists := config["lastReleaseNotesSeen"]; exists {
+	if lastRelease, exists := configData["lastReleaseNotesSeen"]; exists {
 		if lastReleaseStr, ok := lastRelease.(string); ok && lastReleaseStr != "" {
 			settings.Version = lastReleaseStr
 		}
 	}
 
 	// Extract onboarding status
-	if onboarding, exists := config["hasCompletedOnboarding"]; exists {
+	if onboarding, exists := configData["hasCompletedOnboarding"]; exists {
 		if onboardingBool, ok := onboarding.(bool); ok {
 			settings.HasCompletedOnboarding = onboardingBool
 		}
 	}
 
 	// Extract startup count
-	if startups, exists := config["numStartups"]; exists {
+	if startups, exists := configData["numStartups"]; exists {
 		if startupsFloat, ok := startups.(float64); ok {
 			settings.NumStartups = int(startupsFloat)
 		}
@@ -1940,7 +1942,7 @@ func (m *ClaudePTYManager) waitForSessionFile() error {
 
 	// Calculate expected project directory
 	projectDirName := WorktreePathToProjectDir(m.workingDir)
-	m.projectDir = filepath.Join(config.Runtime.HomeDir, ".claude", "projects", projectDirName)
+	m.projectDir = filepath.Join(config.Runtime.GetClaudeProjectsDir(), projectDirName)
 
 	for {
 		select {
