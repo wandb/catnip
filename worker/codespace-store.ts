@@ -23,6 +23,21 @@ interface StoredCodespaceCredentials {
   updatedAt: number;
 }
 
+interface DeviceToken {
+  token: string;
+  updatedAt: number;
+}
+
+// Live Activity session for push-updating codespace creation progress
+export interface LiveActivitySession {
+  pushToken: string;
+  codespaceName: string;
+  repositoryName: string;
+  createdAt: number;
+  lastPushAt: number;
+  lastState?: string; // Track last state to detect changes
+}
+
 export class CodespaceStore extends DurableObject<Record<string, any>> {
   private sql: SqlStorage;
   private keys: Map<number, CryptoKey> = new Map();
@@ -251,6 +266,180 @@ export class CodespaceStore extends DurableObject<Record<string, any>> {
       else {
         return new Response("Method not allowed", { status: 405 });
       }
+    }
+
+    // Handle device token routes: /device-token/{username}
+    if (url.pathname.match(/^\/device-token\/(.+)$/)) {
+      const username = url.pathname.split("/")[2];
+      const tokenKey = `device-token:${username}`;
+
+      // PUT /device-token/{username} - Store device token
+      if (request.method === "PUT") {
+        let body;
+        try {
+          body = await request.json<{ deviceToken: string }>();
+        } catch (_error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+
+        if (!body.deviceToken) {
+          return new Response("deviceToken required", { status: 400 });
+        }
+
+        const deviceTokenData: DeviceToken = {
+          token: body.deviceToken,
+          updatedAt: Date.now(),
+        };
+
+        await this.ctx.storage.put(tokenKey, deviceTokenData);
+        console.log(`📱 Stored device token for ${username}`);
+
+        return new Response("OK", { status: 200 });
+      }
+
+      // GET /device-token/{username} - Get device token
+      if (request.method === "GET") {
+        const deviceTokenData =
+          await this.ctx.storage.get<DeviceToken>(tokenKey);
+
+        if (!deviceTokenData) {
+          return new Response("No device token", { status: 404 });
+        }
+
+        return Response.json(deviceTokenData);
+      }
+
+      // DELETE /device-token/{username} - Delete device token
+      if (request.method === "DELETE") {
+        await this.ctx.storage.delete(tokenKey);
+        return new Response("OK", { status: 200 });
+      }
+
+      return new Response("Method not allowed", { status: 405 });
+    }
+
+    // Handle Live Activity session routes: /live-activity-session/{username}
+    if (url.pathname.match(/^\/live-activity-session\/([^/]+)(\/token)?$/)) {
+      const pathMatch = url.pathname.match(
+        /^\/live-activity-session\/([^/]+)(\/token)?$/,
+      );
+      const username = pathMatch?.[1];
+      const isTokenRefresh = pathMatch?.[2] === "/token";
+      const sessionKey = `live-activity-session:${username}`;
+
+      // POST /live-activity-session/{username} - Register new Live Activity session
+      if (request.method === "POST" && !isTokenRefresh) {
+        let body;
+        try {
+          body = await request.json<{
+            pushToken: string;
+            codespaceName: string;
+            repositoryName: string;
+          }>();
+        } catch (_error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+
+        if (!body.pushToken || !body.codespaceName || !body.repositoryName) {
+          return new Response(
+            "pushToken, codespaceName, and repositoryName required",
+            { status: 400 },
+          );
+        }
+
+        const now = Date.now();
+        const session: LiveActivitySession = {
+          pushToken: body.pushToken,
+          codespaceName: body.codespaceName,
+          repositoryName: body.repositoryName,
+          createdAt: now,
+          lastPushAt: now,
+        };
+
+        await this.ctx.storage.put(sessionKey, session);
+        console.log(`📱 Live Activity session registered for ${username}`);
+
+        return Response.json({ success: true });
+      }
+
+      // PATCH /live-activity-session/{username}/token - Refresh push token
+      if (request.method === "PATCH" && isTokenRefresh) {
+        let body;
+        try {
+          body = await request.json<{ pushToken: string }>();
+        } catch (_error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+
+        if (!body.pushToken) {
+          return new Response("pushToken required", { status: 400 });
+        }
+
+        const session =
+          await this.ctx.storage.get<LiveActivitySession>(sessionKey);
+        if (!session) {
+          return new Response("Session not found", { status: 404 });
+        }
+
+        session.pushToken = body.pushToken;
+        await this.ctx.storage.put(sessionKey, session);
+        console.log(`📱 Live Activity token refreshed for ${username}`);
+
+        return new Response("OK", { status: 200 });
+      }
+
+      // GET /live-activity-session/{username} - Get Live Activity session
+      if (request.method === "GET" && !isTokenRefresh) {
+        const session =
+          await this.ctx.storage.get<LiveActivitySession>(sessionKey);
+
+        if (!session) {
+          return new Response("Session not found", { status: 404 });
+        }
+
+        // Check if session is expired (15 minutes max for codespace creation)
+        const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+        if (session.createdAt < fifteenMinutesAgo) {
+          await this.ctx.storage.delete(sessionKey);
+          return new Response("Session expired", { status: 404 });
+        }
+
+        return Response.json(session);
+      }
+
+      // DELETE /live-activity-session/{username} - Cancel/end session
+      if (request.method === "DELETE" && !isTokenRefresh) {
+        await this.ctx.storage.delete(sessionKey);
+        console.log(`📱 Live Activity session ended for ${username}`);
+        return new Response("OK", { status: 200 });
+      }
+
+      // PATCH /live-activity-session/{username} - Update session (e.g., lastPushAt, lastState)
+      if (request.method === "PATCH" && !isTokenRefresh) {
+        let body;
+        try {
+          body = await request.json<{
+            lastPushAt?: number;
+            lastState?: string;
+          }>();
+        } catch (_error) {
+          return new Response("Invalid JSON", { status: 400 });
+        }
+
+        const session =
+          await this.ctx.storage.get<LiveActivitySession>(sessionKey);
+        if (!session) {
+          return new Response("Session not found", { status: 404 });
+        }
+
+        if (body.lastPushAt) session.lastPushAt = body.lastPushAt;
+        if (body.lastState) session.lastState = body.lastState;
+
+        await this.ctx.storage.put(sessionKey, session);
+        return new Response("OK", { status: 200 });
+      }
+
+      return new Response("Method not allowed", { status: 405 });
     }
 
     // Handle specific codespace lookup: /internal/codespace/{username}/{codespaceName}

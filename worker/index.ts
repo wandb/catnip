@@ -9,6 +9,14 @@ import {
 import { HTTPException } from "hono/http-exception";
 import { Container, getContainer } from "@cloudflare/containers";
 import { Webhooks } from "@octokit/webhooks";
+import {
+  sendPushNotification,
+  sendLiveActivityUpdate,
+  ApnsPayload,
+  ApnsConfig,
+  LiveActivityContentState,
+} from "./apns";
+import { LiveActivitySession } from "./codespace-store";
 import { generateMobileToken } from "./mobile-auth";
 import {
   validateRedirectUri,
@@ -113,6 +121,25 @@ export interface Env {
   GITHUB_WEBHOOK_SECRET: string;
   CATNIP_ENCRYPTION_KEY: string;
   ENVIRONMENT?: string;
+  // APNs configuration for push notifications
+  APNS_AUTH_KEY?: string;
+  APNS_KEY_ID?: string;
+  APNS_TEAM_ID?: string;
+  APNS_BUNDLE_ID?: string;
+  // Queue for Live Activity codespace creation progress
+  CREATION_PROGRESS_QUEUE?: Queue<CreationProgressMessage>;
+}
+
+// Message format for Live Activity creation progress queue
+interface CreationProgressMessage {
+  username: string;
+  codespaceName: string;
+  repositoryName: string;
+  accessToken: string; // GitHub access token for API calls
+  liveActivityPushToken: string;
+  startedAt: number;
+  pollCount: number;
+  lastState?: string; // Track state changes
 }
 
 interface SessionData {
@@ -395,6 +422,262 @@ async function updateRefreshTimestamp(
   await updateVerificationCache(codespaceStore, username, {
     lastRefreshRequest: timestamp,
   });
+}
+
+// Helper to send push notification with error handling
+async function sendCatnipNotification(
+  env: Env,
+  deviceToken: string | undefined,
+  payload: {
+    title: string;
+    body: string;
+    workspaceId?: string;
+    workspaceName?: string;
+  },
+): Promise<void> {
+  if (!deviceToken) {
+    console.warn("No device token, cannot send notification");
+    return;
+  }
+
+  if (
+    !env.APNS_AUTH_KEY ||
+    !env.APNS_KEY_ID ||
+    !env.APNS_TEAM_ID ||
+    !env.APNS_BUNDLE_ID
+  ) {
+    console.warn("APNs not configured, skipping notification");
+    return;
+  }
+
+  const apnsPayload: ApnsPayload = {
+    aps: {
+      alert: {
+        title: payload.title,
+        body: payload.body,
+      },
+      sound: "default",
+      "mutable-content": 1,
+    },
+    workspaceId: payload.workspaceId,
+    workspaceName: payload.workspaceName,
+    action: "open_workspace",
+  };
+
+  const config: ApnsConfig = {
+    authKey: env.APNS_AUTH_KEY,
+    keyId: env.APNS_KEY_ID,
+    teamId: env.APNS_TEAM_ID,
+    bundleId: env.APNS_BUNDLE_ID,
+  };
+
+  await sendPushNotification(deviceToken, apnsPayload, config);
+}
+
+// Maximum time to poll for codespace creation (15 minutes)
+const CREATION_MAX_POLL_TIME_MS = 15 * 60 * 1000;
+// Regular polling interval (30 seconds for hybrid approach)
+const CREATION_POLL_INTERVAL_SECONDS = 30;
+
+// Process a single creation progress poll from the queue
+async function processCreationProgressPoll(
+  env: Env,
+  message: CreationProgressMessage,
+): Promise<{ requeue: boolean; delaySeconds?: number }> {
+  const elapsed = Date.now() - message.startedAt;
+
+  // Check if we've exceeded max polling time (15 minutes)
+  if (elapsed >= CREATION_MAX_POLL_TIME_MS) {
+    console.log(
+      `🏗️ Creation polling timeout for ${message.codespaceName} after ${Math.round(elapsed / 1000)}s`,
+    );
+
+    // Send final "end" update to dismiss the Live Activity
+    if (
+      env.APNS_AUTH_KEY &&
+      env.APNS_KEY_ID &&
+      env.APNS_TEAM_ID &&
+      env.APNS_BUNDLE_ID
+    ) {
+      const config: ApnsConfig = {
+        authKey: env.APNS_AUTH_KEY,
+        keyId: env.APNS_KEY_ID,
+        teamId: env.APNS_TEAM_ID,
+        bundleId: env.APNS_BUNDLE_ID,
+      };
+
+      await sendLiveActivityUpdate(
+        message.liveActivityPushToken,
+        {
+          status: "Taking longer than expected...",
+          progress: 0.95,
+          elapsedSeconds: Math.round(elapsed / 1000),
+        },
+        config,
+        { event: "end" },
+      );
+    }
+
+    // Clean up the session from storage
+    const codespaceStore = env.CODESPACE_STORE.get(
+      env.CODESPACE_STORE.idFromName("global"),
+    );
+    await codespaceStore.fetch(
+      `https://internal/live-activity-session/${message.username}`,
+      { method: "DELETE" },
+    );
+
+    return { requeue: false };
+  }
+
+  try {
+    // Poll GitHub API for codespace state
+    const response = await fetch(
+      `https://api.github.com/user/codespaces/${message.codespaceName}`,
+      {
+        headers: {
+          Authorization: `Bearer ${message.accessToken}`,
+          Accept: "application/vnd.github.v3+json",
+          "User-Agent": "Catnip-Worker/1.0",
+        },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+
+    if (!response.ok) {
+      console.warn(
+        `🏗️ Codespace API returned ${response.status} for ${message.codespaceName}`,
+      );
+      // Requeue on API error (may be transient)
+      return { requeue: true, delaySeconds: CREATION_POLL_INTERVAL_SECONDS };
+    }
+
+    const codespace = (await response.json()) as {
+      state: string;
+      name: string;
+    };
+
+    const currentState = codespace.state;
+    const stateChanged = currentState !== message.lastState;
+    const elapsedSeconds = Math.round(elapsed / 1000);
+
+    // Calculate progress based on state and elapsed time
+    let progress: number;
+    let status: string;
+
+    switch (currentState) {
+      case "Queued":
+        progress = 0.1;
+        status = "Queued for creation...";
+        break;
+      case "Provisioning":
+        progress = 0.25;
+        status = "Provisioning codespace...";
+        break;
+      case "Created":
+        progress = 0.4;
+        status = "Codespace created, building...";
+        break;
+      case "Starting":
+        progress = 0.7;
+        status = "Starting codespace...";
+        break;
+      case "Available":
+        progress = 1.0;
+        status = "Codespace ready!";
+        break;
+      case "Failed":
+      case "Deleted":
+        progress = 0;
+        status = `Creation ${currentState.toLowerCase()}`;
+        break;
+      default:
+        // For unknown states, estimate based on time
+        progress = Math.min(0.5 + (elapsedSeconds / 600) * 0.4, 0.9);
+        status = `Creating codespace (${currentState})...`;
+    }
+
+    // Check if we should send an update:
+    // - State changed (immediate update)
+    // - 30 seconds since last push (regular interval)
+    const timeSinceLastPush =
+      elapsed - message.pollCount * CREATION_POLL_INTERVAL_SECONDS * 1000;
+    const shouldPush =
+      stateChanged ||
+      timeSinceLastPush >= CREATION_POLL_INTERVAL_SECONDS * 1000;
+
+    if (
+      shouldPush &&
+      env.APNS_AUTH_KEY &&
+      env.APNS_KEY_ID &&
+      env.APNS_TEAM_ID &&
+      env.APNS_BUNDLE_ID
+    ) {
+      const config: ApnsConfig = {
+        authKey: env.APNS_AUTH_KEY,
+        keyId: env.APNS_KEY_ID,
+        teamId: env.APNS_TEAM_ID,
+        bundleId: env.APNS_BUNDLE_ID,
+      };
+
+      const isComplete = currentState === "Available";
+      const isFailed = currentState === "Failed" || currentState === "Deleted";
+
+      await sendLiveActivityUpdate(
+        message.liveActivityPushToken,
+        { status, progress, elapsedSeconds },
+        config,
+        isComplete || isFailed ? { event: "end" } : undefined,
+      );
+
+      console.log(
+        `🏗️ Pushed Live Activity update: ${currentState} (${Math.round(progress * 100)}%)`,
+      );
+
+      // Clean up session if complete
+      if (isComplete || isFailed) {
+        const codespaceStore = env.CODESPACE_STORE.get(
+          env.CODESPACE_STORE.idFromName("global"),
+        );
+        await codespaceStore.fetch(
+          `https://internal/live-activity-session/${message.username}`,
+          { method: "DELETE" },
+        );
+        return { requeue: false };
+      }
+    }
+
+    // Requeue for continued polling
+    return { requeue: true, delaySeconds: CREATION_POLL_INTERVAL_SECONDS };
+  } catch (error) {
+    console.error("Creation progress poll error:", error);
+    // Requeue on error
+    return { requeue: true, delaySeconds: CREATION_POLL_INTERVAL_SECONDS };
+  }
+}
+
+// Queue consumer handler for creation progress
+export async function handleCreationProgressQueue(
+  batch: MessageBatch<CreationProgressMessage>,
+  env: Env,
+): Promise<void> {
+  for (const msg of batch.messages) {
+    const result = await processCreationProgressPoll(env, msg.body);
+
+    if (result.requeue && env.CREATION_PROGRESS_QUEUE) {
+      // Requeue with updated poll count and last state
+      const updatedMessage: CreationProgressMessage = {
+        ...msg.body,
+        pollCount: msg.body.pollCount + 1,
+      };
+      await env.CREATION_PROGRESS_QUEUE.send(updatedMessage, {
+        delaySeconds: result.delaySeconds || CREATION_POLL_INTERVAL_SECONDS,
+      });
+    }
+
+    // Acknowledge the message
+    msg.ack();
+  }
 }
 
 // Factory function to create app with environment bindings
@@ -997,6 +1280,117 @@ export function createApp(env: Env) {
       userId: session.userId,
       username: session.username,
     });
+  });
+
+  // Live Activity session registration - called by iOS when starting Live Activity
+  app.post("/v1/live-activity/register", requireAuth, async (c) => {
+    const username = c.get("username");
+    const accessToken = c.get("accessToken");
+
+    const body = await c.req.json<{
+      pushToken: string;
+      codespaceName: string;
+      repositoryName: string;
+    }>();
+
+    const { pushToken, codespaceName, repositoryName } = body;
+
+    if (!pushToken || !codespaceName || !repositoryName) {
+      return c.json(
+        { error: "pushToken, codespaceName, and repositoryName are required" },
+        400,
+      );
+    }
+
+    console.log(
+      `🏗️ Live Activity registered for ${username}: ${codespaceName}`,
+    );
+
+    // Store the session in the Durable Object
+    const codespaceStore = c.env.CODESPACE_STORE.get(
+      c.env.CODESPACE_STORE.idFromName("global"),
+    );
+
+    await codespaceStore.fetch(
+      `https://internal/live-activity-session/${username}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pushToken, codespaceName, repositoryName }),
+      },
+    );
+
+    // Enqueue the first progress poll
+    if (c.env.CREATION_PROGRESS_QUEUE) {
+      const message: CreationProgressMessage = {
+        username,
+        codespaceName,
+        repositoryName,
+        accessToken,
+        liveActivityPushToken: pushToken,
+        startedAt: Date.now(),
+        pollCount: 0,
+      };
+
+      await c.env.CREATION_PROGRESS_QUEUE.send(message, {
+        delaySeconds: 5, // First poll after 5 seconds
+      });
+
+      console.log(`🏗️ Enqueued first progress poll for ${codespaceName}`);
+    }
+
+    return c.json({ success: true });
+  });
+
+  // Live Activity token refresh - called when iOS refreshes the push token
+  app.patch("/v1/live-activity/token", requireAuth, async (c) => {
+    const username = c.get("username");
+
+    const body = await c.req.json<{ pushToken: string }>();
+    const { pushToken } = body;
+
+    if (!pushToken) {
+      return c.json({ error: "pushToken is required" }, 400);
+    }
+
+    console.log(`🏗️ Live Activity token refreshed for ${username}`);
+
+    const codespaceStore = c.env.CODESPACE_STORE.get(
+      c.env.CODESPACE_STORE.idFromName("global"),
+    );
+
+    const response = await codespaceStore.fetch(
+      `https://internal/live-activity-session/${username}/token`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pushToken }),
+      },
+    );
+
+    if (!response.ok) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+
+    return c.json({ success: true });
+  });
+
+  // Live Activity cancellation - called when user cancels codespace creation
+  app.delete("/v1/live-activity", requireAuth, async (c) => {
+    const username = c.get("username");
+
+    console.log(`🏗️ Live Activity cancelled for ${username}`);
+
+    const codespaceStore = c.env.CODESPACE_STORE.get(
+      c.env.CODESPACE_STORE.idFromName("global"),
+    );
+
+    await codespaceStore.fetch(
+      `https://internal/live-activity-session/${username}`,
+      { method: "DELETE" },
+    );
+
+    return c.json({ success: true });
   });
 
   // Debug endpoint for GitHub token permissions
@@ -3479,6 +3873,18 @@ ${!existingContent ? "## Customization\nIf you need specific development tools, 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     return createApp(env).fetch(request, env, ctx);
+  },
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
+    // Route to appropriate handler based on queue name
+    const queueName = batch.queue;
+    if (queueName === "creation-progress-queue") {
+      await handleCreationProgressQueue(
+        batch as MessageBatch<CreationProgressMessage>,
+        env,
+      );
+    } else {
+      console.error(`Unknown queue: ${queueName}`);
+    }
   },
 } satisfies ExportedHandler<Env>;
 

@@ -385,6 +385,15 @@ class CatnipInstaller: ObservableObject {
         repository: String,
         startCodespace: Bool = false
     ) async throws -> InstallationResult {
+        // Request notification permission when user installs Catnip
+        // This is when they'll want to know when their codespace is ready
+        let granted = await NotificationManager.shared.requestPermission()
+        if granted {
+            await MainActor.run {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+
         await MainActor.run {
             error = nil
             currentStep = .fetchingRepoInfo
@@ -496,6 +505,15 @@ class CatnipInstaller: ObservableObject {
         repository: String,
         branch: String? = nil
     ) async throws -> CodespaceCreationResult.CodespaceInfo {
+        // Request notification permission when user creates a codespace
+        // This is when they'll want to know when their codespace is ready
+        let granted = await NotificationManager.shared.requestPermission()
+        if granted {
+            await MainActor.run {
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+
         await MainActor.run {
             error = nil
             currentStep = .creatingCodespace

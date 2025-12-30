@@ -72,4 +72,5 @@ xcode/build/
 xcode/fastlane/screenshots/
 xcode/fastlane/test_output/
 xcode/fastlane/report.xml
+xcode/fastlane/previews/
 xcode/Gemfile.lock
