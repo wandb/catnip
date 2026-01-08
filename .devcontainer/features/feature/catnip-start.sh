@@ -46,11 +46,13 @@ export CATNIP_LIVE_DIR=/workspaces
 # Check if catnip is already running
 if [[ -f "$OPT_DIR/catnip.pid" ]]; then
   PID=$(cat "$OPT_DIR/catnip.pid")
-  if kill -0 $PID 2>/dev/null; then
+  # Validate PID is running AND is actually catnip (not a recycled PID from another process)
+  # This prevents false "already running" on container resume when PIDs get reused
+  if kill -0 $PID 2>/dev/null && [[ -f "/proc/$PID/cmdline" ]] && grep -q "catnip" "/proc/$PID/cmdline" 2>/dev/null; then
     ok "catnip already running with PID $PID"
     exit 0
   else
-    warn "PID $PID from $OPT_DIR/catnip.pid no longer exists, removing stale PID file"
+    warn "PID $PID from $OPT_DIR/catnip.pid is stale or not catnip, removing PID file"
     sudo rm -f "$OPT_DIR/catnip.pid"
   fi
 fi
