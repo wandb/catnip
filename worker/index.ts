@@ -3480,6 +3480,12 @@ export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     return createApp(env).fetch(request, env, ctx);
   },
+  // TEMPORARY: Stub queue handler to allow deployment while queue binding exists
+  // Remove this after unbinding creation-progress-queue in Cloudflare dashboard
+  async queue(_batch: MessageBatch<unknown>, _env: Env) {
+    // No-op: queue functionality removed, this stub allows clean deployment
+    console.log("Queue handler stub called - queue binding should be removed");
+  },
 } satisfies ExportedHandler<Env>;
 
 // Export Durable Objects

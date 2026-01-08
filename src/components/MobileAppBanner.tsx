@@ -35,12 +35,12 @@ export function MobileAppBanner() {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <a
-            href="https://testflight.apple.com/join/3gSY17tf"
+            href="https://apps.apple.com/us/app/w-b-catnip/id6755161660"
             target="_blank"
             rel="noopener noreferrer"
             className="bg-white text-purple-600 px-3 py-1.5 rounded-md text-sm font-semibold hover:bg-gray-100 transition-colors"
           >
-            Install
+            Get on App Store
           </a>
           <button
             onClick={handleDismiss}
