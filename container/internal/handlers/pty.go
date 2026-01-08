@@ -2379,14 +2379,10 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 
 // getClaudeSessionLogModTime returns the modification time of the most recently modified Claude session log
 func (h *PTYHandler) getClaudeSessionLogModTime(workDir string) time.Time {
-	homeDir := config.Runtime.HomeDir
-
-	// Transform workDir path to Claude projects directory format
-	transformedPath := strings.ReplaceAll(workDir, "/", "-")
-	transformedPath = strings.TrimPrefix(transformedPath, "-")
-	transformedPath = "-" + transformedPath // Add back the leading dash
-
-	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+	claudeProjectsDir, err := paths.GetProjectDir(workDir)
+	if err != nil {
+		return time.Time{}
+	}
 
 	// Check if .claude/projects directory exists
 	if _, err := os.Stat(claudeProjectsDir); os.IsNotExist(err) {
@@ -2409,7 +2405,7 @@ func (h *PTYHandler) getClaudeSessionLogModTime(workDir string) time.Time {
 		sessionID := strings.TrimSuffix(file.Name(), ".jsonl")
 
 		// Validate that it looks like a UUID
-		if len(sessionID) != 36 || strings.Count(sessionID, "-") != 4 {
+		if !paths.IsValidSessionUUID(sessionID) {
 			continue
 		}
 
