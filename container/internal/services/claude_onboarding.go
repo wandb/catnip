@@ -477,7 +477,9 @@ func (s *ClaudeOnboardingService) detectState(output string) OnboardingState {
 	}
 
 	// SECURITY_NOTES: Security information screen (check after BYPASS_PERMISSIONS)
-	if containsPattern(cleanOutput, []string{"Security notes:", "security information", "important security"}) {
+	// Patterns include: header text, and content text which may appear without the header
+	// depending on terminal size and buffer state
+	if containsPattern(cleanOutput, []string{"Security notes:", "security information", "important security", "prompt injection risks"}) {
 		return StateSecurityNotes
 	}
 
