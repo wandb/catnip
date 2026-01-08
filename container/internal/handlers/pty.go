@@ -2702,10 +2702,10 @@ func (h *PTYHandler) detectClaudeErrorsFromJSONL(session *Session) []string {
 	}
 
 	// Construct path to Claude JSONL files
-	homeDir := config.Runtime.HomeDir
-	transformedPath := strings.ReplaceAll(session.WorkDir, "/", "-")
-	transformedPath = strings.TrimPrefix(transformedPath, "-")
-	projectsDir := filepath.Join(homeDir, ".claude", "projects", "-"+transformedPath)
+	projectsDir, err := paths.GetProjectDir(session.WorkDir)
+	if err != nil {
+		return nil
+	}
 
 	// Find the most recent JSONL file
 	entries, err := os.ReadDir(projectsDir)
