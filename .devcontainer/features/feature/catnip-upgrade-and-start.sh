@@ -104,13 +104,15 @@ else
   warn "catnip command not found in PATH, skipping upgrade"
 fi
 
-# 3. Start service (ALWAYS runs - this is the critical step)
-log "Step 3: Starting catnip service..."
-if service catnip start 2>&1 | while read -r line; do log "  $line"; done; then
-  ok "service catnip start completed"
+# 3. Restart service (ALWAYS runs - this is the critical step)
+# Use restart instead of start to ensure catnip picks up fresh environment from /etc/default/catnip
+# This handles the case where the container was paused/resumed with catnip still running but stale env
+log "Step 3: Restarting catnip service..."
+if service catnip restart 2>&1 | while read -r line; do log "  $line"; done; then
+  ok "service catnip restart completed"
 else
   EXIT_CODE=$?
-  warn "service catnip start returned exit code $EXIT_CODE"
+  warn "service catnip restart returned exit code $EXIT_CODE"
 fi
 
 # Final status check
