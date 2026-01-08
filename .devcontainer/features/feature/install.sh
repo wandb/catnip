@@ -205,11 +205,35 @@ if [[ -z "${DISABLE_SSHD}" ]]; then
   fi
 fi
 
-# Start catnip service if init script exists
-# This ensures catnip starts on both fresh builds and codespace resumes
+# Start catnip service via background watcher
+# We wait for /etc/default/catnip to have fresh environment data before starting,
+# since GITHUB_TOKEN and other env vars aren't available until after the entrypoint.
+# postStartCommand updates /etc/default/catnip with the correct environment.
 if [[ -x /etc/init.d/catnip ]]; then
-  echo "[catnip] starting catnip service from entrypoint"
-  sudo /etc/init.d/catnip start || true
+  (
+    MAX_WAIT=30
+    WAITED=0
+    ENV_FILE="/etc/default/catnip"
+
+    echo "[catnip] waiting for fresh environment in \$ENV_FILE (max \${MAX_WAIT}s)..."
+
+    while [[ \$WAITED -lt \$MAX_WAIT ]]; do
+      # Check if env file was modified in the last 60 seconds (fresh from postStartCommand)
+      if [[ -f "\$ENV_FILE" ]]; then
+        FILE_AGE=\$(( \$(date +%s) - \$(stat -c %Y "\$ENV_FILE" 2>/dev/null || stat -f %m "\$ENV_FILE" 2>/dev/null || echo 0) ))
+        if [[ \$FILE_AGE -lt 60 ]] && grep -q "GITHUB_TOKEN" "\$ENV_FILE" 2>/dev/null; then
+          echo "[catnip] fresh environment detected (age: \${FILE_AGE}s), starting service"
+          sudo /etc/init.d/catnip start || true
+          exit 0
+        fi
+      fi
+      sleep 2
+      WAITED=\$((WAITED + 2))
+    done
+
+    echo "[catnip] timeout waiting for fresh env, starting service anyway"
+    sudo /etc/init.d/catnip start || true
+  ) &
 fi
 
 set +e

@@ -73,5 +73,7 @@ else
 fi
 
 # 3. Start service (always runs regardless of upgrade outcome)
+# The entrypoint's background watcher waits for this script to update /etc/default/catnip
+# before starting, so catnip will start with the correct environment.
 log "Starting catnip service..."
 service catnip start
