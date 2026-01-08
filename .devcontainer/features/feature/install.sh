@@ -189,7 +189,7 @@ install_catnip() {
   ensure_owner "$OPT_DIR/bin/catnip-upgrade-and-start.sh" "$USERNAME" "$USERGROUP"
   ensure_owner "$OPT_DIR/bin/catnip-vsix.sh" "$USERNAME" "$USERGROUP"
 
-  # 2) Root-owned init that just handles sshd startup
+  # 2) Root-owned init that handles sshd and catnip startup
   tee /usr/local/share/catnip-init.sh >/dev/null <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -203,6 +203,13 @@ if [[ -z "${DISABLE_SSHD}" ]]; then
   else
     sudo service ssh start >> $OPT_DIR/sshd.log 2>&1 || true
   fi
+fi
+
+# Start catnip service if init script exists
+# This ensures catnip starts on both fresh builds and codespace resumes
+if [[ -x /etc/init.d/catnip ]]; then
+  echo "[catnip] starting catnip service from entrypoint"
+  sudo /etc/init.d/catnip start || true
 fi
 
 set +e
