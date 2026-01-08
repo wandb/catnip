@@ -2347,7 +2347,13 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	startTime := time.Now()
 	timeout := getClaudeSessionTimeout()
 
-	claudeProjectsDir := filepath.Join(session.WorkDir, ".claude", "projects")
+	// Transform workDir path to Claude projects directory format
+	// Claude stores sessions in ~/.claude/projects/-worktrees-catnip-rocky (path with slashes replaced by dashes)
+	homeDir := config.Runtime.HomeDir
+	transformedPath := strings.ReplaceAll(session.WorkDir, "/", "-")
+	transformedPath = strings.TrimPrefix(transformedPath, "-")
+	transformedPath = "-" + transformedPath // Add back the leading dash
+	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
 
 	for range ticker.C {
 		if time.Since(startTime) > timeout {
