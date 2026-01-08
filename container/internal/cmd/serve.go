@@ -263,6 +263,7 @@ func startServer(cmd *cobra.Command) {
 	v1.Get("/pty", ptyHandler.HandleWebSocket)
 	v1.Post("/pty/start", ptyHandler.HandlePTYStart)
 	v1.Post("/pty/prompt", ptyHandler.HandlePTYPrompt)
+	v1.Get("/pty/status", ptyHandler.HandlePTYStatus)
 
 	// Auth routes
 	v1.Post("/auth/github/start", authHandler.StartGitHubAuth)

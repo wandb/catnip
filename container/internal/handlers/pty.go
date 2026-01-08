@@ -458,9 +458,22 @@ func (h *PTYHandler) HandlePTYStart(c *fiber.Ctx) error {
 	}
 
 	logger.Infof("✅ PTY session started successfully: %s", compositeSessionID)
+
+	// Get readiness state
+	session.readyMutex.RLock()
+	isReady := session.IsReady
+	var readyAt *time.Time
+	if isReady {
+		t := session.readyAt
+		readyAt = &t
+	}
+	session.readyMutex.RUnlock()
+
 	return c.JSON(fiber.Map{
 		"status":     "started",
 		"session_id": compositeSessionID,
+		"is_ready":   isReady,
+		"ready_at":   readyAt,
 	})
 }
 
@@ -573,6 +586,84 @@ func (h *PTYHandler) HandlePTYPrompt(c *fiber.Ctx) error {
 		"status":        "sent",
 		"prompt_length": len(prompt),
 		"session":       compositeSessionID,
+	})
+}
+
+// HandlePTYStatus returns the status of a PTY session including readiness
+// @Summary Get PTY session status
+// @Description Returns status of PTY session including whether it's ready for input
+// @Tags pty
+// @Param session query string true "Session ID (workspace name)"
+// @Param agent query string false "Agent type (claude, bash, etc)"
+// @Success 200 {object} map[string]interface{} "Session status"
+// @Failure 400 {object} map[string]interface{} "Invalid parameters"
+// @Failure 404 {object} map[string]interface{} "Session not found"
+// @Router /v1/pty/status [get]
+func (h *PTYHandler) HandlePTYStatus(c *fiber.Ctx) error {
+	// Extract session ID and agent from query parameters
+	defaultSession := os.Getenv("CATNIP_SESSION")
+	if defaultSession == "" {
+		defaultSession = "default"
+	}
+	sessionID := c.Query("session", defaultSession)
+	agent := c.Query("agent", "")
+
+	if sessionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "session parameter is required",
+		})
+	}
+
+	// Create composite session key: path + agent
+	compositeSessionID := sessionID
+	if agent != "" {
+		compositeSessionID = fmt.Sprintf("%s:%s", sessionID, agent)
+	}
+
+	// Get session from sessions map
+	h.sessionMutex.RLock()
+	session, exists := h.sessions[compositeSessionID]
+	h.sessionMutex.RUnlock()
+
+	if !exists || session == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error":   "Session not found",
+			"session": compositeSessionID,
+		})
+	}
+
+	// Get readiness state
+	session.readyMutex.RLock()
+	isReady := session.IsReady
+	var readyAt *time.Time
+	if isReady {
+		t := session.readyAt
+		readyAt = &t
+	}
+	session.readyMutex.RUnlock()
+
+	// Get connection count
+	session.connMutex.RLock()
+	connectionCount := len(session.connections)
+	session.connMutex.RUnlock()
+
+	// Calculate time since creation and last access
+	now := time.Now()
+	uptime := now.Sub(session.CreatedAt)
+	idleTime := now.Sub(session.LastAccess)
+
+	return c.JSON(fiber.Map{
+		"session_id":        compositeSessionID,
+		"agent":             session.Agent,
+		"is_ready":          isReady,
+		"ready_at":          readyAt,
+		"created_at":        session.CreatedAt,
+		"last_access":       session.LastAccess,
+		"uptime_seconds":    uptime.Seconds(),
+		"idle_seconds":      idleTime.Seconds(),
+		"connection_count":  connectionCount,
+		"claude_session_id": session.ClaudeSessionID,
+		"title":             session.Title,
 	})
 }
 
