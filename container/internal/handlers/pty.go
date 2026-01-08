@@ -2347,13 +2347,11 @@ func (h *PTYHandler) monitorClaudeSession(session *Session) {
 	startTime := time.Now()
 	timeout := getClaudeSessionTimeout()
 
-	// Transform workDir path to Claude projects directory format
-	// Claude stores sessions in ~/.claude/projects/-worktrees-catnip-rocky (path with slashes replaced by dashes)
-	homeDir := config.Runtime.HomeDir
-	transformedPath := strings.ReplaceAll(session.WorkDir, "/", "-")
-	transformedPath = strings.TrimPrefix(transformedPath, "-")
-	transformedPath = "-" + transformedPath // Add back the leading dash
-	claudeProjectsDir := filepath.Join(homeDir, ".claude", "projects", transformedPath)
+	claudeProjectsDir, err := paths.GetProjectDir(session.WorkDir)
+	if err != nil {
+		logger.Errorf("❌ Failed to get Claude projects directory for %s: %v", session.WorkDir, err)
+		return
+	}
 
 	for range ticker.C {
 		if time.Since(startTime) > timeout {
