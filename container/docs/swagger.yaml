@@ -2391,6 +2391,39 @@ paths:
       summary: Start PTY session
       tags:
       - pty
+  /v1/pty/status:
+    get:
+      description: Returns status of PTY session including whether it's ready for
+        input
+      parameters:
+      - description: Session ID (workspace name)
+        in: query
+        name: session
+        required: true
+        type: string
+      - description: Agent type (claude, bash, etc)
+        in: query
+        name: agent
+        type: string
+      responses:
+        "200":
+          description: Session status
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid parameters
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Session not found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get PTY session status
+      tags:
+      - pty
   /v1/sessions:
     get:
       description: Returns all sessions including ended ones

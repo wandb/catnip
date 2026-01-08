@@ -1659,6 +1659,53 @@
                 }
             }
         },
+        "/v1/pty/status": {
+            "get": {
+                "description": "Returns status of PTY session including whether it's ready for input",
+                "tags": [
+                    "pty"
+                ],
+                "summary": "Get PTY session status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Session ID (workspace name)",
+                        "name": "session",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Agent type (claude, bash, etc)",
+                        "name": "agent",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Session status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Session not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/v1/sessions": {
             "get": {
                 "description": "Returns all sessions including ended ones",
