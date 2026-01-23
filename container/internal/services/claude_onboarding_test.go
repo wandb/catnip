@@ -525,3 +525,60 @@ func TestContainsPattern(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractOAuthURL tests OAuth URL extraction and redirect_uri handling
+func TestExtractOAuthURL(t *testing.T) {
+	tests := []struct {
+		name                string
+		output              string
+		expectedURL         string
+		shouldContainRedirect bool
+	}{
+		{
+			name:                  "URL without redirect_uri",
+			output:                "Visit: https://claude.ai/oauth/authorize?client_id=test123&state=abc456",
+			expectedURL:           "https://claude.ai/oauth/authorize?client_id=test123&state=abc456&redirect_uri=urn:ietf:wg:oauth:2.0:oob",
+			shouldContainRedirect: true,
+		},
+		{
+			name:                  "URL with existing redirect_uri",
+			output:                "Visit: https://claude.ai/oauth/authorize?client_id=test123&redirect_uri=http://localhost:8080&state=abc456",
+			expectedURL:           "https://claude.ai/oauth/authorize?client_id=test123&redirect_uri=http://localhost:8080&state=abc456",
+			shouldContainRedirect: true,
+		},
+		{
+			name:                  "URL with response_type and scope",
+			output:                "Visit: https://claude.ai/oauth/authorize?client_id=cli&response_type=code&scope=openid",
+			expectedURL:           "https://claude.ai/oauth/authorize?client_id=cli&response_type=code&scope=openid&redirect_uri=urn:ietf:wg:oauth:2.0:oob",
+			shouldContainRedirect: true,
+		},
+		{
+			name:                  "no OAuth URL in output",
+			output:                "Some random text without OAuth URL",
+			expectedURL:           "",
+			shouldContainRedirect: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewClaudeOnboardingService(nil)
+			service.extractOAuthURL(tt.output)
+			
+			if tt.expectedURL == "" {
+				if service.oauthURL != "" {
+					t.Errorf("Expected no OAuth URL, but got: %s", service.oauthURL)
+				}
+				return
+			}
+
+			if service.oauthURL != tt.expectedURL {
+				t.Errorf("extractOAuthURL() = %q, want %q", service.oauthURL, tt.expectedURL)
+			}
+
+			if tt.shouldContainRedirect && !strings.Contains(service.oauthURL, "redirect_uri=") {
+				t.Errorf("OAuth URL missing redirect_uri parameter: %s", service.oauthURL)
+			}
+		})
+	}
+}

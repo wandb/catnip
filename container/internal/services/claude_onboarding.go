@@ -542,13 +542,30 @@ func (s *ClaudeOnboardingService) detectState(output string) OnboardingState {
 	return s.currentState
 }
 
-// extractOAuthURL extracts the OAuth URL from the output
+// extractOAuthURL extracts the OAuth URL from the output and ensures it has a redirect_uri
 func (s *ClaudeOnboardingService) extractOAuthURL(output string) {
 	// Look for pattern: https://claude.ai/oauth/authorize?...
 	re := regexp.MustCompile(`(https://claude\.ai/oauth/authorize\?[^\s]+)`)
 	matches := re.FindStringSubmatch(output)
 	if len(matches) > 1 {
-		s.oauthURL = matches[1]
+		rawURL := matches[1]
+		
+		// Parse the URL to check and potentially add redirect_uri parameter
+		// This is needed for mobile clients where the OAuth URL must have a redirect_uri
+		if !strings.Contains(rawURL, "redirect_uri=") {
+			// Add the standard out-of-band redirect_uri for manual code entry flows
+			// urn:ietf:wg:oauth:2.0:oob is the standard for OAuth flows where users manually copy codes
+			separator := "&"
+			if !strings.Contains(rawURL, "?") {
+				separator = "?"
+			} else if strings.HasSuffix(rawURL, "?") {
+				separator = ""
+			}
+			rawURL = rawURL + separator + "redirect_uri=urn:ietf:wg:oauth:2.0:oob"
+			logger.Infof("🔗 Added redirect_uri to OAuth URL")
+		}
+		
+		s.oauthURL = rawURL
 		logger.Infof("🔗 Extracted OAuth URL: %s", s.oauthURL)
 	}
 }
