@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -531,32 +532,32 @@ func TestExtractOAuthURL(t *testing.T) {
 	tests := []struct {
 		name                  string
 		output                string
-		expectedURL           string
-		shouldContainRedirect bool
+		shouldHaveRedirectUri bool
+		expectedRedirectUri   string
 	}{
 		{
 			name:                  "URL without redirect_uri",
 			output:                "Visit: https://claude.ai/oauth/authorize?client_id=test123&state=abc456",
-			expectedURL:           "https://claude.ai/oauth/authorize?client_id=test123&state=abc456&redirect_uri=urn:ietf:wg:oauth:2.0:oob",
-			shouldContainRedirect: true,
+			shouldHaveRedirectUri: true,
+			expectedRedirectUri:   "urn:ietf:wg:oauth:2.0:oob",
 		},
 		{
 			name:                  "URL with existing redirect_uri",
 			output:                "Visit: https://claude.ai/oauth/authorize?client_id=test123&redirect_uri=http://localhost:8080&state=abc456",
-			expectedURL:           "https://claude.ai/oauth/authorize?client_id=test123&redirect_uri=http://localhost:8080&state=abc456",
-			shouldContainRedirect: true,
+			shouldHaveRedirectUri: true,
+			expectedRedirectUri:   "http://localhost:8080",
 		},
 		{
 			name:                  "URL with response_type and scope",
 			output:                "Visit: https://claude.ai/oauth/authorize?client_id=cli&response_type=code&scope=openid",
-			expectedURL:           "https://claude.ai/oauth/authorize?client_id=cli&response_type=code&scope=openid&redirect_uri=urn:ietf:wg:oauth:2.0:oob",
-			shouldContainRedirect: true,
+			shouldHaveRedirectUri: true,
+			expectedRedirectUri:   "urn:ietf:wg:oauth:2.0:oob",
 		},
 		{
 			name:                  "no OAuth URL in output",
 			output:                "Some random text without OAuth URL",
-			expectedURL:           "",
-			shouldContainRedirect: false,
+			shouldHaveRedirectUri: false,
+			expectedRedirectUri:   "",
 		},
 	}
 
@@ -565,19 +566,34 @@ func TestExtractOAuthURL(t *testing.T) {
 			service := NewClaudeOnboardingService(nil)
 			service.extractOAuthURL(tt.output)
 
-			if tt.expectedURL == "" {
+			if !tt.shouldHaveRedirectUri {
 				if service.oauthURL != "" {
 					t.Errorf("Expected no OAuth URL, but got: %s", service.oauthURL)
 				}
 				return
 			}
 
-			if service.oauthURL != tt.expectedURL {
-				t.Errorf("extractOAuthURL() = %q, want %q", service.oauthURL, tt.expectedURL)
+			// Parse the resulting URL to check parameters
+			parsedURL, err := url.Parse(service.oauthURL)
+			if err != nil {
+				t.Errorf("Failed to parse OAuth URL: %v", err)
+				return
 			}
 
-			if tt.shouldContainRedirect && !strings.Contains(service.oauthURL, "redirect_uri=") {
+			// Check that redirect_uri parameter exists
+			redirectUri := parsedURL.Query().Get("redirect_uri")
+			if redirectUri == "" {
 				t.Errorf("OAuth URL missing redirect_uri parameter: %s", service.oauthURL)
+			}
+
+			// Check that redirect_uri has the expected value
+			if redirectUri != tt.expectedRedirectUri {
+				t.Errorf("redirect_uri = %q, want %q", redirectUri, tt.expectedRedirectUri)
+			}
+
+			// Check that the URL starts with the correct base
+			if !strings.HasPrefix(service.oauthURL, "https://claude.ai/oauth/authorize?") {
+				t.Errorf("OAuth URL doesn't start with expected base: %s", service.oauthURL)
 			}
 		})
 	}

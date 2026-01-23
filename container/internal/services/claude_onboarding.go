@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
@@ -550,18 +551,22 @@ func (s *ClaudeOnboardingService) extractOAuthURL(output string) {
 	if len(matches) > 1 {
 		rawURL := matches[1]
 
-		// Parse the URL to check and potentially add redirect_uri parameter
+		// Parse the URL to properly check for redirect_uri parameter
 		// This is needed for mobile clients where the OAuth URL must have a redirect_uri
-		if !strings.Contains(rawURL, "redirect_uri=") {
+		parsedURL, err := url.Parse(rawURL)
+		if err != nil {
+			logger.Errorf("Failed to parse OAuth URL: %v", err)
+			return
+		}
+
+		// Check if redirect_uri query parameter exists
+		queryParams := parsedURL.Query()
+		if queryParams.Get("redirect_uri") == "" {
 			// Add the standard out-of-band redirect_uri for manual code entry flows
 			// urn:ietf:wg:oauth:2.0:oob is the standard for OAuth flows where users manually copy codes
-			separator := "&"
-			if !strings.Contains(rawURL, "?") {
-				separator = "?"
-			} else if strings.HasSuffix(rawURL, "?") {
-				separator = ""
-			}
-			rawURL = rawURL + separator + "redirect_uri=urn:ietf:wg:oauth:2.0:oob"
+			queryParams.Set("redirect_uri", "urn:ietf:wg:oauth:2.0:oob")
+			parsedURL.RawQuery = queryParams.Encode()
+			rawURL = parsedURL.String()
 			logger.Infof("🔗 Added redirect_uri to OAuth URL")
 		}
 
