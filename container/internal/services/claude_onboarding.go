@@ -549,7 +549,7 @@ func (s *ClaudeOnboardingService) extractOAuthURL(output string) {
 	matches := re.FindStringSubmatch(output)
 	if len(matches) > 1 {
 		rawURL := matches[1]
-		
+
 		// Parse the URL to check and potentially add redirect_uri parameter
 		// This is needed for mobile clients where the OAuth URL must have a redirect_uri
 		if !strings.Contains(rawURL, "redirect_uri=") {
@@ -564,7 +564,7 @@ func (s *ClaudeOnboardingService) extractOAuthURL(output string) {
 			rawURL = rawURL + separator + "redirect_uri=urn:ietf:wg:oauth:2.0:oob"
 			logger.Infof("🔗 Added redirect_uri to OAuth URL")
 		}
-		
+
 		s.oauthURL = rawURL
 		logger.Infof("🔗 Extracted OAuth URL: %s", s.oauthURL)
 	}

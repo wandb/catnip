@@ -529,9 +529,9 @@ func TestContainsPattern(t *testing.T) {
 // TestExtractOAuthURL tests OAuth URL extraction and redirect_uri handling
 func TestExtractOAuthURL(t *testing.T) {
 	tests := []struct {
-		name                string
-		output              string
-		expectedURL         string
+		name                  string
+		output                string
+		expectedURL           string
 		shouldContainRedirect bool
 	}{
 		{
@@ -564,7 +564,7 @@ func TestExtractOAuthURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service := NewClaudeOnboardingService(nil)
 			service.extractOAuthURL(tt.output)
-			
+
 			if tt.expectedURL == "" {
 				if service.oauthURL != "" {
 					t.Errorf("Expected no OAuth URL, but got: %s", service.oauthURL)
