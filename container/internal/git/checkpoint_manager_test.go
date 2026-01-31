@@ -97,6 +97,37 @@ func TestGetCheckpointTimeout(t *testing.T) {
 	assert.Equal(t, DefaultCheckpointTimeoutSeconds*time.Second, timeout)
 }
 
+func TestIsCheckpointEnabled(t *testing.T) {
+	// Test disabled by default
+	_ = os.Unsetenv("CATNIP_ENABLE_CHECKPOINTS")
+	enabled := IsCheckpointEnabled()
+	assert.False(t, enabled)
+
+	// Test enabled with "true"
+	_ = os.Setenv("CATNIP_ENABLE_CHECKPOINTS", "true")
+	defer func() { _ = os.Unsetenv("CATNIP_ENABLE_CHECKPOINTS") }()
+	enabled = IsCheckpointEnabled()
+	assert.True(t, enabled)
+
+	// Test enabled with "1"
+	_ = os.Setenv("CATNIP_ENABLE_CHECKPOINTS", "1")
+	enabled = IsCheckpointEnabled()
+	assert.True(t, enabled)
+
+	// Test disabled with other values
+	_ = os.Setenv("CATNIP_ENABLE_CHECKPOINTS", "false")
+	enabled = IsCheckpointEnabled()
+	assert.False(t, enabled)
+
+	_ = os.Setenv("CATNIP_ENABLE_CHECKPOINTS", "0")
+	enabled = IsCheckpointEnabled()
+	assert.False(t, enabled)
+
+	_ = os.Setenv("CATNIP_ENABLE_CHECKPOINTS", "yes")
+	enabled = IsCheckpointEnabled()
+	assert.False(t, enabled)
+}
+
 func TestShouldCreateCheckpoint(t *testing.T) {
 	cm := &SessionCheckpointManager{
 		lastCommitTime: time.Now(),
