@@ -720,6 +720,11 @@ func (m *WorktreeCheckpointManager) HandleTitleChange(newTitle string) {
 
 // startCheckpointTimer starts or restarts the checkpoint timer
 func (m *WorktreeCheckpointManager) startCheckpointTimer() {
+	// Check if checkpoints are enabled via environment variable
+	if !git.IsCheckpointEnabled() {
+		return
+	}
+
 	timeout := git.GetCheckpointTimeout()
 	// Start timer silently
 	m.checkpointTimer = time.AfterFunc(timeout, func() {
