@@ -1,6 +1,7 @@
 // Mobile OAuth relay endpoints
 import { Context } from "hono";
 import { setCookie, getCookie } from "hono/cookie";
+import { validateRedirectUri } from "./oauth-utils";
 
 interface MobileSessionData {
   sessionId: string;
@@ -29,6 +30,12 @@ export function generateMobileToken(): string {
  */
 export async function initiateMobileOAuth(c: Context) {
   const redirectUri = c.req.query("redirect_uri") || "catnip://auth";
+
+  // Validate redirect URI against allowlist to prevent open redirect
+  if (!validateRedirectUri(redirectUri)) {
+    return c.json({ error: "Invalid redirect_uri" }, 400);
+  }
+
   const state = c.req.query("state") || crypto.randomUUID();
 
   // Store the mobile OAuth state in a temporary cookie
